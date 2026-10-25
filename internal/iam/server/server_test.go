@@ -27,7 +27,13 @@ func newServer(t *testing.T, check health.CheckFunc) *httptest.Server {
 	return srv
 }
 
-func get(t *testing.T, url string, hdr map[string]string) *http.Response {
+type response struct {
+	StatusCode int
+	Header     http.Header
+	Body       []byte
+}
+
+func get(t *testing.T, url string, hdr map[string]string) response {
 	req, _ := http.NewRequest(http.MethodGet, url, nil)
 	for k, v := range hdr {
 		req.Header.Set(k, v)
@@ -36,8 +42,12 @@ func get(t *testing.T, url string, hdr map[string]string) *http.Response {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { resp.Body.Close() })
-	return resp
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return response{StatusCode: resp.StatusCode, Header: resp.Header, Body: b}
 }
 
 func TestHealthAndReadiness(t *testing.T) {
@@ -56,8 +66,7 @@ func TestReadinessFailsWithoutLeakingErrors(t *testing.T) {
 	if r.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("readyz %d", r.StatusCode)
 	}
-	b, _ := io.ReadAll(r.Body)
-	if strings.Contains(string(b), "password") || strings.Contains(string(b), "app_rw") {
+	if b := string(r.Body); strings.Contains(b, "password") || strings.Contains(b, "app_rw") {
 		t.Fatalf("readiness leaked error detail: %s", b)
 	}
 	// Liveness must stay up during a dependency outage.
@@ -78,7 +87,7 @@ func TestSecurityHeadersAndRequestID(t *testing.T) {
 		t.Fatalf("request id not propagated")
 	}
 	var v map[string]any
-	_ = json.NewDecoder(r.Body).Decode(&v)
+	_ = json.Unmarshal(r.Body, &v)
 	if v["service"] != "iam" || v["profile"] != "fedramp-moderate" {
 		t.Fatalf("version body %v", v)
 	}

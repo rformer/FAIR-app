@@ -5,6 +5,7 @@ package server
 import (
 	"crypto/fips140"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -117,7 +118,7 @@ func recoverer(log *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if v := recover(); v != nil {
-				if v == http.ErrAbortHandler {
+				if err, ok := v.(error); ok && errors.Is(err, http.ErrAbortHandler) {
 					panic(v)
 				}
 				log.Error("panic", "value", v, "request_id", r.Header.Get("X-Request-ID"))

@@ -38,7 +38,7 @@ func env(key, def string) string {
 func envFile(key string) (string, error) {
 	// FOO_FILE lets a Secret be mounted as a file instead of an env var.
 	if path := os.Getenv(key + "_FILE"); path != "" {
-		b, err := os.ReadFile(path)
+		b, err := os.ReadFile(path) //nolint:gosec // G304: path is operator deployment config (a mounted Secret), never request input
 		if err != nil {
 			return "", fmt.Errorf("config: read %s_FILE: %w", key, err)
 		}
