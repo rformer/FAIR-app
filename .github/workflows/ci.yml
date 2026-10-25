@@ -1,0 +1,134 @@
+# F-001 T-00c: minimal CI. Extended by F-012 (full platform pipeline).
+# Least privilege: read-only by default; publishing jobs request only what they need.
+# TODO(F-012): pin every action to a full commit SHA (Dependabot updates them).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOFIPS140: v1.0.0
+  CGO_ENABLED: "0"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci-only-admin
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - name: go vet
+        run: go vet ./...
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      - name: Unit tests (FIPS module, race detector)
+        env:
+          CGO_ENABLED: "1"
+        run: go test -race -count=1 -coverprofile=coverage.out ./...
+      - name: Database role tests
+        env:
+          FAIR_TEST_PG: "1"
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: ci-only-admin
+        run: go test -count=1 -v ./db/tests/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+  image:
+    needs: [test, lint]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # push to GHCR (main only)
+      id-token: write   # keyless cosign signing (main only)
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/fair-iam
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Set image tag
+        run: echo "TAG=${GITHUB_SHA::12}" >> "$GITHUB_ENV"
+      - name: Build
+        run: docker build --load --build-arg VERSION="$TAG" -t "$IMAGE:$TAG" .
+      - name: Verify non-root, read-only root filesystem, FIPS on
+        run: |
+          docker run -d --name iam --read-only --cap-drop ALL --security-opt no-new-privileges \
+            -e FAIR_ENV=development -e FAIR_ALLOW_PLAINTEXT=true -e FAIR_LISTEN_ADDR=:8080 \
+            -p 8080:8080 "$IMAGE:$TAG"
+          for i in $(seq 1 20); do curl -fsS localhost:8080/healthz && break; sleep 1; done
+          test "$(docker inspect -f '{{.Config.User}}' iam)" = "65532:65532"
+          docker logs iam | grep -q '"fips140":"true"'
+          docker rm -f iam
+      - name: Verify production refuses to start without TLS
+        run: |
+          if docker run --rm "$IMAGE:$TAG"; then echo "started without TLS"; exit 1; fi
+      - name: SBOM (SPDX)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.IMAGE }}:${{ env.TAG }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+      - name: Vulnerability scan (fail on HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.IMAGE }}:${{ env.TAG }}
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.spdx.json
+      - name: Push (main only)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker push "$IMAGE:$TAG"
+      - uses: sigstore/cosign-installer@v3
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      - name: Cosign keyless sign + SBOM attestation (main only)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:$TAG")"
+          cosign sign --yes "$digest"
+          cosign attest --yes --type spdxjson --predicate sbom.spdx.json "$digest"

@@ -1,0 +1,7 @@
+.git
+bin
+specs
+deploy
+db/tests
+**/*_test.go
+coverage.out

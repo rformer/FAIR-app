@@ -1,0 +1,17 @@
+version: "2"
+linters:
+  enable:
+    - gosec
+    - errorlint
+    - bodyclose
+    - noctx
+    - misspell
+    - unconvert
+    - revive
+  settings:
+    gosec:
+      excludes:
+        - G204 # tests and scripts invoke psql with controlled arguments
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

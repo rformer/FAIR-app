@@ -1,0 +1,100 @@
+# Reference manifest for the iam service (F-001 Phase 0). The supported install
+# path is the Helm/Zarf bundle from F-014; this file documents the hardening
+# every chart must preserve and is what the F-015 deployment scanner checks.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fair-platform
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: iam
+  namespace: fair-platform
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iam
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: iam, app.kubernetes.io/part-of: fair-platform }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app.kubernetes.io/name: iam }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: iam, app.kubernetes.io/part-of: fair-platform }
+    spec:
+      serviceAccountName: iam
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: iam
+          image: ghcr.io/rformer/fair-iam:REPLACE_WITH_DIGEST
+          ports: [{ name: https, containerPort: 8443 }]
+          env:
+            - { name: FAIR_ENV, value: production }
+            - { name: FAIR_TLS_CERT_FILE, value: /tls/tls.crt }
+            - { name: FAIR_TLS_KEY_FILE, value: /tls/tls.key }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          livenessProbe:
+            httpGet: { path: /healthz, port: https, scheme: HTTPS }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /readyz, port: https, scheme: HTTPS }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          volumeMounts:
+            - { name: tls, mountPath: /tls, readOnly: true }
+      volumes:
+        - name: tls
+          secret: { secretName: iam-tls }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iam
+  namespace: fair-platform
+spec:
+  selector: { app.kubernetes.io/name: iam }
+  ports: [{ name: https, port: 443, targetPort: https }]
+---
+# Default deny for the namespace; services opt in to specific flows.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: fair-platform
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: iam-ingress-from-gateway
+  namespace: fair-platform
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: iam }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: gateway }
+      ports: [{ port: 8443, protocol: TCP }]
