@@ -26,7 +26,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
 FROM gcr.io/distroless/static-debian12:nonroot
 LABEL org.opencontainers.image.title="fair-iam" \
       org.opencontainers.image.description="FAIR Risk Platform identity, BU hierarchy and RBAC service" \
-      org.opencontainers.image.source="https://github.com/Rformer/FAIR-app"
+      org.opencontainers.image.source="https://github.com/rformer/fair-app"
 COPY --from=build /out/iam /iam
 USER 65532:65532
 EXPOSE 8080

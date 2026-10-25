@@ -2,3 +2,6 @@ bin/
 dist/
 coverage.out
 *.test
+tools/dev-setup/install-log.txt
+tools/dev-setup/versions.txt
+*.zip
