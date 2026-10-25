@@ -26,7 +26,7 @@ verified, and known gaps.
 
 ## Quick start
 
-Requires Go 1.24+ (CI uses the latest stable Go), PostgreSQL 16+, and
+Requires Go 1.26+ (CI uses the latest stable Go), PostgreSQL 16+, and
 optionally NATS with JetStream.
 
 ```sh
