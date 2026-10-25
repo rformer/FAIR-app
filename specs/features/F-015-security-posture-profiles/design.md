@@ -1,0 +1,295 @@
+# F-015 Security Posture & Configuration Profiles — Design
+Status: **Approved** (Robert Former, 2026-10-24) | Requirements: Approved 2026-10-24 | Last updated: 2026-10-24
+ADRs: 004, 005, 006 (Amendment 1), 007, 008
+
+## 1. Overview
+F-015 has four parts:
+1. **`profilegen`** — a build-time tool. It turns OSCAL baselines plus binding files into signed **profile packages**.
+2. **`posture` service (Go)** — owns:
+   - the settings registry
+   - profiles, custom profiles, and profile switches
+   - setting changes and exceptions
+   - application drift detection
+   - OSCAL export
+3. **`settings` library (Go)** — embedded in every service. Features use it to register settings and read effective values; it caches them and invalidates the cache on change events.
+4. **`posture-scanner`** — a separately deployed, read-only Kubernetes checker for deployment drift. It is optional in self-hosted installs.
+
+Two pieces are reused rather than rebuilt:
+- **Approvals** come from the F-001 `approvals` module (generic dual approval).
+- **Audit and SIEM** go through the F-002 emitter. Until F-002 exists, the F-001 T-00a stub is used.
+
+## 2. Components
+
+| Component | Runs | Responsibility |
+|---|---|---|
+| `profilegen` (Go) | CI / release pipeline only | Implements OSCAL profile resolution in Go (the subset needed: imports with include/exclude-controls, merge, `set-parameters`); resolves OSCAL profiles (800-53r5 catalog + FedRAMP Moderate baseline + in-repo CMMC L2 and Enterprise Baseline profiles), applies binding files, validates, and emits signed profile packages |
+| `posture` service | In-cluster | Registry, profile catalog, change evaluator, exception lifecycle, switch state machine, app drift engine, Posture API, OSCAL Assessment Results / POA&M export |
+| `settings` library | Embedded in every Go service | `Register()`, `Get(key, buID)`, `Set()` client; versioned cache; invalidation on `posture.setting.changed` |
+| `posture-scanner` | Separate Deployment, own ServiceAccount | Read-only Kubernetes and TLS checks; reports findings to `posture` over mTLS gRPC |
+| `fips-probe` (optional) | DaemonSet | Reads the node's FIPS kernel flag and reports it to the scanner (see D-OQ2) |
+| River jobs (in `posture`) | In-cluster | Expiry notices, automatic revert, scheduled drift scans, revert retries |
+
+**Why the scanner is separate:** the scanner holds the only Kubernetes API permissions. Isolating it keeps those permissions off the main service. It also means declining Kubernetes access simply removes one Deployment.
+
+## 3. Setting types and strictness
+Every setting declares a **type** and a **direction**, which together give it a total "stricter-than" order.
+
+| Type | Example | Order |
+|---|---|---|
+| `duration` / `int` | `session.idle_timeout`, `auth.lockout_threshold` | `lower_is_stricter` or `higher_is_stricter` |
+| `bool` | `auth.jit_enabled` | Declared stricter value (`false` for jit) |
+| `enum` | `session.network_binding` | Ordered list: `off < flag < reauthenticate` |
+| `set` | `tls.allowed_versions` | Subset is stricter |
+
+**Bounds** come in two forms, `{min, max}` or an `allowed` list, and are always expressed in the strict direction. A value is **out of bounds** when it is weaker than the bound. **Strictest-of** (R-09) uses the same comparator. Hard-floor settings carry an absolute `floor` that no profile can set weaker.
+
+## 4. Profile packages and OSCAL binding
+
+### 4.1 Binding file (YAML, in repo, one per setting)
+```yaml
+setting: session.idle_timeout
+type: duration
+direction: lower_is_stricter
+bu_scopable: false
+hard_floor: null
+params:
+  - catalog: nist-sp-800-53-r5
+    param: ac-11_odp.01        # session lock time
+  - catalog: nist-sp-800-53-r5
+    param: ac-12_odp.01        # session termination conditions (informational)
+profiles:
+  fedramp-moderate: { default: from_param, bound: { max: from_param } }
+  cmmc-l2:          { default: 15m, bound: { max: 15m } }
+  enterprise-baseline: { default: 15m, bound: { max: 30m } }
+```
+- `from_param` takes the parameter value set by the resolved OSCAL profile. For example, the FedRAMP baseline sets the AC-11 lock time to 15 minutes.
+- If a referenced parameter has no value in the resolved profile, `profilegen` **fails the build**. Defaults are never guessed silently.
+
+### 4.2 Profile sources
+- **FedRAMP Moderate:** NIST 800-53r5 OSCAL catalog plus the FedRAMP Moderate OSCAL baseline (pinned by digest).
+- **CMMC L2:** an in-repo OSCAL profile built from the **revision of NIST SP 800-171 that the CMMC rule currently requires**. As of October 2026 that is **Rev 2 (110 requirements)**. Requirements are mapped onto the 800-53r5 parameters used by the bindings. The package ID carries the revision (`cmmc-l2-r2`). When a rule moving CMMC Level 2 to Rev 3 takes effect, a `cmmc-l2-r3` package is added alongside it, and customers move to it through the normal gated profile switch (§6.4). No code change is needed. Release checklist item: confirm the CMMC rule's current 800-171 revision before each release.
+- **Enterprise Baseline:** an in-repo OSCAL profile derived from 800-53r5 Moderate with documented relaxations.
+- **Future (FedRAMP High, DoD IL4/IL5):** a new OSCAL source plus binding entries produces a new package with no runtime code change (AC-06).
+
+### 4.3 Package format
+`profile-<id>-<version>.json` contains:
+- metadata: id, title, version, base, source OSCAL digests, `profilegen` version
+- settings: key → `{default, bound, params[]}`
+- the hard-floor manifest
+
+The package is signed (ECDSA P-256, release signing key) with a detached signature. `posture` verifies the signature and schema on import and refuses unsigned or tampered packages. Packages are immutable: a new version gets a new file.
+
+## 5. Data model (schema `posture`)
+- `setting_def` (key PK, type, direction, bu_scopable, hard_floor jsonb, params text[], owner_feature, registered_version)
+- `profile` (id, name, kind[builtin|custom], base_profile_id, version, package_digest, status[draft|pending_approval|approved|active|retired], label_deviates bool)
+- `profile_value` (profile_id, version, key, default jsonb, bound jsonb, justification, loosened bool)
+- `active_profile` (singleton: profile_id, version, activated_at, activated_by, switch_id)
+- `setting_value` (key, bu_id NULL for instance, value jsonb, source[profile|change|exception|overlay|revert], change_id, exception_id, updated_at, **row_mac** bytea)
+- `change` (id, key, bu_id, old_value, new_value, direction[tighten|neutral|loosen], explanation, requested_by, approval_request_id, state[applied|pending_approval|rejected], applied_at)
+- `exception` (id, key, bu_id, value, bound_at_creation, justification, owner_id, approved_by, created_at, expires_at, renewed_from, state[active|renewed|expired|reverted|revert_failed])
+- `profile_switch` (id, target_profile_id, target_version, state, requested_by, justification, approval_request_id, created_at, activated_at)
+- `switch_conflict` (switch_id, key, bu_id, current_value, new_bound, resolution[conform|exception|unresolved], exception_id)
+- `overlay_def` (id = 'restricted-bu', settings jsonb, version, updated_by)
+- `drift_finding` (id, kind[app|deployment], check_id, severity, controls text[], subject, detail jsonb, remediation, first_seen, last_seen, status[open|acknowledged|resolved], acknowledged_by)
+- `k8s_access` (state[requested|granted|declined|revoked], decided_by, decided_at, reason)
+- `export_record` (id, kind[assessment_results|poam], as_of, digest, signature, created_by)
+
+### Write protection (AC-02)
+- `setting_value`, `exception`, and `active_profile` grant **no** INSERT, UPDATE, or DELETE to application roles.
+- Writes go only through `posture.apply_change(change_id)` and `posture.apply_revert(exception_id)`, both SECURITY DEFINER functions. Each verifies that the referenced change, approval, or exception is in an applicable state.
+- Every `setting_value` row carries a `row_mac`: an HMAC over (key, bu_id, value, source, ref id), keyed by a posture key that application roles cannot read. The app drift engine recomputes the MACs, so an out-of-band database edit (for example, by a DBA) is detected even when it bypasses the functions.
+
+## 6. Key flows
+
+### 6.1 Feature registration
+At startup each service calls `settings.Register(defs...)`, and `posture` upserts `setting_def`. A registered key that is missing from the active profile package is a **startup error**. This forces every new setting to ship with bindings.
+
+### 6.2 Change a setting (R-06)
+`POST /settings/{key}` with `{value, bu_id?, explanation?}` goes to the evaluator:
+1. **Hard-floor check.** Weaker than the floor → refuse with 422 and emit `setting.hard_floor_refused` (high severity).
+2. **Direction check** against the current effective value:
+   - **Tighten:** apply immediately via `apply_change`, then emit `setting.changed`.
+   - **Within bounds:** apply and audit.
+   - **Out of bounds:**
+     - Require an explanation. The response includes a **warning payload** listing the affected controls and parameters.
+     - Create an `approval_request`.
+     - Once a *different* holder of `settings.approve` approves, `apply_change` runs and creates an `exception` (expiry defaults to 90 days, within bounds), and `setting.exception_created` is emitted (high severity).
+     - In SaaS mode, vendor SecOps is notified (AC-23).
+3. **Propagation.** After commit, `posture.setting.changed {key, bu_id, version}` is published on NATS. `settings` caches invalidate, with a 30 s TTL as a backstop, giving an SLA of ≤ 60 s.
+
+### 6.3 Exception lifecycle (R-07)
+- **Notices:** River schedules jobs at T-14 d, T-7 d, and T-1 d that notify the owner and admins.
+- **Renewal:** allowed only while `state = active` and `now() < expires_at`. It requires a new justification and dual approval. Renewal creates a new exception with `renewed_from` set and marks the old one `renewed`.
+- **Expiry job at `expires_at`:** calls `apply_revert(exception_id)` as the `system:posture` actor. The setting value becomes the active profile value (instance) or the inherited value (BU override). The exception moves to `reverted`, `setting.exception_reverted` is emitted (high severity), and notifications go out.
+- **Session-affecting reverts:** the gateway re-evaluates on the next request with the new value, so no grace period applies (AC-28).
+- **Failure:** retry with exponential backoff, capped at 5 minutes between attempts. Raise a **critical** `drift_finding` (`check_id = revert_failed`) that resolves automatically only when a revert succeeds. Escalation notices repeat hourly.
+- **Clock:** all times come from database `now()`, never from client clocks.
+
+### 6.4 Profile switch (R-05)
+State machine:
+
+`requested → conflicts_computed → resolving → (awaiting_approval) → activating → active` or `cancelled`
+
+1. **Compute conflicts:** for each setting value (instance and BU overrides), compare it to the target profile's bounds. Every weaker value becomes a `switch_conflict(unresolved)`.
+2. **Resolving:** an admin resolves each conflict, either:
+   - `conform` — the setting will be set to the target default at activation, or
+   - `exception` — dual-approved, with a reason and expiry; not allowed on the hard floor.
+
+   Activation stays disabled while any conflict is unresolved (AC-17).
+3. **Loosening check:** if the target profile is weaker than the current one on any bound, the switch is a loosening. It requires a justification, dual approval, and a high-severity audit event.
+4. **Activation:** a single transaction that:
+   - sets `active_profile`
+   - applies the `conform` resolutions
+   - attaches the approved exceptions
+   - re-seeds settings whose `source = profile` to the new defaults
+   - preserves explicit changes that are within the new bounds
+
+   It then publishes `posture.profile.activated`.
+5. **While pending:** the current profile stays in force, and the Posture page shows the pending switch (AC-18).
+
+### 6.5 Custom profiles (R-04)
+- **Create:** clone a built-in profile, giving a `draft`.
+- **Edit:** the per-key editor shows the base value, the new value, its direction, and the affected controls. A loosened key requires a justification.
+- **Validate:** the hard floor, types, and bounds coherence are checked.
+- **Activate:** `profile.approve` by a different person sets `approved`, and the profile is then activated through the §6.4 switch flow.
+- **Labeling:** deviations from the base are stored as `loosened = true` rows. The profile is labeled **"Deviates from <base>"** in the UI and in exports.
+- **Base update:** when a base package is upgraded, the system diffs it against each derived profile. Any key where the new base is *weaker* than the custom profile's current effective value is **pinned** to the current value, so the custom profile never silently weakens (AC-15). Keys where the base gets stricter are proposed to the admin as updates.
+- **Export/import:** JSON (native) and an OSCAL profile with `set-parameters`. Import validates the input and always creates a `draft`.
+
+### 6.6 BU overrides and the Restricted BU overlay (R-09)
+- **Resolution:** `effective(key, bu) = strictest(instance, override(a) for a on the path root→bu that is not blocked, override(bu), overlay if bu is restricted or below a restricted node)`. Path blocking reuses `iam.bu_closure.blocked` from F-001.
+- **Overlay activation:** on F-001 `bu.restricted` = true, the overlay is applied as `source = overlay` rows. On unrestrict (which F-001 already requires dual approval for), the overlay rows are removed and audited.
+- **Re-authentication freshness:** the overlay sets `bu.reauth_max_age = 15m`. `authz.Check()` (F-001 library) reads it for the target BU and returns `ErrStepUpRequired` when `session.auth_time` is older. The API then responds 401 with `WWW-Authenticate: step_up`, and the frontend re-runs the IdP flow (SAML `ForceAuthn=true` / OIDC `prompt=login` with `max_age`). *This adds a small change to the F-001 design; see §12.*
+- **Export reason:** the overlay sets `export.reason_required = true`, which F-010 enforces.
+
+### 6.7 Application drift (R-10)
+The engine runs on every `posture.setting.changed`, every 15 minutes, and after each import or switch. For each setting value it:
+1. recomputes the `row_mac` (detects tampering);
+2. checks the value against the active profile bound, plus any active exception (detects an unapproved deviation);
+3. checks exception expiry against the current state (detects a missed revert);
+4. compares the effective value reported by each service (from the `settings` library heartbeat) with the expected value (detects a stale cache or rogue configuration).
+
+Each check produces a `drift_finding` with `check_id`, severity, controls, and remediation. Events go to audit and SIEM. Target: ≤ 30 s at full scale.
+
+### 6.8 Deployment drift (R-11)
+**Access model:**
+- **SaaS:** the scanner is always deployed by vendor operations.
+- **Self-hosted:** the F-014 installer shows a *permission manifest* listing every verb and resource with its purpose. If the customer accepts, the scanner and its RBAC are deployed and `k8s_access = granted`. If the customer declines, nothing is deployed, `k8s_access = declined`, a persistent banner appears on the Posture page, the decision is audited, and deployment controls are exported as "Not assessed". Access can be granted later through a Helm value flip plus an admin acknowledgement in the UI.
+
+**Permissions (read-only; Secrets are never read):**
+
+| Scope | Resources (get/list/watch) | Purpose |
+|---|---|---|
+| Platform namespaces | pods, deployments, statefulsets, daemonsets, services, networkpolicies, serviceaccounts, roles, rolebindings, externalsecrets (CRD, if present) | Workload hardening, NetworkPolicy presence, secret references, platform RBAC |
+| Cluster | namespaces (labels only), nodes (labels/annotations), storageclasses, clusterroles, clusterrolebindings (filtered to platform subjects), validatingadmissionpolicies / admission webhooks (metadata) | Pod security admission level, FIPS node labels, encryption, RBAC drift, presence of a signature-verification policy |
+
+**Checks (initial catalog; each maps to controls):**
+
+| Check | Method | Controls |
+|---|---|---|
+| Pod security admission = restricted on platform namespaces | Namespace labels | CM-6, CM-7 |
+| NetworkPolicy default-deny + per-service allow | List and analyze | SC-7, AC-4 |
+| TLS ≥ 1.2, approved cipher suites, certificate expiry > 30 d | Active TLS handshake to ingress and internal endpoints | SC-8, SC-13, SC-23 |
+| Node FIPS mode (when the profile requires it) | `fips-probe` report or node label attested by the installer | SC-13 |
+| Running image digests match the signed release manifest | Pod specs vs. the bundled manifest | CM-14, SI-7, SR-4 |
+| Signature-verification admission policy present | Admission config metadata | CM-14 |
+| Non-root and read-only root filesystem on all platform pods | Pod security contexts | CM-6, CM-7 |
+| Encrypted storage classes for PVCs | StorageClass parameters (per provider) | SC-28 |
+| No plaintext secrets in env/args | Pod spec analysis (secretKeyRef / ExternalSecret only; heuristics on literals) | IA-5, SC-28 |
+| Platform RBAC unchanged from manifest | Role and binding hash comparison | AC-6, CM-5 |
+
+Findings are reported over gRPC (mTLS) to `posture`, which de-duplicates them, sets their lifecycle, and emits events. The scanner runs every 15 minutes and on watch events. It is itself built as a non-root, read-only, signed image.
+
+### 6.9 OSCAL export (R-13)
+- **Assessment Results:**
+  - `import-ap` references a generated assessment plan.
+  - The `results` section holds:
+    - **observations** for each setting/parameter (method `TEST`, type `finding` or `control-objective`), carrying the effective value
+    - **findings** for each open drift finding, with a target status of `not-satisfied`
+    - deployment controls with no access → `not-assessed`
+  - Subjects reference the platform's **component definition** UUID (F-014).
+- **POA&M:** one item per open exception or deviation, with justification, approver, expiry, related controls, and the linked observations.
+- **Integrity:**
+  - The export is generated from a consistent DB snapshot at `as_of`.
+  - Its SHA-256 digest is stored in `export_record` and audited.
+  - A detached ECDSA P-256 signature is produced.
+  - The export is validated against the pinned OSCAL JSON schemas before release, and a failed validation means no export.
+- **Reproducibility:** the same `as_of` produces an identical document (deterministic UUIDv5 and ordering).
+
+## 7. API (`/api/v1/posture`)
+- `GET /registry` · `GET /settings?bu=` · `POST /settings/{key}` · `GET /changes` · `GET /exceptions` · `POST /exceptions/{id}/renew`
+- `GET /profiles` · `POST /profiles` (clone) · `PATCH /profiles/{id}` · `POST /profiles/{id}/submit` · `GET /profiles/{id}/diff?against=` · `POST /profiles/import` · `GET /profiles/{id}/export?format=json|oscal`
+- `POST /switches` · `GET /switches/{id}` · `POST /switches/{id}/conflicts/{cid}/resolve` · `POST /switches/{id}/activate` · `POST /switches/{id}/cancel`
+- `GET /overlay` · `PATCH /overlay`
+- `GET /drift` · `POST /drift/{id}/acknowledge`
+- `GET /k8s-access` · `POST /k8s-access/acknowledge-grant`
+- `POST /exports` (`kind=assessment_results|poam`, `as_of`) · `GET /exports/{id}` (document + signature)
+- Approvals are handled by F-001 `/approvals`. All mutations require `Idempotency-Key`, and loosening calls require `explanation`.
+
+## 8. Security design (STRIDE)
+
+| Threat | Example | Mitigations |
+|---|---|---|
+| Spoofing | Forged profile package | Signature + schema verification on import; packages pinned by digest in the release manifest |
+| Tampering | DBA or attacker edits `setting_value` directly | No DML grants; definer-only writes; `row_mac` detection; critical drift finding |
+| Tampering | Exception expiry extended by editing the DB | `exception` has no DML grants; expiry is checked against the audit trail; MAC on exception rows |
+| Repudiation | "I didn't approve that loosening" | Dual-approval records both identities; every step goes to the F-002 hash-chained audit |
+| Information disclosure | Scanner reads Secrets | RBAC excludes `secrets`; analysis covers pod specs only |
+| Information disclosure | Posture page reveals restricted-BU overrides | BU overrides are filtered by the caller's F-001 scope; instance settings require `posture.view` |
+| Denial of service | Revert job starved or blocked | Dedicated River queue; retry with backoff; critical finding + hourly escalation |
+| Elevation of privilege | Collusion between two admins to loosen | Residual risk. Mitigated by SecOps notification (SaaS), Posture page visibility, the expiry and auto-revert ceiling, and OSCAL POA&M evidence for auditors |
+| Elevation of privilege | Scanner ServiceAccount compromised | Read-only; no Secrets; isolated Deployment; NetworkPolicy allows egress only to `posture` and the probed endpoints |
+
+**Crypto:** ECDSA P-256 for packages and exports, HMAC-SHA-256 for row MACs, and SHA-256 for digests, all through FIPS-validated modules. Signing keys come from KMS or Vault, or are generated at install for air-gapped use.
+
+## 9. Secure defaults implementation
+The install selects FedRAMP Moderate. The overlay is on. Drift scans run on change and every 15 minutes. Exceptions expire after 90 days and auto-revert. SaaS always deploys the scanner; self-hosted installs request it. The hard-floor manifest is compiled into the `posture` binary *and* carried in each package; the stricter of the two wins.
+
+## 10. Requirements traceability
+
+| Requirement | Satisfied by |
+|---|---|
+| R-01 Registry (AC-01–03) | §6.1, `setting_def`, definer-only writes + `row_mac` (§5) |
+| R-02 OSCAL profiles (AC-04–08) | `profilegen`, binding files, signed packages (§4) |
+| R-03 Install selection (AC-09–10) | F-014 installer → `posture` seed + audit |
+| R-04 Custom profiles (AC-11–15) | §6.5 |
+| R-05 Profile switch (AC-16–19) | §6.4 state machine |
+| R-06 Changes (AC-20–23) | §6.2 evaluator |
+| R-07 Exception lifecycle (AC-24–29) | §6.3 |
+| R-08 Hard floor (AC-30–31) | Compiled + packaged floor manifest; evaluator refusal; custom profile validation |
+| R-09 BU scope (AC-32–35) | §6.6; reuses `iam.bu_closure` |
+| R-10 App drift (AC-36–37) | §6.7 |
+| R-11 Deployment drift (AC-38–42) | §6.8, `posture-scanner` |
+| R-12 Posture page (AC-43–44) | §7 API + frontend view; links to audit and approvals |
+| R-13 OSCAL export (AC-45–48) | §6.9 |
+
+## 11. Deployment modes
+
+| Concern | SaaS | Self-hosted | Air-gapped |
+|---|---|---|---|
+| Profile packages | Release pipeline | In the bundle | Offline import; signature verified with the bundled public key |
+| Scanner | Always deployed | Deployed only on consent | Same as self-hosted |
+| `fips-probe` | Deployed when the profile requires FIPS | Optional; otherwise installer-attested node labels | Same |
+| TLS probing | Internal + public endpoints | Internal + customer ingress | Internal only |
+| Notifications | Email/webhook + vendor SecOps | Customer channels | Internal relay |
+
+## 12. Changes to other features
+- **F-001:** add `ErrStepUpRequired` and the reauth-freshness check to `authz.Check()` (§6.6). Add `auth_time` to the session. Replace the T-00b settings stub with this feature. → Adds F-001 task T-44 (step-up). The F-001 design gets a change-log entry once this design is approved.
+- **F-014:** installer profile selection, the permission manifest UI for scanner consent, and `fips-probe` attestation.
+- **F-010:** enforce `export.reason_required`.
+
+## 13. Alternatives considered
+- **Kyverno / OPA Gatekeeper as the deployment drift engine:** rejected as a *mandatory* dependency, because it adds an admission controller the customer may not want. If one is present, the scanner can optionally ingest its PolicyReports.
+- **Settings in Kubernetes ConfigMaps:** rejected. ConfigMaps don't support approvals, exceptions, BU scoping, or tamper detection, and they don't work for SaaS ops separation.
+- **Runtime OSCAL resolution in `posture`:** deferred to the F-013 migration. Build-time generation keeps the runtime small and air-gap-friendly (AC-08).
+
+## 14. Resolved
+- **D-OQ1 CMMC L2 source:** follow the current CMMC rule. Today that is NIST SP 800-171 **Rev 2**, shipped as `cmmc-l2-r2`. A Rev 3 package will be added when the rule changes (§4.2).
+- **D-OQ2 FIPS node check:** **offer both** options:
+  - `fips-probe` DaemonSet, which is the default when the profile requires FIPS. It uses a single-file read-only hostPath mount.
+  - installer-attested node labels, which customers can choose if they decline the probe. Exports record this as "attested, not verified".
+- **D-OQ3 `profilegen` tooling:** **written in Go**. It implements the OSCAL profile-resolution subset we need. Conformance is tested against NIST's published resolved-profile examples and the FedRAMP resolved baselines.
+
+## Change Log
+- 2026-10-24: Initial draft.
+- 2026-10-24: D-OQ1–3 resolved (CMMC follows the current rule, currently 800-171 Rev 2; both FIPS check options offered; `profilegen` written in Go). Design **approved**.

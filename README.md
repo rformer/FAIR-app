@@ -2,7 +2,7 @@
 
 A container-native platform for quantitative FAIR risk analysis, a risk register, and the risk-acceptance lifecycle. It is designed for enterprise risk teams and runs either as vendor-operated SaaS or self-hosted, including air-gapped installs.
 
-The project follows a **spec-driven workflow**: nothing is built without approved requirements and an approved design. See [`specs/`](specs/README.md).
+The project follows a **spec-driven workflow**: nothing is built without approved requirements and an approved design. See [`specs/`](specs/README.md) and [`CLAUDE.md`](CLAUDE.md).
 
 ## Status
 
@@ -54,7 +54,7 @@ db/migrations       schema migrations (run as app_migrator)
 db/tests            database security tests
 scripts/            db-bootstrap.sh, db-migrate.sh
 deploy/k8s          reference hardened manifest (Helm/Zarf bundle comes with F-014)
-specs/              pointer to the approved specs
+specs/              approved specs (requirements, designs, tasks, ADRs)
 ```
 
 ## Develop
