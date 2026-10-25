@@ -1,0 +1,21 @@
+# Platform namespace with Pod Security Admission enforced at "restricted"
+# (ADR-006 preflight; F-015 deployment drift check).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fair
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+# Default-deny for everything in the namespace; services opt in below.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: fair
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]

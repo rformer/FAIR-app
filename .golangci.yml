@@ -1,0 +1,27 @@
+version: "2"
+
+linters:
+  default: standard        # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - gosec
+    - bodyclose
+    - errorlint
+    - noctx
+    - rowserrcheck
+    - sqlclosecheck
+    - misspell
+  settings:
+    gosec:
+      excludes:
+        - G104             # covered by errcheck
+  exclusions:
+    presets:
+      - std-error-handling # unchecked Close/Flush etc.
+    rules:
+      - path: _test\.go
+        linters: [gosec, noctx]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
