@@ -20,7 +20,7 @@ Status: **Approved** (Robert Former, 2026-10-24) | Design: Approved 2026-10-24
 | # | Task | Traces to | Verification | Size | Status |
 |---|---|---|---|---|---|
 | T-03 | Permission catalog file format, loader and versioning | AC-51, AC-57 | Catalog diff test across two versions | S | Done (2026-10-25; catalog contents open as D-OQ4) |
-| T-04 | BU schema + closure table + triggers (single root, depth, no cycles) | AC-15, AC-16 | Trigger tests; property tests on random trees | M | Todo |
+| T-04 | BU schema + closure table + triggers (single root, depth, no cycles) | AC-15, AC-16 | Trigger tests; property tests on random trees | M | Done (2026-10-25) |
 | T-05 | BU move / restrict / unrestrict with closure rebuild and `blocked` flag; async rebuild for large subtrees | AC-17, AC-59, AC-60 | Property tests: no inheritance across restricted nodes | M | Todo |
 | T-06 | Roles + `role_version` + built-in role seeds | AC-52, AC-55 | Built-in roles are immutable; versions increment | S | Todo |
 | T-07 | Assignments with grantor checks and DB-level block on self-assignment | AC-20, AC-21, AC-22, AC-28 | Escalation test suite (BU Admin → admin role, cross-restricted, self-grant) | M | Todo |
