@@ -7,8 +7,8 @@ This repo is built **spec-first**. Before doing anything, read:
 4. The feature you are working on: `specs/features/<feature>/requirements.md`, `design.md`, `tasks.md`
 
 ## Current position
-- F-001 Phase 0 is **done**. Phase 1 is in progress: T-02b and T-03 to T-09 are done.
-- **Next: T-10**, then the rest of Phase 1 (to T-12) in task order. Its Verification column defines "done" for each task.
+- F-001 Phase 0 is **done**. Phase 1 is in progress: T-02b and T-03 to T-10 are done.
+- **Next: T-11**, then the rest of Phase 1 (to T-12) in task order. Its Verification column defines "done" for each task.
 
 ## Working rules
 - Implement only tasks that are marked Approved and listed in a `tasks.md`. If a task needs a design change, stop and propose the spec change; don't silently diverge.
@@ -32,4 +32,5 @@ This repo is built **spec-first**. Before doing anything, read:
 - Migration files are immutable once committed (their checksums are recorded); fix forward with a new migration.
 - DB tests need `psql`; without a local server, run them in Docker against `postgres:16` (see README).
 - `pkg/settings` is the T-00b stand-in for F-015. Keep its public API stable; F-015 T-16 replaces its backing store.
-- `pkg/authz` holds only the contract. T-09 and T-12 implement it.
+- `pkg/authz` holds the contract plus `MintDBContext` (T-09); T-12 adds `Check()`, the grant cache and the DB-context transaction helper.
+- Every BU-owned table is created in a migration with `SELECT authz.apply_bu_rls('<table>', '<resource_type>')` and gets an `rlstest.Fixture` in `db/tests/rls_harness_test.go`; the CI gate fails otherwise (T-10).

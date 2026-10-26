@@ -274,3 +274,14 @@ Until F-015 exists, F-001 ships a minimal settings module that holds the three p
   - Deployment requirements:
     - HMAC in the database uses `pgcrypto`, so FIPS on the database side depends on the PostgreSQL server's OpenSSL running in FIPS mode. F-014 preflight and F-015 deployment checks must verify this.
     - The bootstrap now grants `authz_definer` to `fair_owner` (SET only), so existing databases must re-run `scripts/db-bootstrap.sh` before `iam migrate`.
+- 2026-10-26: T-10 implementation notes (`internal/rlstest`, `db/tests/rls_harness_test.go`).
+  - `rlstest.Check` runs against any BU-owned table and builds its own state: BUs the user can read and write, read only, or not access at all; a user; a scope row; and a context key.
+  - It reports findings in five groups:
+    - structure: RLS forced, exactly the four policies bound to the registered resource type, owner `fair_owner`, nothing granted to `PUBLIC`;
+    - context: 13 invalid-token cases see and change nothing;
+    - writes: write scope, not read scope, governs every write;
+    - AC-25: an out-of-scope row behaves exactly like a missing one;
+    - SQL-injection simulation: arbitrary SQL run as `app_rw`.
+  - CI gate: every table in `iam.bu_owned_tables` must have a fixture in `rlsFixtures` and pass, and any table with `bu_id` that an application role can access must be registered.
+  - A meta-test proves the harness detects eight kinds of broken table, and that the gate catches unregistered ones.
+  - PostgreSQL applies SELECT policies to `COPY ... TO` (zero rows without a context) and to the new row of an UPDATE whose WHERE reads columns. That is why the harness needs a read-only BU to detect a missing `WITH CHECK`.
