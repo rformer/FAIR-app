@@ -19,6 +19,7 @@ Status: **Approved** (Robert Former, 2026-10-24) | Design: Approved 2026-10-24
 ## Phase 1 — Authorization core (gates other features)
 | # | Task | Traces to | Verification | Size | Status |
 |---|---|---|---|---|---|
+| T-02b | Embedded Go migration runner (`iam migrate`) replacing `scripts/db-migrate.sh` with the same semantics (app_migrator under `SET ROLE fair_owner`, SHA-256 checksums, refuse modified migrations); advisory lock against concurrent runs; verified TLS in production; applies the release catalog via `iam.sync_release` | AC-27, AC-57 | Idempotency, tamper, rollback, bad-name and concurrent-runner tests; fresh install has the catalog and built-in roles | S | Done (2026-10-26) |
 | T-03 | Permission catalog file format, loader and versioning | AC-51, AC-57 | Catalog diff test across two versions | S | Done (2026-10-25; `risk_data` added 2026-10-25 with catalog v1 approval) |
 | T-04 | BU schema + closure table + triggers (single root, depth, no cycles) | AC-15, AC-16 | Trigger tests; property tests on random trees | M | Done (2026-10-25) |
 | T-05 | BU move / restrict / unrestrict with closure rebuild and `blocked` flag, synchronous in the same transaction (design §12 R1) | AC-17 (closure recalculation), AC-59, AC-60 | Property tests: no inheritance across restricted nodes | M | Done (2026-10-25) |

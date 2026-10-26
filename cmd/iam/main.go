@@ -1,7 +1,8 @@
 // Command iam runs the identity and access service (F-001).
 //
 // Phase 0: hardened server skeleton with health/readiness, FIPS enforcement,
-// structured logging, and audit emission of lifecycle events. Domain modules
+// structured logging, and audit emission of lifecycle events. `iam migrate`
+// applies the embedded schema migrations and release catalog (T-02b). Domain modules
 // (authn, scim, directory, org, access, approvals, reviews) arrive in Phases 1–4.
 package main
 
@@ -23,6 +24,9 @@ import (
 var version = "dev"
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		os.Exit(runMigrate())
+	}
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "iam:", err)
 		os.Exit(1)

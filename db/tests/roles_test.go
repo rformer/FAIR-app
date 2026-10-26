@@ -11,15 +11,24 @@ package tests
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
+
+	fairdb "github.com/rformer/fair-app/db"
+	"github.com/rformer/fair-app/internal/access/catalog"
+	"github.com/rformer/fair-app/internal/migrate"
 )
 
 type env struct {
@@ -28,6 +37,7 @@ type env struct {
 	db       string
 	secrets  map[string]string // role -> password file
 	adminEnv []string
+	install  migrate.Result // result of the first migration run
 }
 
 func setup(t *testing.T) *env {
@@ -62,19 +72,44 @@ func setup(t *testing.T) *env {
 		"FAIR_RW_PASSWORD_FILE":       e.secrets["app_rw"],
 		"FAIR_ENGINE_PASSWORD_FILE":   e.secrets["app_engine"],
 	})
-	e.migrate("")
+	res, err := e.migrate("")
+	if err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	e.install = res
 	return e
 }
 
-func (e *env) migrate(dir string) (string, error) {
-	vars := map[string]string{
-		"PGDATABASE":                  e.db,
-		"FAIR_MIGRATOR_PASSWORD_FILE": e.secrets["app_migrator"],
+// migrate runs the embedded migration runner (T-02b) as app_migrator. dir,
+// when set, replaces the embedded migrations with the files in it.
+func (e *env) migrate(dir string) (migrate.Result, error) {
+	cfg, err := migrate.ConnConfig("development", e.secrets["app_migrator"])
+	if err != nil {
+		return migrate.Result{}, err
 	}
+	cfg.Database = e.db
+	ctx := context.Background()
+	conn, err := pgx.ConnectConfig(ctx, cfg)
+	if err != nil {
+		return migrate.Result{}, err
+	}
+	defer func() { _ = conn.Close(ctx) }()
+
+	var migrations fs.FS
 	if dir != "" {
-		vars["MIGRATIONS_DIR"] = dir
+		migrations = os.DirFS(dir)
+	} else if migrations, err = fs.Sub(fairdb.Migrations, "migrations"); err != nil {
+		return migrate.Result{}, err
 	}
-	return e.scriptErr("db-migrate.sh", vars)
+	c, roles, err := catalog.Release()
+	if err != nil {
+		return migrate.Result{}, err
+	}
+	payload, err := catalog.SyncPayload(c, roles)
+	if err != nil {
+		return migrate.Result{}, err
+	}
+	return migrate.Run(ctx, conn, migrations, payload)
 }
 
 func (e *env) script(name string, vars map[string]string) {
@@ -175,8 +210,8 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON iam.rls_probe TO app_rw;
 	if err := os.WriteFile(filepath.Join(dir, "9000_rls_probe.sql"), []byte(probe), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := e.migrate(dir); err != nil {
-		t.Fatalf("migrate probe: %v\n%s", err, out)
+	if _, err := e.migrate(dir); err != nil {
+		t.Fatalf("migrate probe: %v", err)
 	}
 
 	out, err := e.as("app_rw", "SELECT count(*) FROM iam.rls_probe")
@@ -202,8 +237,8 @@ func TestOwnerRolesCannotLogIn(t *testing.T) {
 
 func TestMigrationsIdempotentAndTamperEvident(t *testing.T) {
 	e := setup(t)
-	if out, err := e.migrate(""); err != nil || !strings.Contains(out, "0 applied") {
-		t.Fatalf("second run must apply nothing: err=%v out=%s", err, out)
+	if res, err := e.migrate(""); err != nil || len(res.Applied) != 0 || len(res.Sync.AddedPermissions) != 0 {
+		t.Fatalf("second run must apply nothing: err=%v result=%+v", err, res)
 	}
 
 	dir := t.TempDir()
@@ -213,9 +248,8 @@ func TestMigrationsIdempotentAndTamperEvident(t *testing.T) {
 	if err := os.WriteFile(f, append(b, []byte("\n-- tampered\n")...), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	out, err := e.migrate(dir)
-	if err == nil || !strings.Contains(out, "CHECKSUM MISMATCH") {
-		t.Fatalf("modified applied migration must be refused: err=%v out=%s", err, out)
+	if _, err := e.migrate(dir); !errors.Is(err, migrate.ErrChecksum) {
+		t.Fatalf("modified applied migration must be refused: err=%v", err)
 	}
 }
 

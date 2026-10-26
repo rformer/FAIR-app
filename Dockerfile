@@ -10,8 +10,11 @@ ARG GO_VERSION=1.24
 FROM golang:${GO_VERSION}-bookworm AS build
 WORKDIR /src
 ENV CGO_ENABLED=0 GOFIPS140=v1.0.0 GOFLAGS=-trimpath
-COPY go.mod ./
+COPY go.mod go.sum ./
+RUN go mod download
 COPY cmd ./cmd
+COPY db/embed.go ./db/
+COPY db/migrations ./db/migrations
 COPY internal ./internal
 COPY pkg ./pkg
 ARG VERSION=dev

@@ -77,12 +77,13 @@ func cloneRelease(c *catalog.Catalog, br *catalog.BuiltinRoles) (*catalog.Catalo
 	return c2, br2
 }
 
+// The install (setup runs the migration runner) seeds the release catalog
+// and built-in roles; syncing the same release again changes nothing.
 func TestReleaseSyncSeedsCatalogAndBuiltinRoles(t *testing.T) {
 	e := setup(t)
 	c, br := release(t)
-	r := e.sync(t, c, br)
-	if r.Version != 1 || r.PreviousVersion != 0 || len(r.AddedPermissions) != len(c.Permissions) || len(r.CreatedRoles) != len(br.Roles) {
-		t.Fatalf("first sync = %+v", r)
+	if r := e.install.Sync; r.Version != 1 || r.PreviousVersion != 0 || len(r.AddedPermissions) != len(c.Permissions) || len(r.CreatedRoles) != len(br.Roles) {
+		t.Fatalf("install sync = %+v", r)
 	}
 	if out := e.mustOwner("SELECT count(*) FILTER (WHERE risk_data) || '/' || count(*) FILTER (WHERE privileged) || '/' || count(*) FROM iam.permission"); out != "19/30/56" {
 		t.Fatalf("risk/privileged/total = %s, want 19/30/56", out)
@@ -107,9 +108,6 @@ func TestReleaseSyncSeedsCatalogAndBuiltinRoles(t *testing.T) {
 // anyone, including the owner outside iam.sync_release; they can be cloned.
 func TestBuiltinRolesImmutable(t *testing.T) {
 	e := setup(t)
-	c, br := release(t)
-	e.sync(t, c, br)
-
 	e.ownerFails("UPDATE iam.role SET name = 'Admin2' WHERE name = 'Platform Admin'", "cannot be edited")
 	e.ownerFails("UPDATE iam.role SET status = 'retired' WHERE name = 'Auditor'", "cannot be edited")
 	e.ownerFails("UPDATE iam.role SET builtin = false WHERE name = 'Auditor'", "immutable")
@@ -137,8 +135,6 @@ func TestBuiltinRolesImmutable(t *testing.T) {
 // AC-55: role versions are append-only and increment by one.
 func TestRoleVersionsIncrement(t *testing.T) {
 	e := setup(t)
-	c, br := release(t)
-	e.sync(t, c, br)
 	e.mustOwner("INSERT INTO iam.role (name) VALUES ('Custom')")
 	ins := func(version int, perms string) string {
 		return fmt.Sprintf(`INSERT INTO iam.role_version (role_id, version, permissions, change_reason)
@@ -171,7 +167,6 @@ func TestRoleVersionsIncrement(t *testing.T) {
 func TestReleaseUpgrade(t *testing.T) {
 	e := setup(t)
 	c1, br1 := release(t)
-	e.sync(t, c1, br1)
 	_, viewer := e.rolePerms("Executive Viewer")
 	e.mustOwner(fmt.Sprintf(`WITH r AS (INSERT INTO iam.role (name) VALUES ('Board Viewer') RETURNING id)
 		INSERT INTO iam.role_version (role_id, version, permissions, change_reason)

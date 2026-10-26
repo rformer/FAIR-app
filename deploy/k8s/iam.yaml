@@ -98,3 +98,69 @@ spec:
         - podSelector:
             matchLabels: { app.kubernetes.io/name: gateway }
       ports: [{ port: 8443, protocol: TCP }]
+---
+# F-001 T-02b: schema migrations and release catalog, run before each rollout
+# (the F-014 chart runs it as a pre-install/pre-upgrade hook). Same image and
+# hardening as the service; it holds only the migrator's password.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iam-migrate
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: iam-migrate, app.kubernetes.io/part-of: fair-platform }
+spec:
+  backoffLimit: 0           # a failed migration needs an operator, not a retry
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: iam-migrate, app.kubernetes.io/part-of: fair-platform }
+    spec:
+      restartPolicy: Never
+      serviceAccountName: iam
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: migrate
+          image: ghcr.io/rformer/fair-iam:REPLACE_WITH_DIGEST
+          args: ["migrate"]
+          env:
+            - { name: FAIR_ENV, value: production }
+            - { name: PGHOST, value: REPLACE_WITH_DB_HOST }
+            - { name: PGDATABASE, value: fair }
+            - { name: PGSSLMODE, value: verify-full }
+            - { name: PGSSLROOTCERT, value: /db-ca/ca.crt }
+            - { name: FAIR_MIGRATOR_PASSWORD_FILE, value: /secrets/migrator/password }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 100m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          volumeMounts:
+            - { name: migrator, mountPath: /secrets/migrator, readOnly: true }
+            - { name: db-ca, mountPath: /db-ca, readOnly: true }
+      volumes:
+        - name: migrator
+          secret: { secretName: iam-db-migrator, defaultMode: 0400 }
+        - name: db-ca
+          secret: { secretName: db-ca }
+---
+# Egress for the migrate Job: PostgreSQL and DNS only. Narrow `to` to the
+# database's address or pod labels once the chart knows where it runs.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: iam-migrate-egress
+  namespace: fair-platform
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: iam-migrate }
+  policyTypes: [Egress]
+  egress:
+    - ports: [{ port: 5432, protocol: TCP }]
+    - ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]
