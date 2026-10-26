@@ -6,7 +6,7 @@ import (
 )
 
 // F-015 T-08 (design §5 access model): posture tables.
-var postureTables = []string{"active_profile", "change", "exception", "mac_key", "profile", "profile_value", "setting_def", "setting_value"}
+var postureTables = []string{"active_profile", "change", "exception", "mac_key", "profile", "profile_value", "setting_def", "setting_value", "state"}
 
 // Verification for T-08: application roles have no access to posture tables,
 // reads included; RLS is forced with a posture_definer-only policy.
@@ -29,7 +29,7 @@ func TestPostureTablesLocked(t *testing.T) {
 		t.Fatalf("posture policies: %s", policies)
 	}
 	if n := e.mustOwner(`SELECT count(*) FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
-		JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'posture'`); n != "8" {
+		JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'posture'`); n != "9" {
 		t.Fatalf("%s policies, want one per table", n)
 	}
 
@@ -53,8 +53,13 @@ func TestPostureTablesLocked(t *testing.T) {
 	if err != nil || out != "app_posture:true:false" {
 		t.Fatalf("app_posture readiness view %q (err %v)", out, err)
 	}
-	if out, err := e.as("app_rw", "SELECT has_schema_privilege('posture', 'USAGE')"); err != nil || out != "f" {
-		t.Fatalf("app_rw schema usage %q (err %v), want none until T-11", out, err)
+	// Since T-11, services reach the read functions through the schema, and
+	// only those: no other posture function is theirs to call.
+	if out, err := e.as("app_rw", `SELECT has_schema_privilege('posture', 'USAGE') || ':' ||
+		has_function_privilege('posture.effective_settings()', 'EXECUTE') || ':' ||
+		has_function_privilege('posture.settings_version()', 'EXECUTE') || ':' ||
+		has_function_privilege('posture.bump_version()', 'EXECUTE')`); err != nil || out != "true:true:true:false" {
+		t.Fatalf("app_rw access %q (err %v)", out, err)
 	}
 }
 

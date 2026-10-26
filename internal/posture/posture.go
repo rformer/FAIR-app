@@ -6,6 +6,7 @@ package posture
 import (
 	"context"
 	"crypto/ecdsa"
+	"encoding/json"
 	"fmt"
 	"strconv"
 
@@ -100,4 +101,25 @@ func Import(ctx context.Context, pool *pgxpool.Pool, em audit.Emitter, pub *ecds
 		return nil, err
 	}
 	return out, nil
+}
+
+// Publisher is the subset of natspub.Publisher used here.
+type Publisher interface {
+	Publish(ctx context.Context, subject, msgID string, data []byte) error
+}
+
+// PublishChanged announces a committed change to the settings caches
+// (design §6.2 step 3): posture.setting.changed {key, bu_id, version}, where
+// version is the posture version after the change. Call it after commit; if
+// the event is lost, the clients' TTL poll still picks the change up.
+func PublishChanged(ctx context.Context, db settings.Querier, pub Publisher, key, buID string) error {
+	v, err := settings.DBSource{DB: db}.Version(ctx)
+	if err != nil {
+		return fmt.Errorf("posture version: %w", err)
+	}
+	b, err := json.Marshal(settings.ChangedEvent{Key: key, BUID: buID, Version: v})
+	if err != nil {
+		return err
+	}
+	return pub.Publish(ctx, settings.SubjectChanged, fmt.Sprintf("posture-%d-%s-%s", v, key, buID), b)
 }

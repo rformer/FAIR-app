@@ -476,3 +476,20 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
     - Seed with no MAC key, with a failing audit sink, and with an unknown profile each leave nothing behind. A successful seed writes 19 values equal to the defaults, emits one audit event with the digest, marks the profile active, and leaves no MAC mismatches. A second seed is refused.
     - Signed import loads only the new version and audits it. Tampered, unsigned and wrong-key releases load nothing and emit no audit events. A forged below-floor package sent straight to `import_package` gives PF001.
     - CLI smoke run: migrate, add a MAC key, seed, seed again (refused), sign and import (all unchanged), tamper and import (refused). The `iam` image builds.
+- 2026-10-26: T-11 implementation notes (`db/migrations/0014_posture_read.sql`, `pkg/settings/client.go`, `source.go`, `internal/posture.PublishChanged`).
+  - Read side:
+    - `posture.state.version` is bumped by statement-level triggers on `setting_value`, `active_profile` and `profile_value`. The trigger runs as `posture_definer`, so out-of-band edits bump it too.
+    - `posture.effective_settings()` returns one consistent snapshot: `{version, profile, profile_version, instance, bu}`. Instance values are the active profile's defaults overlaid by instance-wide values.
+    - `posture.settings_version()` is the cheap poll.
+    - Both are granted to `app_rw` and `app_posture`, with schema `USAGE` for `app_rw`, as planned in T-08. Services still have no table privileges.
+  - `settings.Client` sits alongside the T-00b `Registry` (unchanged until T-16):
+    - `Register` validates definitions locally. Registration with the posture service and the startup check are T-12.
+    - `Get(key, buID)` and typed accessors (`Duration`, `Int`, `Bool`, `Enum`) decode package-format JSON per definition. A BU override applies only to BU-scopable settings.
+    - `Run` refreshes at once on a `posture.setting.changed` event for a newer version, and polls the version every TTL (30 s), reloading only when it moved.
+    - `Get` fails closed (`ErrStale`) after `MaxStale` (2 minutes) without a confirmed refresh. A registered key with no value in force gives `ErrUnbound`.
+  - Heartbeats go on `posture.settings.heartbeat` (core NATS) every 60 s: service, instance, version, the instance values of registered keys, a BU override count, and a SHA-256 digest of the whole snapshot. The drift engine (T-25) consumes them.
+  - Publishing: `internal/posture.PublishChanged` publishes `{key, bu_id, version}` through `natspub` (JetStream, acknowledged) after commit. The installer provisions a stream for `posture.setting.changed`. Clients listen with core subscriptions; a lost event is covered by the poll.
+  - Verification:
+    - Unit tests: typed values, BU scoping, unregistered and unbound keys, bad values, conflicting registration, reload only on a version change, wake-ups only for newer events, event-driven versus poll-driven propagation, fail-closed staleness and recovery, and heartbeat contents and digest.
+    - DB tests: the snapshot before and after the seed, the version moving on changes and on a direct edit, BU overrides in the snapshot, and no table access for `app_rw`.
+    - Propagation across three services (separate pools and NATS connections, default TTL): an announced change reached all three in about 20 ms; with the event withheld, the poll delivered it in 29.8 s (requirement: 60 s). All three heartbeats agree.
