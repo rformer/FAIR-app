@@ -1,0 +1,24 @@
+# F-015 T-06: the profile packages each release ships (design §4.3).
+# `go run ./cmd/profilegen packages` builds them into profiles/packages/ and
+# pins their digests in profiles/packages/manifest.json. Packages are
+# immutable: when a package's contents change (bindings, sources, profile),
+# bump its version here; the generator refuses to change a pinned digest.
+#
+# base is the OSCAL profile the package resolves, relative to the repository
+# root: a third_party/oscal pin or an in-repo profile under profiles/.
+packages:
+  - id: fedramp-moderate
+    title: FedRAMP Moderate
+    family: fedramp
+    version: "1.0.0"
+    base: third_party/oscal/fedramp/rev5/FedRAMP_rev5_MODERATE-baseline_profile.json
+  - id: cmmc-l2-r2
+    title: CMMC Level 2 (NIST SP 800-171 Rev 2)
+    family: cmmc
+    version: "1.0.0"
+    base: profiles/cmmc-l2-r2/profile.json
+  - id: enterprise-baseline
+    title: Enterprise Baseline
+    family: enterprise
+    version: "1.0.0"
+    base: profiles/enterprise-baseline/profile.json

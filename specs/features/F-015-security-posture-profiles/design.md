@@ -93,6 +93,14 @@ profiles:
 
 The package is signed (ECDSA P-256, release signing key) with a detached signature. `posture` verifies the signature and schema on import and refuses unsigned or tampered packages. Packages are immutable: a new version gets a new file.
 
+Build and release (T-06; proposed with T-06, pending approval):
+- `profiles/packages.yaml` lists each package's id, title, family, version and base OSCAL profile. `profilegen packages` builds the packages deterministically and writes them, with a **package manifest** that pins each one by SHA-256, to `profiles/packages/`. Both are committed, so every change to a package shows up in review.
+- Each setting entry also carries its type, direction, enum order, `bu_scopable` and origin (`source` or `platform_choice`), so an importer can validate the package with nothing else to hand. `bound` is the weakest value allowed without an exception. Metadata `sources` lists every input with its SHA-256: the base profile, every pinned file its resolution read, and every binding file.
+- Packages are canonical JSON (sorted keys, durations as Go duration strings). Decoding refuses unknown fields, trailing data and non-canonical bytes.
+- Immutability is enforced at build time. If a package that is already pinned would get different bytes, the build refuses and asks for a version bump in `packages.yaml`.
+- `profilegen sign -key FILE -out DIR` (release pipeline) checks every package against its pin and signs each package and the package manifest (`<file>.sig`, base64 ASN.1 DER). The key is a PEM file, i.e. a mounted secret. `profilegen verify -pub FILE -dir DIR` verifies a signed release offline.
+- The package manifest is the profile-package part of the release manifest. Wherever the release pipeline assembles the full release manifest (image digests, §6.8), it pins the package manifest by digest.
+
 ## 5. Data model (schema `posture`)
 - `setting_def` (key PK, type, direction, bu_scopable, hard_floor jsonb, params text[], owner_feature, registered_version)
 - `profile` (id, name, kind[builtin|custom], base_profile_id, version, package_digest, status[draft|pending_approval|approved|active|retired], label_deviates bool)
@@ -314,7 +322,7 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
 - OSCAL pins (T-01, approved by Robert Former, 2026-10-26): OSCAL **v1.2.3** schemas, and NIST content from usnistgov/oscal-content **v1.6.0** (SP 800-53 v5.2.0). Pinned files are committed under `third_party/oscal` with a SHA-256 manifest. Go types come from `defenseunicorns/go-oscal` v0.7.2, wrapped in `internal/oscal`.
 
 ## 15. Open items
-- None. D-OQ4 was resolved on 2026-10-26; see §14.
+- D-OQ5 (needed by T-10 and the release pipeline, not by T-06): where the release signing key is held (KMS or Vault, per §8) and where the bundled public key ships in the install bundle. T-06 reads the private key from a file and takes the public key as a file.
 
 ## Change Log
 - 2026-10-24: Initial draft.
@@ -355,3 +363,14 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
   - The Enterprise Baseline relaxation rationales were written by Claude and are for review.
   - Parameter fixes in `pkg/settings`: `session.idle_timeout` now names ac-11_odp.02 instead of .01 (the selection), and `auth.inactive_disable_after` names ac-02.03_odp.02 instead of .01 (the time to disable). `auth.totp_enabled`, `banner.enabled`, `token.max_lifetime` and `fips.enabled` now list their parameters.
   - Tests check that every bound parameter is present in all three resolved profiles, and that a change to FedRAMP's AC-11 text fails the build.
+- 2026-10-26: T-06 implementation notes (`internal/profilepkg`, `internal/profilegen/package.go`, `profiles/packages*`). §4.3 gains the build and release detail, pending approval. D-OQ5 is opened for T-10.
+  - `internal/profilepkg` holds the format: canonical encoding, strict decoding and validation (reusing `pkg/settings.ValidateProfile`), ECDSA P-256 signing over SHA-256 (the Go FIPS 140 module), and the signed package manifest. It is shared by `profilegen` and the `posture` importer (T-10).
+  - The build validates and drift-checks every binding against the resolved profiles, requires every registered key to be bound, and round-trips each package through the importer's decoder before writing it. Any failure means no packages.
+  - The pinned loader now re-checks each file's SHA-256 against `MANIFEST.json` when it reads the file.
+  - `.gitattributes` pins LF for `bindings/**` and `profiles/**`, because packages record their inputs' digests. The race-enabled Linux run reproduces the packages built on Windows byte for byte.
+  - Verification:
+    - Two builds are byte-identical.
+    - The committed packages are current.
+    - The packages equal the `settings.BuiltinProfiles()` stand-in.
+    - These are refused: a byte flipped anywhere in a package; a tampered, missing or swapped signature; a package re-signed after a change (it no longer matches its pin); and a release signed by another key.
+    - A drifted, missing or below-floor binding fails the build.

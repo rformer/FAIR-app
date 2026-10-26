@@ -1,0 +1,24 @@
+{
+  "format": "fair-profile-release-manifest/v1",
+  "generator": "profilegen/1.0.0",
+  "packages": [
+    {
+      "file": "profile-cmmc-l2-r2-1.0.0.json",
+      "id": "cmmc-l2-r2",
+      "version": "1.0.0",
+      "sha256": "b4ddbdd648bbf0d67744026e2eb25670ad2ef3a429450aa229b8acf5b3983322"
+    },
+    {
+      "file": "profile-enterprise-baseline-1.0.0.json",
+      "id": "enterprise-baseline",
+      "version": "1.0.0",
+      "sha256": "0b52c28abe84613a786cd0937c25ec9c41f96dd18f0916c21e62683855133ae9"
+    },
+    {
+      "file": "profile-fedramp-moderate-1.0.0.json",
+      "id": "fedramp-moderate",
+      "version": "1.0.0",
+      "sha256": "98e87e7503b10fffd57257ff95c07da908059e78ae3d39e1d9dd8399f6e3bb1c"
+    }
+  ]
+}

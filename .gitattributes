@@ -9,3 +9,9 @@
 # Pinned third-party content is verified by SHA-256 (third_party/*/MANIFEST.json);
 # store and check out the exact bytes.
 third_party/** -text
+
+# Profile packages record the SHA-256 of their inputs (bindings, in-repo
+# profiles) and are pinned by digest themselves (F-015 T-06); every checkout
+# must have the same bytes.
+bindings/** text eol=lf
+profiles/** text eol=lf

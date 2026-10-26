@@ -10,11 +10,14 @@
 package profilegen
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -30,6 +33,8 @@ type PinnedLoader struct {
 	dir    string
 	byURL  map[string]string // source URL -> path relative to dir
 	byPath map[string]string // path -> source URL
+	sha    map[string]string // path -> SHA-256 recorded in the manifest
+	read   map[string]bool   // paths Load has served
 }
 
 // NewPinnedLoader reads dir/MANIFEST.json.
@@ -42,15 +47,17 @@ func NewPinnedLoader(dir string) (*PinnedLoader, error) {
 		Files []struct {
 			Path   string `json:"path"`
 			Source string `json:"source"`
+			SHA256 string `json:"sha256"`
 		} `json:"files"`
 	}
 	if err := json.Unmarshal(b, &m); err != nil {
 		return nil, fmt.Errorf("profilegen: manifest: %w", err)
 	}
-	l := &PinnedLoader{dir: dir, byURL: map[string]string{}, byPath: map[string]string{}}
+	l := &PinnedLoader{dir: dir, byURL: map[string]string{}, byPath: map[string]string{}, sha: map[string]string{}, read: map[string]bool{}}
 	for _, f := range m.Files {
 		l.byURL[f.Source] = f.Path
 		l.byPath[f.Path] = f.Source
+		l.sha[f.Path] = f.SHA256
 	}
 	return l, nil
 }
@@ -60,6 +67,20 @@ func (l *PinnedLoader) SourceOf(path string) (string, bool) {
 	u, ok := l.byPath[path]
 	return u, ok
 }
+
+// Read returns the pinned paths Load has served, sorted, and clears the record.
+func (l *PinnedLoader) Read() []string {
+	out := make([]string, 0, len(l.read))
+	for p := range l.read {
+		out = append(out, p)
+	}
+	slices.Sort(out)
+	clear(l.read)
+	return out
+}
+
+// SHA256 returns the manifest digest of a pinned path.
+func (l *PinnedLoader) SHA256(path string) string { return l.sha[path] }
 
 // Load implements Loader. NIST's examples import XML catalogs; when the URL
 // itself is not pinned, the same document's JSON rendition is tried.
@@ -73,6 +94,10 @@ func (l *PinnedLoader) Load(u string) (map[string]any, error) {
 		if err != nil {
 			return nil, err
 		}
+		if got := sha256.Sum256(b); hex.EncodeToString(got[:]) != l.sha[path] {
+			return nil, fmt.Errorf("profilegen: %s does not match its MANIFEST.json digest", path)
+		}
+		l.read[path] = true
 		var doc map[string]any
 		if err := json.Unmarshal(b, &doc); err != nil {
 			return nil, fmt.Errorf("profilegen: %s: %w", path, err)

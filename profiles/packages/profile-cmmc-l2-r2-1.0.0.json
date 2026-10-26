@@ -1,0 +1,349 @@
+{
+  "format": "fair-profile-package/v1",
+  "profile": {
+    "id": "cmmc-l2-r2",
+    "title": "CMMC Level 2 (NIST SP 800-171 Rev 2)",
+    "family": "cmmc",
+    "version": "1.0.0",
+    "base": "profiles/cmmc-l2-r2/profile.json",
+    "sources": [
+      {
+        "path": "profiles/cmmc-l2-r2/profile.json",
+        "sha256": "d0e3a074e0f30bdd1605dbc9616f05bf34c2e73bc28f1af0caf070172eb45483"
+      },
+      {
+        "path": "third_party/oscal/nist/sp800-53r5/NIST_SP-800-53_rev5_catalog.json",
+        "url": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.6.0/nist.gov/SP800-53/rev5/json/NIST_SP-800-53_rev5_catalog.json",
+        "sha256": "64ca6b4161de51ab6af098a7d101d326f14c95e1abf721396cd8a049e8115eeb"
+      },
+      {
+        "path": "bindings/audit.enabled.yaml",
+        "sha256": "ce0e72cd0842c7a2fb2d15e83ef85f34a933f3e99e39552ea6de72ae8d41b2a6"
+      },
+      {
+        "path": "bindings/auth.inactive_disable_after.yaml",
+        "sha256": "a61ab0634717d91cfda2dc33756942f6fb5047eeab4718e5eee5bfa5b88594d9"
+      },
+      {
+        "path": "bindings/auth.jit_provisioning.yaml",
+        "sha256": "0f18d14bcd8dd0b8cfec02d361a2bb302f350a5090bdef39e418b7c1a028583e"
+      },
+      {
+        "path": "bindings/auth.lockout_threshold.yaml",
+        "sha256": "aef4260aef8796cb5a35814c4017b62e7f34d01d9cffc055316e5488dcc87157"
+      },
+      {
+        "path": "bindings/auth.lockout_window.yaml",
+        "sha256": "991bf822dafba109ef9b0102eb4c8d173ed9ed4390358b63966d8c05951e3757"
+      },
+      {
+        "path": "bindings/auth.mfa_required_all.yaml",
+        "sha256": "b4cb695217afb38b7a862ebf108ffc88d060006168a75542a8359eaed887e670"
+      },
+      {
+        "path": "bindings/auth.mfa_required_privileged.yaml",
+        "sha256": "07fc9834cc1b50213d7ecbdd8af9b594514073c4880f74881833812e2b63ca05"
+      },
+      {
+        "path": "bindings/auth.totp_enabled.yaml",
+        "sha256": "8c408f4a1f48b9be35fdf79b1ee53f8902d83b5551656536db4f1c2e5f860c9e"
+      },
+      {
+        "path": "bindings/banner.enabled.yaml",
+        "sha256": "e03f78f157d50a478af874dfbb1ba2e5ec4e9f6060d5f2b0e0329d28399bfee7"
+      },
+      {
+        "path": "bindings/breakglass.enabled.yaml",
+        "sha256": "776accea033bd7affd4c3bfebdf1d9823c6eeea7b8fc59bbe7e8188d7b997f46"
+      },
+      {
+        "path": "bindings/bu.new_restricted_default.yaml",
+        "sha256": "0c0cc27d87382fe815a0918fc7f44ac6ef176fa1e36ccfcb352159641a38a88a"
+      },
+      {
+        "path": "bindings/exception.max_duration.yaml",
+        "sha256": "c7af651de3f08af257ed790ecbad146e91749b24802f3047f4cb9cdc2eaaadb1"
+      },
+      {
+        "path": "bindings/fips.enabled.yaml",
+        "sha256": "8dc620784e3f75de717416d4b4db83365346c47a69bd777bf654d86373bf1ac2"
+      },
+      {
+        "path": "bindings/rls.enforced.yaml",
+        "sha256": "e305062e93e08ac865b6ac007413e2e76a1aef6ee42507e57745a8ff345072d6"
+      },
+      {
+        "path": "bindings/session.absolute_timeout.yaml",
+        "sha256": "377cbbcb1a4021760d9d060c704392064f90e0acc3a4385ccdcbe33472cb5f3e"
+      },
+      {
+        "path": "bindings/session.idle_timeout.yaml",
+        "sha256": "9e88141df01100c1f557731c17a78911ceca4cc58f6576f6839152f711471a02"
+      },
+      {
+        "path": "bindings/session.network_binding.yaml",
+        "sha256": "66b13fe76d5f26a7fd25b6625d949598616a44810bf2470b81bc6f1b967ba581"
+      },
+      {
+        "path": "bindings/tls.min_version.yaml",
+        "sha256": "ce681e9f5b67ee0b7f773e1ff7a07cdef66222812bcdc4f58ad9ca4b3a928275"
+      },
+      {
+        "path": "bindings/token.max_lifetime.yaml",
+        "sha256": "2f477a761e1fa97bee82be7f54c236969eee42625ebd4e9088de8455c19253b9"
+      }
+    ],
+    "generator": "profilegen/1.0.0"
+  },
+  "settings": {
+    "audit.enabled": {
+      "type": "bool",
+      "direction": "true_is_stricter",
+      "bu_scopable": false,
+      "default": true,
+      "bound": true,
+      "origin": {
+        "platform_choice": "800-171 Rev 2 3.3.1 (AU-2, AU-12); hard floor"
+      }
+    },
+    "auth.inactive_disable_after": {
+      "type": "duration",
+      "direction": "lower_is_stricter",
+      "bu_scopable": false,
+      "default": "2160h0m0s",
+      "bound": "2160h0m0s",
+      "params": [
+        "ac-02.03_odp.02"
+      ],
+      "origin": {
+        "platform_choice": "800-171 Rev 2 3.5.6 (IA-4, via Appendix D) leaves the period open; matches FedRAMP Moderate"
+      }
+    },
+    "auth.jit_provisioning": {
+      "type": "bool",
+      "direction": "false_is_stricter",
+      "bu_scopable": false,
+      "default": false,
+      "bound": false,
+      "origin": {
+        "platform_choice": "800-171 Rev 2 3.1.1 (AC-2); F-001 AC-09: JIT off by default"
+      }
+    },
+    "auth.lockout_threshold": {
+      "type": "int",
+      "direction": "lower_is_stricter",
+      "bu_scopable": false,
+      "default": 3,
+      "bound": 3,
+      "params": [
+        "ac-07_odp.01"
+      ],
+      "origin": {
+        "platform_choice": "800-171 Rev 2 3.1.8 (AC-7); F-001 AC-47 default"
+      }
+    },
+    "auth.lockout_window": {
+      "type": "duration",
+      "direction": "higher_is_stricter",
+      "bu_scopable": false,
+      "default": "15m0s",
+      "bound": "15m0s",
+      "params": [
+        "ac-07_odp.02"
+      ],
+      "origin": {
+        "platform_choice": "800-171 Rev 2 3.1.8 (AC-7); F-001 AC-47 default"
+      }
+    },
+    "auth.mfa_required_all": {
+      "type": "bool",
+      "direction": "true_is_stricter",
+      "bu_scopable": false,
+      "default": true,
+      "bound": true,
+      "origin": {
+        "platform_choice": "800-171 Rev 2 3.5.3 (IA-2(2))"
+      }
+    },
+    "auth.mfa_required_privileged": {
+      "type": "bool",
+      "direction": "true_is_stricter",
+      "bu_scopable": false,
+      "default": true,
+      "bound": true,
+      "origin": {
+        "platform_choice": "800-171 Rev 2 3.5.3 (IA-2(1))"
+      }
+    },
+    "auth.totp_enabled": {
+      "type": "bool",
+      "direction": "false_is_stricter",
+      "bu_scopable": false,
+      "default": false,
+      "bound": false,
+      "params": [
+        "ia-02.08_odp"
+      ],
+      "origin": {
+        "platform_choice": "800-171 Rev 2 3.5.4 (IA-2(8)); F-001 AC-06"
+      }
+    },
+    "banner.enabled": {
+      "type": "bool",
+      "direction": "true_is_stricter",
+      "bu_scopable": false,
+      "default": true,
+      "bound": true,
+      "params": [
+        "ac-08_odp.01"
+      ],
+      "origin": {
+        "platform_choice": "800-171 Rev 2 3.1.9 (AC-8)"
+      }
+    },
+    "breakglass.enabled": {
+      "type": "bool",
+      "direction": "false_is_stricter",
+      "bu_scopable": false,
+      "default": false,
+      "bound": false,
+      "origin": {
+        "platform_choice": "F-001 AC-39"
+      }
+    },
+    "bu.new_restricted_default": {
+      "type": "bool",
+      "direction": "true_is_stricter",
+      "bu_scopable": false,
+      "default": true,
+      "bound": true,
+      "origin": {
+        "platform_choice": "F-001 AC-61: new BUs restricted by default"
+      }
+    },
+    "exception.max_duration": {
+      "type": "duration",
+      "direction": "lower_is_stricter",
+      "bu_scopable": false,
+      "default": "2160h0m0s",
+      "bound": "2160h0m0s",
+      "origin": {
+        "platform_choice": "F-015 secure default"
+      }
+    },
+    "fips.enabled": {
+      "type": "bool",
+      "direction": "true_is_stricter",
+      "bu_scopable": false,
+      "default": true,
+      "bound": true,
+      "params": [
+        "sc-13_odp.02"
+      ],
+      "origin": {
+        "platform_choice": "800-171 Rev 2 3.13.11 (SC-13): FIPS-validated cryptography"
+      }
+    },
+    "rls.enforced": {
+      "type": "bool",
+      "direction": "true_is_stricter",
+      "bu_scopable": false,
+      "default": true,
+      "bound": true,
+      "origin": {
+        "platform_choice": "800-171 Rev 2 3.1.1 (AC-3); hard floor"
+      }
+    },
+    "session.absolute_timeout": {
+      "type": "duration",
+      "direction": "lower_is_stricter",
+      "bu_scopable": false,
+      "default": "12h0m0s",
+      "bound": "12h0m0s",
+      "params": [
+        "ac-12_odp"
+      ],
+      "origin": {
+        "platform_choice": "800-171 Rev 2 3.1.11 (AC-12) leaves the condition open; matches FedRAMP Moderate"
+      }
+    },
+    "session.idle_timeout": {
+      "type": "duration",
+      "direction": "lower_is_stricter",
+      "bu_scopable": false,
+      "default": "15m0s",
+      "bound": "15m0s",
+      "params": [
+        "ac-11_odp.02"
+      ],
+      "origin": {
+        "platform_choice": "800-171 Rev 2 3.1.10 (AC-11) leaves the period open; matches FedRAMP Moderate"
+      }
+    },
+    "session.network_binding": {
+      "type": "enum",
+      "direction": "ordered",
+      "order": [
+        "off",
+        "flag",
+        "reauthenticate"
+      ],
+      "bu_scopable": true,
+      "default": "reauthenticate",
+      "bound": "reauthenticate",
+      "origin": {
+        "platform_choice": "800-171 Rev 2 3.13.15 (SC-23); F-001 design D-OQ2: reauthenticate in CMMC L2"
+      }
+    },
+    "tls.min_version": {
+      "type": "enum",
+      "direction": "ordered",
+      "order": [
+        "1.0",
+        "1.1",
+        "1.2",
+        "1.3"
+      ],
+      "bu_scopable": false,
+      "default": "1.2",
+      "bound": "1.2",
+      "origin": {
+        "platform_choice": "800-171 Rev 2 3.13.8 (SC-8); hard floor TLS 1.2"
+      }
+    },
+    "token.max_lifetime": {
+      "type": "duration",
+      "direction": "lower_is_stricter",
+      "bu_scopable": false,
+      "default": "2160h0m0s",
+      "bound": "2160h0m0s",
+      "params": [
+        "ia-05_odp.01"
+      ],
+      "origin": {
+        "platform_choice": "800-171 Rev 2 3.5.10 (IA-5); F-001 AC-37 default"
+      }
+    }
+  },
+  "hard_floor": {
+    "audit.enabled": {
+      "value": true
+    },
+    "auth.mfa_required_privileged": {
+      "value": true
+    },
+    "fips.enabled": {
+      "value": true,
+      "families": [
+        "fedramp",
+        "cmmc"
+      ]
+    },
+    "rls.enforced": {
+      "value": true
+    },
+    "tls.min_version": {
+      "value": "1.2"
+    }
+  }
+}
