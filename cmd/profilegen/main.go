@@ -7,12 +7,16 @@
 //	profilegen sign -key FILE -out DIR     copy the pinned packages and manifest to DIR with
 //	                                       detached signatures (release pipeline)
 //	profilegen verify -pub FILE -dir DIR   verify a signed release directory
+//	profilegen release-check [-online] [-report FILE]
+//	                                       release checklist gate (T-07): pins, generated
+//	                                       files, CMMC rule revision (online: against the eCFR)
 //
 // Signing keys are read from files (a mounted secret), never from flags or
 // environment values.
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -20,6 +24,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/rformer/fair-app/internal/profilegen"
 	"github.com/rformer/fair-app/internal/profilepkg"
@@ -56,6 +61,12 @@ func main() {
 			usage()
 		}
 		err = verify(*pub, *dir)
+	case "release-check":
+		fs := flag.NewFlagSet("release-check", flag.ExitOnError)
+		online := fs.Bool("online", false, "re-check the CMMC rule against the eCFR (release pipeline)")
+		report := fs.String("report", "", "write the report (Markdown) to this file")
+		_ = fs.Parse(os.Args[2:])
+		err = releaseCheck(*online, *report)
 	default:
 		usage()
 	}
@@ -66,7 +77,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: profilegen profiles | packages | sign -key FILE -out DIR | verify -pub FILE -dir DIR   (run from the repository root)")
+	fmt.Fprintln(os.Stderr, "usage: profilegen profiles | packages | sign -key FILE -out DIR | verify -pub FILE -dir DIR | release-check [-online] [-report FILE]   (run from the repository root)")
 	os.Exit(2)
 }
 
@@ -160,6 +171,33 @@ func verify(pubFile, dir string) error {
 	}
 	for _, p := range pkgs {
 		fmt.Printf("ok %s %s (%d settings)\n", p.Profile.ID, p.Profile.Version, len(p.Settings))
+	}
+	return nil
+}
+
+func releaseCheck(online bool, reportFile string) error {
+	var ecfr *profilegen.ECFR
+	if online {
+		ecfr = profilegen.NewECFR()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	r, err := profilegen.ReleaseCheck(ctx, profilegen.ReleaseInputs{
+		PinDir: "third_party/oscal", ProfilesDir: "profiles", BindingsDir: "bindings", PackagesDir: packagesDir,
+		ChecklistFile: "profiles/release-checklist.yaml", Defs: settings.F001Defs(),
+	}, ecfr, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	md := r.Markdown()
+	fmt.Print(md)
+	if reportFile != "" {
+		if err := os.WriteFile(reportFile, []byte(md), 0o600); err != nil {
+			return err
+		}
+	}
+	if r.Failed() {
+		return errors.New("release checklist failed")
 	}
 	return nil
 }

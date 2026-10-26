@@ -56,7 +56,7 @@ internal/rlstest    RLS negative-test harness for BU-owned tables (T-10)
 internal/oscal      OSCAL 1.2.3 parse/validate/marshal (F-015 T-01)
 internal/profilegen OSCAL profile resolution, bindings, in-repo profile generation (F-015)
 internal/profilepkg signed profile package format: encode, verify, release manifest (F-015 T-06)
-cmd/profilegen      build-time tool: `go run ./cmd/profilegen profiles|packages|sign|verify`
+cmd/profilegen      build-time tool: `go run ./cmd/profilegen profiles|packages|sign|verify|release-check`
 profiles/           in-repo OSCAL profiles (CMMC L2, Enterprise Baseline) and the CMMC mapping table
 bindings/           one YAML binding per security setting: defaults, bounds, value origins (F-015 §4.1)
 profiles/packages/  generated profile packages and their digest manifest; signed at release (F-015 §4.3)

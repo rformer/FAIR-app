@@ -13,7 +13,7 @@ Prerequisite: F-001 Phases 0–1 (DB roles, BU closure, approvals interface, eve
 | T-04 | Author in-repo OSCAL profiles: Enterprise Baseline; **CMMC L2 from NIST SP 800-171 Rev 2** (`cmmc-l2-r2`), mapped to 800-53r5 parameters | AC-04, D-OQ1 | Mapping table reviewed; package builds | M | In Review (2026-10-26): built; `profiles/cmmc-l2-r2/mapping.md` awaits sign-off |
 | T-05 | Bindings for all F-001 settings (sessions, MFA, JIT, banner, token lifetime, network binding, lockout, restricted-BU defaults, break-glass) | AC-01, AC-04 | Every F-001 key resolves in all three profiles | M | Done (2026-10-26) |
 | T-06 | Package format, deterministic build, ECDSA P-256 signing, release-manifest pinning | AC-05 | Reproducible digest across builds; tamper test | S | Done (2026-10-26) |
-| T-07 | Release checklist automation: confirm CMMC rule's current 800-171 revision; pin OSCAL source digests | AC-06, D-OQ1 | Checklist gate in release pipeline | S | Todo |
+| T-07 | Release checklist automation: confirm CMMC rule's current 800-171 revision; pin OSCAL source digests | AC-06, D-OQ1 | Checklist gate in release pipeline | S | Done (2026-10-26) |
 
 ## Phase B — Registry, values & change control
 | # | Task | Traces to | Verification | Size | Status |

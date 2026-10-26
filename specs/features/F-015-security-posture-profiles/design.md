@@ -81,7 +81,7 @@ profiles:
 
 ### 4.2 Profile sources
 - **FedRAMP Moderate:** NIST 800-53r5 OSCAL catalog plus the FedRAMP Moderate OSCAL baseline (pinned by digest).
-- **CMMC L2:** an in-repo OSCAL profile built from the **revision of NIST SP 800-171 that the CMMC rule currently requires**. As of October 2026 that is **Rev 2 (110 requirements)**. Requirements are mapped onto the 800-53r5 parameters used by the bindings. The package ID carries the revision (`cmmc-l2-r2`). When a rule moving CMMC Level 2 to Rev 3 takes effect, a `cmmc-l2-r3` package is added alongside it, and customers move to it through the normal gated profile switch (§6.4). No code change is needed. Release checklist item: confirm the CMMC rule's current 800-171 revision before each release.
+- **CMMC L2:** an in-repo OSCAL profile built from the **revision of NIST SP 800-171 that the CMMC rule currently requires**. As of October 2026 that is **Rev 2 (110 requirements)**. Requirements are mapped onto the 800-53r5 parameters used by the bindings. The package ID carries the revision (`cmmc-l2-r2`). When a rule moving CMMC Level 2 to Rev 3 takes effect, a `cmmc-l2-r3` package is added alongside it, and customers move to it through the normal gated profile switch (§6.4). No code change is needed. Release checklist item: confirm the CMMC rule's current 800-171 revision before each release. This is automated (T-07): `profiles/release-checklist.yaml` records the confirmation, and the release gate re-checks it against the eCFR on every release tag.
 - **Enterprise Baseline:** an in-repo OSCAL profile derived from 800-53r5 Moderate with documented relaxations.
 - **Future (FedRAMP High, DoD IL4/IL5):** a new OSCAL source plus binding entries produces a new package with no runtime code change (AC-06).
 
@@ -374,3 +374,19 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
     - The packages equal the `settings.BuiltinProfiles()` stand-in.
     - These are refused: a byte flipped anywhere in a package; a tampered, missing or swapped signature; a package re-signed after a change (it no longer matches its pin); and a release signed by another key.
     - A drifted, missing or below-floor binding fails the build.
+- 2026-10-26: T-07 implementation notes (`internal/profilegen/release.go`, `profilegen release-check`, `.github/workflows/release.yml`).
+  - The release gate is the `release-checklist` job in a new `release` workflow, which runs on every `v*` tag. F-012's later release jobs must depend on it. It uploads its report as release evidence.
+  - Offline checks (blocking):
+    - Every OSCAL source matches its SHA-256 in `MANIFEST.json`. The report lists all pinned sources with URL and digest.
+    - The in-repo profiles and the profile packages rebuild byte for byte from the pins and bindings.
+    - A `cmmc-l2-r<rev>` package exists for the confirmed revision.
+    - The confirmation in `profiles/release-checklist.yaml` is complete and not dated in the future.
+  - Online CMMC re-check (`-online`, blocking), read from the eCFR versioner API over TLS 1.2+:
+    - 32 CFR part 170's latest amendment date must equal the recorded `part_amended` (2024-12-16). Any amendment blocks the release until a person re-reads the rule and updates the file.
+    - §170.14(c)(3) must still read "The security requirements in CMMC Level 2 are identical to the requirements in NIST SP 800-171 R2."
+    - An unreachable eCFR fails closed.
+  - Limitation: the eCFR shows rules in force. A published final rule with a future effective date is not visible until it takes effect, so watching the Federal Register stays a manual task.
+  - Verification:
+    - The committed tree passes, and the live eCFR passed on 2026-10-26.
+    - A confirmed Rev 3 without a `cmmc-l2-r3` package fails.
+    - These fail closed: a later amendment, changed rule text, an eCFR server error, missing or malformed versions, an incomplete or future-dated confirmation, and a changed pinned file.

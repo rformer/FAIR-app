@@ -11,7 +11,8 @@ This repo is built **spec-first**. Before doing anything, read:
 - F-015 in progress: T-01 to T-03 done; T-04 (in-repo profiles) built and In Review until `profiles/cmmc-l2-r2/mapping.md` is signed off.
 - F-015 T-05 done: `bindings/` holds one YAML binding per F-001 setting; `pkg/settings.BuiltinProfiles()` must stay equal to them (test-enforced) until T-16.
 - F-015 T-06 done: `go run ./cmd/profilegen packages` rebuilds `profiles/packages/` (committed, pinned by digest). Changing a binding means bumping that package's version in `profiles/packages.yaml`.
-- **Next: F-015 T-07** (`specs/features/F-015-security-posture-profiles/tasks.md`; release checklist automation), in task order; then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
+- F-015 T-07 done: `go run ./cmd/profilegen release-check [-online]` is the release gate (`.github/workflows/release.yml`); `profiles/release-checklist.yaml` records the CMMC rule confirmation.
+- **Next: F-015 T-08** (`specs/features/F-015-security-posture-profiles/tasks.md`; Phase B, `posture` service scaffold and schema), then the rest of F-015 in task order; then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
 
 ## Working rules
 - Implement only tasks that are marked Approved and listed in a `tasks.md`. If a task needs a design change, stop and propose the spec change; don't silently diverge.

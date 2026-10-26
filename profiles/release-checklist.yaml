@@ -1,0 +1,16 @@
+# F-015 T-07: release checklist confirmations (design §4.2, D-OQ1).
+# `go run ./cmd/profilegen release-check -online` (release pipeline) re-checks
+# these against the eCFR. If 32 CFR part 170 has been amended since
+# part_amended, or the cited text has changed, the release is blocked until a
+# person re-reads the rule and updates this file. If the rule moves CMMC
+# Level 2 to another 800-171 revision, add a cmmc-l2-r<rev> package first.
+cmmc:
+  revision: "2"
+  title: "32"
+  part: "170"
+  section: "170.14"
+  citation: "32 CFR 170.14(c)(3)"
+  text: "The security requirements in CMMC Level 2 are identical to the requirements in NIST SP 800-171 R2."
+  part_amended: "2024-12-16"
+  confirmed_by: "Robert Former"
+  confirmed_on: "2026-10-26"

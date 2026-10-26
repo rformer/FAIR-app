@@ -16,8 +16,8 @@ These are the approved specs for the FAIR Risk Platform. They are mirrored from 
 ## Where we are
 - **Done:** F-001 Phase 0 (T-00a, T-00b, T-00c, T-01, T-02). See `features/F-001-identity-bu-rbac/tasks.md`.
 - **Done:** F-001 Phase 1, the authorization core (T-02b, T-03 to T-12; benchmark gate passed).
-- **In progress:** F-015. Done: T-01 to T-03, T-05, T-06; T-04 In Review (mapping sign-off). **Next:** T-07 (release checklist automation), then the rest of F-001.
-- **Then:** F-015, followed by the rest of F-001.
+- **In progress:** F-015. Phase A done (T-01 to T-03, T-05 to T-07) except T-04, In Review (mapping sign-off). **Next:** T-08 (Phase B, `posture` service scaffold and schema), then the rest of F-015.
+- **Then:** the rest of F-001.
 
 ## Rules for contributors (human or AI)
 - No implementation without approved requirements and an approved design for the feature.

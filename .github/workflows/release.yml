@@ -1,0 +1,36 @@
+# F-015 T-07: release checklist gate. Runs on every release tag. Later
+# release jobs (packaging, signing with the release key per F-015 D-OQ5,
+# publishing; F-012) must declare `needs: [release-checklist]`.
+# TODO(F-012): pin every action to a full commit SHA (Dependabot updates them).
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GOFIPS140: v1.0.0
+  CGO_ENABLED: "0"
+
+jobs:
+  release-checklist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # Pins match MANIFEST.json, profiles and packages rebuild byte for byte,
+      # and the CMMC rule's 800-171 revision is re-confirmed against the eCFR
+      # (32 CFR part 170); any amendment since the recorded confirmation fails.
+      - name: Profile release checklist
+        run: go run ./cmd/profilegen release-check -online -report release-checklist.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-checklist
+          path: release-checklist.md
