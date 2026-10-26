@@ -1,0 +1,16 @@
+# F-015 T-05: binding for auth.mfa_required_privileged: MFA for privileged permissions (IA-2(1)); hard floor.
+setting: auth.mfa_required_privileged
+type: bool
+direction: true_is_stricter
+bu_scopable: false
+hard_floor: true
+profiles:
+  fedramp-moderate:
+    default: true
+    platform_choice: "IA-2(1) (no parameters): MFA for privileged accounts"
+  cmmc-l2-r2:
+    default: true
+    platform_choice: "800-171 Rev 2 3.5.3 (IA-2(1))"
+  enterprise-baseline:
+    default: true
+    platform_choice: "Hard floor: privileged MFA is never optional"

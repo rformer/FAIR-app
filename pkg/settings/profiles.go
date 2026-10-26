@@ -64,34 +64,37 @@ const (
 const day = 24 * time.Hour
 
 // F001Defs returns the F-001 setting definitions. Parameter IDs follow the
-// OSCAL 800-53r5 catalog naming; profilegen (F-015 T-02/T-05) will verify them.
+// OSCAL 800-53r5 catalog naming and must match the binding files in
+// bindings/ (F-015 T-05; checked by internal/profilegen tests).
 func F001Defs() []Def {
 	return []Def{
-		{Key: KeySessionIdleTimeout, Kind: KindDuration, Direction: LowerIsStricter, Params: []string{"ac-11_odp.01"}, Controls: []string{"AC-11"}, BUScopable: false, Description: "Idle session timeout"},
+		{Key: KeySessionIdleTimeout, Kind: KindDuration, Direction: LowerIsStricter, Params: []string{"ac-11_odp.02"}, Controls: []string{"AC-11"}, BUScopable: false, Description: "Idle session timeout"},
 		{Key: KeySessionAbsoluteTimeout, Kind: KindDuration, Direction: LowerIsStricter, Params: []string{"ac-12_odp"}, Controls: []string{"AC-12"}, Description: "Absolute session lifetime"},
 		{Key: KeySessionNetworkBinding, Kind: KindEnum, Direction: OrderedEnum, Order: []string{"off", "flag", "reauthenticate"}, Controls: []string{"AC-12", "SC-23"}, BUScopable: true, Description: "Behavior when a session's client network changes"},
 		{Key: KeyAuthMFAPrivileged, Kind: KindBool, Direction: TrueIsStricter, Controls: []string{"IA-2(1)"}, Floor: true, Description: "MFA required for privileged permissions"},
 		{Key: KeyAuthMFAAll, Kind: KindBool, Direction: TrueIsStricter, Controls: []string{"IA-2(2)"}, Description: "MFA required for all users"},
 		{Key: KeyAuthJIT, Kind: KindBool, Direction: FalseIsStricter, Controls: []string{"AC-2"}, Description: "Just-in-time user provisioning"},
-		{Key: KeyAuthTOTP, Kind: KindBool, Direction: FalseIsStricter, Controls: []string{"IA-2(8)"}, Description: "TOTP allowed for non-privileged users (bundled Keycloak)"},
+		{Key: KeyAuthTOTP, Kind: KindBool, Direction: FalseIsStricter, Params: []string{"ia-02.08_odp"}, Controls: []string{"IA-2(8)"}, Description: "TOTP allowed for non-privileged users (bundled Keycloak)"},
 		{Key: KeyAuthLockoutThreshold, Kind: KindInt, Direction: LowerIsStricter, Params: []string{"ac-07_odp.01"}, Controls: []string{"AC-7"}, Description: "Consecutive failed logins before lockout (local accounts)"},
 		{Key: KeyAuthLockoutWindow, Kind: KindDuration, Direction: HigherIsStricter, Params: []string{"ac-07_odp.02"}, Controls: []string{"AC-7"}, Description: "Window in which failures are counted"},
-		{Key: KeyAuthInactiveDisable, Kind: KindDuration, Direction: LowerIsStricter, Params: []string{"ac-02.03_odp.01"}, Controls: []string{"AC-2(3)"}, Description: "Disable accounts after this much inactivity"},
-		{Key: KeyBannerEnabled, Kind: KindBool, Direction: TrueIsStricter, Controls: []string{"AC-8"}, Description: "System use notification banner"},
-		{Key: KeyTokenMaxLifetime, Kind: KindDuration, Direction: LowerIsStricter, Controls: []string{"IA-5"}, Description: "Maximum API token lifetime"},
+		{Key: KeyAuthInactiveDisable, Kind: KindDuration, Direction: LowerIsStricter, Params: []string{"ac-02.03_odp.02"}, Controls: []string{"AC-2(3)"}, Description: "Disable accounts after this much inactivity"},
+		{Key: KeyBannerEnabled, Kind: KindBool, Direction: TrueIsStricter, Params: []string{"ac-08_odp.01"}, Controls: []string{"AC-8"}, Description: "System use notification banner"},
+		{Key: KeyTokenMaxLifetime, Kind: KindDuration, Direction: LowerIsStricter, Params: []string{"ia-05_odp.01"}, Controls: []string{"IA-5"}, Description: "Maximum API token lifetime"},
 		{Key: KeyBUNewRestricted, Kind: KindBool, Direction: TrueIsStricter, Controls: []string{"AC-3", "AC-6"}, Description: "New business units are restricted by default"},
 		{Key: KeyBreakGlassEnabled, Kind: KindBool, Direction: FalseIsStricter, Controls: []string{"AC-2", "AC-6"}, Description: "Break-glass local admin accounts enabled"},
 		{Key: KeyExceptionMaxDuration, Kind: KindDuration, Direction: LowerIsStricter, Controls: []string{"CA-5", "CM-6"}, Description: "Maximum exception duration before automatic revert"},
 		{Key: KeyTLSMinVersion, Kind: KindEnum, Direction: OrderedEnum, Order: []string{"1.0", "1.1", "1.2", "1.3"}, Controls: []string{"SC-8", "SC-13"}, Floor: "1.2", Description: "Minimum TLS version"},
 		{Key: KeyAuditEnabled, Kind: KindBool, Direction: TrueIsStricter, Controls: []string{"AU-2", "AU-12"}, Floor: true, Description: "Security audit logging"},
 		{Key: KeyRLSEnforced, Kind: KindBool, Direction: TrueIsStricter, Controls: []string{"AC-3"}, Floor: true, Description: "Row-level security enforced"},
-		{Key: KeyFIPSEnabled, Kind: KindBool, Direction: TrueIsStricter, Controls: []string{"SC-13"}, Floor: true, FloorFamilies: []Family{FamilyFedRAMP, FamilyCMMC}, Description: "FIPS 140-validated cryptography"},
+		{Key: KeyFIPSEnabled, Kind: KindBool, Direction: TrueIsStricter, Params: []string{"sc-13_odp.02"}, Controls: []string{"SC-13"}, Floor: true, FloorFamilies: []Family{FamilyFedRAMP, FamilyCMMC}, Description: "FIPS 140-validated cryptography"},
 	}
 }
 
 // BuiltinProfiles returns the three v1 built-in profiles for F-001 settings.
-// Values are placeholders pending profilegen (F-015 Phase A), which derives
-// them from the OSCAL baselines; tests assert they respect the hard floor.
+// The values are those of the binding files in bindings/ (F-015 T-05), which
+// record where each comes from; internal/profilegen tests keep the two equal
+// until signed profile packages (T-06) and the posture service (T-16)
+// replace this stand-in.
 func BuiltinProfiles() []Profile {
 	strict := func(def any) Bound { return Bound{Default: def, Weakest: def} }
 	common := func() map[string]Bound {

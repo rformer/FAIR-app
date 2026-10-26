@@ -1,0 +1,21 @@
+# F-015 T-05: binding for auth.lockout_window: Window in which failed logins are counted (AC-7).
+setting: auth.lockout_window
+type: duration
+direction: higher_is_stricter
+bu_scopable: false
+params:
+  - catalog: nist-sp-800-53-r5
+    param: ac-07_odp.02
+profiles:
+  fedramp-moderate:
+    default: "15m"
+    bound: { min: "15m" }
+    platform_choice: "FedRAMP Moderate leaves ac-07_odp.02 unconstrained; F-001 AC-47 default: 15 minutes"
+  cmmc-l2-r2:
+    default: "15m"
+    bound: { min: "15m" }
+    platform_choice: "800-171 Rev 2 3.1.8 (AC-7); F-001 AC-47 default"
+  enterprise-baseline:
+    default: "15m"
+    bound: { min: "15m" }
+    platform_choice: "F-001 AC-47 default; not relaxed"

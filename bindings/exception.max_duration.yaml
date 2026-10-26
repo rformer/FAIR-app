@@ -1,0 +1,18 @@
+# F-015 T-05: binding for exception.max_duration: Maximum setting-exception duration before automatic revert (CA-5, CM-6).
+setting: exception.max_duration
+type: duration
+direction: lower_is_stricter
+bu_scopable: false
+profiles:
+  fedramp-moderate:
+    default: "90d"
+    bound: { max: "90d" }
+    platform_choice: "F-015 secure default: exceptions expire after 90 days and revert"
+  cmmc-l2-r2:
+    default: "90d"
+    bound: { max: "90d" }
+    platform_choice: "F-015 secure default"
+  enterprise-baseline:
+    default: "90d"
+    bound: { max: "90d" }
+    platform_choice: "F-015 secure default; not relaxed"

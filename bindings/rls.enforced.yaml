@@ -1,0 +1,16 @@
+# F-015 T-05: binding for rls.enforced: Row-level security enforced (AC-3); hard floor.
+setting: rls.enforced
+type: bool
+direction: true_is_stricter
+bu_scopable: false
+hard_floor: true
+profiles:
+  fedramp-moderate:
+    default: true
+    platform_choice: "AC-3; constitution A6; hard floor"
+  cmmc-l2-r2:
+    default: true
+    platform_choice: "800-171 Rev 2 3.1.1 (AC-3); hard floor"
+  enterprise-baseline:
+    default: true
+    platform_choice: "Hard floor: row-level security is never off"

@@ -1,0 +1,18 @@
+# F-015 T-05: binding for banner.enabled: System use notification banner (AC-8); F-001 AC-34.
+setting: banner.enabled
+type: bool
+direction: true_is_stricter
+bu_scopable: false
+params:
+  - catalog: nist-sp-800-53-r5
+    param: ac-08_odp.01
+profiles:
+  fedramp-moderate:
+    default: true
+    platform_choice: "AC-8 system use notification is required; FedRAMP's text for ac-08_odp.01 defers to its guidance"
+  cmmc-l2-r2:
+    default: true
+    platform_choice: "800-171 Rev 2 3.1.9 (AC-8)"
+  enterprise-baseline:
+    default: true
+    platform_choice: "F-001 AC-34: banner on by default"

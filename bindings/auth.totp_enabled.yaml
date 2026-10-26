@@ -1,0 +1,19 @@
+# F-015 T-05: binding for auth.totp_enabled: TOTP for non-privileged users in the bundled Keycloak (IA-2(8)); F-001 AC-06.
+setting: auth.totp_enabled
+type: bool
+direction: false_is_stricter
+bu_scopable: false
+params:
+  - catalog: nist-sp-800-53-r5
+    param: ia-02.08_odp
+profiles:
+  fedramp-moderate:
+    default: false
+    platform_choice: "IA-2(8) replay-resistant authentication for privileged and non-privileged accounts; TOTP off by default (F-001 AC-06)"
+  cmmc-l2-r2:
+    default: false
+    platform_choice: "800-171 Rev 2 3.5.4 (IA-2(8)); F-001 AC-06"
+  enterprise-baseline:
+    default: false
+    bound: { allowed: [false, true] }
+    platform_choice: "Enterprise Baseline relaxation: a Platform Admin may enable TOTP for non-privileged users (F-001 AC-06)"

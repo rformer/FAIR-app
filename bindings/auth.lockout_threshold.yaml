@@ -1,0 +1,21 @@
+# F-015 T-05: binding for auth.lockout_threshold: Consecutive failed local logins before lockout (AC-7); F-001 AC-47.
+setting: auth.lockout_threshold
+type: int
+direction: lower_is_stricter
+bu_scopable: false
+params:
+  - catalog: nist-sp-800-53-r5
+    param: ac-07_odp.01
+profiles:
+  fedramp-moderate:
+    default: 3
+    bound: { max: 3 }
+    platform_choice: "FedRAMP Moderate leaves ac-07_odp.01 unconstrained; F-001 AC-47 default: 3 attempts"
+  cmmc-l2-r2:
+    default: 3
+    bound: { max: 3 }
+    platform_choice: "800-171 Rev 2 3.1.8 (AC-7); F-001 AC-47 default"
+  enterprise-baseline:
+    default: 5
+    bound: { max: 10 }
+    platform_choice: "Enterprise Baseline relaxation: 5 attempts by default, up to 10"

@@ -57,6 +57,7 @@ internal/oscal      OSCAL 1.2.3 parse/validate/marshal (F-015 T-01)
 internal/profilegen OSCAL profile resolution, bindings, in-repo profile generation (F-015)
 cmd/profilegen      build-time tool: `go run ./cmd/profilegen profiles`
 profiles/           in-repo OSCAL profiles (CMMC L2, Enterprise Baseline) and the CMMC mapping table
+bindings/           one YAML binding per security setting: defaults, bounds, value origins (F-015 §4.1)
 third_party/oscal   pinned OSCAL schema and NIST content, SHA-256 manifest
 internal/access     permission catalog and built-in roles
 pkg/audit           security event contract and sinks

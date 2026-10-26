@@ -1,0 +1,16 @@
+# F-015 T-05: binding for audit.enabled: Security audit logging (AU-2, AU-12); hard floor.
+setting: audit.enabled
+type: bool
+direction: true_is_stricter
+bu_scopable: false
+hard_floor: true
+profiles:
+  fedramp-moderate:
+    default: true
+    platform_choice: "AU-2 and AU-12; hard floor"
+  cmmc-l2-r2:
+    default: true
+    platform_choice: "800-171 Rev 2 3.3.1 (AU-2, AU-12); hard floor"
+  enterprise-baseline:
+    default: true
+    platform_choice: "Hard floor: audit is never off"

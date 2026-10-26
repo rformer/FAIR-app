@@ -1,0 +1,21 @@
+# F-015 T-05: binding for session.idle_timeout: Session lock after inactivity (AC-11).
+setting: session.idle_timeout
+type: duration
+direction: lower_is_stricter
+bu_scopable: false
+params:
+  - catalog: nist-sp-800-53-r5
+    param: ac-11_odp.02
+profiles:
+  fedramp-moderate:
+    default: "15m"
+    bound: { max: "15m" }
+    source: { param: ac-11_odp.02, constraint: "fifteen (15) minutes" }
+  cmmc-l2-r2:
+    default: "15m"
+    bound: { max: "15m" }
+    platform_choice: "800-171 Rev 2 3.1.10 (AC-11) leaves the period open; matches FedRAMP Moderate"
+  enterprise-baseline:
+    default: "15m"
+    bound: { max: "30m" }
+    platform_choice: "Enterprise Baseline relaxation: up to 30 minutes for organizations without federal session-lock requirements"

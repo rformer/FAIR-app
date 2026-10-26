@@ -1,0 +1,16 @@
+# F-015 T-05: binding for bu.new_restricted_default: New business units are restricted (AC-3, AC-6); F-001 AC-61.
+setting: bu.new_restricted_default
+type: bool
+direction: true_is_stricter
+bu_scopable: false
+profiles:
+  fedramp-moderate:
+    default: true
+    platform_choice: "F-001 AC-61: new BUs restricted by default"
+  cmmc-l2-r2:
+    default: true
+    platform_choice: "F-001 AC-61: new BUs restricted by default"
+  enterprise-baseline:
+    default: true
+    bound: { allowed: [true, false] }
+    platform_choice: "F-001 AC-61: a Platform Admin may change the default"

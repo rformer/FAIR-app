@@ -1,0 +1,21 @@
+# F-015 T-05: binding for session.absolute_timeout: Absolute session lifetime (AC-12).
+setting: session.absolute_timeout
+type: duration
+direction: lower_is_stricter
+bu_scopable: false
+params:
+  - catalog: nist-sp-800-53-r5
+    param: ac-12_odp
+profiles:
+  fedramp-moderate:
+    default: "12h"
+    bound: { max: "12h" }
+    platform_choice: "FedRAMP Moderate leaves AC-12 (ac-12_odp) without a value for this setting; platform secure default"
+  cmmc-l2-r2:
+    default: "12h"
+    bound: { max: "12h" }
+    platform_choice: "800-171 Rev 2 3.1.11 (AC-12) leaves the condition open; matches FedRAMP Moderate"
+  enterprise-baseline:
+    default: "12h"
+    bound: { max: "24h" }
+    platform_choice: "Enterprise Baseline relaxation: absolute sessions up to 24 hours"

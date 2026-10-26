@@ -1,0 +1,21 @@
+# F-015 T-05: binding for fips.enabled: FIPS 140-validated cryptography (SC-13); hard floor for FedRAMP and CMMC.
+setting: fips.enabled
+type: bool
+direction: true_is_stricter
+bu_scopable: false
+hard_floor: true
+hard_floor_families: [fedramp, cmmc]
+params:
+  - catalog: nist-sp-800-53-r5
+    param: sc-13_odp.02
+profiles:
+  fedramp-moderate:
+    default: true
+    source: { param: sc-13_odp.02, constraint: "FIPS-validated or NSA-approved cryptography" }
+  cmmc-l2-r2:
+    default: true
+    platform_choice: "800-171 Rev 2 3.13.11 (SC-13): FIPS-validated cryptography"
+  enterprise-baseline:
+    default: true
+    bound: { allowed: [true, false] }
+    platform_choice: "Enterprise Baseline relaxation: FIPS may be disabled outside FedRAMP and CMMC (the hard floor applies only to those families)"

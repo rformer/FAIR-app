@@ -1,0 +1,15 @@
+# F-015 T-05: binding for breakglass.enabled: Break-glass local admin accounts (AC-2, AC-6); F-001 AC-39 to AC-41.
+setting: breakglass.enabled
+type: bool
+direction: false_is_stricter
+bu_scopable: false
+profiles:
+  fedramp-moderate:
+    default: false
+    platform_choice: "F-001 AC-39: break-glass disabled by default; enabling needs dual approval"
+  cmmc-l2-r2:
+    default: false
+    platform_choice: "F-001 AC-39"
+  enterprise-baseline:
+    default: false
+    platform_choice: "F-001 AC-39"

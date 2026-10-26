@@ -1,0 +1,21 @@
+# F-015 T-05: binding for token.max_lifetime: Maximum API token lifetime (IA-5); F-001 AC-37.
+setting: token.max_lifetime
+type: duration
+direction: lower_is_stricter
+bu_scopable: false
+params:
+  - catalog: nist-sp-800-53-r5
+    param: ia-05_odp.01
+profiles:
+  fedramp-moderate:
+    default: "90d"
+    bound: { max: "90d" }
+    platform_choice: "FedRAMP Moderate leaves ia-05_odp.01 unconstrained; F-001 AC-37 default: 90 days"
+  cmmc-l2-r2:
+    default: "90d"
+    bound: { max: "90d" }
+    platform_choice: "800-171 Rev 2 3.5.10 (IA-5); F-001 AC-37 default"
+  enterprise-baseline:
+    default: "90d"
+    bound: { max: "90d" }
+    platform_choice: "F-001 AC-37 default; not relaxed"

@@ -1,0 +1,15 @@
+# F-015 T-05: binding for auth.mfa_required_all: MFA for all users (IA-2(2)).
+setting: auth.mfa_required_all
+type: bool
+direction: true_is_stricter
+bu_scopable: false
+profiles:
+  fedramp-moderate:
+    default: true
+    platform_choice: "IA-2(2) (no parameters): MFA for non-privileged accounts"
+  cmmc-l2-r2:
+    default: true
+    platform_choice: "800-171 Rev 2 3.5.3 (IA-2(2))"
+  enterprise-baseline:
+    default: true
+    platform_choice: "F-001 secure default: MFA for all users"

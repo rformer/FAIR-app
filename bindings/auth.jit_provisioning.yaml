@@ -1,0 +1,16 @@
+# F-015 T-05: binding for auth.jit_provisioning: Just-in-time provisioning (AC-2); F-001 AC-09.
+setting: auth.jit_provisioning
+type: bool
+direction: false_is_stricter
+bu_scopable: false
+profiles:
+  fedramp-moderate:
+    default: false
+    platform_choice: "AC-2 account management: accounts provisioned through SCIM only (F-001 AC-09)"
+  cmmc-l2-r2:
+    default: false
+    platform_choice: "800-171 Rev 2 3.1.1 (AC-2); F-001 AC-09: JIT off by default"
+  enterprise-baseline:
+    default: false
+    bound: { allowed: [false, true] }
+    platform_choice: "Enterprise Baseline relaxation: JIT may be enabled by an admin (F-001 AC-09)"
