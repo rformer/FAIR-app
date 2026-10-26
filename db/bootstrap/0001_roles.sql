@@ -46,6 +46,11 @@ ALTER ROLE app_engine CONNECTION LIMIT 100;
 -- The migrator may become fair_owner only by an explicit SET ROLE (no inherited privileges).
 GRANT fair_owner TO app_migrator WITH INHERIT FALSE, SET TRUE;
 
+-- Migrations (as fair_owner) hand the signed-context functions to
+-- authz_definer (F-001 T-09), which needs SET on that role. fair_owner already
+-- owns everything authz_definer can read, so this widens nothing.
+GRANT authz_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
+
 -- Lock down the database: nobody connects unless granted.
 REVOKE ALL ON DATABASE :"dbname" FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"dbname" TO app_migrator, app_rw, app_engine;
