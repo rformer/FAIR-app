@@ -232,6 +232,8 @@ Until F-015 exists, F-001 ships a minimal settings module that holds the three p
 - **D-OQ1. SAML library selection** (`crewjam/saml` vs `russellhaering/gosaml2`), judged on maintenance record, CVE history and FIPS-only algorithms. An XML signature wrapping (XSW) test corpus is required regardless. → Task T-15.
 - **D-OQ3. `authz.visible_bus` performance at target scale.** → Task T-11, which gates the features that build on it.
 - **R1. Closure rebuild on large subtree moves:** done asynchronously, with the move blocked until the rebuild completes.
+- **D-OQ4. Contents of the v1 permission catalog.** The specs name only examples (`analysis.edit`, `acceptance.approve`, `access.assign`, and the F-015 additions). T-03 delivers the file format, loader and diff (`internal/access/catalog`) but no shipped catalog. The full permission list, with action and privileged class per key, is needed before T-06 seeds the built-in roles.
+- **D-OQ5. Removed or reclassified permissions on upgrade.** T-03 reports them in the catalog diff but does not reject them. T-29 must decide whether a release may remove a key that custom roles reference, and whether reclassifying a permission as non-privileged is allowed.
 
 ## Resolved
 - ADR-007 signed database context: accepted (2026-10-24)
@@ -241,3 +243,4 @@ Until F-015 exists, F-001 ships a minimal settings module that holds the three p
 ## Change Log
 - 2026-10-24: Initial draft.
 - 2026-10-24: ADR-007 and ADR-008 accepted; session network binding added (§5.8); design **approved**.
+- 2026-10-25: T-03 implementation notes. The catalog file is JSON with an integer catalog `version`; `introduced_in_version` holds that catalog version. The loader rejects unprivileged approve/admin/export permissions (AC-54). Added open items D-OQ4 and D-OQ5.
