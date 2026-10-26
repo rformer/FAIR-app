@@ -1,0 +1,114 @@
+[
+  {
+    "name": "small scope (1 BUs): visible_bus",
+    "p50_ms": 0.32,
+    "p95_ms": 0.38,
+    "p99_ms": 0.43,
+    "budget_ms": 10.0
+  },
+  {
+    "name": "small scope (1 BUs): row by primary key",
+    "p50_ms": 0.33,
+    "p95_ms": 0.41,
+    "p99_ms": 0.45,
+    "budget_ms": 10.0
+  },
+  {
+    "name": "small scope (1 BUs): newest 50 rows",
+    "p50_ms": 8.04,
+    "p95_ms": 8.62,
+    "p99_ms": 10.01,
+    "budget_ms": 10.0
+  },
+  {
+    "name": "small scope (1 BUs): count in one BU",
+    "p50_ms": 0.34,
+    "p95_ms": 0.45,
+    "p99_ms": 0.62,
+    "budget_ms": 10.0
+  },
+  {
+    "name": "medium scope (26 BUs): visible_bus",
+    "p50_ms": 0.34,
+    "p95_ms": 0.4,
+    "p99_ms": 0.48,
+    "budget_ms": 10.0
+  },
+  {
+    "name": "medium scope (26 BUs): row by primary key",
+    "p50_ms": 0.36,
+    "p95_ms": 0.43,
+    "p99_ms": 0.49,
+    "budget_ms": 10.0
+  },
+  {
+    "name": "medium scope (26 BUs): newest 50 rows",
+    "p50_ms": 0.77,
+    "p95_ms": 0.86,
+    "p99_ms": 1.0,
+    "budget_ms": 10.0
+  },
+  {
+    "name": "medium scope (26 BUs): count in one BU",
+    "p50_ms": 0.4,
+    "p95_ms": 0.47,
+    "p99_ms": 0.6,
+    "budget_ms": 10.0
+  },
+  {
+    "name": "large scope (1952 BUs): visible_bus",
+    "p50_ms": 1.09,
+    "p95_ms": 1.18,
+    "p99_ms": 1.29,
+    "budget_ms": 10.0
+  },
+  {
+    "name": "large scope (1952 BUs): row by primary key",
+    "p50_ms": 1.18,
+    "p95_ms": 1.28,
+    "p99_ms": 1.37,
+    "budget_ms": 10.0
+  },
+  {
+    "name": "large scope (1952 BUs): newest 50 rows",
+    "p50_ms": 1.55,
+    "p95_ms": 1.66,
+    "p99_ms": 1.72,
+    "budget_ms": 10.0
+  },
+  {
+    "name": "large scope (1952 BUs): count in one BU",
+    "p50_ms": 1.23,
+    "p95_ms": 1.44,
+    "p99_ms": 1.73,
+    "budget_ms": 10.0
+  },
+  {
+    "name": "no RLS (superuser): newest 50 rows",
+    "p50_ms": 0.06,
+    "p95_ms": 0.08,
+    "p99_ms": 0.1,
+    "budget_ms": 0
+  },
+  {
+    "name": "no RLS (superuser): row by primary key",
+    "p50_ms": 0.06,
+    "p95_ms": 0.08,
+    "p99_ms": 0.13,
+    "budget_ms": 0
+  },
+  {
+    "name": "closure: restrict + unrestrict a level-1 BU (~200 below)",
+    "p50_ms": 486.43,
+    "p95_ms": 491.54,
+    "p99_ms": 491.54,
+    "budget_ms": 2000.0
+  },
+  {
+    "name": "closure: move a level-2 subtree and back",
+    "p50_ms": 3.94,
+    "p95_ms": 5.26,
+    "p99_ms": 5.26,
+    "budget_ms": 2000.0
+  }
+]

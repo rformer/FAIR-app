@@ -15,7 +15,7 @@ These are the approved specs for the FAIR Risk Platform. They are mirrored from 
 
 ## Where we are
 - **Done:** F-001 Phase 0 (T-00a, T-00b, T-00c, T-01, T-02). See `features/F-001-identity-bu-rbac/tasks.md`.
-- **In progress:** F-001 Phase 1, the authorization core. Done: T-02b, T-03 to T-10. **Next:** T-11 (benchmark gate), then T-12. Phase 1 ends with the T-11 benchmark gate.
+- **In progress:** F-001 Phase 1, the authorization core. Done: T-02b, T-03 to T-11 (benchmark gate passed). **Next:** T-12. Phase 1 ends with the T-11 benchmark gate.
 - **Then:** F-015, followed by the rest of F-001.
 
 ## Rules for contributors (human or AI)

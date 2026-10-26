@@ -65,6 +65,43 @@ jobs:
           name: coverage
           path: coverage.out
 
+  # F-001 T-11: visible_bus + RLS at target scale. Fails when a request-path
+  # p95 exceeds 10 ms or regresses past max(3x, +5 ms) of db/bench/baseline.json.
+  bench:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci-only-admin
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+      - name: Benchmark gate
+        env:
+          FAIR_TEST_PG: "1"
+          FAIR_BENCH: "1"
+          FAIR_BENCH_BASELINE: ${{ github.workspace }}/db/bench/baseline.json
+          FAIR_BENCH_REPORT: ${{ github.workspace }}/bench-report.md
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: ci-only-admin
+        run: go test -count=1 -timeout 30m -run TestBenchmarkGate -v ./db/tests/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-report
+          path: bench-report.md
+
   lint:
     runs-on: ubuntu-latest
     steps:

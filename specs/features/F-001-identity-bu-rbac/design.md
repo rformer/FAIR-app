@@ -230,12 +230,13 @@ Until F-015 exists, F-001 ships a minimal settings module that holds the three p
 
 ## 12. Risks & open items (resolved during implementation)
 - **D-OQ1. SAML library selection** (`crewjam/saml` vs `russellhaering/gosaml2`), judged on maintenance record, CVE history and FIPS-only algorithms. An XML signature wrapping (XSW) test corpus is required regardless. → Task T-15.
-- **D-OQ3. `authz.visible_bus` performance at target scale.** → Task T-11, which gates the features that build on it.
+- **D-OQ3. `authz.visible_bus` performance at target scale:** resolved, see Resolved.
 - **R1. Closure rebuild on large subtree moves:** resolved, see Resolved.
 - **D-OQ4. Contents of the v1 permission catalog:** resolved, see Resolved.
 - **D-OQ5. Removed or reclassified permissions on upgrade.** T-03 reports them in the catalog diff but does not reject them. T-29 must decide whether a release may remove a key that custom roles reference, and whether reclassifying a permission as non-privileged is allowed.
 
 ## Resolved
+- D-OQ3 `visible_bus` performance: meets the NFR at target scale (T-11, `db/bench/REPORT.md`, 2026-10-26). The context check plus query has p95 0.4 ms for small and medium scopes and 1.2–1.7 ms for the largest (1,952 BUs).
 - Assignment authority (T-07, approved by Robert Former, 2026-10-26):
   - A **root-level grantor** holds `access.assign` through an assignment at the Enterprise root. Root-level grantors may assign into restricted BUs; this is for assigning only and never widens data access. Everyone else needs an assignment at or below the restricted BU (AC-22). Without this, nobody could make the first assignment in a new BU, because new BUs are restricted by default (AC-61).
   - Only root-level grantors may grant roles that contain an `admin` permission, at any BU (AC-22).
@@ -285,3 +286,7 @@ Until F-015 exists, F-001 ships a minimal settings module that holds the three p
   - CI gate: every table in `iam.bu_owned_tables` must have a fixture in `rlsFixtures` and pass, and any table with `bu_id` that an application role can access must be registered.
   - A meta-test proves the harness detects eight kinds of broken table, and that the gate catches unregistered ones.
   - PostgreSQL applies SELECT policies to `COPY ... TO` (zero rows without a context) and to the new row of an UPDATE whose WHERE reads columns. That is why the harness needs a read-only BU to detect a missing `WITH CHECK`.
+- 2026-10-26: T-11 implementation notes (`db/tests/bench_test.go`, `db/bench/baseline.json`, CI job `bench`).
+  - The gate fails if a request-path p95 exceeds 10 ms, or if any budgeted result exceeds max(3× baseline, baseline + 5 ms).
+  - Known hotspot: an unfiltered "newest 50 rows" query for a user with a single BU had p95 8.6 ms and p99 10.0 ms. The RLS BU array is unknown at plan time, so PostgreSQL walks the primary key past rows outside the caller's scope. Feature tables with list views must filter by BU or carry a `(bu_id, <sort key>)` index; their T-10 fixtures should be benchmarked the same way.
+  - Closure rebuild at 2,011 BUs (R1): restrict plus unrestrict of a level-1 BU 0.49 s, subtree move 5 ms; budget 2 s.
