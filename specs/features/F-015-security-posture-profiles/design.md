@@ -64,12 +64,19 @@ profiles:
     source:                    # what the value was transcribed from
       param: ac-11_odp.02
       constraint: "fifteen (15) minutes"
-  cmmc-l2:          { default: 15m, bound: { max: 15m } }
-  enterprise-baseline: { default: 15m, bound: { max: 30m } }
+  cmmc-l2-r2:
+    default: 15m
+    bound: { max: 15m }
+    platform_choice: "800-171 3.1.10 leaves the period open; matches FedRAMP Moderate"
+  enterprise-baseline:
+    default: 15m
+    bound: { max: 30m }
+    platform_choice: "Enterprise Baseline relaxation (see profile notes)"
 ```
 - Published OSCAL baselines carry no machine-readable parameter values. FedRAMP's rev5 Moderate baseline sets 264 parameters, all as prose `constraints` (for example, AC-11 "fifteen (15) minutes"), and leaves some unset (for example, AC-7). Values are therefore **transcribed by a person and drift-checked by the build**:
   - `source.param` must exist in the resolved profile, and its constraint text must equal `source.constraint` exactly (whitespace normalized). Otherwise `profilegen` **fails the build**, and someone re-reviews the transcription against the new text.
-  - A parameter the source leaves unconstrained needs `platform_choice: <reason>` in place of `source`, so the gap is documented rather than silently filled.
+  - Every profile entry states where its value comes from: `source` (drift-checked) or `platform_choice: <reason>`. A parameter the source leaves unconstrained, and any profile we author ourselves, therefore needs `platform_choice`, so no default is undocumented.
+  - Bounds are written in the strict direction: `max` for `lower_is_stricter`, `min` for `higher_is_stricter`, and `allowed` for `bool` and `enum` (its weakest member is the bound). An omitted bound means the default itself. Durations accept Go units plus `d` for days.
   - Defaults are never derived from prose automatically.
 
 ### 4.2 Profile sources
@@ -325,3 +332,10 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
   - Conformance (the verification): structure (group and control order and nesting) plus every group's and control's full content must equal the published resolved catalog, after normalizing artifacts of the reference resolvers. Those artifacts are collapsed whitespace (NIST adds a space before parameter insertions), `file:/home/...#id` links reduced to `#id` (FedRAMP's tool rewrote links to controls outside the baseline as paths on its author's machine), and unescaped brackets. Metadata, UUIDs and back-matter are resolver-specific and not compared.
   - Result: all five targets conform (the three NIST examples, NIST 800-53r5 Moderate, and FedRAMP rev5 Moderate through its tailoring profile and oscal-content v1.3.0). Mutation checks confirmed the suite catches a broken `alters` position, a missing exclude and the select rule; a dedicated test covers append-versus-replace.
   - The v1.3.0 catalog is pinned under the exact `refs/tags/v1.3.0` URL that FedRAMP's tailoring profile imports.
+- 2026-10-26: T-03 implementation notes (`internal/profilegen/binding.go`).
+  - Binding files are YAML, decoded strictly with `go.yaml.in/yaml/v3` (the YAML organization's maintained continuation of the archived `gopkg.in/yaml.v3`).
+  - The validator reuses `pkg/settings`' types, strictness comparator and hard floors. A binding for a registered key must agree with its definition: type, direction, enum order and floor.
+  - Every profile listed must be covered, and no others. Each entry's default must lie within its bound, and the bound must not be weaker than the hard floor where the floor applies to that profile's family.
+  - Each entry states its origin: `source`, drift-checked against the resolved profile, or `platform_choice`. The §4.1 example was updated to follow this rule (clarification accepted by Robert Former with the T-03 commit).
+  - The `set` type (§3) is refused until a setting needs it; no F-001 setting does.
+  - Note for T-05: `pkg/settings` still maps `session.idle_timeout` to `ac-11_odp.01` (the selection) rather than `ac-11_odp.02` (the time period).
