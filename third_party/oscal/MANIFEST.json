@@ -1,0 +1,15 @@
+{
+  "oscal_version": "1.2.3",
+  "oscal_content_release": "v1.6.0",
+  "files": [
+    {"path": "schemas/oscal_complete_schema.json", "source": "https://github.com/usnistgov/OSCAL/releases/download/v1.2.3/oscal_complete_schema.json", "sha256": "384324105c7a817af0f65b120a963146caa0e0d55d969cf0daf60e063b87a206"},
+    {"path": "nist/sp800-53r5/NIST_SP-800-53_rev5_catalog.json", "source": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.6.0/nist.gov/SP800-53/rev5/json/NIST_SP-800-53_rev5_catalog.json", "sha256": "64ca6b4161de51ab6af098a7d101d326f14c95e1abf721396cd8a049e8115eeb"},
+    {"path": "nist/sp800-53r5/NIST_SP-800-53_rev5_MODERATE-baseline_profile.json", "source": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.6.0/nist.gov/SP800-53/rev5/json/NIST_SP-800-53_rev5_MODERATE-baseline_profile.json", "sha256": "e3a0f11237cfaac24dfcf1586e07683f17423757fd84208deb33196b12e8f590"},
+    {"path": "nist/sp800-53r5/NIST_SP-800-53_rev5_MODERATE-baseline-resolved-profile_catalog.json", "source": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.6.0/nist.gov/SP800-53/rev5/json/NIST_SP-800-53_rev5_MODERATE-baseline-resolved-profile_catalog.json", "sha256": "4d254976acfcb6b208538c6f859bca516e6e5bf220fbfc8d3bbfb4afb60838ec"},
+    {"path": "examples/catalog/basic-catalog.json", "source": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.6.0/examples/catalog/json/basic-catalog.json", "sha256": "e6c8c0b0617686dd563a0926a11fea2dadeb7ac9433328d3d02cced1ca1a2ed4"},
+    {"path": "examples/profile/basic-profile.json", "source": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.6.0/examples/profile/json/basic-profile.json", "sha256": "23f1544794b4190e468caf5883f46eeeef9819c771d4bda713a1b5c3b93fcb9f"},
+    {"path": "examples/component-definition/example-component-definition.json", "source": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.6.0/examples/component-definition/json/example-component-definition.json", "sha256": "52f142887f598ae912d794cc7189628336047a0874f326077d3f87f471733fea"},
+    {"path": "examples/assessment-results/ifa_assessment-results-example.json", "source": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.6.0/examples/ar/json/ifa_assessment-results-example.json", "sha256": "13bde5421ac9f8986e293b74e7caa025fd1f61a4c55d94bb68dce44417ff0eb6"},
+    {"path": "examples/poam/ifa_plan-of-action-and-milestones.json", "source": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.6.0/examples/poam/json/ifa_plan-of-action-and-milestones.json", "sha256": "8d942c63655c02f2a32a86b598412de8150affd3a296c0447d8b81dfb9df842f"}
+  ]
+}

@@ -53,6 +53,8 @@ internal/dbconn     PostgreSQL connection policy (secret files, verified TLS)
 internal/scope      scope worker (River jobs, event delivery)
 internal/natspub    NATS JetStream publisher
 internal/rlstest    RLS negative-test harness for BU-owned tables (T-10)
+internal/oscal      OSCAL 1.2.3 parse/validate/marshal (F-015 T-01)
+third_party/oscal   pinned OSCAL schema and NIST content, SHA-256 manifest
 internal/access     permission catalog and built-in roles
 pkg/audit           security event contract and sinks
 pkg/settings        security settings registry and change rules (F-015 contract)

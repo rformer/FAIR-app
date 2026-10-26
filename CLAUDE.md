@@ -8,7 +8,8 @@ This repo is built **spec-first**. Before doing anything, read:
 
 ## Current position
 - F-001 Phases 0 and 1 are **done** (T-00a to T-12, plus T-02b).
-- **Next: F-015** (`specs/features/F-015-security-posture-profiles/tasks.md`), Phase A from T-01, in task order; then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
+- F-015 in progress: T-01 done (OSCAL types and pinned schema/content).
+- **Next: F-015 T-02** (`specs/features/F-015-security-posture-profiles/tasks.md`; FedRAMP source: OSCAL-Foundation/fedramp-resources, design D-OQ4), in task order; then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
 
 ## Working rules
 - Implement only tasks that are marked Approved and listed in a `tasks.md`. If a task needs a design change, stop and propose the spec change; don't silently diverge.

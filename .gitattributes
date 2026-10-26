@@ -5,3 +5,7 @@
 # Migrations are checksummed (SHA-256) by the migration runner; a CRLF
 # checkout would change the checksum and the runner would refuse to run.
 *.sql text eol=lf
+
+# Pinned third-party content is verified by SHA-256 (third_party/*/MANIFEST.json);
+# store and check out the exact bytes.
+third_party/** -text

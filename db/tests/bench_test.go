@@ -223,20 +223,20 @@ func TestBenchmarkGate(t *testing.T) {
 	report := benchReport(results)
 	t.Log("\n" + report)
 	if path := os.Getenv("FAIR_BENCH_REPORT"); path != "" {
-		if err := os.WriteFile(path, []byte(report), 0o600); err != nil {
+		if err := os.WriteFile(path, []byte(report), 0o600); err != nil { // #nosec G703 -- operator-chosen output path for a test run
 			t.Fatal(err)
 		}
 	}
 	if path := os.Getenv("FAIR_BENCH_WRITE_BASELINE"); path != "" {
 		b, _ := json.MarshalIndent(results, "", "  ")
-		if err := os.WriteFile(path, append(b, '\n'), 0o600); err != nil {
+		if err := os.WriteFile(path, append(b, '\n'), 0o600); err != nil { // #nosec G703 -- operator-chosen output path for a test run
 			t.Fatal(err)
 		}
 	}
 
 	var baseline map[string]benchResult
 	if path := os.Getenv("FAIR_BENCH_BASELINE"); path != "" {
-		b, err := os.ReadFile(path)
+		b, err := os.ReadFile(path) // #nosec G304 G703 -- operator-chosen baseline for a test run
 		if err != nil {
 			t.Fatal(err)
 		}

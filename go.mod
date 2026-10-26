@@ -7,10 +7,12 @@ go 1.24.0
 godebug fips140=on
 
 require (
+	github.com/defenseunicorns/go-oscal v0.7.2
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/nats-io/nats.go v1.47.0
 	github.com/riverqueue/river v0.30.0
 	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.30.0
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 )
 
 require (
