@@ -21,13 +21,13 @@ Status: **Approved** (Robert Former, 2026-10-24) | Design: Approved 2026-10-24
 |---|---|---|---|---|---|
 | T-03 | Permission catalog file format, loader and versioning | AC-51, AC-57 | Catalog diff test across two versions | S | Done (2026-10-25; catalog contents open as D-OQ4) |
 | T-04 | BU schema + closure table + triggers (single root, depth, no cycles) | AC-15, AC-16 | Trigger tests; property tests on random trees | M | Done (2026-10-25) |
-| T-05 | BU move / restrict / unrestrict with closure rebuild and `blocked` flag; async rebuild for large subtrees | AC-17, AC-59, AC-60 | Property tests: no inheritance across restricted nodes | M | Todo |
+| T-05 | BU move / restrict / unrestrict with closure rebuild and `blocked` flag, synchronous in the same transaction (design §12 R1) | AC-17 (closure recalculation), AC-59, AC-60 | Property tests: no inheritance across restricted nodes | M | Done (2026-10-25) |
 | T-06 | Roles + `role_version` + built-in role seeds | AC-52, AC-55 | Built-in roles are immutable; versions increment | S | Todo |
 | T-07 | Assignments with grantor checks and DB-level block on self-assignment | AC-20, AC-21, AC-22, AC-28 | Escalation test suite (BU Admin → admin role, cross-restricted, self-grant) | M | Todo |
-| T-08 | Scope materialization worker, outbox and nightly reconciliation | AC-21, AC-60, NFR 60 s | Change → scope visible ≤ 60 s p99 at target scale; drift alert test | M | Todo |
+| T-08 | Scope materialization worker, outbox and nightly reconciliation; BU move writes an outbox row with old and new parent in the move's transaction | AC-17 (move audit), AC-21, AC-60, NFR 60 s | Change → scope visible ≤ 60 s p99 at target scale; drift alert test; a move cannot commit without its outbox row | M | Todo |
 | T-09 | Signed DB context: key table, rotation, `authz.visible_bus`, `authz.apply_bu_rls` | AC-24, AC-25, AC-27, ADR-007 | Integration tests on a sample BU-owned table | M | Todo |
 | T-10 | RLS negative test harness: forged / expired / stale / missing context → empty; SQL-injection simulation | AC-24, AC-25 | Harness becomes a reusable CI suite for every feature | M | Todo |
-| T-11 | **Benchmark gate:** `visible_bus` + RLS at 10k users / 2k BUs / 50k assignments | NFR p95 ≤ 10 ms, D-OQ3 | Benchmark report committed; fails CI on regression | S | Todo |
+| T-11 | **Benchmark gate:** `visible_bus` + RLS at 10k users / 2k BUs / 50k assignments; BU closure rebuild (`db/bench/bu_rebuild.sql`) | NFR p95 ≤ 10 ms, D-OQ3, R1 | Benchmark report committed; fails CI on regression | S | Todo |
 | T-12 | `authz` library: `Check()`, grant snapshot cache, invalidation on `iam.scope.changed`, DB-context transaction helper | AC-24, NFR | Unit + integration tests; cache invalidation ≤ 60 s | M | Todo |
 
 ## Phase 2 — Authentication & sessions

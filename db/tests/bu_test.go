@@ -1,6 +1,7 @@
 package tests
 
-// F-001 T-04 (AC-15, AC-16): BU tree triggers and closure-table invariants.
+// F-001 T-04 (AC-15, AC-16) and T-05 (AC-17, AC-59, AC-60): BU tree triggers
+// and closure-table invariants.
 
 import (
 	"encoding/binary"
@@ -108,12 +109,69 @@ func TestBUNoCycles(t *testing.T) {
 	}
 }
 
-func TestBURestrictDeferredToT05(t *testing.T) {
+// inheritanceViolationsSQL counts closure rows whose `blocked` flag disagrees
+// with a walk up bu.parent_id: a path (a, d] must be blocked iff a restricted
+// node lies on it (AC-60). It does not trust bu_closure for the walk.
+const inheritanceViolationsSQL = `
+WITH RECURSIVE path(a, d, x) AS (
+  SELECT ancestor_id, descendant_id, descendant_id FROM iam.bu_closure WHERE depth > 0
+  UNION ALL
+  SELECT p.a, p.d, b.parent_id FROM path p JOIN iam.bu b ON b.id = p.x WHERE b.parent_id <> p.a
+)
+SELECT count(*) FROM iam.bu_closure c
+WHERE c.blocked <> EXISTS (
+  SELECT 1 FROM path p JOIN iam.bu b ON b.id = p.x
+  WHERE p.a = c.ancestor_id AND p.d = c.descendant_id AND b.restricted)`
+
+// blocked reports bu_closure.blocked for the pair of BU codes.
+func (e *env) blocked(ancestor, descendant string) string {
+	e.t.Helper()
+	return e.mustOwner(fmt.Sprintf(`SELECT c.blocked FROM iam.bu_closure c
+		JOIN iam.bu a ON a.id = c.ancestor_id JOIN iam.bu d ON d.id = c.descendant_id
+		WHERE a.code = '%s' AND d.code = '%s'`, ancestor, descendant))
+}
+
+// T-05 (AC-59, AC-60): restricting a BU stops inheritance into it and its
+// subtree from every ancestor, but not from the BU itself.
+func TestBURestrictBlocksInheritance(t *testing.T) {
 	e := setup(t)
-	e.addBU("A", "ENTERPRISE")
-	e.ownerFails("UPDATE iam.bu SET restricted = true WHERE code = 'A'", "T-05")
-	if out := e.mustOwner("INSERT INTO iam.bu (name, code, parent_id) SELECT 'D', 'D', id FROM iam.bu WHERE code = 'A' RETURNING restricted"); out != "t" {
+	if out := e.mustOwner("INSERT INTO iam.bu (name, code, parent_id) SELECT 'D', 'D', id FROM iam.bu WHERE parent_id IS NULL RETURNING restricted"); out != "t" {
 		t.Fatalf("new BU restricted = %s, want t (secure default)", out)
+	}
+	e.addBU("A", "ENTERPRISE")
+	e.addBU("B", "A")
+	e.addBU("C", "B")
+	if got := e.blocked("ENTERPRISE", "C"); got != "f" {
+		t.Fatalf("unrestricted path blocked = %s", got)
+	}
+
+	e.mustOwner("UPDATE iam.bu SET restricted = true WHERE code = 'B'")
+	for _, pair := range [][3]string{
+		{"ENTERPRISE", "B", "t"}, {"ENTERPRISE", "C", "t"}, {"A", "B", "t"}, {"A", "C", "t"},
+		{"B", "C", "f"}, // an assignment at the restricted node still applies below it
+		{"ENTERPRISE", "A", "f"},
+	} {
+		if got := e.blocked(pair[0], pair[1]); got != pair[2] {
+			t.Errorf("after restrict: blocked(%s, %s) = %s, want %s", pair[0], pair[1], got, pair[2])
+		}
+	}
+
+	// A second restricted node on the path keeps it blocked after the first is lifted.
+	e.mustOwner("UPDATE iam.bu SET restricted = true WHERE code = 'C'")
+	e.mustOwner("UPDATE iam.bu SET restricted = false WHERE code = 'B'")
+	for _, pair := range [][3]string{{"A", "B", "f"}, {"A", "C", "t"}, {"B", "C", "t"}} {
+		if got := e.blocked(pair[0], pair[1]); got != pair[2] {
+			t.Errorf("after unrestrict: blocked(%s, %s) = %s, want %s", pair[0], pair[1], got, pair[2])
+		}
+	}
+
+	// Move and restrict in one statement: the restrict rebuild sees the new links.
+	e.mustOwner("UPDATE iam.bu SET parent_id = (SELECT id FROM iam.bu WHERE code = 'A'), restricted = false WHERE code = 'C'")
+	if got := e.blocked("ENTERPRISE", "C"); got != "f" {
+		t.Errorf("after move+unrestrict: blocked(ENTERPRISE, C) = %s, want f", got)
+	}
+	if out := e.mustOwner(inheritanceViolationsSQL); out != "0" {
+		t.Fatalf("%s closure rows disagree with the tree", out)
 	}
 }
 
@@ -196,8 +254,8 @@ func uuidFrom(r *rand.Rand) string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
-// TestBUClosureProperty applies random inserts, moves and archives, some of
-// them invalid, and checks that the database accepts exactly the valid ones
+// TestBUClosureProperty applies random inserts, moves, restricts, unrestricts
+// and archives, some of them invalid, and checks that the database accepts exactly the valid ones
 // and that bu_closure and bu.depth match the model afterwards.
 func TestBUClosureProperty(t *testing.T) {
 	e := setup(t)
@@ -227,7 +285,7 @@ func TestBUClosureProperty(t *testing.T) {
 			for i := range 150 {
 				ns := m.nodes()
 				pick := func() string { return ns[r.IntN(len(ns))] }
-				switch k := r.IntN(10); {
+				switch k := r.IntN(12); {
 				case k < 5: // insert
 					p, id, restricted := pick(), uuidFrom(r), r.IntN(3) == 0
 					ok := !m.archived[p] && m.depth(p)+1 <= m.maxDepth
@@ -235,13 +293,25 @@ func TestBUClosureProperty(t *testing.T) {
 					if ok {
 						m.parent[id], m.restricted[id] = p, restricted
 					}
-				case k < 9: // move
+				case k < 8: // move
 					n, p := pick(), pick()
 					ok := m.parent[n] == p || // an unchanged parent is a no-op, even if archived
 						m.parent[n] != "" && !m.isAncestor(n, p) && !m.archived[p] && m.depth(p)+1+m.height(n) <= m.maxDepth
 					op(fmt.Sprintf("UPDATE iam.bu SET parent_id = '%s' WHERE id = '%s'", p, n), ok)
 					if ok {
 						m.parent[n] = p
+					}
+				case k < 10: // restrict or unrestrict (AC-59)
+					n := pick()
+					op(fmt.Sprintf("UPDATE iam.bu SET restricted = NOT restricted WHERE id = '%s'", n), true)
+					m.restricted[n] = !m.restricted[n]
+				case k < 11: // move and toggle restriction in one statement
+					n, p := pick(), pick()
+					ok := m.parent[n] == p ||
+						m.parent[n] != "" && !m.isAncestor(n, p) && !m.archived[p] && m.depth(p)+1+m.height(n) <= m.maxDepth
+					op(fmt.Sprintf("UPDATE iam.bu SET parent_id = '%s', restricted = NOT restricted WHERE id = '%s'", p, n), ok)
+					if ok {
+						m.parent[n], m.restricted[n] = p, !m.restricted[n]
 					}
 				default: // archive
 					n := pick()
@@ -277,6 +347,10 @@ func TestBUClosureProperty(t *testing.T) {
 			slices.Sort(rows)
 			if wantRows := m.closure(); !slices.Equal(rows, wantRows) {
 				t.Fatalf("closure mismatch: db %d rows, model %d rows", len(rows), len(wantRows))
+			}
+			// AC-60, checked against the tree itself rather than the model.
+			if out := e.mustOwner(inheritanceViolationsSQL); out != "0" {
+				t.Fatalf("%s closure rows let access inherit across a restricted node (or block it without one)", out)
 			}
 
 			depths := strings.Split(e.mustOwner("SELECT id || '|' || depth FROM iam.bu"), "\n")

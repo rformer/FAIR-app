@@ -231,11 +231,12 @@ Until F-015 exists, F-001 ships a minimal settings module that holds the three p
 ## 12. Risks & open items (resolved during implementation)
 - **D-OQ1. SAML library selection** (`crewjam/saml` vs `russellhaering/gosaml2`), judged on maintenance record, CVE history and FIPS-only algorithms. An XML signature wrapping (XSW) test corpus is required regardless. → Task T-15.
 - **D-OQ3. `authz.visible_bus` performance at target scale.** → Task T-11, which gates the features that build on it.
-- **R1. Closure rebuild on large subtree moves:** done asynchronously, with the move blocked until the rebuild completes.
+- **R1. Closure rebuild on large subtree moves:** resolved, see Resolved.
 - **D-OQ4. Contents of the v1 permission catalog.** The specs name only examples (`analysis.edit`, `acceptance.approve`, `access.assign`, and the F-015 additions). T-03 delivers the file format, loader and diff (`internal/access/catalog`) but no shipped catalog. The full permission list, with action and privileged class per key, is needed before T-06 seeds the built-in roles.
 - **D-OQ5. Removed or reclassified permissions on upgrade.** T-03 reports them in the catalog diff but does not reject them. T-29 must decide whether a release may remove a key that custom roles reference, and whether reclassifying a permission as non-privileged is allowed.
 
 ## Resolved
+- R1 closure rebuild: synchronous, inside the move/restrict transaction, so RLS never sees a half-rebuilt closure. Measured with `db/bench/bu_rebuild.sql` on PostgreSQL 16: 2,011 BUs: move of the largest subtree 9 ms, restrict 71 ms, unrestrict 127 ms; 20,011 BUs: 75 ms, 62 ms, 56 ms. T-11 guards against regression (2026-10-25)
 - ADR-007 signed database context: accepted (2026-10-24)
 - ADR-008 in-house authorization: accepted (2026-10-24)
 - D-OQ2 session binding: profile setting; `off` in Enterprise Baseline, `reauthenticate` in FedRAMP Moderate and CMMC L2 (2026-10-24)
@@ -245,3 +246,4 @@ Until F-015 exists, F-001 ships a minimal settings module that holds the three p
 - 2026-10-24: ADR-007 and ADR-008 accepted; session network binding added (§5.8); design **approved**.
 - 2026-10-25: T-03 implementation notes. The catalog file is JSON with an integer catalog `version`; `introduced_in_version` holds that catalog version. The loader rejects unprivileged approve/admin/export permissions (AC-54). Added open items D-OQ4 and D-OQ5.
 - 2026-10-25: T-04 implementation notes (`db/migrations/0002_bu.sql`). The root is depth 0 and the maximum applies to `bu.depth`, so the default 6 allows seven levels including the root. The maximum is stored in the singleton `iam.bu_config` and cannot drop below the current tree depth. The root is seeded by the migration and cannot be moved or archived. The synchronous closure relink on move is in T-04 because the no-cycles trigger needs moves; T-05 adds restrict/unrestrict (refused until then) and the asynchronous path for large subtrees. `bu.restricted` defaults to true until T-30 wires the instance setting (AC-61). No application-role grants until T-09 adds RLS.
+- 2026-10-25: R1 resolved: the closure rebuild stays synchronous; the asynchronous path is dropped (approved by Robert Former). AC-17 split: T-05 delivers the closure recalculation (`db/migrations/0003_bu_restrict.sql`); the old/new-parent audit moves to the T-08 outbox, written in the move's transaction so a move cannot commit unaudited. T-11 adds the closure rebuild to the benchmark gate.
