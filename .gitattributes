@@ -1,0 +1,7 @@
+# Shell scripts must keep LF endings or bash fails on Windows checkouts
+# with core.autocrlf=true.
+*.sh  text eol=lf
+
+# Migrations are checksummed (SHA-256) by the migration runner; a CRLF
+# checkout would change the checksum and the runner would refuse to run.
+*.sql text eol=lf
