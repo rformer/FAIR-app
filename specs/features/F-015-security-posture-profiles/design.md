@@ -432,3 +432,25 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
     - Each constraint refuses its case for the intended reason.
     - The F-001 BU-RLS gate still passes.
     - Smoke run: the service is ready on a migrated database, and turns not-ready after a stray `GRANT`.
+- 2026-10-26: T-09 implementation notes (`db/migrations/0012_posture_write.sql`). Decision (Robert Former): out-of-bounds changes fail closed until approvals can be verified, and F-001 T-26 (dual-approval engine) moves ahead of F-015 T-14. The tasks.md verification reference "drift (T-21)" is corrected to T-25, the drift engine.
+  - The database is the enforcement point (AC-02). `posture.request_change(key, bu_id, value, explanation, requested_by, approval_request_id)` validates the value, refuses anything below the hard floor, and classifies the change against the current value (tighten, neutral or loosen). Out-of-bounds changes need an explanation and an approval request and are recorded as `pending_approval`; everything else is recorded as `requested`. The caller's own labels are never trusted.
+  - `posture.apply_change(change_id)` re-checks the floor and bound at apply time, writes the value, and marks the change `applied`. On a `pending_approval` change it raises PF005 until F-001 T-26 exists; a later migration will make it verify `iam.approval_request` (approved, decided by someone other than the requester, not expired) and create the exception.
+  - `posture.apply_revert(exception_id)` runs only on an expired, active (or `revert_failed`) exception. An instance value returns to the active profile default (source `revert`). A BU override is removed so the BU inherits. If a later change already replaced the value, only the exception closes.
+  - Values are JSON as in packages; durations are Go duration strings, parsed by `posture.duration_ns`. The strictness comparators cover duration, int, bool and enum; `set` is refused until a setting needs it.
+  - "Current value" is the BU row, else the instance row, else the active profile default. Inheritance along `iam.bu_closure` and strictest-of arrive with T-22.
+  - Row MAC: HMAC-SHA-256 (pgcrypto) over the canonical jsonb text of (key, bu_id, value, source, change_id, exception_id), keyed by `posture.mac_key`.
+    - The key store mirrors `authz.ctx_key`: `add_mac_key`/`retire_mac_key` may be called by `fair_owner` only. New rows use the newest unretired key, and each row records `mac_key_id`, so retired keys still verify.
+    - The installer adds the first key (README). With no key, writes fail closed (PF006).
+    - `posture.mac_mismatches()` lists rows that do not verify, for the drift engine (T-25).
+  - Grants: only `app_posture` may execute `request_change`, `apply_change`, `apply_revert` and `mac_mismatches`. The helpers (`write_value`, `row_mac`, the comparators) are callable by nobody but their owner. `posture_definer` gets exactly the table privileges these functions need, plus `authz.hmac`.
+  - Errors use SQLSTATE class PF: PF001 hard floor, PF002 approval required, PF003 not applicable, PF004 invalid value, PF005 approvals unavailable, PF006 configuration.
+  - `requested_by` is the user the posture service authenticated; the database cannot verify it. Binding it to a signed database context is left to T-14.
+  - Verification (DB tests):
+    - No application role can insert, update or delete posture rows, `mac_key` included.
+    - `app_rw` and `app_engine` cannot call the functions, and `app_posture` cannot call the helpers.
+    - Change flow: tighten, loosen within bounds, out-of-bounds pending and refused, hard floors (global and per family), invalid values, BU-scopable keys only, re-evaluation at apply time, and no writes without a MAC key.
+    - Direct superuser edits are all detected: changed value, changed source, swapped MAC, inserted row, re-keyed row.
+    - Key rotation leaves old rows verifiable.
+    - Reverts: instance, BU, not yet expired, already reverted, superseded.
+    - The duration parser accepts and rejects the expected inputs.
+    - A mutation that disables the floor check makes the tests fail.

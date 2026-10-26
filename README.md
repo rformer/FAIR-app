@@ -114,6 +114,12 @@ FAIR_ENGINE_PASSWORD_FILE=... FAIR_POSTURE_PASSWORD_FILE=... ./scripts/db-bootst
 # 2. Migrations and release catalog (as app_migrator). In production the
 #    server certificate must be verified: PGSSLMODE=verify-full.
 PGDATABASE=fair PGSSLMODE=verify-full FAIR_MIGRATOR_PASSWORD_FILE=... ./bin/iam migrate
+
+# 3. Posture row-MAC key (F-015 T-09), once per install, as app_migrator with
+#    SET ROLE fair_owner. Generate the secret in the database (or pass 32+ bytes
+#    from your KMS); it never leaves it. Rotate: add a new key, then
+#    SELECT posture.retire_mac_key('<old id>'); rows signed by it still verify.
+#    SELECT posture.add_mac_key('k1', authz.gen_random_bytes(32));
 ```
 
 ## Notes

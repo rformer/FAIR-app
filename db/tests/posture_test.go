@@ -6,7 +6,7 @@ import (
 )
 
 // F-015 T-08 (design §5 access model): posture tables.
-var postureTables = []string{"active_profile", "change", "exception", "profile", "profile_value", "setting_def", "setting_value"}
+var postureTables = []string{"active_profile", "change", "exception", "mac_key", "profile", "profile_value", "setting_def", "setting_value"}
 
 // Verification for T-08: application roles have no access to posture tables,
 // reads included; RLS is forced with a posture_definer-only policy.
@@ -29,7 +29,7 @@ func TestPostureTablesLocked(t *testing.T) {
 		t.Fatalf("posture policies: %s", policies)
 	}
 	if n := e.mustOwner(`SELECT count(*) FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
-		JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'posture'`); n != "7" {
+		JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'posture'`); n != "8" {
 		t.Fatalf("%s policies, want one per table", n)
 	}
 
@@ -76,11 +76,12 @@ func TestPostureConstraints(t *testing.T) {
 	e := setup(t)
 	mac := `decode(repeat('00', 32), 'hex')`
 	seed := []string{
+		`INSERT INTO posture.mac_key (key_id, secret) VALUES ('k1', decode(repeat('00', 32), 'hex'))`,
 		`INSERT INTO posture.setting_def (key, type, direction, enum_order, owner_feature, registered_version)
 		 VALUES ('tls.min_version', 'enum', 'ordered', ARRAY['1.0','1.1','1.2','1.3'], 'F-001', '1')`,
 		`INSERT INTO posture.profile (id, version, name, family, kind, package_digest, status)
 		 VALUES ('fedramp-moderate', '1.0.0', 'FedRAMP Moderate', 'fedramp', 'builtin', repeat('a', 64), 'active')`,
-		`INSERT INTO posture.setting_value (key, value, source, row_mac) VALUES ('tls.min_version', '"1.2"', 'profile', ` + mac + `)`,
+		`INSERT INTO posture.setting_value (key, value, source, row_mac, mac_key_id) VALUES ('tls.min_version', '"1.2"', 'profile', ` + mac + `, 'k1')`,
 		`INSERT INTO posture.active_profile (profile_id, version) VALUES ('fedramp-moderate', '1.0.0')`,
 	}
 	for _, s := range seed {
@@ -101,12 +102,12 @@ func TestPostureConstraints(t *testing.T) {
 			VALUES ('x', '1', 'X', 'fedramp', 'custom', 'draft')`, check},
 		"loosened without justification": {`INSERT INTO posture.profile_value (profile_id, version, key, default_value, bound, loosened)
 			VALUES ('fedramp-moderate', '1.0.0', 'tls.min_version', '"1.2"', '"1.2"', true)`, check},
-		"second instance-wide value": {`INSERT INTO posture.setting_value (key, value, source, row_mac)
-			VALUES ('tls.min_version', '"1.3"', 'profile', ` + mac + `)`, "setting_value_key_bu_id_key"},
-		"change source without change": {`INSERT INTO posture.setting_value (key, bu_id, value, source, row_mac)
-			VALUES ('tls.min_version', (SELECT id FROM iam.bu LIMIT 1), '"1.3"', 'change', ` + mac + `)`, check},
-		"short row_mac": {`INSERT INTO posture.setting_value (key, bu_id, value, source, row_mac)
-			VALUES ('tls.min_version', (SELECT id FROM iam.bu LIMIT 1), '"1.3"', 'profile', '\x00')`, "setting_value_row_mac_check"},
+		"second instance-wide value": {`INSERT INTO posture.setting_value (key, value, source, row_mac, mac_key_id)
+			VALUES ('tls.min_version', '"1.3"', 'profile', ` + mac + `, 'k1')`, "setting_value_key_bu_id_key"},
+		"change source without change": {`INSERT INTO posture.setting_value (key, bu_id, value, source, row_mac, mac_key_id)
+			VALUES ('tls.min_version', (SELECT id FROM iam.bu LIMIT 1), '"1.3"', 'change', ` + mac + `, 'k1')`, check},
+		"short row_mac": {`INSERT INTO posture.setting_value (key, bu_id, value, source, row_mac, mac_key_id)
+			VALUES ('tls.min_version', (SELECT id FROM iam.bu LIMIT 1), '"1.3"', 'profile', '\x00', 'k1')`, "setting_value_row_mac_check"},
 		"second active profile": {`INSERT INTO posture.active_profile (singleton, profile_id, version)
 			VALUES (true, 'fedramp-moderate', '1.0.0')`, "active_profile_pkey"},
 		"change for unregistered key": {`INSERT INTO posture.change (key, new_value, direction, requested_by, state)

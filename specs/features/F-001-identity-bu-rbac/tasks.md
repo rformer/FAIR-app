@@ -55,7 +55,7 @@ Status: **Approved** (Robert Former, 2026-10-24) | Design: Approved 2026-10-24
 ## Phase 4 — Governance & administration
 | # | Task | Traces to | Verification | Size | Status |
 |---|---|---|---|---|---|
-| T-26 | Generic dual-approval engine (requester ≠ approver, expiry, audit) | AC-30, AC-41, AC-53, AC-63 | Self-approval impossible (DB check + API); expiry test | M | Todo |
+| T-26 | Generic dual-approval engine (requester ≠ approver, expiry, audit) | AC-30, AC-41, AC-53, AC-63 | Self-approval impossible (DB check + API); expiry test | M | Todo; pulled forward to run before F-015 T-14 (approved 2026-10-26) |
 | T-27 | SoD rules and time-boxed exceptions | AC-29, AC-53 | Conflicting role blocked; exception expires | S | Todo |
 | T-28 | Custom roles: create, clone, edit, diff, affected-user count, privileged flags, retire guard | AC-51 – AC-56 | Functional tests + audit assertions | M | Todo |
 | T-29 | Catalog upgrade handling (deny by default, admin notice) + role JSON export/import | AC-57, AC-58 | Upgrade simulation; round-trip import test | S | Todo |
