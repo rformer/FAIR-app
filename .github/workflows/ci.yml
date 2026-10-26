@@ -38,6 +38,9 @@ jobs:
           go-version-file: go.mod
       - name: Install psql client
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+      # Service containers cannot take arguments, and JetStream needs -js.
+      - name: Start NATS JetStream
+        run: docker run -d --name nats -p 4222:4222 nats:2.10 -js
       - name: gofmt
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - name: go vet
@@ -48,9 +51,10 @@ jobs:
         env:
           CGO_ENABLED: "1"
         run: go test -race -count=1 -coverprofile=coverage.out ./...
-      - name: Database role tests
+      - name: Database and worker tests
         env:
           FAIR_TEST_PG: "1"
+          FAIR_TEST_NATS: nats://localhost:4222
           PGHOST: localhost
           PGPORT: "5432"
           PGUSER: postgres

@@ -2,7 +2,8 @@
 //
 // Phase 0: hardened server skeleton with health/readiness, FIPS enforcement,
 // structured logging, and audit emission of lifecycle events. `iam migrate`
-// applies the embedded schema migrations and release catalog (T-02b). Domain modules
+// applies the embedded schema migrations and release catalog (T-02b);
+// `iam worker` runs the scope worker (T-08). Domain modules
 // (authn, scim, directory, org, access, approvals, reviews) arrive in Phases 1–4.
 package main
 
@@ -24,8 +25,13 @@ import (
 var version = "dev"
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "migrate" {
-		os.Exit(runMigrate())
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "migrate":
+			os.Exit(runMigrate())
+		case "worker":
+			os.Exit(runWorker())
+		}
 	}
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "iam:", err)

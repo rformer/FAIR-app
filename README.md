@@ -38,6 +38,7 @@ The project follows a **spec-driven workflow**: nothing is built without approve
 - `app_rw` and `app_engine` are NOBYPASSRLS, own nothing, and cannot read the context-key table.
 - Migrations are checksummed and refuse to re-apply a modified migration.
 - `iam migrate` (T-02b) embeds the migrations, applies them as `app_migrator` under `SET ROLE fair_owner`, and then installs the release permission catalog and built-in roles.
+- `iam worker` (T-08) is the scope worker. River jobs (schema `river`) drain the access-change outbox into `authz.user_scope`, publish `iam.scope.changed` to NATS JetStream, and reconcile nightly. It needs `FAIR_DB_PASSWORD_FILE` (app_rw), the libpq variables, `FAIR_NATS_URL` (`tls://` in production) and optionally `FAIR_NATS_CREDS_FILE`. The installer provisions a JetStream stream that captures `iam.scope.changed`.
 - The bootstrap script repairs role drift.
 
 Next up is **Phase 1, the authorization core**: the BU closure table, the signed database context (ADR-007), the RLS harness, and the benchmark gate. See `specs/` for the full task list.
@@ -48,13 +49,17 @@ cmd/iam/            iam service entrypoint (`iam migrate` runs migrations)
 internal/config     environment config with secure-by-default validation
 internal/server     hardened HTTP/TLS server, health and readiness
 internal/migrate    embedded migration runner
+internal/dbconn     PostgreSQL connection policy (secret files, verified TLS)
+internal/scope      scope worker (River jobs, event delivery)
+internal/natspub    NATS JetStream publisher
 internal/access     permission catalog and built-in roles
 pkg/audit           security event contract and sinks
 pkg/settings        security settings registry and change rules (F-015 contract)
 pkg/authz           authorization library contract (implementation in Phase 1)
 db/bootstrap        role creation (run once by installer/DBA)
 db/migrations       schema migrations, embedded in the binary (run as app_migrator)
-db/tests            database security tests
+db/tests            database security, worker and scale tests
+db/rivergen         generates River's schema as migrations
 scripts/            db-bootstrap.sh
 deploy/k8s          reference hardened manifest (Helm/Zarf bundle comes with F-014)
 specs/              approved specs (requirements, designs, tasks, ADRs)
@@ -80,7 +85,11 @@ Without a local PostgreSQL or `psql`, run the database tests in Docker:
 ```sh
 docker network create fairtest
 docker run -d --name fairpg --network fairtest -e POSTGRES_PASSWORD=pgtest postgres:16
-docker run --rm --network fairtest -v "$PWD:/src" -w /src   -e PGHOST=fairpg -e PGUSER=postgres -e PGPASSWORD=pgtest -e GOFLAGS=-buildvcs=false   golang:1.24-bookworm sh -c 'apt-get update -qq && apt-get install -y -qq postgresql-client >/dev/null && make test-db'
+docker run -d --name fairnats --network fairtest nats:2.10 -js
+docker run --rm --network fairtest -v "$PWD:/src" -w /src \
+  -e PGHOST=fairpg -e PGUSER=postgres -e PGPASSWORD=pgtest -e GOFLAGS=-buildvcs=false \
+  -e FAIR_TEST_NATS=nats://fairnats:4222 \
+  golang:1.24-bookworm sh -c 'apt-get update -qq && apt-get install -y -qq postgresql-client >/dev/null && make test-db'
 ```
 
 ### Database setup (installer / DBA)

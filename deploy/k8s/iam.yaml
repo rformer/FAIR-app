@@ -164,3 +164,76 @@ spec:
   egress:
     - ports: [{ port: 5432, protocol: TCP }]
     - ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]
+---
+# F-001 T-08: scope worker. Keeps authz.user_scope current and publishes
+# iam.scope.changed. Connects as app_rw, which may only call the worker
+# functions; it cannot write scope tables directly.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iam-worker
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: iam-worker, app.kubernetes.io/part-of: fair-platform }
+spec:
+  replicas: 2               # River elects one leader to schedule jobs
+  selector:
+    matchLabels: { app.kubernetes.io/name: iam-worker }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: iam-worker, app.kubernetes.io/part-of: fair-platform }
+    spec:
+      serviceAccountName: iam
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: worker
+          image: ghcr.io/rformer/fair-iam:REPLACE_WITH_DIGEST
+          args: ["worker"]
+          env:
+            - { name: FAIR_ENV, value: production }
+            - { name: PGHOST, value: REPLACE_WITH_DB_HOST }
+            - { name: PGDATABASE, value: fair }
+            - { name: PGSSLMODE, value: verify-full }
+            - { name: PGSSLROOTCERT, value: /db-ca/ca.crt }
+            - { name: FAIR_DB_PASSWORD_FILE, value: /secrets/db/password }
+            - { name: FAIR_NATS_URL, value: tls://nats.fair-platform:4222 }
+            - { name: FAIR_NATS_CREDS_FILE, value: /secrets/nats/worker.creds }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          volumeMounts:
+            - { name: db, mountPath: /secrets/db, readOnly: true }
+            - { name: nats, mountPath: /secrets/nats, readOnly: true }
+            - { name: db-ca, mountPath: /db-ca, readOnly: true }
+      volumes:
+        - name: db
+          secret: { secretName: iam-db-app, defaultMode: 0400 }
+        - name: nats
+          secret: { secretName: iam-worker-nats, defaultMode: 0400 }
+        - name: db-ca
+          secret: { secretName: db-ca }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: iam-worker-egress
+  namespace: fair-platform
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: iam-worker }
+  policyTypes: [Egress]
+  egress:
+    - ports: [{ port: 5432, protocol: TCP }]
+    - to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: nats }
+      ports: [{ port: 4222, protocol: TCP }]
+    - ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]

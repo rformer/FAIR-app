@@ -16,20 +16,18 @@ package migrate
 import (
 	"context"
 	"crypto/sha256"
-	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/rformer/fair-app/internal/config"
+	"github.com/rformer/fair-app/internal/dbconn"
 )
 
 // ErrChecksum means an applied migration's file has changed since it was
@@ -57,35 +55,12 @@ type Result struct {
 	Sync    SyncResult
 }
 
-// ConnConfig builds the migrator's connection from the standard libpq
-// variables (PGHOST, PGPORT, PGDATABASE, PGSSLMODE, PGSSLROOTCERT, ...). The
-// user is always app_migrator and the password comes only from passwordFile;
-// PGPASSWORD is ignored. In production the server certificate must be
-// verified (PGSSLMODE=verify-full) and TLS 1.2 is the floor (ADR-006).
+// ConnConfig builds the migrator's connection (see dbconn.Config). The user
+// is always app_migrator and the password comes only from passwordFile.
 func ConnConfig(env, passwordFile string) (*pgx.ConnConfig, error) {
-	if env == "production" && os.Getenv("PGSSLMODE") != "verify-full" {
-		return nil, errors.New("migrate: PGSSLMODE=verify-full is required when FAIR_ENV=production")
-	}
-	cfg, err := pgx.ParseConfig("")
+	cfg, err := dbconn.Config(env, "app_migrator", passwordFile, "fair-migrate")
 	if err != nil {
-		return nil, fmt.Errorf("migrate: connection settings: %w", err)
-	}
-	pw, err := config.ReadSecretFile(passwordFile)
-	if err != nil {
-		return nil, fmt.Errorf("migrate: FAIR_MIGRATOR_PASSWORD_FILE: %w", err)
-	}
-	cfg.User, cfg.Password = "app_migrator", pw
-	cfg.RuntimeParams["application_name"] = "fair-migrate"
-	if env == "production" {
-		cfg.Fallbacks = nil // never retry without TLS
-	}
-	if cfg.TLSConfig != nil {
-		cfg.TLSConfig.MinVersion = tls.VersionTLS12
-	}
-	for _, fb := range cfg.Fallbacks {
-		if fb.TLSConfig != nil {
-			fb.TLSConfig.MinVersion = tls.VersionTLS12
-		}
+		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return cfg, nil
 }

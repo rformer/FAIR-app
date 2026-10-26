@@ -3,7 +3,7 @@ Every feature spec includes **Deployment modes** (SaaS, self-hosted, air-gapped)
 
 **v1 build order:** F-012 (minimal CI) → F-001 Phases 0–1 → F-015 → F-001 remaining phases → F-002 → F-003 onward.
 
-**Current position:** F-001 Phase 0 is done (T-00a, T-00b, T-00c, T-01, T-02). **F-001 Phase 1, the authorization core,** is in progress: T-02b and T-03 to T-07 are done; next is T-08 (through T-12).
+**Current position:** F-001 Phase 0 is done (T-00a, T-00b, T-00c, T-01, T-02). **F-001 Phase 1, the authorization core,** is in progress: T-02b and T-03 to T-08 are done; next is T-09 (through T-12).
 
 | ID | Feature | Depends on | Status |
 |---|---|---|---|
