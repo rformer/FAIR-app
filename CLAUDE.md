@@ -7,8 +7,8 @@ This repo is built **spec-first**. Before doing anything, read:
 4. The feature you are working on: `specs/features/<feature>/requirements.md`, `design.md`, `tasks.md`
 
 ## Current position
-- F-001 Phase 0 is **done**. Phase 1 is in progress: T-02b and T-03 to T-06 are done.
-- **Next: T-07**, then the rest of Phase 1 (to T-12) in task order. Its Verification column defines "done" for each task.
+- F-001 Phase 0 is **done**. Phase 1 is in progress: T-02b and T-03 to T-07 are done.
+- **Next: T-08**, then the rest of Phase 1 (to T-12) in task order. Its Verification column defines "done" for each task.
 
 ## Working rules
 - Implement only tasks that are marked Approved and listed in a `tasks.md`. If a task needs a design change, stop and propose the spec change; don't silently diverge.
