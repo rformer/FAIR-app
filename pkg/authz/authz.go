@@ -1,9 +1,9 @@
 // Package authz is the in-process authorization library embedded by every Go
 // service (F-001 design §2, ADR-007, ADR-008).
 //
-// Phase 0 defines the public contract only. The implementation — grant snapshot
-// cache, scope invalidation on iam.scope.changed, and the signed database
-// context helper — is delivered in F-001 Phase 1 (T-09, T-12).
+// Cache implements Checker over a per-user grant snapshot (T-12), MintDBContext
+// builds the signed database context (T-09), and WithDBContext runs a
+// transaction under it.
 package authz
 
 import (
@@ -19,6 +19,10 @@ type Principal struct {
 	UserID       string
 	ScopeVersion int64
 	ServiceAcct  bool
+	// DBToken is the signed database context the gateway minted for this
+	// request (MintDBContext). Snapshots are loaded through it, and services
+	// pass it to WithDBContext.
+	DBToken string
 }
 
 var (

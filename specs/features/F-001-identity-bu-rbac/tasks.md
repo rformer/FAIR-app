@@ -29,7 +29,7 @@ Status: **Approved** (Robert Former, 2026-10-24) | Design: Approved 2026-10-24
 | T-09 | Signed DB context: key table, rotation, `authz.visible_bus`, `authz.apply_bu_rls` | AC-24, AC-25, AC-27, ADR-007 | Integration tests on a sample BU-owned table | M | Done (2026-10-26) |
 | T-10 | RLS negative test harness: forged / expired / stale / missing context → empty; SQL-injection simulation | AC-24, AC-25 | Harness becomes a reusable CI suite for every feature | M | Done (2026-10-26) |
 | T-11 | **Benchmark gate:** `visible_bus` + RLS at 10k users / 2k BUs / 50k assignments; BU closure rebuild (`db/bench/bu_rebuild.sql`) | NFR p95 ≤ 10 ms, D-OQ3, R1 | Benchmark report committed; fails CI on regression | S | Done (2026-10-26; `db/bench/REPORT.md`) |
-| T-12 | `authz` library: `Check()`, grant snapshot cache, invalidation on `iam.scope.changed`, DB-context transaction helper | AC-24, NFR | Unit + integration tests; cache invalidation ≤ 60 s | M | Todo |
+| T-12 | `authz` library: `Check()`, grant snapshot cache, invalidation on `iam.scope.changed`, DB-context transaction helper | AC-24, NFR | Unit + integration tests; cache invalidation ≤ 60 s | M | Done (2026-10-26; invalidation measured 1.7–2.5 s) |
 
 ## Phase 2 — Authentication & sessions
 | # | Task | Traces to | Verification | Size | Status |

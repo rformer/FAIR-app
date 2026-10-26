@@ -290,3 +290,10 @@ Until F-015 exists, F-001 ships a minimal settings module that holds the three p
   - The gate fails if a request-path p95 exceeds 10 ms, or if any budgeted result exceeds max(3× baseline, baseline + 5 ms).
   - Known hotspot: an unfiltered "newest 50 rows" query for a user with a single BU had p95 8.6 ms and p99 10.0 ms. The RLS BU array is unknown at plan time, so PostgreSQL walks the primary key past rows outside the caller's scope. Feature tables with list views must filter by BU or carry a `(bu_id, <sort key>)` index; their T-10 fixtures should be benchmarked the same way.
   - Closure rebuild at 2,011 BUs (R1): restrict plus unrestrict of a level-1 BU 0.49 s, subtree move 5 ms; budget 2 s.
+- 2026-10-26: T-12 implementation notes (`pkg/authz`, `db/migrations/0010_grant_snapshot.sql`).
+  - `authz.grant_snapshot()` returns each permission and its BUs for the user named by the signed context only (no parameters), under the §3 rule on unblocked paths. Roll-up modes widen data reads in RLS but never action permissions. An invalid or stale context returns nothing.
+  - `authz.Cache` implements `Checker` over snapshots keyed by (user, scope_version), with concurrent misses loaded once and a bounded size. `iam.scope.changed` (`SubscribeNATS`) evicts the user and records their latest version, so older principals get `ErrStaleScope`. `MaxAge` (60 s) bounds staleness if events are lost. Any error is a denial.
+  - Measured invalidation: revocation to cache invalidated in 1.7–2.5 s, against the 60 s requirement.
+  - `authz.WithDBContext(ctx, pool, token, fn)` sets `authz.ctx` with `set_config(..., true)`: parameterized, and local to the transaction.
+  - Contract change: `Principal` gains `DBToken`, the gateway-minted context, which the loader and services use.
+  - Service accounts are denied until T-33.
