@@ -3,7 +3,7 @@ Every feature spec includes **Deployment modes** (SaaS, self-hosted, air-gapped)
 
 **v1 build order:** F-012 (minimal CI) → F-001 Phases 0–1 → F-015 → F-001 remaining phases → F-002 → F-003 onward.
 
-**Current position:** F-001 Phase 0 is done (T-00a, T-00b, T-00c, T-01, T-02). F-001 Phase 1, the authorization core, is done (T-02b, T-03 to T-12). **F-015** is in progress: T-01 is done; next is T-02 (FedRAMP source: OSCAL-Foundation/fedramp-resources, F-015 design D-OQ4).
+**Current position:** F-001 Phase 0 is done (T-00a, T-00b, T-00c, T-01, T-02). F-001 Phase 1, the authorization core, is done (T-02b, T-03 to T-12). **F-015** is in progress: T-01 and T-02 are done; next is T-03 (binding files, F-015 design §4.1).
 
 | ID | Feature | Depends on | Status |
 |---|---|---|---|

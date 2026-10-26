@@ -104,6 +104,18 @@ func TestRoundTripNISTContent(t *testing.T) {
 		"examples/component-definition/example-component-definition.json":                     ComponentDefinition,
 		"examples/assessment-results/ifa_assessment-results-example.json":                     AssessmentResults,
 		"examples/poam/ifa_plan-of-action-and-milestones.json":                                POAM,
+		// T-02 resolution inputs and references (FedRAMP's are OSCAL 1.1.3)
+		"examples/catalog/basic_catalog.json":                                       Catalog,
+		"examples/profile/basic_profile.json":                                       Profile,
+		"examples/profile/basic-resolved-profile_catalog.json":                      Catalog,
+		"examples/profile/basic_select_with_id_profile.json":                        Profile,
+		"examples/profile/basic_select_with_id-resolved-profile_catalog.json":       Catalog,
+		"examples/profile/basic_select_with_match_profile.json":                     Profile,
+		"examples/profile/basic_select_with_match-resolved-profile_catalog.json":    Catalog,
+		"nist/sp800-53r5-oscal-content-v1.3.0/NIST_SP-800-53_rev5_catalog.json":     Catalog,
+		"fedramp/rev5/FedRAMP_rev5_catalog_tailoring_profile.json":                  Profile,
+		"fedramp/rev5/FedRAMP_rev5_MODERATE-baseline_profile.json":                  Profile,
+		"fedramp/rev5/FedRAMP_rev5_MODERATE-baseline-resolved-profile_catalog.json": Catalog,
 	}
 	seen := 0
 	for _, f := range readManifest(t).Files {

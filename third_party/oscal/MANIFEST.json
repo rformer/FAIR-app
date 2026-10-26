@@ -1,6 +1,8 @@
 {
   "oscal_version": "1.2.3",
   "oscal_content_release": "v1.6.0",
+  "fedramp_nist_content_release": "v1.3.0",
+  "fedramp_resources_commit": "383977291aad960b0811faf6ebf5a893b0811f7f",
   "files": [
     {"path": "schemas/oscal_complete_schema.json", "source": "https://github.com/usnistgov/OSCAL/releases/download/v1.2.3/oscal_complete_schema.json", "sha256": "384324105c7a817af0f65b120a963146caa0e0d55d969cf0daf60e063b87a206"},
     {"path": "nist/sp800-53r5/NIST_SP-800-53_rev5_catalog.json", "source": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.6.0/nist.gov/SP800-53/rev5/json/NIST_SP-800-53_rev5_catalog.json", "sha256": "64ca6b4161de51ab6af098a7d101d326f14c95e1abf721396cd8a049e8115eeb"},
@@ -10,6 +12,17 @@
     {"path": "examples/profile/basic-profile.json", "source": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.6.0/examples/profile/json/basic-profile.json", "sha256": "23f1544794b4190e468caf5883f46eeeef9819c771d4bda713a1b5c3b93fcb9f"},
     {"path": "examples/component-definition/example-component-definition.json", "source": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.6.0/examples/component-definition/json/example-component-definition.json", "sha256": "52f142887f598ae912d794cc7189628336047a0874f326077d3f87f471733fea"},
     {"path": "examples/assessment-results/ifa_assessment-results-example.json", "source": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.6.0/examples/ar/json/ifa_assessment-results-example.json", "sha256": "13bde5421ac9f8986e293b74e7caa025fd1f61a4c55d94bb68dce44417ff0eb6"},
-    {"path": "examples/poam/ifa_plan-of-action-and-milestones.json", "source": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.6.0/examples/poam/json/ifa_plan-of-action-and-milestones.json", "sha256": "8d942c63655c02f2a32a86b598412de8150affd3a296c0447d8b81dfb9df842f"}
+    {"path": "examples/poam/ifa_plan-of-action-and-milestones.json", "source": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.6.0/examples/poam/json/ifa_plan-of-action-and-milestones.json", "sha256": "8d942c63655c02f2a32a86b598412de8150affd3a296c0447d8b81dfb9df842f"},
+    {"path": "examples/catalog/basic_catalog.json", "source": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.6.0/examples/catalog/json/basic_catalog.json", "sha256": "5e61e771dd93303261d05e205e52ffa957b1bf296dec1ed009de2c15e2edafbe"},
+    {"path": "examples/profile/basic_profile.json", "source": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.6.0/examples/profile/json/basic_profile.json", "sha256": "4e855b22775fe69c98c614512f5086aabdca1d979e90dfe5f16de12d1bd9f38a"},
+    {"path": "examples/profile/basic-resolved-profile_catalog.json", "source": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.6.0/examples/profile/json/basic-resolved-profile_catalog.json", "sha256": "0486631c5db60a4a824c925731dd8fc432478c316abd1fd4e2a6686574d5295a"},
+    {"path": "examples/profile/basic_select_with_id_profile.json", "source": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.6.0/examples/profile/json/basic_select_with_id_profile.json", "sha256": "f45cdf597a7aaa63806a112b6d8a0231b6b2921a11da4444a83eba040ae81d84"},
+    {"path": "examples/profile/basic_select_with_id-resolved-profile_catalog.json", "source": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.6.0/examples/profile/json/basic_select_with_id-resolved-profile_catalog.json", "sha256": "f8941a7e4e87c021d2c0ae0daa8a2fc4ff56b9dfd6664b71b5e0847ef3d384be"},
+    {"path": "examples/profile/basic_select_with_match_profile.json", "source": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.6.0/examples/profile/json/basic_select_with_match_profile.json", "sha256": "00d9abb60baf850c3070f1323ad890abe3530a8367860c09e139f93b6a6be006"},
+    {"path": "examples/profile/basic_select_with_match-resolved-profile_catalog.json", "source": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.6.0/examples/profile/json/basic_select_with_match-resolved-profile_catalog.json", "sha256": "bb9b7ab9ad218aab7ed893adf179c5712eb7802b9f11fe7659ed7794a31790f7"},
+    {"path": "nist/sp800-53r5-oscal-content-v1.3.0/NIST_SP-800-53_rev5_catalog.json", "source": "https://raw.githubusercontent.com/usnistgov/oscal-content/refs/tags/v1.3.0/nist.gov/SP800-53/rev5/json/NIST_SP-800-53_rev5_catalog.json", "sha256": "81cf2de45ede9aef3de7ce09d65ea9d32f662c483bbf916f6e346292b22f7763"},
+    {"path": "fedramp/rev5/FedRAMP_rev5_catalog_tailoring_profile.json", "source": "https://raw.githubusercontent.com/OSCAL-Foundation/fedramp-resources/383977291aad960b0811faf6ebf5a893b0811f7f/baselines/rev5/json/FedRAMP_rev5_catalog_tailoring_profile.json", "sha256": "4d0b5d6e20253654ab7b51d9d23e6b5bfbe2ab93c5c54f620b9a565f50414d5f"},
+    {"path": "fedramp/rev5/FedRAMP_rev5_MODERATE-baseline_profile.json", "source": "https://raw.githubusercontent.com/OSCAL-Foundation/fedramp-resources/383977291aad960b0811faf6ebf5a893b0811f7f/baselines/rev5/json/FedRAMP_rev5_MODERATE-baseline_profile.json", "sha256": "9a31036e9f66e0d8cd9d15a981a9f956e9043562a882f44bd78048c7a86820e2"},
+    {"path": "fedramp/rev5/FedRAMP_rev5_MODERATE-baseline-resolved-profile_catalog.json", "source": "https://raw.githubusercontent.com/OSCAL-Foundation/fedramp-resources/383977291aad960b0811faf6ebf5a893b0811f7f/baselines/rev5/json/FedRAMP_rev5_MODERATE-baseline-resolved-profile_catalog.json", "sha256": "0f5e08e9a7089c765fe3f4216582b54994c35bff07a3bf4c54257a302654203e"}
   ]
 }
