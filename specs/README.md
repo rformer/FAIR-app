@@ -9,7 +9,7 @@ These are the approved specs for the FAIR Risk Platform. They are mirrored from 
 | `02-product-vision.md` | Problem, users, scope |
 | `03-feature-index.md` | Features, dependencies, status, build order, **current position** |
 | `adr/ADR-001…008` | Architecture decisions |
-| `features/F-001-identity-bu-rbac/` | Requirements, design, tasks (all approved; Phase 0 done) |
+| `features/F-001-identity-bu-rbac/` | Requirements, design, tasks, permission catalog v1 (all approved; Phase 0 done) |
 | `features/F-015-security-posture-profiles/` | Requirements, design, tasks (all approved) |
 | `templates/` | Templates for new requirements, designs, tasks and ADRs |
 

@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -106,27 +107,42 @@ func TestUpgradeVersionRules(t *testing.T) {
 }
 
 func TestParseRejectsInvalid(t *testing.T) {
-	perm := func(s string) string { return `{"version": 2, "permissions": [` + s + `]}` }
-	cases := map[string]string{
-		"zero version":         `{"version": 0, "permissions": []}`,
-		"unknown field":        `{"version": 1, "permissions": [], "extra": true}`,
-		"trailing data":        `{"version": 1, "permissions": []} {}`,
-		"bad key":              perm(`{"key": "Analysis.Edit", "resource_type": "Analysis", "action": "write", "introduced_in": 1}`),
-		"key without dot":      perm(`{"key": "analysis", "resource_type": "analysis", "action": "write", "introduced_in": 1}`),
-		"resource mismatch":    perm(`{"key": "analysis.edit", "resource_type": "register", "action": "write", "introduced_in": 1}`),
-		"unknown action":       perm(`{"key": "analysis.edit", "resource_type": "analysis", "action": "delete", "introduced_in": 1}`),
-		"unprivileged admin":   perm(`{"key": "access.assign", "resource_type": "access", "action": "admin", "introduced_in": 1}`),
-		"unprivileged export":  perm(`{"key": "analysis.export", "resource_type": "analysis", "action": "export", "introduced_in": 1}`),
-		"unprivileged approve": perm(`{"key": "acceptance.approve", "resource_type": "acceptance", "action": "approve", "introduced_in": 1}`),
-		"introduced in future": perm(`{"key": "analysis.edit", "resource_type": "analysis", "action": "write", "introduced_in": 3}`),
-		"introduced zero":      perm(`{"key": "analysis.edit", "resource_type": "analysis", "action": "write", "introduced_in": 0}`),
-		"duplicate key": perm(`{"key": "analysis.edit", "resource_type": "analysis", "action": "write", "introduced_in": 1},
-			{"key": "analysis.edit", "resource_type": "analysis", "action": "read", "introduced_in": 1}`),
+	cat := func(perms ...string) string {
+		return `{"version": 2, "permissions": [` + strings.Join(perms, ",") + `]}`
 	}
-	for name, in := range cases {
+	// perm builds a complete, valid entry and then applies overrides, so each
+	// case below has exactly one defect.
+	perm := func(key, resource, action string, privileged bool, extra string) string {
+		return fmt.Sprintf(`{"key": %q, "resource_type": %q, "action": %q, "privileged": %t, "risk_data": false, "introduced_in": 1%s}`,
+			key, resource, action, privileged, extra)
+	}
+	if _, err := Parse(strings.NewReader(cat(perm("analysis.edit", "analysis", "write", false, "")))); err != nil {
+		t.Fatalf("baseline entry must be valid: %v", err)
+	}
+	cases := map[string]struct{ in, want string }{
+		"zero version":         {`{"version": 0, "permissions": []}`, "version must be >= 1"},
+		"unknown field":        {`{"version": 1, "permissions": [], "extra": true}`, "unknown field"},
+		"unknown perm field":   {cat(perm("analysis.edit", "analysis", "write", false, `, "extra": 1`)), "unknown field"},
+		"trailing data":        {`{"version": 1, "permissions": []} {}`, "trailing data"},
+		"missing privileged":   {cat(`{"key": "analysis.edit", "resource_type": "analysis", "action": "write", "risk_data": true, "introduced_in": 1}`), "are required"},
+		"missing risk_data":    {cat(`{"key": "analysis.edit", "resource_type": "analysis", "action": "write", "privileged": false, "introduced_in": 1}`), "are required"},
+		"bad key":              {cat(perm("Analysis.Edit", "Analysis", "write", false, "")), "lower snake case"},
+		"key without dot":      {cat(perm("analysis", "analysis", "write", false, "")), "lower snake case"},
+		"resource mismatch":    {cat(perm("analysis.edit", "register", "write", false, "")), "does not match key prefix"},
+		"unknown action":       {cat(perm("analysis.edit", "analysis", "delete", false, "")), "must be one of"},
+		"unprivileged admin":   {cat(perm("access.assign", "access", "admin", false, "")), "must be privileged"},
+		"unprivileged export":  {cat(perm("analysis.export", "analysis", "export", false, "")), "must be privileged"},
+		"unprivileged approve": {cat(perm("acceptance.approve", "acceptance", "approve", false, "")), "must be privileged"},
+		"admin risk data":      {cat(`{"key": "access.assign", "resource_type": "access", "action": "admin", "privileged": true, "risk_data": true, "introduced_in": 1}`), "cannot be risk data"},
+		"introduced in future": {cat(`{"key": "analysis.edit", "resource_type": "analysis", "action": "write", "privileged": false, "risk_data": false, "introduced_in": 3}`), "introduced_in 3"},
+		"introduced zero":      {cat(`{"key": "analysis.edit", "resource_type": "analysis", "action": "write", "privileged": false, "risk_data": false, "introduced_in": 0}`), "introduced_in 0"},
+		"duplicate key":        {cat(perm("analysis.edit", "analysis", "write", false, ""), perm("analysis.edit", "analysis", "read", false, "")), "duplicate key"},
+	}
+	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			if _, err := Parse(strings.NewReader(in)); !errors.Is(err, ErrInvalid) {
-				t.Fatalf("err = %v, want ErrInvalid", err)
+			_, err := Parse(strings.NewReader(c.in))
+			if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("err = %v, want ErrInvalid containing %q", err, c.want)
 			}
 		})
 	}

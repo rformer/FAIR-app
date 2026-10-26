@@ -1,11 +1,11 @@
 {
   "version": 2,
   "permissions": [
-    {"key": "access.assign",      "resource_type": "access",     "action": "admin",   "privileged": true,  "introduced_in": 1},
-    {"key": "acceptance.approve", "resource_type": "acceptance", "action": "approve", "privileged": true,  "introduced_in": 1},
-    {"key": "analysis.edit",      "resource_type": "analysis",   "action": "write",   "privileged": false, "introduced_in": 1},
-    {"key": "analysis.view",      "resource_type": "analysis",   "action": "read",    "privileged": true,  "introduced_in": 1},
-    {"key": "posture.view",       "resource_type": "posture",    "action": "read",    "privileged": false, "introduced_in": 2},
-    {"key": "settings.approve",   "resource_type": "settings",   "action": "approve", "privileged": true,  "introduced_in": 2}
+    {"key": "access.assign",      "resource_type": "access",     "action": "admin",   "privileged": true,  "risk_data": false, "introduced_in": 1},
+    {"key": "acceptance.approve", "resource_type": "acceptance", "action": "approve", "privileged": true, "risk_data": true,   "introduced_in": 1},
+    {"key": "analysis.edit",      "resource_type": "analysis",   "action": "write",   "privileged": false, "risk_data": true,  "introduced_in": 1},
+    {"key": "analysis.view",      "resource_type": "analysis",   "action": "read",    "privileged": true, "risk_data": true,   "introduced_in": 1},
+    {"key": "posture.view",       "resource_type": "posture",    "action": "read",    "privileged": false, "risk_data": false, "introduced_in": 2},
+    {"key": "settings.approve",   "resource_type": "settings",   "action": "approve", "privileged": true,  "risk_data": false, "introduced_in": 2}
   ]
 }

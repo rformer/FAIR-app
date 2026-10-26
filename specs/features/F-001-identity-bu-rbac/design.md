@@ -44,7 +44,7 @@ A failure in either layer alone does not expose data.
 - `session` (id_hmac bytea PK, user_id, auth_method, mfa_evidence jsonb, created_at, last_seen_at, absolute_expiry_at, ip, ip_prefix, asn, user_agent, banner_ack_at, revoked_at, revoked_reason)
 
 ### Access
-- `permission` (key PK, resource_type, action[read|write|approve|admin|export], privileged bool, introduced_in_version), seeded from the versioned catalog file shipped with each release
+- `permission` (key PK, resource_type, action[read|write|approve|admin|export], privileged bool, risk_data bool, introduced_in_version), seeded from the versioned catalog file shipped with each release (v1: `permission-catalog.md`)
 - `role` (id, name, builtin bool, status[active|retired], current_version) / `role_version` (role_id, version, permissions text[], changed_by, change_reason, created_at)
 - `assignment` (id, principal_kind[user|group], principal_id, role_id, bu_id, source[manual|mapped], mapping_id, granted_by, granted_at, expires_at, revoked_at, revoked_by)
 - `group_role_mapping` (id, grp_id, role_id, bu_id, created_by)
@@ -232,10 +232,11 @@ Until F-015 exists, F-001 ships a minimal settings module that holds the three p
 - **D-OQ1. SAML library selection** (`crewjam/saml` vs `russellhaering/gosaml2`), judged on maintenance record, CVE history and FIPS-only algorithms. An XML signature wrapping (XSW) test corpus is required regardless. → Task T-15.
 - **D-OQ3. `authz.visible_bus` performance at target scale.** → Task T-11, which gates the features that build on it.
 - **R1. Closure rebuild on large subtree moves:** resolved, see Resolved.
-- **D-OQ4. Contents of the v1 permission catalog.** The specs name only examples (`analysis.edit`, `acceptance.approve`, `access.assign`, and the F-015 additions). T-03 delivers the file format, loader and diff (`internal/access/catalog`) but no shipped catalog. The full permission list, with action and privileged class per key, is needed before T-06 seeds the built-in roles.
+- **D-OQ4. Contents of the v1 permission catalog:** resolved, see Resolved.
 - **D-OQ5. Removed or reclassified permissions on upgrade.** T-03 reports them in the catalog diff but does not reject them. T-29 must decide whether a release may remove a key that custom roles reference, and whether reclassifying a permission as non-privileged is allowed.
 
 ## Resolved
+- D-OQ4 v1 permission catalog: `permission-catalog.md` approved, with a `risk_data` flag per permission (2026-10-25)
 - R1 closure rebuild: synchronous, inside the move/restrict transaction, so RLS never sees a half-rebuilt closure. Measured with `db/bench/bu_rebuild.sql` on PostgreSQL 16: 2,011 BUs: move of the largest subtree 9 ms, restrict 71 ms, unrestrict 127 ms; 20,011 BUs: 75 ms, 62 ms, 56 ms. T-11 guards against regression (2026-10-25)
 - ADR-007 signed database context: accepted (2026-10-24)
 - ADR-008 in-house authorization: accepted (2026-10-24)
@@ -247,3 +248,4 @@ Until F-015 exists, F-001 ships a minimal settings module that holds the three p
 - 2026-10-25: T-03 implementation notes. The catalog file is JSON with an integer catalog `version`; `introduced_in_version` holds that catalog version. The loader rejects unprivileged approve/admin/export permissions (AC-54). Added open items D-OQ4 and D-OQ5.
 - 2026-10-25: T-04 implementation notes (`db/migrations/0002_bu.sql`). The root is depth 0 and the maximum applies to `bu.depth`, so the default 6 allows seven levels including the root. The maximum is stored in the singleton `iam.bu_config` and cannot drop below the current tree depth. The root is seeded by the migration and cannot be moved or archived. The synchronous closure relink on move is in T-04 because the no-cycles trigger needs moves; T-05 adds restrict/unrestrict (refused until then) and the asynchronous path for large subtrees. `bu.restricted` defaults to true until T-30 wires the instance setting (AC-61). No application-role grants until T-09 adds RLS.
 - 2026-10-25: R1 resolved: the closure rebuild stays synchronous; the asynchronous path is dropped (approved by Robert Former). AC-17 split: T-05 delivers the closure recalculation (`db/migrations/0003_bu_restrict.sql`); the old/new-parent audit moves to the T-08 outbox, written in the move's transaction so a move cannot commit unaudited. T-11 adds the closure rebuild to the benchmark gate.
+- 2026-10-25: D-OQ4 resolved: permission catalog v1 approved. §3 `permission` gains `risk_data` (PC-1), which the T-03 loader now requires along with `privileged`.

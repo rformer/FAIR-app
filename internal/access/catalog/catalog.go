@@ -34,7 +34,7 @@ const (
 )
 
 // actions lists the valid Action values.
-var actions =[]Action{ActionRead, ActionWrite, ActionApprove, ActionAdmin, ActionExport}
+var actions = []Action{ActionRead, ActionWrite, ActionApprove, ActionAdmin, ActionExport}
 
 // Permission is one catalog entry; it maps 1:1 to a row of iam.permission.
 type Permission struct {
@@ -42,7 +42,35 @@ type Permission struct {
 	ResourceType string `json:"resource_type"` // e.g. "analysis"
 	Action       Action `json:"action"`
 	Privileged   bool   `json:"privileged"`    // AC-54
+	RiskData     bool   `json:"risk_data"`     // AC-30, AC-44: grants access to risk data
 	IntroducedIn int    `json:"introduced_in"` // catalog version that first shipped the key
+}
+
+// UnmarshalJSON decodes a permission strictly. The privileged and risk_data
+// flags are required: a missing flag would silently default to false, which
+// fails open.
+func (p *Permission) UnmarshalJSON(b []byte) error {
+	var raw struct {
+		Key          string `json:"key"`
+		ResourceType string `json:"resource_type"`
+		Action       Action `json:"action"`
+		Privileged   *bool  `json:"privileged"`
+		RiskData     *bool  `json:"risk_data"`
+		IntroducedIn int    `json:"introduced_in"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&raw); err != nil {
+		return err
+	}
+	if raw.Privileged == nil || raw.RiskData == nil {
+		return fmt.Errorf("permission %q: privileged and risk_data are required", raw.Key)
+	}
+	*p = Permission{
+		Key: raw.Key, ResourceType: raw.ResourceType, Action: raw.Action,
+		Privileged: *raw.Privileged, RiskData: *raw.RiskData, IntroducedIn: raw.IntroducedIn,
+	}
+	return nil
 }
 
 // Catalog is a validated permission catalog. Permissions are sorted by key.
@@ -107,6 +135,10 @@ func (c *Catalog) validate() error {
 		// AC-54: approval, admin and export permissions are always privileged.
 		if !p.Privileged && (p.Action == ActionApprove || p.Action == ActionAdmin || p.Action == ActionExport) {
 			return fmt.Errorf("%w: %s: %s permissions must be privileged", ErrInvalid, p.Key, p.Action)
+		}
+		// AC-30 keeps admin and risk-data access apart; one permission cannot be both.
+		if p.RiskData && p.Action == ActionAdmin {
+			return fmt.Errorf("%w: %s: admin permissions cannot be risk data", ErrInvalid, p.Key)
 		}
 		if p.IntroducedIn < 1 || p.IntroducedIn > c.Version {
 			return fmt.Errorf("%w: %s: introduced_in %d must be in [1, %d]", ErrInvalid, p.Key, p.IntroducedIn, c.Version)

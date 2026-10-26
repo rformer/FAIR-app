@@ -19,7 +19,7 @@ Status: **Approved** (Robert Former, 2026-10-24) | Design: Approved 2026-10-24
 ## Phase 1 — Authorization core (gates other features)
 | # | Task | Traces to | Verification | Size | Status |
 |---|---|---|---|---|---|
-| T-03 | Permission catalog file format, loader and versioning | AC-51, AC-57 | Catalog diff test across two versions | S | Done (2026-10-25; catalog contents open as D-OQ4) |
+| T-03 | Permission catalog file format, loader and versioning | AC-51, AC-57 | Catalog diff test across two versions | S | Done (2026-10-25; `risk_data` added 2026-10-25 with catalog v1 approval) |
 | T-04 | BU schema + closure table + triggers (single root, depth, no cycles) | AC-15, AC-16 | Trigger tests; property tests on random trees | M | Done (2026-10-25) |
 | T-05 | BU move / restrict / unrestrict with closure rebuild and `blocked` flag, synchronous in the same transaction (design §12 R1) | AC-17 (closure recalculation), AC-59, AC-60 | Property tests: no inheritance across restricted nodes | M | Done (2026-10-25) |
 | T-06 | Roles + `role_version` + built-in role seeds | AC-52, AC-55 | Built-in roles are immutable; versions increment | S | Todo |
