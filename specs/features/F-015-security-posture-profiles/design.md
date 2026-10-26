@@ -493,3 +493,17 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
     - Unit tests: typed values, BU scoping, unregistered and unbound keys, bad values, conflicting registration, reload only on a version change, wake-ups only for newer events, event-driven versus poll-driven propagation, fail-closed staleness and recovery, and heartbeat contents and digest.
     - DB tests: the snapshot before and after the seed, the version moving on changes and on a direct edit, BU overrides in the snapshot, and no table access for `app_rw`.
     - Propagation across three services (separate pools and NATS connections, default TTL): an announced change reached all three in about 20 ms; with the event withheld, the poll delivered it in 29.8 s (requirement: 60 s). All three heartbeats agree.
+- 2026-10-26: T-12 implementation notes (`db/migrations/0015_posture_register.sql`, `pkg/settings/register.go`).
+  - `posture.register_settings(owner_feature, version, defs)` is executable by `app_rw` and `app_posture`. Any service may register, so registration can never weaken anything:
+    - A new key is inserted, and the table's checks validate it.
+    - An existing key must keep its type, direction, enum order, BU scoping and owning feature (PF004).
+    - Its hard floor may only stay or tighten: no lower value, no removal, and no narrower family list. An empty list means every family (PF001).
+    - Every key must be bound by the active profile (PF006, listing the unbound keys). The profile's default and bound, and every value in force, must be valid for the definition and not below its floor (the T-10 follow-up).
+    - The whole call is one transaction: a refused registration records nothing.
+  - `settings.Client.Start(ctx, registrar, ownerFeature, version)` is the startup sequence. It registers the locally declared definitions (`DBRegistrar`), loads the snapshot, and checks that every key has a value in force. Any failure returns `ErrStartup`, and the service must not start. Wiring `Start` into `iam` comes with T-16, when the stand-in `Registry` is replaced; until then no service reads posture settings.
+  - Limitation: all definitions a client registers are recorded under one owning feature. A service that reads another feature's setting declares it with `Register` but cannot `Start`-register it. T-16 will add the distinction if a service needs it.
+  - Verification:
+    - Unit tests: the definition encoding (kinds, directions, floors as package values, sorted), and `Start` refusing on a registrar error, on unbound keys and with nothing registered.
+    - DB tests: `Start` before the seed fails. With an extra key the active profile does not bind, `Start` fails, names the key, and records nothing; this is the service refusing to start. With the F-001 keys it succeeds and records 19 definitions with their floors and parameters, and a restart is idempotent.
+    - Refused: a flipped direction, made BU-scopable, a changed enum order, another owning feature, a lowered or removed floor, narrowed floor families, a floor the active profile does not meet, an invalid value in force, and `app_engine` calling the function. A tightened floor the profile meets is accepted.
+    - A mutation that disables the no-weakening rule fails four of those cases.

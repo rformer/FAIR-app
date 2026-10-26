@@ -16,7 +16,8 @@ This repo is built **spec-first**. Before doing anything, read:
 - F-015 T-09 done: `posture.request_change` / `apply_change` / `apply_revert` (database-enforced floor, bounds and classification), row MACs keyed by `posture.mac_key`, `posture.mac_mismatches()` for drift. Out-of-bounds changes fail closed (PF005) until F-001 T-26.
 - F-015 T-10 done: `iam migrate` loads the embedded release packages (`posture.sync_packages`); `posture seed` (install-time, audited) and `posture import` (signed, offline). `migrate.Run` takes a `migrate.Release`.
 - F-015 T-11 done: `settings.Client` (`pkg/settings/client.go`): services read effective values through `posture.effective_settings()` as `app_rw`, refresh on `posture.setting.changed` or a 30 s version poll, fail closed when stale, and send heartbeats. The T-00b `Registry` is unchanged until T-16.
-- **Next: F-015 T-12** (`specs/features/F-015-security-posture-profiles/tasks.md`; startup registration and the "key missing from active package" startup error), then the rest of F-015 in task order, except that **F-001 T-26 (dual-approval engine) comes before F-015 T-14** (approved 2026-10-26); then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
+- F-015 T-12 done: `posture.register_settings` (open to services, never weakens) and `settings.Client.Start` (register, load, refuse to start on any unbound key).
+- **Next: F-015 T-13** (`specs/features/F-015-security-posture-profiles/tasks.md`; strictness comparators and strictest-of, with property tests), then the rest of F-015 in task order, except that **F-001 T-26 (dual-approval engine) comes before F-015 T-14** (approved 2026-10-26); then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
 
 ## Working rules
 - Implement only tasks that are marked Approved and listed in a `tasks.md`. If a task needs a design change, stop and propose the spec change; don't silently diverge.
