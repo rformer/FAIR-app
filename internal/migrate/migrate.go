@@ -9,8 +9,9 @@
 //     drift detection).
 //
 // After the migrations it applies the build's permission catalog and
-// built-in roles with iam.sync_release (T-06), in the same privileged
-// session, so every install and upgrade gets the catalog it ships with.
+// built-in roles with iam.sync_release (T-06) and loads the build's profile
+// packages with posture.sync_packages (F-015 T-10), in one privileged
+// transaction, so every install and upgrade gets the release it ships with.
 package migrate
 
 import (
@@ -49,10 +50,23 @@ type SyncResult struct {
 	VersionedRoles   []string `json:"versioned_roles"`
 }
 
+// PackageSync is what posture.sync_packages reports, as "id@version".
+type PackageSync struct {
+	Imported  []string `json:"imported"`
+	Unchanged []string `json:"unchanged"`
+}
+
+// Release is what a build ships besides its migrations.
+type Release struct {
+	Catalog         []byte   // catalog.SyncPayload, for iam.sync_release
+	ProfilePackages [][]byte // profile packages, checked against their manifest (profilepkg.LoadRelease)
+}
+
 // Result summarizes a run.
 type Result struct {
-	Applied []string // versions applied by this run, in order
-	Sync    SyncResult
+	Applied  []string // versions applied by this run, in order
+	Sync     SyncResult
+	Packages PackageSync
 }
 
 // ConnConfig builds the migrator's connection (see dbconn.Config). The user
@@ -66,9 +80,9 @@ func ConnConfig(env, passwordFile string) (*pgx.ConnConfig, error) {
 }
 
 // Run applies pending migrations from migrations (a directory of
-// NNNN_name.sql files) and then syncs the release catalog from payload
-// (catalog.SyncPayload). conn must be connected as app_migrator.
-func Run(ctx context.Context, conn *pgx.Conn, migrations fs.FS, payload []byte) (Result, error) {
+// NNNN_name.sql files) and then syncs the release: its permission catalog
+// and its profile packages. conn must be connected as app_migrator.
+func Run(ctx context.Context, conn *pgx.Conn, migrations fs.FS, rel Release) (Result, error) {
 	var res Result
 	names, err := fs.Glob(migrations, "*.sql")
 	if err != nil {
@@ -144,13 +158,19 @@ REVOKE ALL ON fair_meta.schema_migrations FROM PUBLIC;`).ReadAll()
 
 	err = asOwner(ctx, conn, func(tx pgx.Tx) error {
 		var out []byte
-		if err := tx.QueryRow(ctx, "SELECT iam.sync_release($1::jsonb)", string(payload)).Scan(&out); err != nil {
+		if err := tx.QueryRow(ctx, "SELECT iam.sync_release($1::jsonb)", string(rel.Catalog)).Scan(&out); err != nil {
+			return fmt.Errorf("release catalog: %w", err)
+		}
+		if err := json.Unmarshal(out, &res.Sync); err != nil {
 			return err
 		}
-		return json.Unmarshal(out, &res.Sync)
+		if err := tx.QueryRow(ctx, "SELECT posture.sync_packages($1::bytea[])", rel.ProfilePackages).Scan(&out); err != nil {
+			return fmt.Errorf("profile packages: %w", err)
+		}
+		return json.Unmarshal(out, &res.Packages)
 	})
 	if err != nil {
-		return res, fmt.Errorf("migrate: release catalog: %w", err)
+		return res, fmt.Errorf("migrate: %w", err)
 	}
 	return res, nil
 }

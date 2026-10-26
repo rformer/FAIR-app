@@ -73,14 +73,14 @@ INSERT INTO posture.setting_def (key, type, direction, enum_order, bu_scopable, 
   ('session.network_binding',  'enum',     'ordered', ARRAY['off','flag','reauthenticate'], true, NULL, '{}', 'F-001', '1'),
   ('fips.enabled',             'bool',     'true_is_stricter', NULL, false, 'true', '{fedramp,cmmc}', 'F-001', '1');
 INSERT INTO posture.profile (id, version, name, family, kind, package_digest, status)
-  VALUES ('fedramp-moderate', '1.0.0', 'FedRAMP Moderate', 'fedramp', 'builtin', repeat('a', 64), 'active');
+  VALUES ('test-fedramp', '1.0.0', 'FedRAMP Moderate', 'fedramp', 'builtin', repeat('a', 64), 'active');
 INSERT INTO posture.profile_value (profile_id, version, key, default_value, bound) VALUES
-  ('fedramp-moderate', '1.0.0', 'session.idle_timeout',    '"15m0s"', '"15m0s"'),
-  ('fedramp-moderate', '1.0.0', 'auth.lockout_threshold',  '3', '5'),
-  ('fedramp-moderate', '1.0.0', 'tls.min_version',         '"1.2"', '"1.2"'),
-  ('fedramp-moderate', '1.0.0', 'session.network_binding', '"reauthenticate"', '"flag"'),
-  ('fedramp-moderate', '1.0.0', 'fips.enabled',            'true', 'true');
-INSERT INTO posture.active_profile (profile_id, version) VALUES ('fedramp-moderate', '1.0.0');
+  ('test-fedramp', '1.0.0', 'session.idle_timeout',    '"15m0s"', '"15m0s"'),
+  ('test-fedramp', '1.0.0', 'auth.lockout_threshold',  '3', '5'),
+  ('test-fedramp', '1.0.0', 'tls.min_version',         '"1.2"', '"1.2"'),
+  ('test-fedramp', '1.0.0', 'session.network_binding', '"reauthenticate"', '"flag"'),
+  ('test-fedramp', '1.0.0', 'fips.enabled',            'true', 'true');
+INSERT INTO posture.active_profile (profile_id, version) VALUES ('test-fedramp', '1.0.0');
 INSERT INTO iam.app_user (email, display_name) VALUES ('admin@example.test', 'Admin');`)
 	return e.adminQuery("SELECT id FROM iam.app_user WHERE email = 'admin@example.test'")
 }

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 func newKey(t *testing.T) *ecdsa.PrivateKey {
@@ -278,5 +279,26 @@ func TestLoadKeys(t *testing.T) {
 	}
 	if _, err := LoadPrivateKey(write("junk.pem", "PRIVATE KEY", []byte("junk"))); err == nil {
 		t.Error("loaded junk")
+	}
+}
+
+// LoadRelease (embedded, unsigned packages) still checks every pin.
+func TestLoadRelease(t *testing.T) {
+	files := release(t, newKey(t))
+	fsys := fstest.MapFS{}
+	for n, b := range files {
+		fsys[n] = &fstest.MapFile{Data: b}
+	}
+	got, err := LoadRelease(fsys, "manifest.json")
+	if err != nil || len(got) != 2 {
+		t.Fatalf("%d packages, %v", len(got), err)
+	}
+	fsys["profile-two-1.0.0.json"] = &fstest.MapFile{Data: encode(t, testPackage())}
+	if _, err := LoadRelease(fsys, "manifest.json"); err == nil {
+		t.Fatal("loaded a package that does not match its pin")
+	}
+	delete(fsys, "profile-two-1.0.0.json")
+	if _, err := LoadRelease(fsys, "manifest.json"); err == nil {
+		t.Fatal("loaded a release with a pinned package missing")
 	}
 }

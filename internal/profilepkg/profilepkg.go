@@ -21,6 +21,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"slices"
 	"strings"
@@ -428,6 +429,41 @@ func VerifyRelease(pub *ecdsa.PublicKey, manifestFile string, files map[string][
 			return nil, fmt.Errorf("profilepkg: %s is %s %s, but is pinned as %s %s", e.File, p.Profile.ID, p.Profile.Version, e.ID, e.Version)
 		}
 		out = append(out, p)
+	}
+	return out, nil
+}
+
+// LoadRelease reads a release's manifest (named manifestFile) and every
+// package it pins from fsys, checking each against its pin and decoding it.
+// It checks no signatures: it is for packages whose integrity comes from
+// elsewhere (embedded in the signed binary). It returns the package bytes in
+// manifest order.
+func LoadRelease(fsys fs.FS, manifestFile string) ([][]byte, error) {
+	mb, err := fs.ReadFile(fsys, manifestFile)
+	if err != nil {
+		return nil, err
+	}
+	m, err := DecodeManifest(mb)
+	if err != nil {
+		return nil, err
+	}
+	var out [][]byte
+	for _, e := range m.Packages {
+		b, err := fs.ReadFile(fsys, e.File)
+		if err != nil {
+			return nil, err
+		}
+		if err := m.CheckPinned(e.File, b); err != nil {
+			return nil, err
+		}
+		p, err := Decode(b)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", e.File, err)
+		}
+		if p.Profile.ID != e.ID || p.Profile.Version != e.Version || e.File != FileName(e.ID, e.Version) {
+			return nil, fmt.Errorf("profilepkg: %s is %s %s, but is pinned as %s %s", e.File, p.Profile.ID, p.Profile.Version, e.ID, e.Version)
+		}
+		out = append(out, b)
 	}
 	return out, nil
 }

@@ -120,6 +120,16 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_MIGRATOR_PASSWORD_FILE=... ./bin/iam 
 #    from your KMS); it never leaves it. Rotate: add a new key, then
 #    SELECT posture.retire_mac_key('<old id>'); rows signed by it still verify.
 #    SELECT posture.add_mac_key('k1', authz.gen_random_bytes(32));
+
+# 4. Select the security profile and seed every setting from it (F-015 T-10;
+#    once, audited). iam migrate has already loaded the release's packages.
+#    Default: fedramp-moderate; also cmmc-l2-r2, enterprise-baseline.
+PGDATABASE=fair PGSSLMODE=verify-full FAIR_DB_PASSWORD_FILE=<app_posture password file> \
+  ./bin/posture seed -profile fedramp-moderate
+
+# Later, offline: load a signed release of profile packages (profilegen sign)
+# with the bundled release public key.
+./bin/posture import -pub release-signing.pub -dir <release dir>
 ```
 
 ## Notes

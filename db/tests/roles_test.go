@@ -29,6 +29,8 @@ import (
 	fairdb "github.com/rformer/fair-app/db"
 	"github.com/rformer/fair-app/internal/access/catalog"
 	"github.com/rformer/fair-app/internal/migrate"
+	"github.com/rformer/fair-app/internal/profilepkg"
+	"github.com/rformer/fair-app/profiles"
 )
 
 type env struct {
@@ -110,7 +112,15 @@ func (e *env) migrate(dir string) (migrate.Result, error) {
 	if err != nil {
 		return migrate.Result{}, err
 	}
-	return migrate.Run(ctx, conn, migrations, payload)
+	pkgDir, err := fs.Sub(profiles.Packages, "packages")
+	if err != nil {
+		return migrate.Result{}, err
+	}
+	pkgs, err := profilepkg.LoadRelease(pkgDir, "manifest.json")
+	if err != nil {
+		return migrate.Result{}, err
+	}
+	return migrate.Run(ctx, conn, migrations, migrate.Release{Catalog: payload, ProfilePackages: pkgs})
 }
 
 func (e *env) script(name string, vars map[string]string) {

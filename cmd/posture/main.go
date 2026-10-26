@@ -5,6 +5,15 @@
 // database pool as app_posture (design §5 access model). The registry,
 // change evaluator, exceptions, drift and export arrive with later tasks.
 //
+//	posture                              run the service
+//	posture seed [-profile ID] [-version V]
+//	                                     install-time seed from the selected
+//	                                     built-in profile (default FedRAMP
+//	                                     Moderate; AC-09, AC-10); run once by
+//	                                     the installer
+//	posture import -pub FILE -dir DIR    load a signed release directory of
+//	                                     profile packages (offline; AC-05)
+//
 // Environment: as for iam (FAIR_ENV, FAIR_LISTEN_ADDR, FAIR_TLS_*_FILE,
 // FAIR_REQUIRE_FIPS, ...), plus FAIR_DB_PASSWORD_FILE (app_posture's password)
 // and the libpq connection variables.
@@ -14,16 +23,21 @@ import (
 	"context"
 	"crypto/fips140"
 	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/rformer/fair-app/internal/config"
 	"github.com/rformer/fair-app/internal/dbconn"
+	"github.com/rformer/fair-app/internal/posture"
+	"github.com/rformer/fair-app/internal/profilepkg"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/audit"
 )
@@ -36,10 +50,115 @@ var version = "dev"
 const dbRole = "app_posture"
 
 func main() {
-	if err := run(); err != nil {
+	var err error
+	switch {
+	case len(os.Args) > 1 && os.Args[1] == "seed":
+		fs := flag.NewFlagSet("seed", flag.ExitOnError)
+		profile := fs.String("profile", posture.DefaultProfile, "built-in profile to seed from")
+		version := fs.String("version", "", "profile version (default: the only loaded version)")
+		actor := fs.String("actor", "system:installer", "audit actor")
+		_ = fs.Parse(os.Args[2:])
+		err = seed(*profile, *version, *actor)
+	case len(os.Args) > 1 && os.Args[1] == "import":
+		fs := flag.NewFlagSet("import", flag.ExitOnError)
+		pub := fs.String("pub", "", "PEM release public key file (bundled with the install)")
+		dir := fs.String("dir", "", "signed release directory (profilegen sign)")
+		actor := fs.String("actor", "system:installer", "audit actor")
+		_ = fs.Parse(os.Args[2:])
+		if *pub == "" || *dir == "" {
+			fmt.Fprintln(os.Stderr, "usage: posture import -pub FILE -dir DIR")
+			os.Exit(2)
+		}
+		err = importDir(*pub, *dir, *actor)
+	default:
+		err = run()
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "posture:", err)
 		os.Exit(1)
 	}
+}
+
+// command prepares a one-shot subcommand: configuration, the FIPS check and
+// a pool as app_posture.
+func command(ctx context.Context) (*pgxpool.Pool, error) {
+	env := os.Getenv("FAIR_ENV")
+	if env == "" {
+		env = "production"
+	}
+	if (os.Getenv("FAIR_REQUIRE_FIPS") != "false" || env == "production") && !fips140.Enabled() {
+		return nil, errors.New("FIPS 140 mode is required but not enabled")
+	}
+	return connect(ctx, env)
+}
+
+func connect(ctx context.Context, env string) (*pgxpool.Pool, error) {
+	cc, err := dbconn.Config(env, dbRole, os.Getenv("FAIR_DB_PASSWORD_FILE"), "fair-posture")
+	if err != nil {
+		return nil, err
+	}
+	pc, err := pgxpool.ParseConfig("")
+	if err != nil {
+		return nil, err
+	}
+	pc.ConnConfig = cc
+	pool, err := pgxpool.NewWithConfig(ctx, pc)
+	if err != nil {
+		return nil, fmt.Errorf("database: %w", err)
+	}
+	return pool, nil
+}
+
+func seed(profile, version, actor string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	pool, err := command(ctx)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	s, err := posture.Seed(ctx, pool, audit.NewJSONLines(os.Stdout), actor, profile, version)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "seeded %d settings from %s %s (package %s)\n", s.Settings, s.Profile, s.Version, s.Digest)
+	return nil
+}
+
+func importDir(pubFile, dir, actor string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	pub, err := profilepkg.LoadPublicKey(pubFile)
+	if err != nil {
+		return err
+	}
+	files := map[string][]byte{}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.Type().IsRegular() {
+			b, err := os.ReadFile(filepath.Join(dir, e.Name())) // #nosec G304 -- operator-named release directory
+			if err != nil {
+				return err
+			}
+			files[e.Name()] = b
+		}
+	}
+	pool, err := command(ctx)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	res, err := posture.Import(ctx, pool, audit.NewJSONLines(os.Stdout), pub, actor, files)
+	if err != nil {
+		return err
+	}
+	for _, r := range res {
+		fmt.Fprintf(os.Stderr, "%s %s %s (package %s)\n", r.Outcome, r.Profile, r.Version, r.Digest)
+	}
+	return nil
 }
 
 func run() error {
@@ -59,18 +178,9 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	cc, err := dbconn.Config(cfg.Env, dbRole, os.Getenv("FAIR_DB_PASSWORD_FILE"), "fair-posture")
+	pool, err := connect(ctx, cfg.Env)
 	if err != nil {
 		return err
-	}
-	pc, err := pgxpool.ParseConfig("")
-	if err != nil {
-		return err
-	}
-	pc.ConnConfig = cc
-	pool, err := pgxpool.NewWithConfig(ctx, pc)
-	if err != nil {
-		return fmt.Errorf("database: %w", err)
 	}
 	defer pool.Close()
 

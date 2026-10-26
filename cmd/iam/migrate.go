@@ -18,7 +18,9 @@ import (
 	"github.com/rformer/fair-app/db"
 	"github.com/rformer/fair-app/internal/access/catalog"
 	"github.com/rformer/fair-app/internal/migrate"
+	"github.com/rformer/fair-app/internal/profilepkg"
 	"github.com/rformer/fair-app/pkg/audit"
+	"github.com/rformer/fair-app/profiles"
 )
 
 // exitChecksum is the exit status for a modified applied migration, kept from
@@ -77,6 +79,7 @@ func runMigrate() int {
 			"added_permissions": strings.Join(res.Sync.AddedPermissions, ","),
 			"created_roles":     strings.Join(res.Sync.CreatedRoles, ","),
 			"versioned_roles":   strings.Join(res.Sync.VersionedRoles, ","),
+			"profiles_imported": strings.Join(res.Packages.Imported, ","),
 		},
 	}); err != nil {
 		logger.Error("audit emit failed", "error", err.Error())
@@ -109,5 +112,19 @@ func migrateOnce(ctx context.Context, env string) (migrate.Result, error) {
 	if err != nil {
 		return migrate.Result{}, err
 	}
-	return migrate.Run(ctx, conn, migrations, payload)
+	pkgs, err := releasePackages()
+	if err != nil {
+		return migrate.Result{}, err
+	}
+	return migrate.Run(ctx, conn, migrations, migrate.Release{Catalog: payload, ProfilePackages: pkgs})
+}
+
+// releasePackages returns the embedded profile packages, each checked
+// against the digest pinned in the embedded manifest (F-015 T-10).
+func releasePackages() ([][]byte, error) {
+	dir, err := fs.Sub(profiles.Packages, "packages")
+	if err != nil {
+		return nil, err
+	}
+	return profilepkg.LoadRelease(dir, "manifest.json")
 }

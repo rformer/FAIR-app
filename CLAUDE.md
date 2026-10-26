@@ -14,7 +14,8 @@ This repo is built **spec-first**. Before doing anything, read:
 - F-015 T-07 done: `go run ./cmd/profilegen release-check [-online]` is the release gate (`.github/workflows/release.yml`); `profiles/release-checklist.yaml` records the CMMC rule confirmation.
 - F-015 T-08 done: schema `posture` (migration 0011) and `cmd/posture`. Application roles have no access to posture tables; everything goes through SECURITY DEFINER functions owned by `posture_definer`, and the service connects as `app_posture` (design §5 access model).
 - F-015 T-09 done: `posture.request_change` / `apply_change` / `apply_revert` (database-enforced floor, bounds and classification), row MACs keyed by `posture.mac_key`, `posture.mac_mismatches()` for drift. Out-of-bounds changes fail closed (PF005) until F-001 T-26.
-- **Next: F-015 T-10** (`specs/features/F-015-security-posture-profiles/tasks.md`; package import and install-time seed), then the rest of F-015 in task order, except that **F-001 T-26 (dual-approval engine) comes before F-015 T-14** (approved 2026-10-26); then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
+- F-015 T-10 done: `iam migrate` loads the embedded release packages (`posture.sync_packages`); `posture seed` (install-time, audited) and `posture import` (signed, offline). `migrate.Run` takes a `migrate.Release`.
+- **Next: F-015 T-11** (`specs/features/F-015-security-posture-profiles/tasks.md`; `settings` Go library: Register, Get, cache, NATS invalidation), then the rest of F-015 in task order, except that **F-001 T-26 (dual-approval engine) comes before F-015 T-14** (approved 2026-10-26); then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
 
 ## Working rules
 - Implement only tasks that are marked Approved and listed in a `tasks.md`. If a task needs a design change, stop and propose the spec change; don't silently diverge.

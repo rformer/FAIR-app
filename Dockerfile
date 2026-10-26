@@ -17,6 +17,9 @@ COPY db/embed.go ./db/
 COPY db/migrations ./db/migrations
 COPY internal ./internal
 COPY pkg ./pkg
+# Profile packages embedded in iam migrate (F-015 T-10).
+COPY profiles/embed.go ./profiles/
+COPY profiles/packages ./profiles/packages
 ARG VERSION=dev
 RUN go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/iam ./cmd/iam
 

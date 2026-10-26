@@ -80,9 +80,9 @@ func TestPostureConstraints(t *testing.T) {
 		`INSERT INTO posture.setting_def (key, type, direction, enum_order, owner_feature, registered_version)
 		 VALUES ('tls.min_version', 'enum', 'ordered', ARRAY['1.0','1.1','1.2','1.3'], 'F-001', '1')`,
 		`INSERT INTO posture.profile (id, version, name, family, kind, package_digest, status)
-		 VALUES ('fedramp-moderate', '1.0.0', 'FedRAMP Moderate', 'fedramp', 'builtin', repeat('a', 64), 'active')`,
+		 VALUES ('test-fedramp', '1.0.0', 'FedRAMP Moderate', 'fedramp', 'builtin', repeat('a', 64), 'active')`,
 		`INSERT INTO posture.setting_value (key, value, source, row_mac, mac_key_id) VALUES ('tls.min_version', '"1.2"', 'profile', ` + mac + `, 'k1')`,
-		`INSERT INTO posture.active_profile (profile_id, version) VALUES ('fedramp-moderate', '1.0.0')`,
+		`INSERT INTO posture.active_profile (profile_id, version) VALUES ('test-fedramp', '1.0.0')`,
 	}
 	for _, s := range seed {
 		e.admin(e.db, s)
@@ -101,7 +101,7 @@ func TestPostureConstraints(t *testing.T) {
 		"custom without base": {`INSERT INTO posture.profile (id, version, name, family, kind, status)
 			VALUES ('x', '1', 'X', 'fedramp', 'custom', 'draft')`, check},
 		"loosened without justification": {`INSERT INTO posture.profile_value (profile_id, version, key, default_value, bound, loosened)
-			VALUES ('fedramp-moderate', '1.0.0', 'tls.min_version', '"1.2"', '"1.2"', true)`, check},
+			VALUES ('test-fedramp', '1.0.0', 'tls.min_version', '"1.2"', '"1.2"', true)`, check},
 		"second instance-wide value": {`INSERT INTO posture.setting_value (key, value, source, row_mac, mac_key_id)
 			VALUES ('tls.min_version', '"1.3"', 'profile', ` + mac + `, 'k1')`, "setting_value_key_bu_id_key"},
 		"change source without change": {`INSERT INTO posture.setting_value (key, bu_id, value, source, row_mac, mac_key_id)
@@ -109,7 +109,7 @@ func TestPostureConstraints(t *testing.T) {
 		"short row_mac": {`INSERT INTO posture.setting_value (key, bu_id, value, source, row_mac, mac_key_id)
 			VALUES ('tls.min_version', (SELECT id FROM iam.bu LIMIT 1), '"1.3"', 'profile', '\x00', 'k1')`, "setting_value_row_mac_check"},
 		"second active profile": {`INSERT INTO posture.active_profile (singleton, profile_id, version)
-			VALUES (true, 'fedramp-moderate', '1.0.0')`, "active_profile_pkey"},
+			VALUES (true, 'test-fedramp', '1.0.0')`, "active_profile_pkey"},
 		"change for unregistered key": {`INSERT INTO posture.change (key, new_value, direction, requested_by, state)
 			VALUES ('no.such', '1', 'neutral', (SELECT id FROM iam.app_user LIMIT 1), 'rejected')`, "change_key_fkey"},
 	}

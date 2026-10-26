@@ -101,6 +101,15 @@ Build and release (T-06; proposed with T-06, pending approval):
 - `profilegen sign -key FILE -out DIR` (release pipeline) checks every package against its pin and signs each package and the package manifest (`<file>.sig`, base64 ASN.1 DER). The key is a PEM file, i.e. a mounted secret. `profilegen verify -pub FILE -dir DIR` verifies a signed release offline.
 - The package manifest is the profile-package part of the release manifest. Wherever the release pipeline assembles the full release manifest (image digests, §6.8), it pins the package manifest by digest.
 
+Loading and seeding (T-10; decisions by Robert Former, 2026-10-26):
+- **Release packages** are embedded in the binary (`profiles/embed.go`). `iam migrate` checks them against their pinned manifest and loads them through `posture.sync_packages` as `fair_owner`. This is the trusted release path, like the permission catalog.
+- **Later packages** (offline import, AC-05 and AC-06) go through `posture import -pub FILE -dir DIR`. The service verifies the manifest signature, each package's pin and signature, and its schema with the bundled public key, then calls `posture.import_package`. PostgreSQL cannot verify ECDSA, so on this path the database trusts `app_posture`. An imported profile is only `approved`, and it takes effect only through a dual-approved switch (T-21).
+- **What the database checks on both paths:**
+  - it computes the digest from the exact bytes it stores;
+  - it loads insert-only, refusing an existing id and version with another digest;
+  - it re-checks values and hard floors against registered setting definitions.
+- **The install-time seed** is `posture seed [-profile ID]`, defaulting to `fedramp-moderate` (AC-09). The installer runs it once; F-014's UI wraps it. It makes the profile active, writes every instance value from its defaults with a row MAC, and emits `posture.seeded` (high severity) inside the transaction, so an audit failure seeds nothing (AC-10).
+
 ## 5. Data model (schema `posture`)
 - `setting_def` (key PK, type, direction, bu_scopable, hard_floor jsonb, params text[], owner_feature, registered_version)
 - `profile` (id, name, kind[builtin|custom], base_profile_id, version, package_digest, status[draft|pending_approval|approved|active|retired], label_deviates bool)
@@ -454,3 +463,16 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
     - Reverts: instance, BU, not yet expired, already reverted, superseded.
     - The duration parser accepts and rejects the expected inputs.
     - A mutation that disables the floor check makes the tests fail.
+- 2026-10-26: T-10 implementation notes (`db/migrations/0013_posture_packages.sql`, `internal/posture`, `cmd/posture seed|import`, `profiles/embed.go`). §4.3 gains "Loading and seeding" (decisions above).
+  - `migrate.Run` now takes a `migrate.Release` (catalog payload plus profile packages) and loads both in one privileged transaction. The `db.migrated` audit event lists `profiles_imported`.
+  - `profilepkg.LoadRelease` checks each embedded package against the manifest pin and decodes it. It checks no signature, because the integrity of embedded packages comes from the signed binary. The Dockerfile copies `profiles/packages`.
+  - `posture.import_package` returns `imported` or `unchanged`. Only newly imported packages are audited (`posture.package_imported`, high severity).
+  - `posture.seed` runs once (an existing active profile gives PF003) and needs a MAC key (PF006). Concurrent seeds serialize on the singleton `active_profile` key. It returns the version, digest and settings count for the audit event.
+  - D-OQ5 stays open for key custody. The public key is a file the operator passes (`-pub`), and where it ships in the bundle is part of D-OQ5.
+  - For T-12: a package may bind keys that are not registered yet. Their values are checked when they are loaded only if a definition exists, so registration must re-check the active profile's values and bounds against the new definition.
+  - Verification:
+    - DB tests: the release loads at migrate with the database-computed digests, and a re-run changes nothing.
+    - Changed bytes under the same version, a below-floor bound for a registered setting, and a non-package are all refused. Application roles cannot call the release path.
+    - Seed with no MAC key, with a failing audit sink, and with an unknown profile each leave nothing behind. A successful seed writes 19 values equal to the defaults, emits one audit event with the digest, marks the profile active, and leaves no MAC mismatches. A second seed is refused.
+    - Signed import loads only the new version and audits it. Tampered, unsigned and wrong-key releases load nothing and emit no audit events. A forged below-floor package sent straight to `import_package` gives PF001.
+    - CLI smoke run: migrate, add a MAC key, seed, seed again (refused), sign and import (all unchanged), tamper and import (refused). The `iam` image builds.
