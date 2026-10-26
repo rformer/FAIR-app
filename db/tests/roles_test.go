@@ -53,7 +53,7 @@ func setup(t *testing.T) *env {
 
 	e := &env{t: t, root: root, db: "fairtest_" + randHex(6), secrets: map[string]string{}, adminEnv: os.Environ()}
 	dir := t.TempDir()
-	for _, r := range []string{"app_migrator", "app_rw", "app_engine"} {
+	for _, r := range []string{"app_migrator", "app_rw", "app_engine", "app_posture"} {
 		p := filepath.Join(dir, r)
 		if err := os.WriteFile(p, []byte(randHex(24)+"\n"), 0o600); err != nil {
 			t.Fatal(err)
@@ -71,6 +71,7 @@ func setup(t *testing.T) *env {
 		"FAIR_MIGRATOR_PASSWORD_FILE": e.secrets["app_migrator"],
 		"FAIR_RW_PASSWORD_FILE":       e.secrets["app_rw"],
 		"FAIR_ENGINE_PASSWORD_FILE":   e.secrets["app_engine"],
+		"FAIR_POSTURE_PASSWORD_FILE":  e.secrets["app_posture"],
 	})
 	res, err := e.migrate("")
 	if err != nil {
@@ -168,11 +169,12 @@ func (e *env) mustFail(role, sql, wantSubstr string) {
 func TestRoleAttributes(t *testing.T) {
 	e := setup(t)
 	out, err := e.as("app_rw", `SELECT string_agg(rolname||':'||rolcanlogin||':'||rolbypassrls||':'||rolsuper||':'||rolinherit, ',' ORDER BY rolname)
-		FROM pg_roles WHERE rolname IN ('fair_owner','authz_definer','app_migrator','app_rw','app_engine')`)
+		FROM pg_roles WHERE rolname IN ('fair_owner','authz_definer','posture_definer','app_migrator','app_rw','app_engine','app_posture')`)
 	if err != nil {
 		t.Fatal(err, out)
 	}
-	want := "app_engine:true:false:false:false,app_migrator:true:false:false:false,app_rw:true:false:false:false,authz_definer:false:false:false:false,fair_owner:false:false:false:false"
+	want := "app_engine:true:false:false:false,app_migrator:true:false:false:false,app_posture:true:false:false:false,app_rw:true:false:false:false," +
+		"authz_definer:false:false:false:false,fair_owner:false:false:false:false,posture_definer:false:false:false:false"
 	if out != want {
 		t.Fatalf("role attributes\n got: %s\nwant: %s", out, want)
 	}
@@ -226,7 +228,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON iam.rls_probe TO app_rw;
 
 func TestOwnerRolesCannotLogIn(t *testing.T) {
 	e := setup(t)
-	for _, r := range []string{"fair_owner", "authz_definer"} {
+	for _, r := range []string{"fair_owner", "authz_definer", "posture_definer"} {
 		cmd := exec.Command("psql", "--no-psqlrc", "-X", "-d", e.db, "-c", "SELECT 1")
 		cmd.Env = withVars(e.adminEnv, map[string]string{"PGUSER": r, "PGPASSWORD": "irrelevant"})
 		if out, err := cmd.CombinedOutput(); err == nil {
@@ -261,6 +263,7 @@ func TestBootstrapRepairsRoleDrift(t *testing.T) {
 		"FAIR_MIGRATOR_PASSWORD_FILE": e.secrets["app_migrator"],
 		"FAIR_RW_PASSWORD_FILE":       e.secrets["app_rw"],
 		"FAIR_ENGINE_PASSWORD_FILE":   e.secrets["app_engine"],
+		"FAIR_POSTURE_PASSWORD_FILE":  e.secrets["app_posture"],
 	})
 	out, err := e.as("app_rw", "SELECT rolbypassrls FROM pg_roles WHERE rolname = 'app_rw'")
 	if err != nil || out != "f" {

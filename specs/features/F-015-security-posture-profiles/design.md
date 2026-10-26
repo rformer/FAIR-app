@@ -116,6 +116,16 @@ Build and release (T-06; proposed with T-06, pending approval):
 - `k8s_access` (state[requested|granted|declined|revoked], decided_by, decided_at, reason)
 - `export_record` (id, kind[assessment_results|poam], as_of, digest, signature, created_by)
 
+### Access model (approved by Robert Former, 2026-10-26, with T-08)
+- `bu_id` is nullable in posture tables (NULL = instance-wide). These rows are configuration, not BU-owned business records. Their main readers are system processes that act for no user: settings resolution for any BU, row-MAC drift checks, revert jobs. So they are not under F-001's user-scoped BU RLS (`authz.apply_bu_rls`, AC-24).
+- Instead, application roles have **no privileges at all** on posture tables, reads included. Every read and write goes through SECURITY DEFINER functions owned by the NOLOGIN role `posture_definer`.
+  - User-facing reads filter BU rows with `authz.visible_bus('settings', 'read')`.
+  - System reads return effective values.
+- Defence in depth: every posture table has RLS enabled and forced, with a single policy for `posture_definer` only. A mistaken grant to an application role still exposes no rows.
+- The posture service connects as its own login role, `app_posture` (NOBYPASSRLS, owns nothing). It is created by `db/bootstrap` with its password read from a secret file.
+  - Only `app_posture` may execute the posture write functions.
+  - Other services read effective values through a read function granted to `app_rw` (T-11).
+
 ### Write protection (AC-02)
 - `setting_value`, `exception`, and `active_profile` grant **no** INSERT, UPDATE, or DELETE to application roles.
 - Writes go only through `posture.apply_change(change_id)` and `posture.apply_revert(exception_id)`, both SECURITY DEFINER functions. Each verifies that the referenced change, approval, or exception is in an applicable state.
@@ -390,3 +400,35 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
     - The committed tree passes, and the live eCFR passed on 2026-10-26.
     - A confirmed Rev 3 without a `cmmc-l2-r3` package fails.
     - These fail closed: a later amendment, changed rule text, an eCFR server error, missing or malformed versions, an incomplete or future-dated confirmation, and a changed pinned file.
+- 2026-10-26: §5 access model added (approved by Robert Former). The nullable `bu_id` conflicted with F-001 AC-24 and its CI gate, which require user-scoped BU RLS on any table with a `bu_id` that application roles can reach; the posture tables' system-context readers also cannot pass user-scoped RLS. Resolution: no application-role access, definer functions only (`posture_definer`), and a dedicated `app_posture` login role. T-08's verification now reads accordingly.
+- 2026-10-26: T-08 implementation notes (`db/migrations/0011_posture.sql`, `db/bootstrap`, `cmd/posture`).
+  - Roles: `db/bootstrap/0001_roles.sql` adds `posture_definer` (NOLOGIN) and `app_posture` (LOGIN, NOBYPASSRLS, `row_security = on`, password from `FAIR_POSTURE_PASSWORD_FILE`). `fair_owner` may `SET ROLE posture_definer`, so migrations can hand functions to it. Existing installs must re-run the bootstrap before migrating; migration 0011 refuses to run without the roles, with a message saying so.
+  - Grants: schema `USAGE` goes to `app_posture` and `posture_definer` only. `app_rw` gets none until T-11's read function. No role has any table privilege. `posture_definer` gets its table grants with the functions that need them (T-09, T-10).
+  - Every table: RLS enabled and forced, with one policy `definer_only` for `posture_definer`.
+  - Columns beyond §5, needed to hold what a package carries:
+    - `setting_def.enum_order` and `hard_floor_families`.
+    - `profile.family` (hard floors apply per family), `base_version`, `created_at` and `created_by`.
+    - `change.created_at`.
+  - Naming and keys:
+    - `profile_value.default` is named `default_value` (`default` is reserved).
+    - `profile` is keyed by `(id, version)`. `active_profile` is a singleton row.
+    - The `set` type's direction is named `subset_is_stricter`.
+  - Constraints:
+    - Type and direction must agree.
+    - A built-in profile has a package digest; a custom profile has a base.
+    - A loosened profile value needs a justification.
+    - At most one value per key and BU, where NULL is instance-wide (`UNIQUE NULLS NOT DISTINCT`).
+    - `source` agrees with `change_id` and `exception_id`.
+    - `row_mac` is 32 bytes.
+  - Foreign keys:
+    - `change` and `exception` reference `setting_def`, so only registered keys can be changed.
+    - `profile_value` and `setting_value` do not, because a package can bind keys of features that have not registered yet (T-10, T-12).
+    - `approval_request_id` and `switch_id` have no foreign key until the approvals module and `profile_switch` exist.
+  - `cmd/posture`: hardened server (health, readiness, FIPS, TLS, audit lifecycle events; audit failure at start is fatal) and a database pool as `app_posture`. Readiness fails unless the connection is `app_posture`, the schema is usable, and the role cannot read posture tables directly.
+  - Container image and Kubernetes manifest for `posture` are not added here. F-012 builds images; F-014 owns the charts.
+  - Verification:
+    - DB tests: the tables are owned by `fair_owner`, RLS is enabled and forced, and `definer_only` is the only policy. `app_rw`, `app_engine`, `app_posture` and `app_migrator` have no table privileges, and their reads are denied.
+    - A mistaken grant still returns 0 rows and updates nothing.
+    - Each constraint refuses its case for the intended reason.
+    - The F-001 BU-RLS gate still passes.
+    - Smoke run: the service is ready on a migrated database, and turns not-ready after a stray `GRANT`.

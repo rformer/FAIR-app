@@ -46,6 +46,7 @@ Next up is **Phase 1, the authorization core**: the BU closure table, the signed
 ## Layout
 ```
 cmd/iam/            iam service entrypoint (`iam migrate` runs migrations)
+cmd/posture/        posture service entrypoint (F-015; connects as app_posture)
 internal/config     environment config with secure-by-default validation
 internal/server     hardened HTTP/TLS server, health and readiness
 internal/migrate    embedded migration runner
@@ -104,9 +105,11 @@ docker run --rm --network fairtest -v "$PWD:/src" -w /src \
 ### Database setup (installer / DBA)
 
 ```sh
-# 1. Roles (passwords come from files, never literals)
+# 1. Roles (passwords come from files, never literals). Re-run on every
+#    upgrade: releases may add roles (F-015 T-08 adds app_posture and
+#    posture_definer).
 PGDATABASE=fair FAIR_MIGRATOR_PASSWORD_FILE=... FAIR_RW_PASSWORD_FILE=... \
-FAIR_ENGINE_PASSWORD_FILE=... ./scripts/db-bootstrap.sh
+FAIR_ENGINE_PASSWORD_FILE=... FAIR_POSTURE_PASSWORD_FILE=... ./scripts/db-bootstrap.sh
 
 # 2. Migrations and release catalog (as app_migrator). In production the
 #    server certificate must be verified: PGSSLMODE=verify-full.

@@ -18,7 +18,7 @@ Prerequisite: F-001 Phases 0–1 (DB roles, BU closure, approvals interface, eve
 ## Phase B — Registry, values & change control
 | # | Task | Traces to | Verification | Size | Status |
 |---|---|---|---|---|---|
-| T-08 | `posture` service scaffold + schema (`setting_def`, `profile`, `profile_value`, `active_profile`, `setting_value`, `change`, `exception`) | Design §5 | Migrations; RLS where BU-scoped | M | Todo |
+| T-08 | `posture` service scaffold + schema (`setting_def`, `profile`, `profile_value`, `active_profile`, `setting_value`, `change`, `exception`) | Design §5 | Migrations; no application-role access to posture tables (definer functions only, §5 access model) | M | Done (2026-10-26) |
 | T-09 | Write protection: no DML grants; `apply_change` / `apply_revert` definer functions; `row_mac` with dedicated key | AC-02 | `app_rw` cannot write; direct-edit detected by drift (T-21) | M | Todo |
 | T-10 | Package import + signature/schema verification; install-time seed from selected profile (default FedRAMP Moderate) | AC-05, AC-09, AC-10 | Unsigned/tampered package refused; seed audited | S | Todo |
 | T-11 | `settings` Go library: `Register`, `Get(key, bu)`, versioned cache, NATS invalidation, 30 s TTL backstop, heartbeat of effective values | AC-01, NFR 60 s | Propagation ≤ 60 s test across 3 services | M | Todo |

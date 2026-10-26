@@ -12,7 +12,8 @@ This repo is built **spec-first**. Before doing anything, read:
 - F-015 T-05 done: `bindings/` holds one YAML binding per F-001 setting; `pkg/settings.BuiltinProfiles()` must stay equal to them (test-enforced) until T-16.
 - F-015 T-06 done: `go run ./cmd/profilegen packages` rebuilds `profiles/packages/` (committed, pinned by digest). Changing a binding means bumping that package's version in `profiles/packages.yaml`.
 - F-015 T-07 done: `go run ./cmd/profilegen release-check [-online]` is the release gate (`.github/workflows/release.yml`); `profiles/release-checklist.yaml` records the CMMC rule confirmation.
-- **Next: F-015 T-08** (`specs/features/F-015-security-posture-profiles/tasks.md`; Phase B, `posture` service scaffold and schema), then the rest of F-015 in task order; then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
+- F-015 T-08 done: schema `posture` (migration 0011) and `cmd/posture`. Application roles have no access to posture tables; everything goes through SECURITY DEFINER functions owned by `posture_definer`, and the service connects as `app_posture` (design §5 access model).
+- **Next: F-015 T-09** (`specs/features/F-015-security-posture-profiles/tasks.md`; write protection: `apply_change` / `apply_revert`, `row_mac`), then the rest of F-015 in task order; then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
 
 ## Working rules
 - Implement only tasks that are marked Approved and listed in a `tasks.md`. If a task needs a design change, stop and propose the spec change; don't silently diverge.
@@ -28,7 +29,7 @@ This repo is built **spec-first**. Before doing anything, read:
 ## Commands
 - `make test`: unit tests (race detector, FIPS module)
 - `make test-db PGHOST=... PGPORT=... PGUSER=<superuser> PGPASSWORD=...`: database security tests (needs PostgreSQL 16+ and `psql`)
-- `make build`: builds `bin/iam`
+- `make build`: builds `bin/iam` (`go build ./cmd/posture` for the posture service)
 - `scripts/db-bootstrap.sh` then `make migrate` (`iam migrate`): database setup (see README)
 
 ## Notes for Phase 1
