@@ -1,0 +1,13 @@
+{
+  "catalog_version": 1,
+  "roles": [
+    {"name": "Platform Admin", "permissions": ["access.approve", "access.assign", "access.map_groups", "access.view", "access_review.manage", "banner.manage", "breakglass.manage", "bu.manage", "bu.restrict", "bu.view", "drift.acknowledge", "entitlement.export", "entitlement.view", "exception.renew", "framework.manage", "idp.manage", "idp.view", "integration.manage", "notification.manage", "posture.export", "posture.view", "profile.approve", "profile.manage", "role.manage", "role.view", "scim.manage", "service_account.manage", "session.revoke", "session.view", "settings.approve", "settings.change", "sod.manage", "user.manage", "user.view"]},
+    {"name": "BU Admin", "permissions": ["access.assign", "access.view", "bu.view", "role.view", "user.view"]},
+    {"name": "Risk Analyst", "permissions": ["acceptance.view", "analysis.edit", "analysis.run", "analysis.view", "control.edit", "control.view", "library.edit", "library.view", "register.view", "report.view", "scenario.edit", "scenario.view", "treatment.view"]},
+    {"name": "Risk Owner", "permissions": ["acceptance.request", "acceptance.view", "analysis.view", "control.view", "library.view", "register.edit", "register.view", "report.view", "scenario.view", "treatment.edit", "treatment.view"]},
+    {"name": "Approver", "permissions": ["acceptance.approve", "acceptance.view", "analysis.view", "control.view", "library.view", "register.view", "report.view", "scenario.view", "treatment.view"]},
+    {"name": "Executive Viewer", "permissions": ["acceptance.view", "analysis.view", "control.view", "library.view", "register.view", "report.view", "scenario.view", "treatment.view"]},
+    {"name": "Auditor", "permissions": ["acceptance.view", "access.view", "analysis.view", "audit.export", "audit.view", "bu.view", "control.view", "entitlement.export", "entitlement.view", "library.view", "posture.view", "register.view", "report.view", "role.view", "scenario.view", "treatment.view", "user.view"]},
+    {"name": "Service Account", "permissions": []}
+  ]
+}

@@ -30,6 +30,9 @@ func (e *env) mustOwner(sql string) string {
 func (e *env) ownerFails(sql, wantSubstr string) {
 	e.t.Helper()
 	out, err := e.owner(sql)
+	if len(sql) > 200 {
+		sql = sql[:200] + "..."
+	}
 	if err == nil {
 		e.t.Fatalf("expected failure for %q, got success: %s", sql, out)
 	}
