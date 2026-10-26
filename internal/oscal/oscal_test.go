@@ -116,6 +116,8 @@ func TestRoundTripNISTContent(t *testing.T) {
 		"fedramp/rev5/FedRAMP_rev5_catalog_tailoring_profile.json":                  Profile,
 		"fedramp/rev5/FedRAMP_rev5_MODERATE-baseline_profile.json":                  Profile,
 		"fedramp/rev5/FedRAMP_rev5_MODERATE-baseline-resolved-profile_catalog.json": Catalog,
+		// T-04: NIST SP 800-171 Rev 3 (CMMC L2 mapping chain)
+		"nist/sp800-171r3/NIST_SP800-171_rev3_catalog.json": Catalog,
 	}
 	seen := 0
 	for _, f := range readManifest(t).Files {

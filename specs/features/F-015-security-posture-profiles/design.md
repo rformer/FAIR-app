@@ -298,6 +298,9 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
 - **Runtime OSCAL resolution in `posture`:** deferred to the F-013 migration. Build-time generation keeps the runtime small and air-gap-friendly (AC-08).
 
 ## 14. Resolved
+- In-repo profile sources (T-04, approved by Robert Former, 2026-10-26):
+  - **CMMC L2 (`cmmc-l2-r2`)** maps SP 800-171 Rev 2 to 800-53r5 through official NIST data. NIST publishes Rev 2 in no OSCAL form, has withdrawn it (May 2024), and publishes no Rev 2 to 800-53r5 mapping; Rev 2's Appendix D maps informally to 800-53 **Rev 4**. The chain is NIST's Rev 2 to Rev 3 change analysis, then each Rev 3 requirement's 800-53r5 source controls from NIST's Rev 3 OSCAL catalog.
+  - **Enterprise Baseline** keeps NIST 800-53r5 Moderate's control selection unchanged. Its relaxations live only in the setting bindings, each with a `platform_choice` rationale.
 - **D-OQ1 CMMC L2 source:** follow the current CMMC rule. Today that is NIST SP 800-171 **Rev 2**, shipped as `cmmc-l2-r2`. A Rev 3 package will be added when the rule changes (§4.2).
 - **D-OQ2 FIPS node check:** **offer both** options:
   - `fips-probe` DaemonSet, which is the default when the profile requires FIPS. It uses a single-file read-only hostPath mount.
@@ -339,3 +342,9 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
   - Each entry states its origin: `source`, drift-checked against the resolved profile, or `platform_choice`. The §4.1 example was updated to follow this rule (clarification accepted by Robert Former with the T-03 commit).
   - The `set` type (§3) is refused until a setting needs it; no F-001 setting does.
   - Note for T-05: `pkg/settings` still maps `session.idle_timeout` to `ac-11_odp.01` (the selection) rather than `ac-11_odp.02` (the time period).
+- 2026-10-26: T-04 implementation notes (`internal/profilegen/cmmc.go`, `cmd/profilegen`, `profiles/`).
+  - Pinned inputs: NIST's `sp800-171r2-to-r3-analysis.xlsx` (csrc.nist.gov), the SP 800-171 Rev 3 OSCAL catalog (oscal-content v1.6.0), and the SP 800-171 Rev 2 PDF (provenance of the Appendix D fallback).
+  - Mapping result: 110 requirements; 104 via the Rev 3 chain, 6 via Rev 2 Appendix D. The six are 3.5.6, 3.5.8, 3.5.9, 3.7.1, 3.13.2 and 3.13.14, which Rev 3 withdrew without a successor. They are recorded in `profiles/cmmc-l2-r2/supplement.yaml`, whose notes the build checks against NIST's text. 3.13.14 maps to no control, because SC-19 is withdrawn in 800-53r5 with no successor. The profile selects 123 800-53r5 controls, including the base controls of selected enhancements.
+  - NIST data issue: the change analysis contains a row "3.11.4", which is a mislabeled duplicate of 3.12.4. It is recorded as an erratum and skipped.
+  - `go run ./cmd/profilegen profiles` regenerates `profiles/**/profile.json` and `mapping.md`. Tests fail if the committed files are stale, require both profiles to resolve and validate, and require Enterprise Baseline to conform exactly to NIST's resolved Moderate catalog.
+  - Verification pending: a person must review `mapping.md`. Rows marked "confirm against the PDF" (3.5.8 and 3.5.9, where Table D-5 uses merged cells) need particular attention.

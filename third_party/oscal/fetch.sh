@@ -44,6 +44,12 @@ files=(
   "fedramp/rev5/FedRAMP_rev5_catalog_tailoring_profile.json|$fedramp/FedRAMP_rev5_catalog_tailoring_profile.json"
   "fedramp/rev5/FedRAMP_rev5_MODERATE-baseline_profile.json|$fedramp/FedRAMP_rev5_MODERATE-baseline_profile.json"
   "fedramp/rev5/FedRAMP_rev5_MODERATE-baseline-resolved-profile_catalog.json|$fedramp/FedRAMP_rev5_MODERATE-baseline-resolved-profile_catalog.json"
+  # T-04 CMMC L2 (800-171 Rev 2): Rev 2 -> Rev 3 (NIST change analysis),
+  # Rev 3 -> 800-53r5 (NIST Rev 3 OSCAL references); the Rev 2 publication is
+  # the provenance of the Appendix D fallback (profiles/cmmc-l2-r2/supplement.yaml).
+  "nist/sp800-171r3/NIST_SP800-171_rev3_catalog.json|$content/nist.gov/SP800-171/rev3/json/NIST_SP800-171_rev3_catalog.json"
+  "nist/sp800-171r2/sp800-171r2-to-r3-analysis.xlsx|https://csrc.nist.gov/files/pubs/sp/800/171/r3/final/docs/sp800-171r2-to-r3-analysis.xlsx"
+  "nist/sp800-171r2/NIST.SP.800-171r2.pdf|https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-171r2.pdf"
 )
 
 {

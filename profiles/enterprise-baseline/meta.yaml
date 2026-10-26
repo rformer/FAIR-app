@@ -1,0 +1,6 @@
+# F-015 T-04: Enterprise Baseline profile metadata. The control selection is
+# NIST SP 800-53 Rev 5 Moderate, unchanged (generated profile.json);
+# relaxations are setting values in the bindings (T-05), each with a
+# platform_choice rationale.
+version: "1.0.0"
+published: "2026-10-26T00:00:00Z"

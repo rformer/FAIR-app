@@ -8,8 +8,8 @@ This repo is built **spec-first**. Before doing anything, read:
 
 ## Current position
 - F-001 Phases 0 and 1 are **done** (T-00a to T-12, plus T-02b).
-- F-015 in progress: T-01 (OSCAL types, pinned content), T-02 (`profilegen` resolution) and T-03 (binding format and validator) done.
-- **Next: F-015 T-04** (`specs/features/F-015-security-posture-profiles/tasks.md`; in-repo Enterprise Baseline and CMMC L2 profiles), in task order; then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
+- F-015 in progress: T-01 to T-03 done; T-04 (in-repo profiles) built and In Review until `profiles/cmmc-l2-r2/mapping.md` is signed off.
+- **Next: F-015 T-05** (`specs/features/F-015-security-posture-profiles/tasks.md`; bindings for every F-001 setting), in task order; then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
 
 ## Working rules
 - Implement only tasks that are marked Approved and listed in a `tasks.md`. If a task needs a design change, stop and propose the spec change; don't silently diverge.

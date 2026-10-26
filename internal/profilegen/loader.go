@@ -103,3 +103,18 @@ func resolveHref(base, href string) (string, error) {
 	}
 	return b.ResolveReference(h).String(), nil
 }
+
+// OverlayLoader serves the given documents by URL and everything else from
+// Next; used for in-repo profiles, which are not third-party pins.
+type OverlayLoader struct {
+	Docs map[string]map[string]any
+	Next Loader
+}
+
+// Load implements Loader.
+func (o OverlayLoader) Load(u string) (map[string]any, error) {
+	if d, ok := o.Docs[u]; ok {
+		return deepCopy(d).(obj), nil
+	}
+	return o.Next.Load(u)
+}
