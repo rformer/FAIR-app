@@ -701,3 +701,13 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
     - Newer built-in (AC-07): the 1.0.0 → 1.1.0 diff shows three changes, and the switch is a loosening; cancelling allows a new request.
     - Stale conflict: a value made weaker after the request blocks activation.
     - A mutation that drops the unresolved-conflict check fails the activation test.
+- 2026-10-27: T-22 implementation notes (`db/migrations/0026_bu_overrides.sql`).
+  - `posture.current_value(k, bu)` implements §6.6 without the overlay (T-23): the strictest of the instance value and every BU override at `bu` or at an ancestor whose path to `bu` is unblocked in `iam.bu_closure`. An override on a restricted BU applies to it and below; one above stops at it, as F-001 role assignments do. posture_definer reads the tree only through two narrow `iam` definer functions, `iam.unblocked_ancestors(bu)` and `iam.unblocked_descendants(bu)`.
+  - The change evaluator, switch and exception paths already call `current_value`, so they now see effective values. A BU write is classified against the BU's effective value. A weaker override under a stricter ancestor is therefore treated as a loosening (audited, approved when out of bounds) even though the ancestor's value stays in force. This is deliberately conservative.
+  - `posture.effective_settings()` "bu" now lists, for each BU an override reaches, only the BU-scopable values that differ from the instance value. The settings client falls back to the instance value otherwise, so its `Get` is unchanged.
+  - Moving or restricting a BU changes which overrides reach it, so a statement trigger on `iam.bu_closure` bumps the posture version, and every cache refreshes.
+  - Verification (DB tests):
+    - `TestBUOverridesProperty`: 5 seeds, each a random 20-BU tree with 12 random `session.network_binding` overrides and a random instance value, written through the evaluator. Then 8 random restrict/unrestrict and subtree-move steps. After each step, `current_value`, the snapshot and the settings client must equal a Go model of the rule, and each tree change must bump the version.
+    - `TestBUOverrideBlockedAtRestricted`: a worked example.
+    - Mutations (ignoring the blocked flag, using the BU's own row only, dropping the tree trigger) each fail the tests.
+    - `TestPostureEffectiveSettings` now expects no BU entry for an override equal to the instance value.

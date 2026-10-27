@@ -75,14 +75,16 @@ func TestPostureEffectiveSettings(t *testing.T) {
 		t.Fatalf("snapshot version %d, current %d", snap.Version, v2)
 	}
 
-	// BU overrides arrive under their BU.
+	// The snapshot lists a BU only where its effective value differs from the
+	// instance value (T-22; per-BU values: TestBUOverridesProperty). Here the
+	// override equals FedRAMP's instance value, so the BU falls back to it.
 	root := e.adminQuery("SELECT id FROM iam.bu WHERE parent_id IS NULL")
 	e.admin(e.db, `INSERT INTO posture.setting_def (key, type, direction, enum_order, bu_scopable, owner_feature, registered_version)
 		VALUES ('session.network_binding', 'enum', 'ordered', ARRAY['off','flag','reauthenticate'], true, 'F-001', '1')`)
 	id := e.mustAsUser("app_posture", "admin", "SELECT "+request("session.network_binding", "'"+root+"'", `"reauthenticate"`, "NULL"))
 	e.wantState("app_posture", "PERFORM posture.apply_change('"+id+"')", "ok")
-	if snap, _ = src.Snapshot(ctx); string(snap.BU[root]["session.network_binding"]) != `"reauthenticate"` {
-		t.Fatalf("BU overrides %v", snap.BU)
+	if snap, _ = src.Snapshot(ctx); len(snap.BU) != 0 || string(snap.Instance["session.network_binding"]) != `"reauthenticate"` {
+		t.Fatalf("BU overrides %v, instance %s", snap.BU, snap.Instance["session.network_binding"])
 	}
 
 	// Still no table access for services, only the read functions.
