@@ -507,3 +507,16 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
     - DB tests: `Start` before the seed fails. With an extra key the active profile does not bind, `Start` fails, names the key, and records nothing; this is the service refusing to start. With the F-001 keys it succeeds and records 19 definitions with their floors and parameters, and a restart is idempotent.
     - Refused: a flipped direction, made BU-scopable, a changed enum order, another owning feature, a lowered or removed floor, narrowed floor families, a floor the active profile does not meet, an invalid value in force, and `app_engine` calling the function. A tightened floor the profile meets is accepted.
     - A mutation that disables the no-weakening rule fails four of those cases.
+- 2026-10-26: T-13 implementation notes (`pkg/settings/strictness_test.go`, `db/migrations/0016_posture_strictness.sql`, `db/tests/posture_strictness_test.go`). Decision (Robert Former): the `set` type stays deferred until a setting needs it. Subset order is only a partial order, so it cannot meet the "total order" property; its rules (incomparable counts as weaker, strictest-of is the intersection) arrive with the first set setting. The task row is amended accordingly.
+  - The comparators already existed (`Def.Compare` and `Def.Strictest` in Go; `posture.compare` in SQL since T-09). T-13 proves them and makes the two sides agree.
+  - SQL `posture.strictest(def, values)` is added, owned by `posture_definer` and callable by nobody else, for T-22's BU resolution.
+  - Go property tests (fixed seed; `FAIR_PROPERTY_SEED` explores others), for every kind and direction:
+    - The comparator is reflexive, total, antisymmetric and transitive; equal strictness means equal values; and it matches each direction's meaning.
+    - Strictest-of returns one of its inputs, at least as strict as all of them, independent of order and monotonic as values are added.
+    - Invalid values and kind/direction mismatches are refused.
+    - "Floor never violated": over 50 random profiles and 40 random changes and approvals each on the stand-in registry, no value in force is ever below an applicable floor. The test computes the floor condition itself, after a mutation showed that reusing the code under test hid a disabled floor check.
+  - Go/database parity test: validity on 47 edge-case candidates, comparison on 300 random pairs per kind and direction, and strictest-of on 100 random lists per kind and direction. The test found four divergences, all fixed:
+    - The settings client decoded JSON `null` as a zero value, so `audit.enabled: null` would have read as `false` (fail-open). `settings.DecodeValue` (now exported, and the test uses it) refuses null.
+    - The client refused integral exponent forms such as `1e3`, which the database accepts as 1000. They are now accepted.
+    - The client accepted a quoted `"3"` as an int, and `"+5m"` as a duration. Both are now refused, as in the database.
+    - The database accepted negative ints and values beyond int64 (ints and durations). `check_value` now refuses them, as Go does.

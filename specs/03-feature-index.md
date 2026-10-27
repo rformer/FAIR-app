@@ -3,7 +3,7 @@ Every feature spec includes **Deployment modes** (SaaS, self-hosted, air-gapped)
 
 **v1 build order:** F-012 (minimal CI) → F-001 Phases 0–1 → F-015 → F-001 remaining phases → F-002 → F-003 onward.
 
-**Current position:** F-001 Phase 0 is done (T-00a, T-00b, T-00c, T-01, T-02). F-001 Phase 1, the authorization core, is done (T-02b, T-03 to T-12). **F-015** is in progress: T-01 to T-03 are done, T-04 awaits review of its CMMC mapping table, T-05 to T-08 (bindings, signed profile packages, release checklist gate, `posture` schema and scaffold) are done, as are T-09 (write protection), T-10 (package import and seed), T-11 (`settings` library) and T-12 (startup registration). Next is T-13 (strictness comparators). F-001 T-26 (dual-approval engine) is pulled forward to run before F-015 T-14.
+**Current position:** F-001 Phase 0 is done (T-00a, T-00b, T-00c, T-01, T-02). F-001 Phase 1, the authorization core, is done (T-02b, T-03 to T-12). **F-015** is in progress: T-01 to T-03 are done, T-04 awaits review of its CMMC mapping table, T-05 to T-08 (bindings, signed profile packages, release checklist gate, `posture` schema and scaffold) are done, as are T-09 (write protection), T-10 (package import and seed), T-11 (`settings` library), T-12 (startup registration) and T-13 (strictness comparators). Next is F-001 T-26 (dual-approval engine), pulled forward to run before F-015 T-14.
 
 | ID | Feature | Depends on | Status |
 |---|---|---|---|

@@ -286,3 +286,31 @@ func TestClientHeartbeat(t *testing.T) {
 		t.Fatal("digest did not change with the values")
 	}
 }
+
+// JSON null must never decode as a zero value (false would switch audit
+// off); integral numbers in exponent form are ints, fractions and
+// out-of-range numbers are not.
+func TestDecodeValue(t *testing.T) {
+	audit := Def{Key: "audit.enabled", Kind: KindBool, Direction: TrueIsStricter}
+	lockout := Def{Key: "auth.lockout_threshold", Kind: KindInt, Direction: LowerIsStricter}
+	idle := Def{Key: "session.idle_timeout", Kind: KindDuration, Direction: LowerIsStricter}
+	for _, c := range []struct {
+		d    Def
+		raw  string
+		want any
+	}{
+		{audit, `null`, nil}, {audit, ` null `, nil}, {audit, ``, nil}, {lockout, `null`, nil}, {idle, `null`, nil},
+		{audit, `false`, false}, {lockout, `1e3`, 1000}, {lockout, `3`, 3}, {lockout, `"3"`, nil}, {lockout, `3.5`, nil}, {lockout, `-1`, nil},
+		{lockout, `9223372036854775807`, 9223372036854775807}, {lockout, `9223372036854775808`, nil},
+		{idle, `"1.5h"`, 90 * time.Minute}, {idle, `"-5m"`, nil}, {idle, `"+5m"`, nil},
+	} {
+		got, err := DecodeValue(c.d, json.RawMessage(c.raw))
+		if c.want == nil {
+			if err == nil {
+				t.Errorf("%s %q decoded as %v", c.d.Key, c.raw, got)
+			}
+		} else if err != nil || got != c.want {
+			t.Errorf("%s %q = %v, %v; want %v", c.d.Key, c.raw, got, err, c.want)
+		}
+	}
+}

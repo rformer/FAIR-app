@@ -1,13 +1,16 @@
 package settings
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -141,7 +144,7 @@ func (c *Client) Get(key, buID string) (any, error) {
 			return nil, fmt.Errorf("%w: %s", ErrUnbound, key)
 		}
 	}
-	return decodeValue(d, raw)
+	return DecodeValue(d, raw)
 }
 
 // Duration is Get for a duration setting.
@@ -171,15 +174,24 @@ func typed[T any](c *Client, key, buID string) (T, error) {
 	return t, nil
 }
 
-// decodeValue converts a posture JSON value to the Go type d expects.
-// Durations are Go duration strings, as in profile packages.
-func decodeValue(d Def, raw json.RawMessage) (any, error) {
+// DecodeValue converts a posture JSON value (as stored and in profile
+// packages) to the Go type d expects: time.Duration from a Go duration
+// string, int from any integral JSON number in int64 range, bool, or an enum
+// string. JSON null is always refused: encoding/json would silently decode it
+// as a zero value (false, 0), which must never stand in for a setting.
+// The database's posture.check_value accepts exactly the same values (a
+// property test in db/tests keeps the two equal).
+func DecodeValue(d Def, raw json.RawMessage) (any, error) {
+	bad := func() (any, error) { return nil, fmt.Errorf("%w: %s: %s", ErrType, d.Key, raw) }
+	if t := bytes.TrimSpace(raw); len(t) == 0 || bytes.Equal(t, []byte("null")) {
+		return bad()
+	}
 	var v any
 	switch d.Kind {
 	case KindDuration:
 		var s string
-		if err := json.Unmarshal(raw, &s); err != nil {
-			return nil, fmt.Errorf("%w: %s: %s", ErrType, d.Key, raw)
+		if err := json.Unmarshal(raw, &s); err != nil || strings.HasPrefix(s, "+") {
+			return bad() // durations are unsigned, as time.Duration.String writes them
 		}
 		dur, err := time.ParseDuration(s)
 		if err != nil {
@@ -187,21 +199,32 @@ func decodeValue(d Def, raw json.RawMessage) (any, error) {
 		}
 		v = dur
 	case KindInt:
-		var n int
-		if err := json.Unmarshal(raw, &n); err != nil {
-			return nil, fmt.Errorf("%w: %s: %s", ErrType, d.Key, raw)
+		// Into any, not json.Number: json.Number also accepts a quoted "3".
+		var x any
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		dec.UseNumber()
+		if err := dec.Decode(&x); err != nil {
+			return bad()
 		}
-		v = n
+		num, ok := x.(json.Number)
+		if !ok {
+			return bad()
+		}
+		r, ok := new(big.Rat).SetString(num.String())
+		if !ok || !r.IsInt() || !r.Num().IsInt64() {
+			return bad()
+		}
+		v = int(r.Num().Int64())
 	case KindBool:
 		var b bool
 		if err := json.Unmarshal(raw, &b); err != nil {
-			return nil, fmt.Errorf("%w: %s: %s", ErrType, d.Key, raw)
+			return bad()
 		}
 		v = b
 	case KindEnum:
 		var s string
 		if err := json.Unmarshal(raw, &s); err != nil {
-			return nil, fmt.Errorf("%w: %s: %s", ErrType, d.Key, raw)
+			return bad()
 		}
 		v = s
 	}
