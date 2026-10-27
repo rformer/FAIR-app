@@ -11,6 +11,11 @@ profile:
   version: "1.0.0"
   published: "2026-10-26T00:00:00Z"
 
+# T-04 verification: the generated mapping.md was reviewed and signed off.
+signoff:
+  by: Robert Former
+  on: "2026-10-27"
+
 # Rows of NIST's change analysis that are not Rev 2 requirements.
 errata:
   - r2_id: "3.11.4"
@@ -31,12 +36,12 @@ no_rev3_successor:
     rev3_note: "Consistency with SP 800-53."
     appendix_d: { table: D-5, rev4_controls: ["IA-5(1)"] }
     controls: [ia-5.1]
-    review: "Table D-5's IA-5(1) cell spans 3.5.7-3.5.10; confirm against the PDF."
+    review: "Table D-5's IA-5(1) cell spans 3.5.7-3.5.10; confirmed against the PDF (T-04 sign-off)."
   - r2_id: "3.5.9"
     rev3_note: "Consistency with SP 800-53."
     appendix_d: { table: D-5, rev4_controls: ["IA-5(1)"] }
     controls: [ia-5.1]
-    review: "Table D-5's IA-5(1) cell spans 3.5.7-3.5.10; confirm against the PDF."
+    review: "Table D-5's IA-5(1) cell spans 3.5.7-3.5.10; confirmed against the PDF (T-04 sign-off)."
   - r2_id: "3.7.1"
     rev3_note: "Recategorized as NCO."
     appendix_d: { table: D-7, rev4_controls: [MA-2] }

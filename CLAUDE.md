@@ -8,7 +8,7 @@ This repo is built **spec-first**. Before doing anything, read:
 
 ## Current position
 - F-001 Phases 0 and 1 are **done** (T-00a to T-12, plus T-02b).
-- F-015 in progress: T-01 to T-03 done; T-04 (in-repo profiles) built and In Review until `profiles/cmmc-l2-r2/mapping.md` is signed off.
+- F-015 in progress: T-01 to T-04 done (T-04's CMMC mapping and the Enterprise Baseline rationales signed off 2026-10-27).
 - F-015 T-05 done: `bindings/` holds one YAML binding per F-001 setting; `pkg/settings.BuiltinProfiles()` must stay equal to them (test-enforced) until T-16.
 - F-015 T-06 done: `go run ./cmd/profilegen packages` rebuilds `profiles/packages/` (committed, pinned by digest). Changing a binding means bumping that package's version in `profiles/packages.yaml`.
 - F-015 T-07 done: `go run ./cmd/profilegen release-check [-online]` is the release gate (`.github/workflows/release.yml`); `profiles/release-checklist.yaml` records the CMMC rule confirmation.
@@ -18,7 +18,8 @@ This repo is built **spec-first**. Before doing anything, read:
 - F-015 T-11 done: `settings.Client` (`pkg/settings/client.go`): services read effective values through `posture.effective_settings()` as `app_rw`, refresh on `posture.setting.changed` or a 30 s version poll, fail closed when stale, and send heartbeats. The T-00b `Registry` is unchanged until T-16.
 - F-015 T-12 done: `posture.register_settings` (open to services, never weakens) and `settings.Client.Start` (register, load, refuse to start on any unbound key).
 - F-015 T-13 done: property tests for the comparators and strictest-of; Go (`settings.DecodeValue`, `Def.Compare`) and the database (`posture.check_value`, `compare`, `strictest`) must agree, and a parity test enforces it. `set` is deferred until a setting needs it.
-- **Next: F-001 T-26** (dual-approval engine; pulled forward before F-015 T-14, approved 2026-10-26), then F-015 T-14 and the rest of F-015 in task order, except that **F-001 T-26 (dual-approval engine) comes before F-015 T-14** (approved 2026-10-26); then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
+- F-001 T-26 done (pulled forward): `iam.request_approval` / `decide_approval` / `consume_approval` (actors from the signed DB context; approver holds the kind's permission) and `internal/approvals`. AC-30's assignment path still refuses rather than routing to approval.
+- **Next: F-015 T-14** (`specs/features/F-015-security-posture-profiles/tasks.md`; change evaluator wired to approvals), then the rest of F-015 in task order, except that **F-001 T-26 (dual-approval engine) comes before F-015 T-14** (approved 2026-10-26); then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
 
 ## Working rules
 - Implement only tasks that are marked Approved and listed in a `tasks.md`. If a task needs a design change, stop and propose the spec change; don't silently diverge.

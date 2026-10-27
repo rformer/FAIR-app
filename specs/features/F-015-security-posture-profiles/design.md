@@ -520,3 +520,7 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
     - The client refused integral exponent forms such as `1e3`, which the database accepts as 1000. They are now accepted.
     - The client accepted a quoted `"3"` as an int, and `"+5m"` as a duration. Both are now refused, as in the database.
     - The database accepted negative ints and values beyond int64 (ints and durations). `check_value` now refuses them, as Go does.
+- 2026-10-27: T-04 signed off, and the Enterprise Baseline rationales reviewed, by Robert Former.
+  - The CMMC L2 mapping table (`profiles/cmmc-l2-r2/mapping.md`) is reviewed and signed off, including 3.5.8 and 3.5.9 (Table D-5). The sign-off is recorded in `supplement.yaml` (`signoff`), and the generator writes it into `mapping.md`. The two rows' notes now read "confirmed against the PDF". T-04 is Done.
+  - The Enterprise Baseline relaxation rationales (`platform_choice` in `bindings/`, T-05) are reviewed and signed off as written.
+  - Neither changes a profile or a package: `profile.json` and the signed packages are unchanged.

@@ -58,6 +58,11 @@ type Supplement struct {
 		Controls []string `yaml:"controls"`
 		Review   string   `yaml:"review"`
 	} `yaml:"no_rev3_successor"`
+	// Signoff records the human review of mapping.md (T-04 verification).
+	Signoff *struct {
+		By string `yaml:"by"`
+		On string `yaml:"on"`
+	} `yaml:"signoff"`
 }
 
 // MappingRow maps one Rev 2 requirement to 800-53r5 controls.
@@ -391,7 +396,11 @@ func MappingMarkdown(sup Supplement, rows []MappingRow, selected int) string {
 		counts[r.Basis]++
 	}
 	fmt.Fprintf(&b, "%d requirements (%d via rev3, %d via appendix-d); the profile selects %d 800-53r5 controls, including base controls of selected enhancements.\n\n", len(rows), counts["rev3"], counts["appendix-d"], selected)
-	b.WriteString("**Review (T-04 verification):** reviewed by ______ on ______.\n\n")
+	if s := sup.Signoff; s != nil && s.By != "" && s.On != "" {
+		fmt.Fprintf(&b, "**Review (T-04 verification):** reviewed and signed off by %s on %s.\n\n", s.By, s.On)
+	} else {
+		b.WriteString("**Review (T-04 verification):** reviewed by ______ on ______.\n\n")
+	}
 	b.WriteString("| Rev 2 | Requirement | Rev 3 | Basis | 800-53r5 controls | Note |\n|---|---|---|---|---|---|\n")
 	esc := strings.NewReplacer("|", `\|`, "\n", " ")
 	for _, r := range rows {
