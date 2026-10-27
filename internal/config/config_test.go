@@ -12,12 +12,15 @@ func TestValidateSecureDefaults(t *testing.T) {
 		cfg     Config
 		wantErr bool
 	}{
-		{"production requires TLS files", Config{Env: "production", RequireFIPS: true}, true},
-		{"production refuses plaintext", Config{Env: "production", AllowPlaintext: true, RequireFIPS: true}, true},
-		{"production refuses FIPS off", Config{Env: "production", TLSCertFile: "c", TLSKeyFile: "k"}, true},
-		{"production with TLS and FIPS ok", Config{Env: "production", TLSCertFile: "c", TLSKeyFile: "k", RequireFIPS: true}, false},
-		{"development may use plaintext", Config{Env: "development", AllowPlaintext: true}, false},
-		{"unknown env rejected", Config{Env: "staging", TLSCertFile: "c", TLSKeyFile: "k", RequireFIPS: true}, true},
+		{"production requires TLS files", Config{Env: "production", RequireFIPS: true, DeploymentMode: ModeSaaS}, true},
+		{"production refuses plaintext", Config{Env: "production", AllowPlaintext: true, RequireFIPS: true, DeploymentMode: ModeSaaS}, true},
+		{"production refuses FIPS off", Config{Env: "production", TLSCertFile: "c", TLSKeyFile: "k", DeploymentMode: ModeSaaS}, true},
+		{"production with TLS and FIPS ok", Config{Env: "production", TLSCertFile: "c", TLSKeyFile: "k", RequireFIPS: true, DeploymentMode: ModeSaaS}, false},
+		{"production requires a deployment mode", Config{Env: "production", TLSCertFile: "c", TLSKeyFile: "k", RequireFIPS: true}, true},
+		{"unknown deployment mode rejected", Config{Env: "production", TLSCertFile: "c", TLSKeyFile: "k", RequireFIPS: true, DeploymentMode: "cloud"}, true},
+		{"self-hosted ok", Config{Env: "production", TLSCertFile: "c", TLSKeyFile: "k", RequireFIPS: true, DeploymentMode: ModeSelfHosted}, false},
+		{"development may use plaintext", Config{Env: "development", AllowPlaintext: true, DeploymentMode: ModeSelfHosted}, false},
+		{"unknown env rejected", Config{Env: "staging", TLSCertFile: "c", TLSKeyFile: "k", RequireFIPS: true, DeploymentMode: ModeSaaS}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -59,5 +62,26 @@ func TestReadSecretFile(t *testing.T) {
 	_ = os.WriteFile(empty, []byte("\n"), 0o600)
 	if _, err := ReadSecretFile(empty); err == nil {
 		t.Fatal("empty secret must error")
+	}
+}
+
+func TestDeploymentModeDefaults(t *testing.T) {
+	t.Setenv("FAIR_DEPLOYMENT_MODE", "")
+	t.Setenv("FAIR_ENV", "development")
+	t.Setenv("FAIR_ALLOW_PLAINTEXT", "true")
+	c, err := Load("posture")
+	if err != nil || c.DeploymentMode != ModeSelfHosted {
+		t.Fatalf("development default: %q %v", c.DeploymentMode, err)
+	}
+	t.Setenv("FAIR_ENV", "production")
+	t.Setenv("FAIR_ALLOW_PLAINTEXT", "false")
+	t.Setenv("FAIR_TLS_CERT_FILE", "c")
+	t.Setenv("FAIR_TLS_KEY_FILE", "k")
+	if _, err := Load("posture"); err == nil {
+		t.Fatal("production loaded without FAIR_DEPLOYMENT_MODE")
+	}
+	t.Setenv("FAIR_DEPLOYMENT_MODE", "saas")
+	if c, err := Load("posture"); err != nil || c.DeploymentMode != ModeSaaS {
+		t.Fatalf("saas: %q %v", c.DeploymentMode, err)
 	}
 }

@@ -120,6 +120,10 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_MIGRATOR_PASSWORD_FILE=... ./bin/iam 
 #    from your KMS); it never leaves it. Rotate: add a new key, then
 #    SELECT posture.retire_mac_key('<old id>'); rows signed by it still verify.
 #    SELECT posture.add_mac_key('k1', authz.gen_random_bytes(32));
+#    Also record the deployment mode (F-015 T-15). Every service's
+#    FAIR_DEPLOYMENT_MODE must match it, and in SaaS mode the posture service
+#    also needs FAIR_SECOPS_WEBHOOK_URL and FAIR_SECOPS_SECRET_FILE:
+#    SELECT posture.set_deployment_mode('self-hosted');   -- or 'saas'
 
 # 4. Select the security profile and seed every setting from it (F-015 T-10;
 #    once, audited). iam migrate has already loaded the release's packages.

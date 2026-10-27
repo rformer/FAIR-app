@@ -25,7 +25,7 @@ Prerequisite: F-001 Phases 0–1 (DB roles, BU closure, approvals interface, eve
 | T-12 | Startup registration + "key missing from active package" startup error | AC-01 | Service refuses to start with unbound key | S | Done (2026-10-26) |
 | T-13 | Strictness comparators per type (duration/int/bool/enum; `set` deferred until a setting needs it, decision 2026-10-26) + strictest-of | Design §3, AC-35 | Property tests: comparator total order, floor never violated; Go and database comparators agree | S | Done (2026-10-26) |
 | T-14 | Change evaluator: hard-floor refusal, tighten-immediate, in-bounds apply, out-of-bounds → explanation + control warning payload + dual approval → exception | AC-20 – AC-22, AC-30, AC-31 | Test matrix per path; audit events asserted | M | Done (2026-10-27) |
-| T-15 | SaaS vendor SecOps notification on weakening | AC-23 | Mode-gated test | S | Todo |
+| T-15 | SaaS vendor SecOps notification on weakening | AC-23 | Mode-gated test | S | Done (2026-10-27) |
 | T-16 | Replace F-001 T-00b settings stub with this service; migrate F-001 keys | Design §12 | F-001 tests pass against real registry | S | Todo |
 
 ## Phase C — Exceptions, custom profiles & switching

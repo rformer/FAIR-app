@@ -14,9 +14,10 @@
 //	posture import -pub FILE -dir DIR    load a signed release directory of
 //	                                     profile packages (offline; AC-05)
 //
-// Environment: as for iam (FAIR_ENV, FAIR_LISTEN_ADDR, FAIR_TLS_*_FILE,
+// Environment: as for iam (FAIR_ENV, FAIR_DEPLOYMENT_MODE, FAIR_LISTEN_ADDR, FAIR_TLS_*_FILE,
 // FAIR_REQUIRE_FIPS, ...), plus FAIR_DB_PASSWORD_FILE (app_posture's password)
-// and the libpq connection variables.
+// and the libpq connection variables; in SaaS mode FAIR_SECOPS_WEBHOOK_URL and
+// FAIR_SECOPS_SECRET_FILE (vendor SecOps notifications, F-015 AC-23).
 package main
 
 import (
@@ -184,12 +185,25 @@ func run() error {
 	}
 	defer pool.Close()
 
+	// AC-23: the configured deployment mode must be the one the installer
+	// recorded, and SaaS mode needs the SecOps webhook (fail closed).
+	secops, err := secOpsSender(ctx, pool, cfg)
+	if err != nil {
+		return err
+	}
+	if secops != nil {
+		go posture.RunSecOps(ctx, pool, secops, 10*time.Second, func(err error) {
+			logger.Error("SecOps notification delivery", "error", err.Error())
+		})
+	}
+
 	emitter := audit.NewJSONLines(os.Stdout) // replaced by the F-002 pipeline; see pkg/audit
 	if err := emitter.Emit(ctx, audit.Event{
-		Type:       "service.started",
-		Severity:   audit.SeverityInfo,
-		Actor:      "system:posture",
-		Attributes: map[string]string{"fips140": fmt.Sprint(fips140.Enabled()), "env": cfg.Env},
+		Type:     "service.started",
+		Severity: audit.SeverityInfo,
+		Actor:    "system:posture",
+		Attributes: map[string]string{"fips140": fmt.Sprint(fips140.Enabled()), "env": cfg.Env,
+			"deployment_mode": cfg.DeploymentMode},
 	}); err != nil {
 		return fmt.Errorf("audit: %w", err) // audit failures fail closed (ADR-006)
 	}
@@ -234,4 +248,22 @@ func schemaReady(ctx context.Context, pool *pgxpool.Pool) error {
 		return errors.New("app_posture can read posture tables directly; the database grants are wrong (design §5)")
 	}
 	return nil
+}
+
+// secOpsSender checks the deployment mode against the one recorded at
+// install (posture.set_deployment_mode) and, in SaaS mode, builds the SecOps
+// webhook sender from FAIR_SECOPS_WEBHOOK_URL and FAIR_SECOPS_SECRET_FILE.
+// It returns nil outside SaaS mode.
+func secOpsSender(ctx context.Context, pool *pgxpool.Pool, cfg config.Config) (posture.SecOpsSender, error) {
+	var recorded *string
+	if err := pool.QueryRow(ctx, "SELECT posture.deployment_mode()").Scan(&recorded); err != nil {
+		return nil, fmt.Errorf("deployment mode: %w", err)
+	}
+	if err := posture.CheckDeploymentMode(cfg.Env, cfg.DeploymentMode, recorded); err != nil {
+		return nil, err
+	}
+	if cfg.DeploymentMode != config.ModeSaaS {
+		return nil, nil
+	}
+	return posture.NewSecOpsWebhook(cfg.Env, os.Getenv("FAIR_SECOPS_WEBHOOK_URL"), os.Getenv("FAIR_SECOPS_SECRET_FILE"))
 }

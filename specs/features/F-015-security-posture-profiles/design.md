@@ -548,3 +548,25 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
     - An Auditor and a missing context are refused, as are invalid values. A failing audit sink rolls the change back.
     - The T-09 to T-12 tests now run with a signed context for a Platform Admin.
     - A mutation that drops the `settings.change` requirement fails two tests.
+- 2026-10-27: T-15 implementation notes (`db/migrations/0019_posture_secops.sql`, `internal/posture/secops.go`, `internal/config`).
+  - Decisions (Robert Former):
+    - The channel is a transactional outbox delivered to a signed HTTPS webhook. F-009 may take over the transport later without changing the outbox.
+    - The deployment mode is required configuration and fails closed.
+  - Deployment mode (ADR-005): `FAIR_DEPLOYMENT_MODE=saas|self-hosted` is part of the shared service config. It is required when `FAIR_ENV=production` and defaults to self-hosted in development. The installer also records it once in the database as `fair_owner` (`posture.set_deployment_mode`). The posture service refuses to start if the two differ, or if production has no recorded mode. The reference manifest `deploy/k8s/iam.yaml` sets `self-hosted`.
+  - `posture.apply_change` itself queues the notification in `posture.secops_outbox`, in the change's own transaction, when the recorded mode is `saas`. So neither the service nor a direct call can apply a weakening without it: a failed insert rolls the change back.
+    - A weakening is a value weaker than the one in force until then (event `setting.weakened`), or any exception (`setting.exception_created`).
+    - The event carries the key, BU, previous value, new value, bound, profile family, change and exception ids, requester, approver and explanation.
+    - Tightening and pending requests queue nothing.
+  - Delivery is a loop in the posture service every 10 s:
+    - `posture.secops_claim` leases due rows with `SKIP LOCKED`, so replicas never send the same row at the same time.
+    - Each row is POSTed with `X-FAIR-Delivery` (the id, for de-duplication), `X-FAIR-Timestamp` and `X-FAIR-Signature` (HMAC-SHA-256 of `timestamp.body`, with a secret of at least 32 bytes read from `FAIR_SECOPS_SECRET_FILE`). TLS 1.2 is the floor, and production requires `https://`.
+    - Any 2xx acknowledges the notification. Failures back off from 10 s, doubling, capped at 15 minutes.
+    - `posture.secops_backlog()` reports the queue for the drift engine (T-25).
+  - Verification:
+    - Unit tests: the mode check, the webhook constructor (URL, scheme and secret rules), and signatures.
+    - DB tests (mode-gated):
+      - Self-hosted queues nothing.
+      - In SaaS mode, tightening and pending requests queue nothing, while an in-bounds weakening and an approved exception each queue one event with the right before and after values.
+      - Delivery to a TLS receiver that checks every signature: while the intake is down, both fail and back off; after recovery both are delivered once, with distinct delivery ids; a wrong secret is rejected and stays queued.
+      - A failing queue insert rolls the weakening back. Only `fair_owner` can set the mode. Application roles cannot claim from or touch the queue.
+    - A mutation that queues regardless of mode fails the self-hosted test.

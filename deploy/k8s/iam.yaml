@@ -44,6 +44,7 @@ spec:
           ports: [{ name: https, containerPort: 8443 }]
           env:
             - { name: FAIR_ENV, value: production }
+            - { name: FAIR_DEPLOYMENT_MODE, value: self-hosted } # saas on vendor-operated instances (ADR-005)
             - { name: FAIR_TLS_CERT_FILE, value: /tls/tls.crt }
             - { name: FAIR_TLS_KEY_FILE, value: /tls/tls.key }
           securityContext:

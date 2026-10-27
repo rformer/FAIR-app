@@ -27,8 +27,19 @@ type Config struct {
 
 	RequireFIPS bool // default true; startup fails if the FIPS module is not active
 
+	// DeploymentMode is ModeSaaS or ModeSelfHosted (ADR-005). Required when
+	// FAIR_ENV=production, so a SaaS instance can never run as self-hosted
+	// by omission; development defaults to self-hosted.
+	DeploymentMode string
+
 	ShutdownTimeout time.Duration
 }
+
+// Deployment modes (ADR-005).
+const (
+	ModeSaaS       = "saas"
+	ModeSelfHosted = "self-hosted"
+)
 
 // Load reads configuration for the named service from environment variables.
 func Load(service string) (Config, error) {
@@ -38,7 +49,11 @@ func Load(service string) (Config, error) {
 		ListenAddr:      getenv("FAIR_LISTEN_ADDR", ":8443"),
 		TLSCertFile:     os.Getenv("FAIR_TLS_CERT_FILE"),
 		TLSKeyFile:      os.Getenv("FAIR_TLS_KEY_FILE"),
+		DeploymentMode:  os.Getenv("FAIR_DEPLOYMENT_MODE"),
 		ShutdownTimeout: 20 * time.Second,
+	}
+	if c.DeploymentMode == "" && c.Env == "development" {
+		c.DeploymentMode = ModeSelfHosted
 	}
 
 	var err error
@@ -74,6 +89,13 @@ func (c Config) Validate() error {
 	}
 	if !c.RequireFIPS && c.Env == "production" {
 		errs = append(errs, errors.New("FAIR_REQUIRE_FIPS=false is not permitted when FAIR_ENV=production"))
+	}
+	switch c.DeploymentMode {
+	case ModeSaaS, ModeSelfHosted:
+	case "":
+		errs = append(errs, errors.New("FAIR_DEPLOYMENT_MODE (saas or self-hosted) is required when FAIR_ENV=production"))
+	default:
+		errs = append(errs, fmt.Errorf("FAIR_DEPLOYMENT_MODE must be saas or self-hosted, got %q", c.DeploymentMode))
 	}
 	return errors.Join(errs...)
 }

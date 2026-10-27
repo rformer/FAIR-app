@@ -6,7 +6,7 @@ import (
 )
 
 // F-015 T-08 (design §5 access model): posture tables.
-var postureTables = []string{"active_profile", "change", "exception", "mac_key", "profile", "profile_value", "setting_def", "setting_value", "state"}
+var postureTables = []string{"active_profile", "change", "exception", "mac_key", "profile", "profile_value", "secops_outbox", "setting_def", "setting_value", "state"}
 
 // Verification for T-08: application roles have no access to posture tables,
 // reads included; RLS is forced with a posture_definer-only policy.
@@ -29,7 +29,7 @@ func TestPostureTablesLocked(t *testing.T) {
 		t.Fatalf("posture policies: %s", policies)
 	}
 	if n := e.mustOwner(`SELECT count(*) FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
-		JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'posture'`); n != "9" {
+		JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'posture'`); n != "10" {
 		t.Fatalf("%s policies, want one per table", n)
 	}
 
