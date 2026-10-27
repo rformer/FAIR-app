@@ -24,7 +24,8 @@ This repo is built **spec-first**. Before doing anything, read:
 - F-015 T-16 done: `settings.Setter` (`posture.Setter`, the evaluator embedded as `app_rw`) and `settings.Client` replace the T-00b stub for writes and reads; the stub's `Registry` remains only for the exception lifecycle until T-17/T-18.
 - F-015 T-17 done: exception durations bounded by `exception.max_duration`, renewal before expiry with dual approval (`Evaluator.RequestRenewal` / `ApplyRenewal`), 14/7/1-day notices (`posture.RunNotices`, queued in `posture.notice_outbox` for F-009).
 - F-015 T-18 done: auto-revert (`posture.RunReverts`, every 10 s), retries with backoff, critical `revert_failed` finding with hourly escalation; the T-00b `Registry` stand-in is removed.
-- **Next: F-015 T-19** (`specs/features/F-015-security-posture-profiles/tasks.md`; custom profiles), then the rest of F-015 in task order, except that **F-001 T-26 (dual-approval engine) comes before F-015 T-14** (approved 2026-10-26); then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
+- F-015 T-19 done: custom profiles (`posture.Profiles`: create from any built-in, per-key edit with justified loosening and floors, view, submit to a `profile.approval`, approve, reopen).
+- **Next: F-015 T-20** (`specs/features/F-015-security-posture-profiles/tasks.md`; custom profile versioning/diff, JSON and OSCAL export/import, base-update pinning), then the rest of F-015 in task order, except that **F-001 T-26 (dual-approval engine) comes before F-015 T-14** (approved 2026-10-26); then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
 
 ## Working rules
 - Implement only tasks that are marked Approved and listed in a `tasks.md`. If a task needs a design change, stop and propose the spec change; don't silently diverge.

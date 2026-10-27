@@ -629,3 +629,24 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
     - Application roles cannot claim reverts or read findings.
     - Timing test: 29 s.
     - Mutation checks: dropping the finding resolution fails the fault-injection test; disabling both floor checks fails the real-registry property test in all three profiles.
+- 2026-10-27: T-19 implementation notes (`db/migrations/0023_custom_profiles.sql`, `internal/posture/profiles.go`).
+  - All functions act for the signed-context user (PF007 without one). Changes need `profile.manage` at the root, since profiles are instance-wide (PF008). `posture.Profiles` wraps them, and every write is audited inside its transaction.
+  - Create (AC-11): `create_custom_profile(base, version, id, name)` clones any built-in profile, not only the active one, into a `draft`: version `1`, the base's family, all of the base's values. T-20 adds versioning. Ids are unique across profiles.
+  - Edit (AC-11, AC-12): `edit_custom_value` (drafts only) sets a registered key's default and bound.
+    - Both are validated against the registered definition, the default may not be weaker than the bound, and the bound may not be below a hard floor that applies to the profile's family (PF001).
+    - A key is `loosened` when its default or bound is weaker than the base's. A loosened key needs a written justification (PF002).
+    - `label_deviates` follows the loosened rows: "Deviates from <base>" (`posture.DeviationLabel`). Returning a key to the base clears its deviation.
+  - View (AC-13): `custom_profile_view`, for holders of `profile.manage` or `profile.approve`, gives per key the base and new default and bound, the direction against the base (tighten, loosen, unchanged), the loosened flag, the justification and the parameters. `posture.ProfileKey` adds the affected controls.
+  - Submit and approve (AC-12): `submit_custom_profile` validates the whole profile against every registered setting: bound, valid values, floor, default within bound, and justified loosening. It then opens a `profile.approval` request (new F-001 approval kind; approver permission `profile.approve`) whose payload lists the loosened keys.
+    - Self-approval is impossible through the approvals engine (API, database function and table check).
+    - `approve_custom_profile` consumes the approval once, re-validates, and sets `approved`, recording the approver in the audit event. Activation is the profile switch (T-21).
+    - `reopen_custom_profile` returns a submitted profile to `draft`, for example after a rejection; its old approval can no longer be used.
+  - Audit: `profile.created` (info), `profile.value_changed` (low when loosened), `profile.submitted` and `profile.approved` (high), `profile.reopened`.
+  - Verification (DB tests):
+    - An Auditor cannot create or view; duplicate ids and custom bases are refused.
+    - Tightening needs no justification; loosening needs one and sets the deviation label.
+    - TLS, audit and the FedRAMP-family FIPS floor are refused; invalid values and defaults weaker than bounds are refused.
+    - The view shows directions, controls and justifications.
+    - No edits after submit; self-approval refused through the API and the database; no approval before the decision; an Auditor cannot decide; the second admin approves; a second approval is refused; audit severities checked.
+    - Reopen: an Enterprise FIPS-off default needs a justification; rejection, reopen (Auditor refused), back to base clears the label, then resubmit and approve.
+    - A mutation that skips consuming the approval fails the lifecycle test.
