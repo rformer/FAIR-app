@@ -650,3 +650,29 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
     - No edits after submit; self-approval refused through the API and the database; no approval before the decision; an Auditor cannot decide; the second admin approves; a second approval is refused; audit severities checked.
     - Reopen: an Enterprise FIPS-off default needs a justification; rejection, reopen (Auditor refused), back to base clears the label, then resubmit and approve.
     - A mutation that skips consuming the approval fails the lifecycle test.
+- 2026-10-27: T-20 implementation notes (`db/migrations/0024_custom_profile_versions.sql`, `internal/posture/profile_io.go`).
+  - Versions (AC-14): custom profile versions are numbered. `new_custom_version` copies any version into the next draft; a profile has at most one draft, and submitted versions never change. `profile_diff` compares any two profile versions key by key: `tighten`, `loosen`, `mixed`, `unchanged`, `added`, `removed`.
+  - Base updates (AC-15): `base_update_effects(base, new version)` shows, for every approved or active profile derived from the base, what moving to the new base version does per key. With C the custom value and N the new base value:
+    - N weaker than C: **pinned** (C kept).
+    - N stricter than C: **proposed** (C kept, N offered).
+    - Equal: unchanged. Keys only in the new base: added.
+    - `rebase_custom_profile` creates the next draft on the new base accordingly, so nothing in a custom profile silently weakens.
+    - A proposed key that is now looser than the base keeps its justification if it had one. If not, it is marked `needs_review`, and submission is refused ("the base update proposes ...; adopt it or justify the current value") until the key is edited: either the proposal is adopted or the current value is justified.
+    - The T-08 check that a loosened row needs a justification becomes "a loosened row needs a justification unless it is under review"; approved profiles never carry `needs_review`.
+  - Export (AC-14):
+    - Native JSON (`fair-custom-profile/v1`): id, version, name, family, base, deviation flag, and per key default, bound and justification.
+    - OSCAL 1.2.3 profile, validated before release:
+      - It imports the base as `urn:fair-app:profile:<id>:<version>`.
+      - It has one `set-parameters` entry per OSCAL parameter a setting implements: the default as the value, with `fair-setting`, `fair-bound` and `fair-justification` props in namespace `urn:fair-app:posture`.
+      - The title carries "Deviates from <base>".
+      - The native JSON is embedded in back-matter, because settings without an OSCAL parameter cannot be expressed in `set-parameters`.
+    - UUIDs are deterministic version 5, because OSCAL accepts only versions 4 and 5. SHA-1 is used only as the RFC 9562 name hash, which `fips140=on` permits.
+  - Import (AC-14) always creates a draft with a new id, in one transaction, through the edit rules: registered definitions, hard floors, and a justification for every loosened key. Any problem refuses the whole import (`ErrImport`), leaving nothing behind.
+    - Our own OSCAL exports import losslessly from back-matter.
+    - Other OSCAL profiles must import a base as above; their `set-parameters` map to the settings that implement the parameters, and a parameter no setting implements refuses the import.
+    - Imports are audited as `profile.imported` (high). Built-in profiles are not exported this way; they ship as signed packages.
+  - Verification (DB tests):
+    - Upgrade simulation: FedRAMP Moderate 1.1.0 loaded through the release path relaxes idle timeout (pinned at ACME's 10m), and tightens lockout and token lifetime (both proposed). The effects list 19 keys for ACME 1. Rebase gives version 2: the pinned value is kept; the proposed lockout keeps its justification; the proposed token lifetime blocks submission until adopted. Version 2 is approved, the diff shows no loosening, and the rebased version leaves the effects list.
+    - Versions: a copy, only one draft, approved versions immutable, an Auditor cannot diff.
+    - Export/import: the JSON round trip, the OSCAL export validating with the parameter and the label, the OSCAL round trip through back-matter, and import from bare `set-parameters` (justification kept). Refused, with nothing created: a wrong format, below the floor, loosened without a justification, an unknown setting, an unmapped parameter, no permission. A built-in profile cannot be exported.
+    - A mutation that lets rebase take the new base's weaker value fails the upgrade simulation.
