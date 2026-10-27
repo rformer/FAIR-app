@@ -13,7 +13,8 @@ import (
 
 // F-015 T-22 (AC-32, AC-35; design §6.6): BU overrides inherit down the tree,
 // stop at restricted BUs, and the value in force is the strictest of the
-// instance value and every override that reaches the BU.
+// instance value and every override that reaches the BU. The Restricted BU
+// overlay (T-23) is weakened to "off" here, so that it does not mask the rule.
 
 var bindingOrder = []string{"off", "flag", "reauthenticate"} // weakest first
 
@@ -44,6 +45,7 @@ func TestBUOverridesProperty(t *testing.T) {
 		t.Run(fmt.Sprintf("seed%d", seed), func(t *testing.T) {
 			ctx := context.Background()
 			rg := registryFixture(t, settings.ProfileEnterpriseBaseline, "self-hosted")
+			weakenOverlay(t, rg, "off")
 			e := rg.e
 			r := rand.New(rand.NewPCG(seed, 0x22)) // #nosec G404 -- seeded for reproducible property tests
 			key := settings.KeySessionNetworkBinding
@@ -151,6 +153,7 @@ func TestBUOverridesProperty(t *testing.T) {
 func TestBUOverrideBlockedAtRestricted(t *testing.T) {
 	ctx := context.Background()
 	rg := registryFixture(t, settings.ProfileEnterpriseBaseline, "self-hosted")
+	weakenOverlay(t, rg, "off")
 	e := rg.e
 	e.addBU("A", "ENTERPRISE")
 	e.addBU("A1", "A")

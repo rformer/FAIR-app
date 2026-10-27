@@ -120,7 +120,7 @@ Loading and seeding (T-10; decisions by Robert Former, 2026-10-26):
 - `exception` (id, key, bu_id, value, bound_at_creation, justification, owner_id, approved_by, created_at, expires_at, renewed_from, state[active|renewed|expired|reverted|revert_failed])
 - `profile_switch` (id, target_profile_id, target_version, state, requested_by, justification, approval_request_id, created_at, activated_at)
 - `switch_conflict` (switch_id, key, bu_id, current_value, new_bound, resolution[conform|exception|unresolved], exception_id)
-- `overlay_def` (id = 'restricted-bu', settings jsonb, version, updated_by)
+- `overlay_value` (key PK, value jsonb, source[change|exception], change_id, exception_id, updated_at, **row_mac** bytea) and `overlay_change`; the AC-33 defaults are `posture.overlay_defaults()` (changed 2026-10-27 from `overlay_def`; see the change log)
 - `drift_finding` (id, kind[app|deployment], check_id, severity, controls text[], subject, detail jsonb, remediation, first_seen, last_seen, status[open|acknowledged|resolved], acknowledged_by)
 - `k8s_access` (state[requested|granted|declined|revoked], decided_by, decided_at, reason)
 - `export_record` (id, kind[assessment_results|poam], as_of, digest, signature, created_by)
@@ -199,7 +199,8 @@ State machine:
 
 ### 6.6 BU overrides and the Restricted BU overlay (R-09)
 - **Resolution:** `effective(key, bu) = strictest(instance, override(a) for a on the path root→bu that is not blocked, override(bu), overlay if bu is restricted or below a restricted node)`. Path blocking reuses `iam.bu_closure.blocked` from F-001.
-- **Overlay activation:** on F-001 `bu.restricted` = true, the overlay is applied as `source = overlay` rows. On unrestrict (which F-001 already requires dual approval for), the overlay rows are removed and audited.
+- **Overlay activation** (changed 2026-10-27; see the change log): the overlay is computed, not copied into rows. Every BU that is restricted or below a restricted BU gets it by construction, and loses it on unrestrict, which F-001 audits and already requires dual approval for.
+- **Overlay edits:** the AC-33 defaults are the overlay's bound. Tightening, and moving back towards the default, apply at once. Anything weaker than the default follows R-06's out-of-bounds path (explanation, dual approval) and becomes an overlay exception under R-07.
 - **Re-authentication freshness:** the overlay sets `bu.reauth_max_age = 15m`. `authz.Check()` (F-001 library) reads it for the target BU and returns `ErrStepUpRequired` when `session.auth_time` is older. The API then responds 401 with `WWW-Authenticate: step_up`, and the frontend re-runs the IdP flow (SAML `ForceAuthn=true` / OIDC `prompt=login` with `max_age`). *This adds a small change to the F-001 design; see §12.*
 - **Export reason:** the overlay sets `export.reason_required = true`, which F-010 enforces.
 
@@ -711,3 +712,20 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
     - `TestBUOverrideBlockedAtRestricted`: a worked example.
     - Mutations (ignoring the blocked flag, using the BU's own row only, dropping the tree trigger) each fail the tests.
     - `TestPostureEffectiveSettings` now expects no BU entry for an override equal to the instance value.
+- 2026-10-27: Restricted BU overlay storage and bound, approved by Robert Former with T-23 (`db/migrations/0027_restricted_bu_overlay.sql`, `internal/posture/overlay.go`).
+  - **Computed, not rows.** The design applied the overlay as `source = overlay` rows in `setting_value`. That table allows one row per (key, BU), so a restricted BU's own override and its overlay row would collide, and §6.6's formula treats the two separately. Now `posture.current_value` adds the overlay for every BU in a restricted subtree (`iam.in_restricted_subtree`), and `effective_settings` lists those BUs (`iam.restricted_subtree`). Restrict/unrestrict already bumps the posture version (T-22), so nothing is copied, removed or left behind; F-001 audits restrict/unrestrict.
+  - **Defaults in code.** The AC-33 defaults are `posture.overlay_defaults()`: `bu.reauth_max_age = 15m0s`, `session.network_binding = reauthenticate`, `export.reason_required = true`. A key takes effect, and becomes editable, once its setting is registered as BU-scopable. Today that is `session.network_binding`; `bu.reauth_max_age` arrives with T-24 and `export.reason_required` with F-010. An overlay value that does not fit its registered setting fails the read (closed).
+  - **Edits.** `posture.overlay_value` holds edited values, row-MAC'd like `setting_value` (domain-separated as `overlay:<key>`) and included in `mac_mismatches()`; `posture.overlay_change` records requests. Edits need `settings.change` at the root.
+  - **Bound = the AC-33 default (AC-34).** Tightening, and moving back towards the default, apply at once (audited `overlay.changed`; low severity for a loosening). Weaker than the default needs an explanation and a `settings.out_of_bounds` approval, and applies as an exception with `exception.overlay = true` (`bound_at_creation` = the default). That exception has R-07's expiry, notices, renewal (`apply_renewal`) and auto-revert (`apply_revert` restores the default). A tightening under an active overlay exception updates it; returning to the default supersedes it. SaaS mode queues `overlay.weakened` / `overlay.exception_created` for SecOps. The hard floor applies as everywhere.
+  - Verification (DB tests):
+    - `TestOverlayOnEveryRestrictedBU`: 4 seeds of random trees with weaker overrides, then 10 random restrict/unrestrict and move steps. The settings client must show the overlay on every BU in a restricted subtree and the T-22 value everywhere else.
+    - `TestOverlayDefaults`: the three defaults (only network binding applies yet), present on the restricted BU and its child and nowhere else, gone after unrestrict; editing an unregistered key is refused.
+    - `TestOverlayWeakeningNeedsApproval` (SaaS):
+      - Without `settings.change`: refused.
+      - Without an explanation: refused, with a warning naming the default.
+      - With an explanation: pending, value unchanged until approval; applying early and self-approval are refused.
+      - After approval: a 7-day overlay exception and a SecOps event, with the instance value untouched.
+      - Renewal takes over the overlay row; at expiry the revert restores the default with no MAC mismatches.
+    - `TestOverlayTighteningAndMAC`: tightening under the exception and returning to the default apply at once (the exception is superseded); an out-of-band edit of `overlay_value` shows in `mac_mismatches()`; application roles cannot reach the table or the write functions.
+    - The T-22 tests now weaken the overlay to `off` through an approved overlay exception, so that it does not mask the inheritance rule.
+    - Mutations (applied everywhere, never applied, missing from the snapshot, no approval for weakening, revert keeping the value) each fail the tests.

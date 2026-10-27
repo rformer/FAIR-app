@@ -41,7 +41,7 @@ Prerequisite: F-001 Phases 0–1 (DB roles, BU closure, approvals interface, eve
 | # | Task | Traces to | Verification | Size | Status |
 |---|---|---|---|---|---|
 | T-22 | BU overrides with inheritance via `iam.bu_closure` (blocked at restricted BUs) and strictest-of resolution | AC-32, AC-35 | Property tests on random trees | M | Done (2026-10-27) |
-| T-23 | Restricted BU overlay: auto-apply on `bu.restricted`, editable, weakening via R-06/R-07, removal on unrestrict | AC-33, AC-34 | Overlay present on every restricted BU; weakening requires approval | S | Todo |
+| T-23 | Restricted BU overlay: auto-apply on `bu.restricted`, editable, weakening via R-06/R-07, removal on unrestrict | AC-33, AC-34 | Overlay present on every restricted BU; weakening requires approval | S | Done (2026-10-27) |
 | T-24 | **F-001 change:** session `auth_time`; `authz.Check()` returns `ErrStepUpRequired` per `bu.reauth_max_age`; 401 `step_up`; SAML ForceAuthn / OIDC `prompt=login`+`max_age` re-auth | AC-33, Design §6.6 | E2E: stale auth on restricted BU → step-up → access | M | Todo |
 
 ## Phase E — Drift detection
