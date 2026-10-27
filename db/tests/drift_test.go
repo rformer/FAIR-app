@@ -261,7 +261,8 @@ func TestDriftAccess(t *testing.T) {
 	de := driftFixture(t)
 	e := de.e
 	for _, sql := range []string{"PERFORM * FROM posture.drift_scan()", "PERFORM posture.record_heartbeat('{}')",
-		"PERFORM * FROM posture.sync_drift_findings(ARRAY['row_mac_mismatch'], '[]')", "PERFORM * FROM posture.open_drift_findings()"} {
+		"PERFORM * FROM posture.sync_drift_findings(ARRAY['row_mac_mismatch'], '[]')", "PERFORM * FROM posture.drift_findings()",
+		"PERFORM * FROM posture.acknowledge_drift(gen_random_uuid(), 'x')"} {
 		e.wantState("app_rw", sql, "42501")
 	}
 	e.wantState("app_posture", "PERFORM * FROM posture.sync_drift_findings(ARRAY['revert_failed'], '[]')", "PF004")

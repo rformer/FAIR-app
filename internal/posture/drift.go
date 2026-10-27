@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/rformer/fair-app/pkg/audit"
+	"github.com/rformer/fair-app/pkg/authz"
 	"github.com/rformer/fair-app/pkg/settings"
 )
 
@@ -54,15 +56,42 @@ type Drift struct {
 	RevertGrace time.Duration
 }
 
-// Finding is one drift finding.
+// Finding is one drift finding. The JSON form is what a scan reports to
+// posture.sync_drift_findings.
 type Finding struct {
 	ID          string          `json:"-"`
+	Kind        string          `json:"-"` // app or deployment
 	CheckID     string          `json:"check_id"`
 	Severity    string          `json:"severity"`
 	Controls    []string        `json:"controls"`
 	Subject     string          `json:"subject"`
 	Detail      json.RawMessage `json:"detail"`
 	Remediation string          `json:"remediation"`
+	// Lifecycle (T-26), from the database.
+	Status            string     `json:"-"` // open, acknowledged or resolved
+	AcknowledgedBy    string     `json:"-"`
+	AcknowledgedAt    *time.Time `json:"-"`
+	AcknowledgeReason string     `json:"-"`
+	FirstSeen         time.Time  `json:"-"`
+	LastSeen          time.Time  `json:"-"`
+	ResolvedAt        *time.Time `json:"-"`
+}
+
+// eventAttrs are the attributes every drift event carries
+// (drift_events.schema.json).
+func (f Finding) eventAttrs() map[string]string {
+	a := map[string]string{"finding_id": f.ID, "check_id": f.CheckID, "kind": f.Kind, "severity": f.Severity,
+		"controls": strings.Join(f.Controls, ","), "subject": f.Subject}
+	if len(f.Detail) > 0 {
+		a["detail"] = string(f.Detail)
+	}
+	if f.Remediation != "" {
+		a["remediation"] = f.Remediation
+	}
+	if f.AcknowledgedBy != "" {
+		a["acknowledged_by"] = f.AcknowledgedBy
+	}
+	return a
 }
 
 // ScanResult reports a scan.
@@ -118,8 +147,8 @@ func (d Drift) Scan(ctx context.Context) (ScanResult, error) {
 
 	err = pgx.BeginFunc(ctx, d.DB, func(tx pgx.Tx) error {
 		res.Opened, res.Resolved = nil, nil
-		rows, err := tx.Query(ctx, "SELECT action, finding_id::text, check_id, severity, controls, subject, detail FROM posture.sync_drift_findings($1, $2)",
-			driftChecks, payload)
+		rows, err := tx.Query(ctx, `SELECT action, finding_id::text, check_id, kind, severity, controls, subject, detail, remediation,
+			coalesce(acknowledged_by::text, '') FROM posture.sync_drift_findings($1, $2)`, driftChecks, payload)
 		if err != nil {
 			return err
 		}
@@ -129,18 +158,17 @@ func (d Drift) Scan(ctx context.Context) (ScanResult, error) {
 		}
 		changes, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (change, error) {
 			var c change
-			err := r.Scan(&c.action, &c.f.ID, &c.f.CheckID, &c.f.Severity, &c.f.Controls, &c.f.Subject, &c.f.Detail)
+			err := r.Scan(&c.action, &c.f.ID, &c.f.CheckID, &c.f.Kind, &c.f.Severity, &c.f.Controls, &c.f.Subject, &c.f.Detail,
+				&c.f.Remediation, &c.f.AcknowledgedBy)
 			return c, err
 		})
 		if err != nil {
 			return err
 		}
 		for _, c := range changes {
-			attrs := map[string]string{"finding_id": c.f.ID, "check_id": c.f.CheckID, "severity": c.f.Severity,
-				"subject": c.f.Subject, "detail": string(c.f.Detail)}
-			ev := audit.Event{Type: "posture.drift_resolved", Severity: audit.SeverityInfo, Actor: DriftActor, Target: c.f.Subject, Attributes: attrs}
+			ev := audit.Event{Type: EventDriftResolved, Severity: audit.SeverityInfo, Actor: DriftActor, Target: c.f.Subject, Attributes: c.f.eventAttrs()}
 			if c.action == "opened" {
-				ev.Type, ev.Severity = "posture.drift_detected", audit.SeverityHigh // AC-37
+				ev.Type, ev.Severity = EventDriftDetected, audit.SeverityHigh // AC-37
 				if c.f.Severity == "critical" {
 					ev.Severity = audit.SeverityCritical
 				}
@@ -249,18 +277,52 @@ func RecordHeartbeat(ctx context.Context, db *pgxpool.Pool, data []byte) error {
 	return mapErr(err)
 }
 
-// OpenFindings returns the drift findings not yet resolved, most severe
-// first.
+// OpenFindings returns the drift findings not yet resolved (open or
+// acknowledged), most severe first.
 func OpenFindings(ctx context.Context, db *pgxpool.Pool) ([]Finding, error) {
-	rows, err := db.Query(ctx, "SELECT finding_id::text, check_id, severity, controls, subject, detail, remediation FROM posture.open_drift_findings()")
+	return Findings(ctx, db, time.Time{})
+}
+
+// Findings returns the unresolved findings, then those resolved since
+// resolvedSince (none when zero), for the Posture page.
+func Findings(ctx context.Context, db *pgxpool.Pool, resolvedSince time.Time) ([]Finding, error) {
+	var since any
+	if !resolvedSince.IsZero() {
+		since = resolvedSince
+	}
+	rows, err := db.Query(ctx, `SELECT finding_id::text, kind, check_id, severity, controls, subject, detail, remediation, status,
+		first_seen, last_seen, coalesce(acknowledged_by::text, ''), acknowledged_at, coalesce(acknowledge_reason, ''), resolved_at
+		FROM posture.drift_findings($1)`, since)
 	if err != nil {
 		return nil, mapErr(err)
 	}
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (Finding, error) {
 		var f Finding
-		err := r.Scan(&f.ID, &f.CheckID, &f.Severity, &f.Controls, &f.Subject, &f.Detail, &f.Remediation)
+		err := r.Scan(&f.ID, &f.Kind, &f.CheckID, &f.Severity, &f.Controls, &f.Subject, &f.Detail, &f.Remediation, &f.Status,
+			&f.FirstSeen, &f.LastSeen, &f.AcknowledgedBy, &f.AcknowledgedAt, &f.AcknowledgeReason, &f.ResolvedAt)
 		return f, err
 	})
+}
+
+// Acknowledge records, as p (who needs drift.acknowledge), that people are
+// handling an open finding, with a stated reason; audited inside the
+// transaction. It does not close the finding: only its check resolves it.
+func (d Drift) Acknowledge(ctx context.Context, p authz.Principal, findingID, reason string) (Finding, error) {
+	f := Finding{ID: findingID}
+	err := authz.WithDBContext(ctx, d.DB, p.DBToken, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, `SELECT check_id, kind, severity, controls, subject, remediation, acknowledged_by::text
+			FROM posture.acknowledge_drift($1, $2)`, findingID, reason).
+			Scan(&f.CheckID, &f.Kind, &f.Severity, &f.Controls, &f.Subject, &f.Remediation, &f.AcknowledgedBy); err != nil {
+			return err
+		}
+		f.Status, f.AcknowledgeReason = "acknowledged", strings.TrimSpace(reason)
+		return d.Audit.Emit(ctx, audit.Event{Type: EventDriftAcknowledged, Severity: audit.SeverityLow, Actor: p.UserID,
+			Target: f.Subject, Reason: f.AcknowledgeReason, Attributes: f.eventAttrs()})
+	})
+	if err != nil {
+		return Finding{}, mapErr(err)
+	}
+	return f, nil
 }
 
 // RunDrift scans until ctx ends (design §6.7): whenever the posture version

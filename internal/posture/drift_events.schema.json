@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:fair:events:posture-drift:1",
+  "title": "FAIR posture drift events",
+  "description": "F-015 T-26 (AC-37, AC-42): the drift finding events every audit sink (JSON lines for OTLP/SIEM collectors, RFC 5424 syslog) receives. One event per lifecycle step: detected (opened), acknowledged, resolved. The attributes carry the finding: its severity, affected controls and remediation guidance.",
+  "type": "object",
+  "required": ["id", "time", "type", "severity", "actor", "target", "attributes"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": { "const": "audit", "description": "Present in the JSON-lines stream (audit.JSONLines); absent in the syslog body." },
+    "id": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+    "time": { "type": "string", "format": "date-time" },
+    "type": { "enum": ["posture.drift_detected", "posture.drift_acknowledged", "posture.drift_resolved"] },
+    "severity": { "enum": ["info", "low", "high", "critical"] },
+    "actor": { "type": "string", "minLength": 1 },
+    "target": { "type": "string", "pattern": "^(setting|overlay|exception|service|deployment):.+$" },
+    "reason": { "type": "string", "minLength": 1 },
+    "request_id": { "type": "string" },
+    "source_ip": { "type": "string" },
+    "attributes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["finding_id", "check_id", "kind", "severity", "controls", "subject"],
+      "properties": {
+        "finding_id": { "$ref": "#/$defs/uuid" },
+        "check_id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "kind": { "enum": ["app", "deployment"] },
+        "severity": { "enum": ["low", "medium", "high", "critical"] },
+        "controls": { "type": "string", "pattern": "^[A-Z]{2}-[0-9]+(\\([0-9]+\\))?(,[A-Z]{2}-[0-9]+(\\([0-9]+\\))?)*$" },
+        "subject": { "type": "string", "minLength": 1 },
+        "detail": { "type": "string", "minLength": 2 },
+        "remediation": { "type": "string", "minLength": 1 },
+        "acknowledged_by": { "$ref": "#/$defs/uuid" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "const": "posture.drift_detected" } } },
+      "then": {
+        "properties": {
+          "actor": { "const": "system:posture-drift" },
+          "severity": { "enum": ["high", "critical"] },
+          "attributes": { "required": ["detail", "remediation"], "not": { "required": ["acknowledged_by"] } }
+        },
+        "not": { "required": ["reason"] }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": { "const": "posture.drift_detected" },
+          "attributes": { "properties": { "severity": { "const": "critical" } } }
+        }
+      },
+      "then": { "properties": { "severity": { "const": "critical" } } },
+      "else": {
+        "if": { "properties": { "type": { "const": "posture.drift_detected" } } },
+        "then": { "properties": { "severity": { "const": "high" } } }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "posture.drift_acknowledged" } } },
+      "then": {
+        "required": ["reason"],
+        "properties": {
+          "actor": { "$ref": "#/$defs/uuid" },
+          "severity": { "const": "low" },
+          "attributes": { "required": ["remediation", "acknowledged_by"] }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "posture.drift_resolved" } } },
+      "then": {
+        "properties": {
+          "actor": { "const": "system:posture-drift" },
+          "severity": { "const": "info" }
+        },
+        "not": { "required": ["reason"] }
+      }
+    }
+  ],
+  "$defs": {
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" }
+  }
+}

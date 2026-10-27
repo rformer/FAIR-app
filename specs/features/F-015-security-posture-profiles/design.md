@@ -770,3 +770,20 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
     - `TestDriftAccess`: only `app_posture` runs scans, and nobody writes findings or heartbeats directly.
     - `TestDriftScanAtScale` (`FAIR_TEST_SCALE=1`): 2,011 BUs and 4,040 setting values (two BU overrides on every BU), with 100 reporting instances, scanned in 4.4 s (requirement: 30 s).
     - Mutations (no MAC check, no deviation check, findings never resolved, heartbeat digest ignored) each fail the tests.
+- 2026-10-27: T-26 implementation notes (`db/migrations/0029_drift_lifecycle.sql`, `internal/posture/drift.go`, `internal/posture/drift_events.schema.json`).
+  - **Lifecycle.** A finding goes `open → acknowledged → resolved`, or `open → resolved`.
+    - `posture.acknowledge_drift` (`Drift.Acknowledge`): the signed-context user needs `drift.acknowledge` at the root and a stated reason, and only an open finding can be acknowledged. `acknowledged_at` and `acknowledge_reason` are new columns, kept after resolution.
+    - Acknowledging never closes a finding, so drift cannot be silenced. Only the check that raised it resolves it, once the condition is gone: the drift scan, or the revert for `revert_failed`. Later scans keep an acknowledged finding acknowledged, and the same drift after resolution is a new, open finding.
+    - `posture.drift_findings(resolved_since)` (`posture.Findings`) replaces `open_drift_findings()` for the Posture page: unresolved findings, then those resolved since a time.
+  - **Events (the SIEM contract).** `drift_events.schema.json` (JSON Schema 2020-12, embedded as `posture.DriftEventSchema`, checked by `posture.ValidateDriftEvent`) specifies the three events as every audit sink writes them: the JSON-lines stream for OTLP/SIEM collectors (with `"kind": "audit"`) and the RFC 5424 syslog body.
+    - Every event carries `finding_id`, `check_id`, `kind`, the finding's `severity`, `controls` (comma-separated 800-53 ids) and `subject` (also the event target), so each finding includes its severity, controls and remediation (AC-42).
+    - `posture.drift_detected`: actor `system:posture-drift`; high, or critical for a critical finding; with `detail` and `remediation`.
+    - `posture.drift_acknowledged`: actor the user; low; with the reason, `remediation` and `acknowledged_by`.
+    - `posture.drift_resolved`: actor `system:posture-drift`; info; with `acknowledged_by` when it had been acknowledged.
+  - Verification:
+    - Unit test `TestDriftEventSchema`: the three events in both sink forms are accepted, and 21 violations are refused (missing or malformed attributes, wrong severities or actors, reasons where none belong, unknown fields).
+    - DB test `TestDriftLifecycleAndEventSchema`, with a real JSON-lines sink:
+      - Acknowledging without `drift.acknowledge`, without a reason, or twice is refused.
+      - An acknowledged finding survives later scans and is resolved only by the fix, keeping its acknowledgement; the same drift then opens a new finding.
+      - Every emitted event, as a JSON line and as a syslog body, validates against the schema.
+    - Mutations (acknowledgement closing the finding, no permission check, scans clearing the acknowledgement, events without remediation) each fail the test.
