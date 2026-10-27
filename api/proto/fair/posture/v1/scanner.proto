@@ -1,0 +1,44 @@
+// F-015 T-27 (AC-38, AC-39; design §6.8): the contract between
+// posture-scanner and the posture service (constitution A2, ADR-002: internal
+// services use gRPC). Transport: mTLS (TLS 1.2+); posture accepts only the
+// scanner's client certificate identity.
+syntax = "proto3";
+
+package fair.posture.v1;
+
+option go_package = "github.com/rformer/fair-app/internal/api/posturev1;posturev1";
+
+// ScannerReports receives deployment scans.
+service ScannerReports {
+  // Report delivers one complete scan. Posture records its findings for the
+  // checks the scan ran: new ones are opened, ones no longer seen resolved.
+  rpc Report(ScanReport) returns (ReportAck);
+}
+
+message ScanReport {
+  string scanner_instance = 1;          // pod name
+  int64 started_unix_ms = 2;
+  int64 finished_unix_ms = 3;
+  repeated string checks_run = 4;       // every check that ran to completion
+  repeated DeploymentFinding findings = 5;
+  repeated CheckError check_errors = 6; // checks that could not run (not "passed")
+}
+
+message DeploymentFinding {
+  string check_id = 1;                  // ^[a-z][a-z0-9_]*$, one of checks_run
+  string severity = 2;                  // low | medium | high | critical
+  repeated string controls = 3;         // 800-53r5 ids, e.g. "SC-7"
+  string subject = 4;                   // e.g. "namespace/fair-platform"
+  string detail_json = 5;               // a JSON object
+  string remediation = 6;
+}
+
+message CheckError {
+  string check_id = 1;
+  string error = 2;
+}
+
+message ReportAck {
+  int32 opened = 1;
+  int32 resolved = 2;
+}

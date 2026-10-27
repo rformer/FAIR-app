@@ -135,6 +135,13 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_DB_PASSWORD_FILE=<app_posture passwor
 # with the bundled release public key.
 ./bin/posture import -pub release-signing.pub -dir <release dir>
 
+# Deployment drift (F-015 T-27): posture-scanner (deploy/k8s/posture-scanner.yaml,
+# image target posture-scanner) reports to posture's scanner channel, which
+# posture opens with FAIR_SCANNER_GRPC_ADDR (e.g. :9443),
+# FAIR_SCANNER_GRPC_CERT_FILE / _KEY_FILE and FAIR_SCANNER_CLIENT_CA_FILE
+# (required in SaaS mode). Live check on kind: scripts/k8s-e2e-scanner.sh.
+# After changing a .proto in api/proto: scripts/gen-proto.sh (see its header).
+
 # The posture service itself (./bin/posture) also needs FAIR_NATS_URL (tls://
 # in production; required there) and optionally FAIR_NATS_CREDS_FILE: it
 # receives the services' settings heartbeats (core NATS,

@@ -27,6 +27,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -248,6 +249,30 @@ func run() error {
 			"deployment_mode": cfg.DeploymentMode},
 	}); err != nil {
 		return fmt.Errorf("audit: %w", err) // audit failures fail closed (ADR-006)
+	}
+
+	// Deployment scan reports from posture-scanner (F-015 T-27): mTLS gRPC.
+	// Always on in SaaS mode (AC-38); in self-hosted mode only when the
+	// customer granted Kubernetes access (AC-39; the consent model is T-30).
+	if addr := os.Getenv("FAIR_SCANNER_GRPC_ADDR"); addr != "" {
+		tlsConf, err := posture.ScannerTLS(os.Getenv("FAIR_SCANNER_GRPC_CERT_FILE"), os.Getenv("FAIR_SCANNER_GRPC_KEY_FILE"),
+			os.Getenv("FAIR_SCANNER_CLIENT_CA_FILE"))
+		if err != nil {
+			return err
+		}
+		lis, err := (&net.ListenConfig{}).Listen(ctx, "tcp", addr)
+		if err != nil {
+			return fmt.Errorf("scanner channel: %w", err)
+		}
+		g := posture.NewScannerServer(&posture.ScannerService{DB: pool, Audit: emitter, Identity: os.Getenv("FAIR_SCANNER_IDENTITY"), Logger: logger}, tlsConf)
+		go func() {
+			if err := g.Serve(lis); err != nil {
+				logger.Error("scanner channel", "error", err.Error())
+			}
+		}()
+		defer g.GracefulStop()
+	} else if cfg.DeploymentMode == config.ModeSaaS {
+		return errors.New("FAIR_SCANNER_GRPC_ADDR is required in SaaS mode: deployment drift detection is always on (F-015 AC-38)")
 	}
 
 	srv := server.New(server.Options{

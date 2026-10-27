@@ -173,3 +173,60 @@ jobs:
           digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:$TAG")"
           cosign sign --yes "$digest"
           cosign attest --yes --type spdxjson --predicate sbom.spdx.json "$digest"
+
+  # F-015 T-27: the deployment drift scanner's own image (design §6.8):
+  # non-root, read-only, scanned and signed like iam.
+  scanner-image:
+    needs: [test, lint]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # push to GHCR (main only)
+      id-token: write   # keyless cosign signing (main only)
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/fair-posture-scanner
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Set image tag
+        run: echo "TAG=${GITHUB_SHA::12}" >> "$GITHUB_ENV"
+      - name: Build
+        run: docker build --load --target posture-scanner --build-arg VERSION="$TAG" -t "$IMAGE:$TAG" .
+      - name: Verify non-root and refusal to start unconfigured
+        run: |
+          test "$(docker inspect -f '{{.Config.User}}' "$IMAGE:$TAG")" = "65532:65532"
+          if docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges "$IMAGE:$TAG"; then
+            echo "started without configuration"; exit 1
+          fi
+      - name: SBOM (SPDX)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.IMAGE }}:${{ env.TAG }}
+          format: spdx-json
+          output-file: sbom-posture-scanner.spdx.json
+      - name: Vulnerability scan (fail on HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.IMAGE }}:${{ env.TAG }}
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-posture-scanner
+          path: sbom-posture-scanner.spdx.json
+      - name: Push (main only)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker push "$IMAGE:$TAG"
+      - uses: sigstore/cosign-installer@v3
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      - name: Cosign keyless sign + SBOM attestation (main only)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:$TAG")"
+          cosign sign --yes "$digest"
+          cosign attest --yes --type spdxjson --predicate sbom-posture-scanner.spdx.json "$digest"

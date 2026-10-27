@@ -1,0 +1,181 @@
+# F-015 T-27 (AC-38, AC-39; design §6.8): posture-scanner, the deployment
+# drift scanner. Reference manifest: the F-014 chart deploys it always in
+# SaaS mode, and in self-hosted mode only when the customer accepts the
+# permission manifest (the consent model is T-30). Its own ServiceAccount
+# and read-only RBAC (get/list/watch; never Secrets), its own image, mTLS
+# gRPC to posture, and egress limited to the API server, posture and DNS.
+# internal/scanner/manifest_test.go keeps this file, the scanner's access
+# list (scanner.Access) and these restrictions in step.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: posture-scanner
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: posture-scanner, app.kubernetes.io/part-of: fair-platform }
+automountServiceAccountToken: false # the Deployment projects a short-lived token explicitly
+---
+# Cluster-level reads: namespace labels (pod security admission), node labels
+# (FIPS attestation), storage classes (encryption), cluster RBAC (drift),
+# admission policies (signature verification).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fair-posture-scanner
+  labels: { app.kubernetes.io/name: posture-scanner, app.kubernetes.io/part-of: fair-platform }
+rules:
+  - apiGroups: [""]
+    resources: [namespaces, nodes]
+    verbs: [get, list, watch]
+  - apiGroups: [storage.k8s.io]
+    resources: [storageclasses]
+    verbs: [get, list, watch]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles, clusterrolebindings]
+    verbs: [get, list, watch]
+  - apiGroups: [admissionregistration.k8s.io]
+    resources: [validatingadmissionpolicies, validatingwebhookconfigurations]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fair-posture-scanner
+  labels: { app.kubernetes.io/name: posture-scanner, app.kubernetes.io/part-of: fair-platform }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: fair-posture-scanner }
+subjects:
+  - { kind: ServiceAccount, name: posture-scanner, namespace: fair-platform }
+---
+# Platform-namespace reads (one Role and RoleBinding per platform namespace;
+# the chart repeats them for each). Secrets are never granted: workloads are
+# checked for secret *references* in their specs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: posture-scanner
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: posture-scanner, app.kubernetes.io/part-of: fair-platform }
+rules:
+  - apiGroups: [""]
+    resources: [pods, services, serviceaccounts]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, daemonsets]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list, watch]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings]
+    verbs: [get, list, watch]
+  - apiGroups: [external-secrets.io]
+    resources: [externalsecrets]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: posture-scanner
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: posture-scanner, app.kubernetes.io/part-of: fair-platform }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: posture-scanner }
+subjects:
+  - { kind: ServiceAccount, name: posture-scanner, namespace: fair-platform }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: posture-scanner
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: posture-scanner, app.kubernetes.io/part-of: fair-platform }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app.kubernetes.io/name: posture-scanner }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: posture-scanner, app.kubernetes.io/part-of: fair-platform }
+    spec:
+      serviceAccountName: posture-scanner
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532 # mounted Secret files are group-readable (0440), not world-readable
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: scanner
+          image: ghcr.io/rformer/fair-posture-scanner:REPLACE_WITH_DIGEST
+          env:
+            - { name: FAIR_ENV, value: production }
+            - { name: FAIR_POSTURE_GRPC_ADDR, value: "posture.fair-platform:9443" }
+            - { name: FAIR_POSTURE_CA_FILE, value: /tls/ca.crt }
+            - { name: FAIR_SCANNER_TLS_CERT_FILE, value: /tls/tls.crt }
+            - { name: FAIR_SCANNER_TLS_KEY_FILE, value: /tls/tls.key }
+            - { name: FAIR_PLATFORM_NAMESPACES, value: fair-platform }
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          volumeMounts:
+            - { name: kube-api-access, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true }
+            # Client certificate with URI SAN spiffe://fair-platform/posture-scanner
+            # (cert-manager or the installer) and the CA of posture's certificate.
+            - { name: tls, mountPath: /tls, readOnly: true }
+      volumes:
+        - name: kube-api-access
+          projected:
+            defaultMode: 0444
+            sources:
+              - serviceAccountToken: { path: token, expirationSeconds: 3600 }
+              - configMap:
+                  name: kube-root-ca.crt
+                  items: [{ key: ca.crt, path: ca.crt }]
+        - name: tls
+          secret: { secretName: posture-scanner-tls, defaultMode: 0440 }
+---
+# No ingress. Egress: the Kubernetes API server, posture's scanner channel,
+# DNS. REPLACE_WITH_APISERVER_CIDR is the API server endpoint address(es)
+# (kubectl get endpoints kubernetes -n default); policies apply after the
+# Service address is translated, so the Service IP alone is not enough.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: posture-scanner
+  namespace: fair-platform
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: posture-scanner }
+  policyTypes: [Ingress, Egress]
+  egress:
+    - to:
+        - ipBlock: { cidr: REPLACE_WITH_APISERVER_CIDR }
+      ports: [{ port: 443, protocol: TCP }, { port: 6443, protocol: TCP }]
+    - to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: posture }
+      ports: [{ port: 9443, protocol: TCP }]
+    - ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]
+---
+# posture accepts the scanner channel from the scanner only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: posture-ingress-from-scanner
+  namespace: fair-platform
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: posture }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: posture-scanner }
+      ports: [{ port: 9443, protocol: TCP }]

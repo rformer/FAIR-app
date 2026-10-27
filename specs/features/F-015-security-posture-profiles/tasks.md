@@ -50,7 +50,7 @@ Prerequisite: F-001 Phases 0–1 (DB roles, BU closure, approvals interface, eve
 |---|---|---|---|---|---|
 | T-25 | App drift engine: row-MAC verification, bounds + exceptions check, missed-revert check, service heartbeat comparison; on change + every 15 min | AC-36, AC-37 | Direct DB edit detected; ≤ 30 s at target scale | M | Done (2026-10-27) |
 | T-26 | `drift_finding` lifecycle (open/acknowledged/resolved), events to audit + SIEM | AC-37, AC-42 | Event schema tests | S | Done (2026-10-27) |
-| T-27 | `posture-scanner`: separate Deployment, own ServiceAccount, read-only RBAC (no Secrets), mTLS gRPC to `posture`, NetworkPolicy-restricted egress | AC-38, AC-39 | RBAC audit: no write verbs, no secrets; egress test | M | Todo |
+| T-27 | `posture-scanner`: separate Deployment, own ServiceAccount, read-only RBAC (no Secrets), mTLS gRPC to `posture`, NetworkPolicy-restricted egress | AC-38, AC-39 | RBAC audit: no write verbs, no secrets; egress test | M | Done (2026-10-27) |
 | T-28 | Deployment check catalog (10 checks in design §6.8) with severity, controls, remediation text | AC-41, AC-42 | Each check has passing and failing fixtures (kind/k3d, OpenShift, RKE2) | L | Todo |
 | T-29 | `fips-probe` DaemonSet (single-file read-only hostPath) **and** installer-attested label path; exports mark "attested, not verified" for the latter | AC-41, D-OQ2 | Both paths tested; OpenShift SCC compatibility | M | Todo |
 | T-30 | Kubernetes-access consent model: permission manifest content, granted/declined state, persistent warning, audit, "Not assessed" mapping, later grant | AC-39, AC-40 | Declined path → no scanner, banner, export marks Not assessed | S | Todo |

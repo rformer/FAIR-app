@@ -787,3 +787,40 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
       - An acknowledged finding survives later scans and is resolved only by the fix, keeping its acknowledgement; the same drift then opens a new finding.
       - Every emitted event, as a JSON line and as a syslog body, validates against the schema.
     - Mutations (acknowledgement closing the finding, no permission check, scans clearing the acknowledgement, events without remediation) each fail the test.
+- 2026-10-27: T-27 implementation notes. Robert Former approved two choices: a minimal in-repo Kubernetes client rather than client-go, and a separate binary and image for the scanner.
+  - **Contract** (constitution A2, ADR-002): `api/proto/fair/posture/v1/scanner.proto`, service `ScannerReports.Report(ScanReport) → ReportAck`. Generated code is committed in `internal/api/posturev1` (`scripts/gen-proto.sh`, pinned protoc-gen-go v1.36.6 and protoc-gen-go-grpc v1.5.1). New dependencies: `google.golang.org/grpc` v1.74.2 and `google.golang.org/protobuf` v1.36.6; Go stays at 1.24.
+  - **Kubernetes client** (`internal/scanner/kube`): standard library only.
+    - It issues GET requests only (paginated list and streaming watch), and refuses Secrets before any request is made.
+    - It uses the projected service-account token, re-read for every request so rotation works, and verifies the cluster CA over TLS 1.2 or later.
+    - 403 and 404 are distinct errors, so an absent CRD is not a refused read.
+  - **Scanner** (`internal/scanner`, `cmd/posture-scanner`):
+    - Scans at start, every 15 minutes, and 10 s after a watched change (namespaces; pods, deployments and network policies in the platform namespaces).
+    - Every scan includes an access probe that reads each resource of the §6.8 permission table once and reports refused reads as `scanner_access` check errors.
+    - A failing check is reported as an error, not as "passed", so its open findings stay open.
+    - The check catalog is T-28.
+    - The client certificate is re-read on each TLS handshake, so cert-manager rotation needs no restart.
+  - **Posture side** (`posture.ScannerService`, migration 0030; `FAIR_SCANNER_GRPC_ADDR`, `_CERT_FILE`, `_KEY_FILE`, `FAIR_SCANNER_CLIENT_CA_FILE`, optional `FAIR_SCANNER_IDENTITY`):
+    - The channel requires a client certificate from the scanner CA carrying the URI SAN `spiffe://fair-platform/posture-scanner`; any other platform identity gets PermissionDenied.
+    - Reports are untrusted input and are validated whole: check ids, findings only for checks run, severities, 800-53 control ids, JSON-object details, subjects without control characters, size limits, no application check ids.
+    - Findings are recorded with `kind = deployment` through the T-26 lifecycle and events (`sync_drift_findings` gained a `finding_kind` parameter), with subjects prefixed `deployment:`. The latest report per instance is kept (`posture.scanner_reports()`) for T-30.
+    - Database errors are logged, never returned to the client in detail.
+    - In SaaS mode posture refuses to start without the scanner channel (AC-38).
+  - **Images:** the Dockerfile has one build stage and one final stage per binary (`iam`, the default; `posture`; `posture-scanner`), each distroless, non-root, holding only its binary. A new CI job, `scanner-image`, builds, checks, SBOMs, scans, pushes and signs the scanner image like iam.
+  - **Manifest** (`deploy/k8s/posture-scanner.yaml`):
+    - Its own ServiceAccount, with no automount and a projected 1-hour token.
+    - A ClusterRole and a platform-namespace Role granting exactly the §6.8 table, get/list/watch only, never Secrets.
+    - A hardened pod. It uses `fsGroup` with 0440 Secrets: the kind test found that 0400 Secrets are root-owned and unreadable by the non-root user.
+    - A NetworkPolicy with no ingress and egress only to the API server endpoints, posture:9443 and DNS, plus posture's ingress from the scanner only.
+  - Verification:
+    - **Static RBAC audit** (`internal/scanner/manifest_test.go`): only get/list/watch, no wildcards, subresources, non-resource URLs or Secrets; grants exactly equal to `scanner.Access`; bindings to the scanner's ServiceAccount only; pod hardening and egress rules.
+    - **Unit tests:** the kube client (GET only, pagination, token rotation, Secrets refused before any request, error mapping, watch) and the scan loop.
+    - **DB tests** (`scanner_grpc_test.go`):
+      - Reports over real mTLS record deployment findings, resolve fixed ones, and keep those of a failing check; every event matches the drift event schema.
+      - Wrong identity, no identity, a foreign CA, no client certificate and TLS 1.1 are all refused.
+      - 11 kinds of malformed report are refused whole.
+    - **Live test on kind** (`scripts/k8s-e2e-scanner.sh`; kind 0.33, Kubernetes 1.36, kindnet enforcing NetworkPolicy), 37 checks, PASS:
+      - The scanner's first report reached a posture stand-in over mTLS with no refused reads.
+      - `kubectl auth can-i` as the ServiceAccount: 9 expected reads allowed; 18 writes, Secrets, exec, logs, tokens, impersonation, escalation, other namespaces and wildcards refused; `--list` shows only get/list/watch.
+      - From the scanner pod's own network namespace, the API server and posture:9443 (with DNS) are reachable. Another platform pod, posture on another port, the node's kubelet and the internet are not.
+      - A control allow rule makes the decoy reachable, proving the CNI enforces the policy.
+    - **Mutations:** a write verb and Secrets in the Role fail the static audit; an egress rule opened to the namespace fails the live test; accepting any CA-signed identity fails the channel test.

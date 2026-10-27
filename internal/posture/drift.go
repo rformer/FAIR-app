@@ -146,46 +146,55 @@ func (d Drift) Scan(ctx context.Context) (ScanResult, error) {
 	}
 
 	err = pgx.BeginFunc(ctx, d.DB, func(tx pgx.Tx) error {
-		res.Opened, res.Resolved = nil, nil
-		rows, err := tx.Query(ctx, `SELECT action, finding_id::text, check_id, kind, severity, controls, subject, detail, remediation,
-			coalesce(acknowledged_by::text, '') FROM posture.sync_drift_findings($1, $2)`, driftChecks, payload)
-		if err != nil {
-			return err
-		}
-		type change struct {
-			action string
-			f      Finding
-		}
-		changes, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (change, error) {
-			var c change
-			err := r.Scan(&c.action, &c.f.ID, &c.f.CheckID, &c.f.Kind, &c.f.Severity, &c.f.Controls, &c.f.Subject, &c.f.Detail,
-				&c.f.Remediation, &c.f.AcknowledgedBy)
-			return c, err
-		})
-		if err != nil {
-			return err
-		}
-		for _, c := range changes {
-			ev := audit.Event{Type: EventDriftResolved, Severity: audit.SeverityInfo, Actor: DriftActor, Target: c.f.Subject, Attributes: c.f.eventAttrs()}
-			if c.action == "opened" {
-				ev.Type, ev.Severity = EventDriftDetected, audit.SeverityHigh // AC-37
-				if c.f.Severity == "critical" {
-					ev.Severity = audit.SeverityCritical
-				}
-				res.Opened = append(res.Opened, c.f)
-			} else {
-				res.Resolved = append(res.Resolved, c.f)
-			}
-			if err := d.Audit.Emit(ctx, ev); err != nil {
-				return fmt.Errorf("audit: %w", err) // fail closed: nothing is recorded
-			}
-		}
-		return nil
+		var err error
+		res.Opened, res.Resolved, err = recordFindings(ctx, tx, d.Audit, "app", driftChecks, payload)
+		return err
 	})
 	if err != nil {
 		return ScanResult{}, fmt.Errorf("drift findings: %w", mapErr(err))
 	}
 	return res, nil
+}
+
+// recordFindings syncs one scan's findings of the given kind and checks
+// (posture.sync_drift_findings) and audits every opened and resolved
+// finding inside tx: if an event cannot be written, the caller's
+// transaction records nothing (fail closed).
+func recordFindings(ctx context.Context, tx pgx.Tx, em audit.Emitter, kind string, checks []string, payload []byte) (opened, resolved []Finding, err error) {
+	rows, err := tx.Query(ctx, `SELECT action, finding_id::text, check_id, kind, severity, controls, subject, detail, remediation,
+		coalesce(acknowledged_by::text, '') FROM posture.sync_drift_findings($1, $2, $3)`, checks, payload, kind)
+	if err != nil {
+		return nil, nil, err
+	}
+	type change struct {
+		action string
+		f      Finding
+	}
+	changes, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (change, error) {
+		var c change
+		err := r.Scan(&c.action, &c.f.ID, &c.f.CheckID, &c.f.Kind, &c.f.Severity, &c.f.Controls, &c.f.Subject, &c.f.Detail,
+			&c.f.Remediation, &c.f.AcknowledgedBy)
+		return c, err
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, c := range changes {
+		ev := audit.Event{Type: EventDriftResolved, Severity: audit.SeverityInfo, Actor: DriftActor, Target: c.f.Subject, Attributes: c.f.eventAttrs()}
+		if c.action == "opened" {
+			ev.Type, ev.Severity = EventDriftDetected, audit.SeverityHigh // AC-37
+			if c.f.Severity == "critical" {
+				ev.Severity = audit.SeverityCritical
+			}
+			opened = append(opened, c.f)
+		} else {
+			resolved = append(resolved, c.f)
+		}
+		if err := em.Emit(ctx, ev); err != nil {
+			return nil, nil, fmt.Errorf("audit: %w", err) // fail closed: nothing is recorded
+		}
+	}
+	return opened, resolved, nil
 }
 
 type heartbeat struct {

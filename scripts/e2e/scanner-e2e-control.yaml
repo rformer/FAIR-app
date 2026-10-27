@@ -1,0 +1,11 @@
+# Control for scripts/k8s-e2e-scanner.sh: explicitly allows the scanner to
+# reach the decoy, so the test can show the earlier denial came from policy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: e2e-control-allow-decoy, namespace: __NS__ }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/name: posture-scanner } }
+  policyTypes: [Egress]
+  egress:
+    - to: [{ podSelector: { matchLabels: { app.kubernetes.io/name: decoy } } }]
+      ports: [{ port: 8080, protocol: TCP }]
