@@ -367,12 +367,18 @@ func (c *Client) Heartbeat() Heartbeat {
 	for _, m := range c.snap.BU {
 		h.BUCount += len(m)
 	}
-	// encoding/json sorts map keys, so the digest is canonical.
+	h.Digest = c.snap.Digest()
+	return h
+}
+
+// Digest is the SHA-256 of the snapshot's values (instance and BU), as
+// heartbeats report it; the drift engine computes the expected one the same
+// way (F-015 T-25). encoding/json sorts map keys, so it is canonical.
+func (s Snapshot) Digest() string {
 	b, _ := json.Marshal(struct {
 		I map[string]json.RawMessage            `json:"instance"`
 		B map[string]map[string]json.RawMessage `json:"bu"`
-	}{c.snap.Instance, c.snap.BU})
+	}{s.Instance, s.BU})
 	sum := sha256.Sum256(b)
-	h.Digest = hex.EncodeToString(sum[:])
-	return h
+	return hex.EncodeToString(sum[:])
 }

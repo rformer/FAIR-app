@@ -739,3 +739,34 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
     - `internal/server` `TestWriteAuthzError`.
     - DB `TestStepUpOnRestrictedBU`: real grants, overlay and settings client. A 20-minute-old sign-in needs step-up within 15m on a restricted BU and below it, but not on an unrestricted BU (12h). A stricter 1h BU override applies. Unrestricting removes the requirement.
     - A mutation that skips the step-up check fails both the unit and the DB test.
+- 2026-10-27: T-25 implementation notes (`db/migrations/0028_app_drift.sql`, `internal/posture/drift.go`, `cmd/posture`).
+  - **When it runs.** `posture.RunDrift` scans whenever the posture version moves (polled every 10 s), on every `posture.setting.changed` (NATS wake-up; imports and switches publish it too), and at least every 15 minutes (AC-36). The version triggers fire on direct database edits as well, so those are scanned within one poll; an edit with triggers disabled is still caught by the 15-minute scan.
+  - **Checks 1-3 in the database.** `posture.drift_scan()` is read-only:
+    - `row_mac_mismatch` (critical; CM-5, CM-6, SI-7) for `setting_value` and `overlay_value` rows.
+    - `unapproved_deviation` (high; CM-3, CM-6): weaker than the active profile's bound (the overlay: its AC-33 default) without a covering active or `revert_failed` exception with the same value.
+    - `hard_floor_violation` (critical; CM-6, CM-7), exception or not.
+    - `missed_revert` (high; CA-5, CM-6): an active exception more than a minute past expiry. A failing revert is T-18's `revert_failed` finding, which this engine leaves alone.
+  - **Check 4 in Go.** Services' heartbeats are stored per instance by `posture.record_heartbeat`. The input is untrusted: it is validated, size-limited, and kept for a day. Heartbeats from the last 3 minutes are compared with the snapshot in force, using the digest the settings library computes (`settings.Snapshot.Digest`, shared by both sides):
+    - `settings_mismatch` (critical): the current version with a different digest, or an unknown version. The finding lists the differing instance keys.
+    - `stale_settings_cache` (high): the instance still reports an older version more than 90 s (the 30 s poll plus a 60 s heartbeat) after the change.
+  - **Findings.** One scan reports every finding it sees. `posture.sync_drift_findings` opens new ones, refreshes those still present (`last_seen`), and resolves those of the scanned checks that are gone, all in one transaction. The engine audits each opened finding as `posture.drift_detected` (high, or critical) and each resolved one as `posture.drift_resolved` inside that transaction: an audit failure records nothing (AC-37; the audit pipeline feeds the SIEM). `posture.open_drift_findings()` is the Posture page's list. People's acknowledgement and the SIEM event schema are T-26.
+  - **NATS.** The posture service now connects to NATS (`FAIR_NATS_URL`, required in production, otherwise check 4 would silently never run) and subscribes to `posture.settings.heartbeat` and `posture.setting.changed` (`natspub.Publisher.Subscribe`).
+  - Verification (DB tests):
+    - `TestDriftDetectsDirectDBEdit`:
+      - A clean install has no findings.
+      - A direct `UPDATE` of the idle timeout moves the version and opens `row_mac_mismatch` (critical) and `unapproved_deviation` (high), both audited.
+      - A second scan neither reopens nor re-audits.
+      - A direct TLS 1.0 opens `hard_floor_violation`.
+      - Setting both values properly resolves all four, audited.
+    - `TestDriftExceptionsAndMissedRevert`: an approved exception is not drift, and neither is one expired for 1 s. Two minutes past expiry it is `missed_revert`, which the revert resolves.
+    - `TestDriftOverlay`: a tampered overlay row opens MAC and deviation findings.
+    - `TestDriftHeartbeats`:
+      - A matching heartbeat gives no finding.
+      - A rogue instance gives `settings_mismatch` naming the differing key.
+      - After a change, instances still on the old version are stale.
+      - Refreshed and silent instances clear.
+      - Malformed heartbeats are refused.
+    - `TestRunDriftDetectsDirectEdit`: the loop detected a direct edit in 0.66 s, with no event.
+    - `TestDriftAccess`: only `app_posture` runs scans, and nobody writes findings or heartbeats directly.
+    - `TestDriftScanAtScale` (`FAIR_TEST_SCALE=1`): 2,011 BUs and 4,040 setting values (two BU overrides on every BU), with 100 reporting instances, scanned in 4.4 s (requirement: 30 s).
+    - Mutations (no MAC check, no deviation check, findings never resolved, heartbeat digest ignored) each fail the tests.

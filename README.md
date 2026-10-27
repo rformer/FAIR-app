@@ -134,6 +134,11 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_DB_PASSWORD_FILE=<app_posture passwor
 # Later, offline: load a signed release of profile packages (profilegen sign)
 # with the bundled release public key.
 ./bin/posture import -pub release-signing.pub -dir <release dir>
+
+# The posture service itself (./bin/posture) also needs FAIR_NATS_URL (tls://
+# in production; required there) and optionally FAIR_NATS_CREDS_FILE: it
+# receives the services' settings heartbeats (core NATS,
+# posture.settings.heartbeat) and change events for drift detection (T-25).
 ```
 
 ## Notes

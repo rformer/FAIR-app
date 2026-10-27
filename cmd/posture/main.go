@@ -37,10 +37,12 @@ import (
 
 	"github.com/rformer/fair-app/internal/config"
 	"github.com/rformer/fair-app/internal/dbconn"
+	"github.com/rformer/fair-app/internal/natspub"
 	"github.com/rformer/fair-app/internal/posture"
 	"github.com/rformer/fair-app/internal/profilepkg"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/audit"
+	"github.com/rformer/fair-app/pkg/settings"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -206,6 +208,37 @@ func run() error {
 	// once caches refresh); failures retry and keep a critical finding open.
 	go posture.RunReverts(ctx, pool, emitter, nil, 10*time.Second, func(err error) {
 		logger.Error("exception revert", "error", err.Error())
+	})
+
+	// Application drift (F-015 T-25): heartbeats and change events arrive on
+	// NATS, which production requires (otherwise check 4 would never run).
+	wake := make(chan struct{}, 1)
+	if url := os.Getenv("FAIR_NATS_URL"); url != "" {
+		nc, err := natspub.Connect(ctx, natspub.Options{Env: cfg.Env, URL: url, CredsFile: os.Getenv("FAIR_NATS_CREDS_FILE"), Name: "fair-posture"})
+		if err != nil {
+			return err
+		}
+		defer nc.Close()
+		if _, err := nc.Subscribe(settings.SubjectHeartbeat, func(data []byte) {
+			if err := posture.RecordHeartbeat(ctx, pool, data); err != nil && ctx.Err() == nil {
+				logger.Warn("settings heartbeat", "error", err.Error())
+			}
+		}); err != nil {
+			return fmt.Errorf("nats: %w", err)
+		}
+		if _, err := nc.Subscribe(settings.SubjectChanged, func([]byte) {
+			select {
+			case wake <- struct{}{}:
+			default:
+			}
+		}); err != nil {
+			return fmt.Errorf("nats: %w", err)
+		}
+	} else if cfg.Env == "production" {
+		return errors.New("FAIR_NATS_URL is required in production (settings heartbeats for drift detection)")
+	}
+	go posture.RunDrift(ctx, posture.Drift{DB: pool, Audit: emitter}, 10*time.Second, wake, func(err error) {
+		logger.Error("drift scan", "error", err.Error())
 	})
 	if err := emitter.Emit(ctx, audit.Event{
 		Type:     "service.started",

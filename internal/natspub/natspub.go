@@ -78,6 +78,12 @@ func (p *Publisher) Publish(ctx context.Context, subject, msgID string, data []b
 	return err
 }
 
+// Subscribe delivers core NATS messages on subject to fn (for example
+// settings heartbeats, F-015 T-25), on the connection's own goroutine.
+func (p *Publisher) Subscribe(subject string, fn func(data []byte)) (*nats.Subscription, error) {
+	return p.nc.Subscribe(subject, func(m *nats.Msg) { fn(m.Data) })
+}
+
 // Close drains and closes the connection.
 func (p *Publisher) Close() {
 	_ = p.nc.Drain()
