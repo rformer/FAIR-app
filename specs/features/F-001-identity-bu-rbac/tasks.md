@@ -11,7 +11,7 @@ Status: **Approved** (Robert Former, 2026-10-24) | Design: Approved 2026-10-24
 | # | Task | Traces to | Verification | Size | Status |
 |---|---|---|---|---|---|
 | T-00a | Audit event emitter interface + NATS/OTLP/syslog stub sink | AC-50 | Contract tests; events visible in collector | S | Done (Phase 0 zip, 2026-10-24) |
-| T-00b | Minimal settings module with the three profiles for F-001 keys, behind the `settings.Set` interface | AC-31, AC-32, §5.8, §8 | Unit tests for apply / warn / dual-approval paths | M | Done (Phase 0 zip, 2026-10-24); replaced by F-015 T-16 (`settings.Setter`, `settings.Client`) except the exception lifecycle, which follows with F-015 T-17/T-18 |
+| T-00b | Minimal settings module with the three profiles for F-001 keys, behind the `settings.Set` interface | AC-31, AC-32, §5.8, §8 | Unit tests for apply / warn / dual-approval paths | M | Done (Phase 0 zip, 2026-10-24); replaced by F-015 T-16 to T-18 (`settings.Setter`, `settings.Client`, the posture exception lifecycle); the stand-in `Registry` was removed with F-015 T-18 |
 | T-00c | Minimal CI for `iam` + `authz`: FIPS-mode build, lint, unit tests, SBOM, image signing | Constitution S2, S5 | CI green; image runs non-root with a read-only root filesystem | M | Done (Phase 0 zip, 2026-10-24) |
 | T-01 | Scaffold the `iam` service and `authz` library (module layout, config, health checks, OTel) | Design §2 | Service boots in kind/k3d | S | Done (Phase 0 zip, 2026-10-24) |
 | T-02 | DB roles and migration framework (`app_migrator`, `app_rw` NOBYPASSRLS, `app_engine`, non-login owner) | AC-27 | Test proves `app_rw` cannot bypass RLS, read `authz.ctx_key`, or alter tables | S | Done (Phase 0 zip, 2026-10-24) |

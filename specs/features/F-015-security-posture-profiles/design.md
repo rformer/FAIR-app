@@ -613,3 +613,19 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
     - Notices: none at 90 days left; 14, 7 and 1 at the thresholds, once each, with outbox recipients; a 5-day exception sends 7 only; a failing audit records nothing, then the retry succeeds.
     - A mutation that drops the before-expiry check on apply fails the renewal test.
     - The T-09 test profile now binds `exception.max_duration`.
+- 2026-10-27: T-18 implementation notes (`db/migrations/0022_posture_auto_revert.sql`, `internal/posture/revert.go`).
+  - `posture.drift_finding` is created with the design §5 columns, plus `resolved_at` and `last_escalated_at`, and at most one unresolved finding per check and subject. The people-facing lifecycle is T-26; the drift engine is T-25.
+  - `posture.due_reverts()` claims, under a one-minute lease, the active exceptions past expiry and the failed ones whose retry is due. The posture service reverts them every 10 s as `system:posture` (`posture.RunReverts`). Each revert runs in its own transaction with `setting.exception_reverted` (high) audited inside it, and is announced to the caches when a publisher is configured.
+  - `posture.apply_revert` (T-09) now also resolves the exception's open `revert_failed` finding and queues the `setting.exception_reverted` notice for the owner and admins (AC-27).
+  - Failure (AC-29): the revert rolls back and `posture.record_revert_failure` marks the exception `revert_failed`. Retries back off from 5 s, doubling, up to the design's 5-minute cap. A critical `revert_failed` finding is opened, or refreshed with the attempt count and last error, and resolves only when a revert succeeds. Every failure is audited as `setting.revert_failed` (critical). The first failure and then one per hour escalate (`setting.revert_failed_escalation`, plus a notice). The value stays at the exception's value, never silently changed.
+  - Timing (AC-28): the 10 s revert loop plus the settings client's 30 s poll keeps a revert within 60 s even without change events. Measured end to end: 29 s. The posture service does not publish change events yet (no NATS configured for it).
+  - Session termination at the next request (AC-28) belongs to the gateway and sessions (F-001 Phase 2): they read the timeout through `settings.Client`, which is verified here to see the reverted value.
+  - The T-00b stand-in is retired: `Registry` and its tests are removed. `pkg/settings` keeps the definitions, profiles, comparators, `Client`, `Setter` and the shared request and result types (`Request.Actor` is gone: the requester is always the signed-context principal). Its last two behavior tests are ported (auto-revert and renewal before expiry). The T-13 property "floor never violated" now runs against the real registry: `TestFloorNeverViolatedRealRegistry`, 60 random changes and approvals per built-in profile.
+  - Verification:
+    - Revert on expiry: the value returns to the profile default (source `revert`), with audit and notice; no double revert; renewal refused afterwards.
+    - A renewed exception does not revert at the original expiry.
+    - Fault injection with a failing audit sink: `revert_failed`, an open critical finding and an escalation; backoff respected; retry within the hour without a second escalation; a repeated escalation after an hour.
+    - Fault injection with no usable MAC key: the failure is audited (critical); after restoring a key the next attempt reverts and the finding resolves.
+    - Application roles cannot claim reverts or read findings.
+    - Timing test: 29 s.
+    - Mutation checks: dropping the finding resolution fails the fault-injection test; disabling both floor checks fails the real-registry property test in all three profiles.

@@ -202,6 +202,11 @@ func run() error {
 	go posture.RunNotices(ctx, pool, emitter, time.Minute, func(err error) {
 		logger.Error("exception expiry notices", "error", err.Error())
 	})
+	// AC-27 - AC-29: revert expired exceptions every 10 s (effect within 60 s
+	// once caches refresh); failures retry and keep a critical finding open.
+	go posture.RunReverts(ctx, pool, emitter, nil, 10*time.Second, func(err error) {
+		logger.Error("exception revert", "error", err.Error())
+	})
 	if err := emitter.Emit(ctx, audit.Event{
 		Type:     "service.started",
 		Severity: audit.SeverityInfo,

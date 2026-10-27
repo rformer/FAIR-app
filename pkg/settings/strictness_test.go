@@ -1,15 +1,12 @@
 package settings
 
 import (
-	"context"
 	"fmt"
 	"math/rand/v2"
 	"os"
 	"slices"
 	"testing"
 	"time"
-
-	"github.com/rformer/fair-app/pkg/audit"
 )
 
 // F-015 T-13 (design §3, AC-35): property tests for the strictness
@@ -183,59 +180,5 @@ func TestComparatorRejects(t *testing.T) {
 	}
 }
 
-// The hard floor is never violated: across random profiles and random
-// sequences of changes and approvals, no value in force is ever weaker than
-// a floor that applies to the active profile.
-func TestFloorNeverViolated(t *testing.T) {
-	r := propertyRand(t)
-	ctx := context.Background()
-	for round := range 50 {
-		var defs []Def
-		prof := Profile{ID: "p", Title: "P", Family: FamilyFedRAMP, Version: "1", Settings: map[string]Bound{}}
-		for _, d := range propertyDefs(r) {
-			d.Floor = randomValue(r, d)
-			if r.IntN(3) == 0 {
-				d.FloorFamilies = []Family{FamilyCMMC} // does not apply to this profile
-			}
-			// A bound at or above the floor (when it applies), a default at or above the bound.
-			bound := randomValue(r, d)
-			if c, _ := d.Compare(bound, d.Floor); c < 0 && d.floorApplies(prof) {
-				bound = d.Floor
-			}
-			def := randomValue(r, d)
-			if c, _ := d.Compare(def, bound); c < 0 {
-				def = bound
-			}
-			prof.Settings[d.Key] = Bound{Default: def, Weakest: bound}
-			defs = append(defs, d)
-		}
-		mem := audit.NewMemory()
-		reg, err := New(ctx, Options{Defs: defs, Profiles: []Profile{prof}, ActiveProfile: "p", Emitter: mem})
-		if err != nil {
-			t.Fatalf("round %d: %v", round, err)
-		}
-		check := func(step string) {
-			t.Helper()
-			for _, d := range defs {
-				v, err := reg.Get(d.Key)
-				if err != nil {
-					t.Fatal(err)
-				}
-				// Computed here, not with the code under test.
-				applies := len(d.FloorFamilies) == 0 || slices.Contains(d.FloorFamilies, prof.Family)
-				if c, _ := d.Compare(v.Value, d.Floor); applies && c < 0 {
-					t.Fatalf("round %d, %s: %s = %v is below the floor %v", round, step, d.Key, v.Value, d.Floor)
-				}
-			}
-		}
-		check("seed")
-		for step := range 40 {
-			d := defs[r.IntN(len(defs))]
-			res, err := reg.Set(ctx, Request{Key: d.Key, Value: randomValue(r, d), Actor: "alice", Explanation: "property test"})
-			if err == nil && res.Outcome == PendingApproval && r.IntN(2) == 0 {
-				_, _ = reg.Approve(ctx, res.ApprovalID, "bob", 24*time.Hour)
-			}
-			check(fmt.Sprintf("step %d (%s)", step, d.Key))
-		}
-	}
-}
+// "Floor never violated" runs against the real registry:
+// db/tests TestFloorNeverViolatedRealRegistry (moved with F-015 T-18).

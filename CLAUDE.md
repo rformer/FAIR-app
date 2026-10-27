@@ -9,7 +9,7 @@ This repo is built **spec-first**. Before doing anything, read:
 ## Current position
 - F-001 Phases 0 and 1 are **done** (T-00a to T-12, plus T-02b).
 - F-015 in progress: T-01 to T-04 done (T-04's CMMC mapping and the Enterprise Baseline rationales signed off 2026-10-27).
-- F-015 T-05 done: `bindings/` holds one YAML binding per F-001 setting; `pkg/settings.BuiltinProfiles()` must stay equal to them (test-enforced) until T-16.
+- F-015 T-05 done: `bindings/` holds one YAML binding per F-001 setting; `pkg/settings.BuiltinProfiles()` holds the same values as reference data and must stay equal to them (test-enforced).
 - F-015 T-06 done: `go run ./cmd/profilegen packages` rebuilds `profiles/packages/` (committed, pinned by digest). Changing a binding means bumping that package's version in `profiles/packages.yaml`.
 - F-015 T-07 done: `go run ./cmd/profilegen release-check [-online]` is the release gate (`.github/workflows/release.yml`); `profiles/release-checklist.yaml` records the CMMC rule confirmation.
 - F-015 T-08 done: schema `posture` (migration 0011) and `cmd/posture`. Application roles have no access to posture tables; everything goes through SECURITY DEFINER functions owned by `posture_definer`, and the service connects as `app_posture` (design §5 access model).
@@ -23,7 +23,8 @@ This repo is built **spec-first**. Before doing anything, read:
 - F-015 T-15 done: `FAIR_DEPLOYMENT_MODE` (required in production; must match `posture.set_deployment_mode`); SaaS weakenings are queued by `posture.apply_change` and delivered to a signed SecOps webhook.
 - F-015 T-16 done: `settings.Setter` (`posture.Setter`, the evaluator embedded as `app_rw`) and `settings.Client` replace the T-00b stub for writes and reads; the stub's `Registry` remains only for the exception lifecycle until T-17/T-18.
 - F-015 T-17 done: exception durations bounded by `exception.max_duration`, renewal before expiry with dual approval (`Evaluator.RequestRenewal` / `ApplyRenewal`), 14/7/1-day notices (`posture.RunNotices`, queued in `posture.notice_outbox` for F-009).
-- **Next: F-015 T-18** (`specs/features/F-015-security-posture-profiles/tasks.md`; auto-revert job, retries, revert-failed finding), then the rest of F-015 in task order, except that **F-001 T-26 (dual-approval engine) comes before F-015 T-14** (approved 2026-10-26); then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
+- F-015 T-18 done: auto-revert (`posture.RunReverts`, every 10 s), retries with backoff, critical `revert_failed` finding with hourly escalation; the T-00b `Registry` stand-in is removed.
+- **Next: F-015 T-19** (`specs/features/F-015-security-posture-profiles/tasks.md`; custom profiles), then the rest of F-015 in task order, except that **F-001 T-26 (dual-approval engine) comes before F-015 T-14** (approved 2026-10-26); then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
 
 ## Working rules
 - Implement only tasks that are marked Approved and listed in a `tasks.md`. If a task needs a design change, stop and propose the spec change; don't silently diverge.
@@ -46,6 +47,6 @@ This repo is built **spec-first**. Before doing anything, read:
 - Phase 0 is standard-library only. Phase 1 adds `github.com/jackc/pgx/v5` (done, T-02b), a NATS client and River (ADR-003). `iam migrate` (`internal/migrate`) replaced `scripts/db-migrate.sh` with the same semantics: run as `app_migrator` under `SET ROLE fair_owner`, record SHA-256 checksums, refuse modified migrations. It then applies the release catalog via `iam.sync_release`.
 - Migration files are immutable once committed (their checksums are recorded); fix forward with a new migration.
 - DB tests need `psql`; without a local server, run them in Docker against `postgres:16` (see README).
-- `pkg/settings`: services read with `Client` (register with `Client.Start`) and write through the `Setter` contract (`posture.Setter`). The T-00b `Registry` stand-in remains only for the exception lifecycle until F-015 T-17/T-18; keep the public API stable.
+- `pkg/settings`: services read with `Client` (register with `Client.Start`) and write through the `Setter` contract (`posture.Setter`); the exception lifecycle lives in `internal/posture`. The T-00b `Registry` stand-in was removed with F-015 T-18.
 - `pkg/authz`: `Cache` (implements `Checker`), `DBLoader`, `WithDBContext`, `MintDBContext`, `SubscribeNATS`. Services check actions with `Cache.Check` and run BU-table queries inside `WithDBContext`.
 - Every BU-owned table is created in a migration with `SELECT authz.apply_bu_rls('<table>', '<resource_type>')` and gets an `rlstest.Fixture` in `db/tests/rls_harness_test.go`; the CI gate fails otherwise (T-10).
