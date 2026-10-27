@@ -79,7 +79,8 @@ INSERT INTO posture.profile_value (profile_id, version, key, default_value, boun
   ('test-fedramp', '1.0.0', 'auth.lockout_threshold',  '3', '5'),
   ('test-fedramp', '1.0.0', 'tls.min_version',         '"1.2"', '"1.2"'),
   ('test-fedramp', '1.0.0', 'session.network_binding', '"reauthenticate"', '"flag"'),
-  ('test-fedramp', '1.0.0', 'fips.enabled',            'true', 'true');
+  ('test-fedramp', '1.0.0', 'fips.enabled',            'true', 'true'),
+  ('test-fedramp', '1.0.0', 'exception.max_duration',  '"2160h0m0s"', '"2160h0m0s"');
 INSERT INTO posture.active_profile (profile_id, version) VALUES ('test-fedramp', '1.0.0');`)
 	return postureAdmins(e)
 }

@@ -593,3 +593,23 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
     - The stand-in tests for seed audit, missing bindings, floor validation and the comparators map to the T-10, T-12, T-06/T-10 and T-13 tests.
     - A mutation that disables the coverage rule fails the exception test.
     - The T-09 test now checks that `app_rw` can call the change functions but is refused without a signed context (PF007) or without `settings.change` (PF008), while `app_engine` gets no access.
+- 2026-10-27: T-17 implementation notes (`db/migrations/0021_posture_exception_lifecycle.sql`, `internal/posture/lifecycle.go`).
+  - Expiry (AC-24): a change request may ask for a shorter exception (`ChangeRequest.ExceptionDuration`, `settings.Request.ExceptionDuration`), which the approver sees in the approval payload.
+    - The duration must be positive and no longer than the `exception.max_duration` value in force (PF009, `ErrExpiryOutOfRange`, `settings.ErrExpiryTooLong`).
+    - It is clamped again when the exception is created, so tightening the maximum while a request waits shortens it.
+    - Without an exception duration in force, an out-of-bounds request is refused: no exception may be open-ended.
+  - Renewal (AC-26): `posture.request_renewal(exception, justification, duration)` (`Evaluator.RequestRenewal`).
+    - It is allowed only while the exception is active and unexpired, by a holder of `settings.change` where it applies, with a new justification. It opens a `settings.exception_renewal` approval (a new F-001 approval kind; approver permission `settings.approve`).
+    - `posture.apply_renewal` (`Evaluator.ApplyRenewal`) consumes the approval once. It refuses if the exception has expired or closed in the meantime. It re-checks the floor and creates a new exception (`renewed_from` set; owner the renewal's requester), then marks the old one `renewed` and points the value at the new one.
+    - Audit: `setting.exception_renewal_requested` and `setting.exception_renewed` (high). In SaaS mode a renewal also notifies SecOps (`setting.exception_renewed`).
+  - Notices (AC-25): `posture.exception_notices()` records the 14-, 7- and 1-day notices once each (`posture.exception_notice`). It queues them for the owner and the holders of `settings.approve` in `posture.notice_outbox`, and returns them.
+    - When thresholds are crossed together (a 5-day exception), only the nearest is sent; the others are recorded as unsent.
+    - The posture service runs it every minute (`posture.RunNotices`) and audits each notice inside the recording transaction: `setting.exception_expiring`, info at 14 days, low at 7, high at 1. A failed audit records nothing, so the next run retries.
+    - This is a minute loop rather than per-exception River jobs (§6.3): it is idempotent and needs no job store.
+  - Delivery to people: the outbox is drained by F-009 (notifications), which does not exist yet. Until then the audit events are the only signal.
+  - Verification (time travel moves an exception's timestamps; rules use the database clock):
+    - Duration: the default is 90 days, 30 days on request; 200 days and negative durations are refused, with nothing written; a 60-day request is clamped to 30 days after the maximum is tightened.
+    - Renewal: refused without a justification or by an Auditor, and before approval; self-approval refused; the second admin approves; the new exception lasts 14 days, the old one is `renewed`, and the value is re-pointed; both are audited; a second apply and renewing the old exception are refused; after expiry neither apply nor request works.
+    - Notices: none at 90 days left; 14, 7 and 1 at the thresholds, once each, with outbox recipients; a 5-day exception sends 7 only; a failing audit records nothing, then the retry succeeds.
+    - A mutation that drops the before-expiry check on apply fails the renewal test.
+    - The T-09 test profile now binds `exception.max_duration`.

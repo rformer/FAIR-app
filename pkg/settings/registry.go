@@ -69,6 +69,9 @@ type Request struct {
 	Actor       string // the stand-in Registry's actor; Setter takes the actor from the principal's signed context
 	Explanation string
 	BUID        string // BU override (Setter only; "" = instance-wide)
+	// ExceptionDuration (Setter only): how long the exception lasts if the
+	// change is out of bounds and approved; 0 = the maximum (AC-24).
+	ExceptionDuration time.Duration
 }
 
 // Result describes what happened to a request.

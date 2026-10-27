@@ -198,6 +198,10 @@ func run() error {
 	}
 
 	emitter := audit.NewJSONLines(os.Stdout) // replaced by the F-002 pipeline; see pkg/audit
+	// AC-25: 14-, 7- and 1-day exception expiry notices.
+	go posture.RunNotices(ctx, pool, emitter, time.Minute, func(err error) {
+		logger.Error("exception expiry notices", "error", err.Error())
+	})
 	if err := emitter.Emit(ctx, audit.Event{
 		Type:     "service.started",
 		Severity: audit.SeverityInfo,

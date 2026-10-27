@@ -38,6 +38,10 @@ type ChangeRequest struct {
 	BUID        string // "" = instance-wide
 	Value       json.RawMessage
 	Explanation string // required when out of bounds
+	// ExceptionDuration is how long an approved out-of-bounds change lasts
+	// (AC-24): 0 means the exception.max_duration in force (90 days by
+	// default); longer than that is refused (ErrExpiryOutOfRange).
+	ExceptionDuration time.Duration
 }
 
 // Outcome of a change request.
@@ -83,6 +87,7 @@ var (
 	ErrNotApplicable       = errors.New("posture: the change cannot be applied in its current state")
 	ErrNotApproved         = errors.New("posture: the change has not been approved, or its approval has expired or been used")
 	ErrConfiguration       = errors.New("posture: posture is not configured for this setting")
+	ErrExpiryOutOfRange    = errors.New("posture: an exception's duration must be positive and at most exception.max_duration")
 )
 
 type preview struct {
@@ -123,8 +128,8 @@ func (ev Evaluator) Change(ctx context.Context, p authz.Principal, r ChangeReque
 
 	err = authz.WithDBContext(ctx, ev.DB, p.DBToken, func(tx pgx.Tx) error {
 		var approval *string
-		if err := tx.QueryRow(ctx, "SELECT change_id, direction, state, approval_request_id FROM posture.request_change($1, $2, $3, $4)",
-			r.Key, bu, []byte(r.Value), r.Explanation).Scan(&res.ChangeID, &res.Direction, &res.Outcome, &approval); err != nil {
+		if err := tx.QueryRow(ctx, "SELECT change_id, direction, state, approval_request_id FROM posture.request_change($1, $2, $3, $4, $5)",
+			r.Key, bu, []byte(r.Value), r.Explanation, durationArg(r.ExceptionDuration)).Scan(&res.ChangeID, &res.Direction, &res.Outcome, &approval); err != nil {
 			return err
 		}
 		attrs := map[string]string{"key": r.Key, "bu_id": r.BUID, "value": string(r.Value), "previous": string(pv.current),
@@ -228,11 +233,21 @@ func mapErr(err error) error {
 	sentinel := map[string]error{
 		"PF001": ErrHardFloor, "PF002": ErrExplanationRequired, "PF003": ErrNotApplicable, "PF004": ErrInvalidValue,
 		"PF006": ErrConfiguration, "PF007": ErrNoContext, "PF008": ErrNotPermitted, "AP004": ErrNotApproved,
+		"PF009": ErrExpiryOutOfRange,
 	}[pg.Code]
 	if sentinel == nil {
 		return err
 	}
 	return fmt.Errorf("%w: %s", sentinel, pg.Message)
+}
+
+// durationArg is a requested duration for the database: a Go duration
+// string, or NULL for the default.
+func durationArg(d time.Duration) any {
+	if d == 0 {
+		return nil
+	}
+	return d.String()
 }
 
 func nullable(s string) any {

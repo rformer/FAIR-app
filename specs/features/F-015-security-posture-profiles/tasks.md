@@ -31,7 +31,7 @@ Prerequisite: F-001 Phases 0–1 (DB roles, BU closure, approvals interface, eve
 ## Phase C — Exceptions, custom profiles & switching
 | # | Task | Traces to | Verification | Size | Status |
 |---|---|---|---|---|---|
-| T-17 | Exception lifecycle: expiry bounds (default 90 d), 14/7/1-day notices, renewal-before-expiry with dual approval | AC-24 – AC-26 | Time-travel tests on DB clock | M | Todo |
+| T-17 | Exception lifecycle: expiry bounds (default 90 d), 14/7/1-day notices, renewal-before-expiry with dual approval | AC-24 – AC-26 | Time-travel tests on DB clock | M | Done (2026-10-27); notices are queued for F-009 to deliver |
 | T-18 | Auto-revert job (system actor), ≤ 60 s effect, retry with backoff, critical finding + hourly escalation on failure | AC-27 – AC-29 | Fault-injection test; sessions end on next request after timeout revert | M | Todo |
 | T-19 | Custom profiles: clone, per-key editor data (base vs new, direction, controls), justification for loosened keys, validation, `profile.approve` by different person, "Deviates from <base>" label | AC-11 – AC-13 | Functional + self-approval-impossible tests | M | Todo |
 | T-20 | Custom profile versioning/diff, JSON + OSCAL profile export/import (import → draft), base-update pinning (never silently weaker) | AC-14, AC-15 | Upgrade simulation: weaker base pinned, stricter proposed | M | Todo |

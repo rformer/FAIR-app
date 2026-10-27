@@ -22,7 +22,8 @@ This repo is built **spec-first**. Before doing anything, read:
 - F-015 T-14 done: `posture.Evaluator` (Change, ApplyApproved) over `posture.request_change` / `apply_change`, which now take the requester from the signed DB context and need `settings.change`; out-of-bounds changes go through F-001 approvals and become exceptions.
 - F-015 T-15 done: `FAIR_DEPLOYMENT_MODE` (required in production; must match `posture.set_deployment_mode`); SaaS weakenings are queued by `posture.apply_change` and delivered to a signed SecOps webhook.
 - F-015 T-16 done: `settings.Setter` (`posture.Setter`, the evaluator embedded as `app_rw`) and `settings.Client` replace the T-00b stub for writes and reads; the stub's `Registry` remains only for the exception lifecycle until T-17/T-18.
-- **Next: F-015 T-17** (`specs/features/F-015-security-posture-profiles/tasks.md`; exception lifecycle: expiry bounds, notices, renewal), then the rest of F-015 in task order, except that **F-001 T-26 (dual-approval engine) comes before F-015 T-14** (approved 2026-10-26); then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
+- F-015 T-17 done: exception durations bounded by `exception.max_duration`, renewal before expiry with dual approval (`Evaluator.RequestRenewal` / `ApplyRenewal`), 14/7/1-day notices (`posture.RunNotices`, queued in `posture.notice_outbox` for F-009).
+- **Next: F-015 T-18** (`specs/features/F-015-security-posture-profiles/tasks.md`; auto-revert job, retries, revert-failed finding), then the rest of F-015 in task order, except that **F-001 T-26 (dual-approval engine) comes before F-015 T-14** (approved 2026-10-26); then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
 
 ## Working rules
 - Implement only tasks that are marked Approved and listed in a `tasks.md`. If a task needs a design change, stop and propose the spec change; don't silently diverge.

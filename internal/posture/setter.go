@@ -31,7 +31,8 @@ func (s Setter) Set(ctx context.Context, p authz.Principal, req settings.Request
 	if err != nil {
 		return settings.Result{Outcome: settings.Refused}, fmt.Errorf("%w: %w", settings.ErrType, err)
 	}
-	res, err := s.Evaluator.Change(ctx, p, ChangeRequest{Key: req.Key, BUID: req.BUID, Value: raw, Explanation: req.Explanation})
+	res, err := s.Evaluator.Change(ctx, p, ChangeRequest{Key: req.Key, BUID: req.BUID, Value: raw, Explanation: req.Explanation,
+		ExceptionDuration: req.ExceptionDuration})
 	out := settings.Result{ApprovalID: res.ApprovalID, ChangeID: res.ChangeID, Warning: warning(res.Warning)}
 	switch {
 	case errors.Is(err, ErrHardFloor):
@@ -40,6 +41,9 @@ func (s Setter) Set(ctx context.Context, p authz.Principal, req settings.Request
 	case errors.Is(err, ErrExplanationRequired):
 		out.Outcome = settings.Refused
 		return out, fmt.Errorf("%w: %w", settings.ErrExplanationRequired, err)
+	case errors.Is(err, ErrExpiryOutOfRange):
+		out.Outcome = settings.Refused
+		return out, fmt.Errorf("%w: %w", settings.ErrExpiryTooLong, err)
 	case errors.Is(err, ErrInvalidValue):
 		out.Outcome = settings.Refused
 		return out, fmt.Errorf("%w: %w", settings.ErrType, err)
