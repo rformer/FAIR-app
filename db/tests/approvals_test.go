@@ -86,7 +86,9 @@ func TestApprovalLifecycle(t *testing.T) {
 			t.Errorf("%s: %s", bad, state)
 		}
 	}
-	if got := e.adminQuery("SELECT iam.consume_approval('" + id + "', 'settings.out_of_bounds', 'change:42')->>'value'"); got != "10" {
+	// Since F-015 T-14, consume returns the payload with requester and approver.
+	got := e.adminQuery("SELECT (r->'payload'->>'value') || ':' || (r->>'requested_by' = '" + analyst.UserID + "') || ':' || (r->>'decided_by' = '" + platform.UserID + "') FROM iam.consume_approval('" + id + "', 'settings.out_of_bounds', 'change:42') r")
+	if got != "10:true:true" {
 		t.Fatalf("consume returned %s", got)
 	}
 	if state := e.adminState("PERFORM iam.consume_approval('" + id + "', 'settings.out_of_bounds', 'change:42')"); state != "AP004" {

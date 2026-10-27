@@ -19,7 +19,8 @@ This repo is built **spec-first**. Before doing anything, read:
 - F-015 T-12 done: `posture.register_settings` (open to services, never weakens) and `settings.Client.Start` (register, load, refuse to start on any unbound key).
 - F-015 T-13 done: property tests for the comparators and strictest-of; Go (`settings.DecodeValue`, `Def.Compare`) and the database (`posture.check_value`, `compare`, `strictest`) must agree, and a parity test enforces it. `set` is deferred until a setting needs it.
 - F-001 T-26 done (pulled forward): `iam.request_approval` / `decide_approval` / `consume_approval` (actors from the signed DB context; approver holds the kind's permission) and `internal/approvals`. AC-30's assignment path still refuses rather than routing to approval.
-- **Next: F-015 T-14** (`specs/features/F-015-security-posture-profiles/tasks.md`; change evaluator wired to approvals), then the rest of F-015 in task order, except that **F-001 T-26 (dual-approval engine) comes before F-015 T-14** (approved 2026-10-26); then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
+- F-015 T-14 done: `posture.Evaluator` (Change, ApplyApproved) over `posture.request_change` / `apply_change`, which now take the requester from the signed DB context and need `settings.change`; out-of-bounds changes go through F-001 approvals and become exceptions.
+- **Next: F-015 T-15** (`specs/features/F-015-security-posture-profiles/tasks.md`; SaaS vendor SecOps notification on weakening), then the rest of F-015 in task order, except that **F-001 T-26 (dual-approval engine) comes before F-015 T-14** (approved 2026-10-26); then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
 
 ## Working rules
 - Implement only tasks that are marked Approved and listed in a `tasks.md`. If a task needs a design change, stop and propose the spec change; don't silently diverge.

@@ -524,3 +524,27 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
   - The CMMC L2 mapping table (`profiles/cmmc-l2-r2/mapping.md`) is reviewed and signed off, including 3.5.8 and 3.5.9 (Table D-5). The sign-off is recorded in `supplement.yaml` (`signoff`), and the generator writes it into `mapping.md`. The two rows' notes now read "confirmed against the PDF". T-04 is Done.
   - The Enterprise Baseline relaxation rationales (`platform_choice` in `bindings/`, T-05) are reviewed and signed off as written.
   - Neither changes a profile or a package: `profile.json` and the signed packages are unchanged.
+- 2026-10-27: T-14 implementation notes (`db/migrations/0018_posture_evaluator.sql`, `internal/posture/evaluator.go`).
+  - Requester binding (deferred from T-09): `posture.request_change(key, bu_id, value, explanation)` takes the requester from the signed database context (ADR-007; PF007 without one). The requester must hold `settings.change` at the BU, or the root for instance-wide changes (PF008). `iam.holds_permission`, a narrow definer function, answers that for `posture_definer`, which reads no iam table.
+  - Out of bounds: an explanation is required, and `request_change` opens the `settings.out_of_bounds` approval (F-001 T-26) for the same user in the same transaction. `posture.preview_change` gives the service what the warning needs (current value, bound, floor, parameters) without writing anything.
+  - `posture.apply_change(change_id)` returns the exception it created, if any.
+    - For an approved change it consumes the approval (once, for exactly this change) and creates the exception: the approver from the approval, the requester as owner, and the explanation as justification.
+    - The exception expires after the `exception.max_duration` value in force: 90 days in all three profiles (AC-24).
+    - The hard floor is re-checked, so no exception can sit below it (AC-30).
+  - `iam.consume_approval` now returns `{payload, requested_by, decided_by}`; no feature consumed approvals before this task.
+  - `posture.Evaluator`:
+    - `Change`:
+      - Below the floor: `ErrHardFloor`, with `setting.hard_floor_refused` (high) audited after the refusal; if that audit fails, the error says so.
+      - Out of bounds without an explanation: `ErrExplanationRequired` with the warning, which names the affected controls derived from the parameter ids (e.g. `ac-02.03_odp.02` → AC-2(3)). Nothing is written.
+      - Out of bounds with an explanation: pending approval, with `setting.change_requested` (high).
+      - Otherwise: applied, with `setting.changed` (info; low for a loosening within bounds).
+      - Audit events for writes are emitted inside the transaction, so no audit means no change. Applied changes are announced on `posture.setting.changed`.
+    - `ApplyApproved(change_id)` applies the approved change and emits `setting.exception_created` (high, with the approver as actor).
+  - The SaaS SecOps notification (AC-23) is T-15. Flagging exceptions on the Posture page needs the API and UI.
+  - Verification (DB tests, against the seeded Enterprise Baseline with the F-001 settings registered):
+    - Tighten and in-bounds loosening apply, with their audit events and announcements. FIPS can be switched off in Enterprise, whose floor does not cover it.
+    - Four hard-floor settings are refused, each with a high-severity event, and nothing is recorded. A failing audit sink is reported.
+    - Out of bounds: the warning without an explanation; a pending approval with one; refused before approval; self-approval refused; the second Platform Admin approves; an exception with owner, approver and a 90-day expiry; a high-severity event and an announcement; a second apply refused; no MAC mismatches.
+    - An Auditor and a missing context are refused, as are invalid values. A failing audit sink rolls the change back.
+    - The T-09 to T-12 tests now run with a signed context for a Platform Admin.
+    - A mutation that drops the `settings.change` requirement fails two tests.

@@ -22,6 +22,7 @@ import (
 // Moderate and registers session.idle_timeout so it can be changed.
 func seededPosture(e *env) {
 	e.t.Helper()
+	postureAdmins(e)
 	addMACKey(e, "k1")
 	if _, err := posture.Seed(context.Background(), e.posturePool(), audit.NewMemory(), "system:installer", posture.DefaultProfile, ""); err != nil {
 		e.t.Fatal(err)
@@ -34,8 +35,7 @@ func seededPosture(e *env) {
 // change requests and applies a change as the posture service does.
 func change(e *env, key, value string) {
 	e.t.Helper()
-	user := e.adminQuery("INSERT INTO iam.app_user (email) VALUES ('" + randHex(4) + "@example.test') RETURNING id")
-	id := mustAs(e, "app_posture", "SELECT "+request(key, "NULL", value, "NULL", user, "NULL"))
+	id := e.mustAsUser("app_posture", "admin", "SELECT "+request(key, "NULL", value, "NULL"))
 	e.wantState("app_posture", "PERFORM posture.apply_change('"+id+"')", "ok")
 }
 
@@ -79,8 +79,7 @@ func TestPostureEffectiveSettings(t *testing.T) {
 	root := e.adminQuery("SELECT id FROM iam.bu WHERE parent_id IS NULL")
 	e.admin(e.db, `INSERT INTO posture.setting_def (key, type, direction, enum_order, bu_scopable, owner_feature, registered_version)
 		VALUES ('session.network_binding', 'enum', 'ordered', ARRAY['off','flag','reauthenticate'], true, 'F-001', '1')`)
-	user := e.adminQuery("SELECT id FROM iam.app_user LIMIT 1")
-	id := mustAs(e, "app_posture", "SELECT "+request("session.network_binding", "'"+root+"'", `"reauthenticate"`, "NULL", user, "NULL"))
+	id := e.mustAsUser("app_posture", "admin", "SELECT "+request("session.network_binding", "'"+root+"'", `"reauthenticate"`, "NULL"))
 	e.wantState("app_posture", "PERFORM posture.apply_change('"+id+"')", "ok")
 	if snap, _ = src.Snapshot(ctx); string(snap.BU[root]["session.network_binding"]) != `"reauthenticate"` {
 		t.Fatalf("BU overrides %v", snap.BU)

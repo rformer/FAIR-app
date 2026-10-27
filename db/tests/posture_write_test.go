@@ -80,9 +80,46 @@ INSERT INTO posture.profile_value (profile_id, version, key, default_value, boun
   ('test-fedramp', '1.0.0', 'tls.min_version',         '"1.2"', '"1.2"'),
   ('test-fedramp', '1.0.0', 'session.network_binding', '"reauthenticate"', '"flag"'),
   ('test-fedramp', '1.0.0', 'fips.enabled',            'true', 'true');
-INSERT INTO posture.active_profile (profile_id, version) VALUES ('test-fedramp', '1.0.0');
-INSERT INTO iam.app_user (email, display_name) VALUES ('admin@example.test', 'Admin');`)
+INSERT INTO posture.active_profile (profile_id, version) VALUES ('test-fedramp', '1.0.0');`)
+	return postureAdmins(e)
+}
+
+// postureAdmins creates two Platform Admins, admin and admin2 (both hold
+// settings.change and settings.approve), materializes their scope and adds
+// context key k1, so posture calls can run with a signed context. It returns
+// admin's id.
+func postureAdmins(e *env) string {
+	e.t.Helper()
+	e.mustOwner("INSERT INTO iam.app_user (email, display_name) VALUES ('admin@example.test', 'Admin'), ('admin2@example.test', 'Admin 2')")
+	e.mustOwner("SELECT iam.bootstrap_platform_admin(" + uid("admin") + ")")
+	e.mustOwner(grant("admin", "user:admin2", "Platform Admin", "ENTERPRISE"))
+	e.drain()
+	e.addCtxKey(ctxKey1)
 	return e.adminQuery("SELECT id FROM iam.app_user WHERE email = 'admin@example.test'")
+}
+
+// asUser runs sql as role with user's signed database context.
+func (e *env) asUser(role, user, sql string) (string, error) {
+	e.t.Helper()
+	return e.as(role, "SET authz.ctx = '"+e.mint(user, ctxKey1)+"'; "+sql)
+}
+
+func (e *env) mustAsUser(role, user, sql string) string {
+	e.t.Helper()
+	out, err := e.asUser(role, user, sql)
+	if err != nil {
+		e.t.Fatalf("%s as %s: %v\n%s\n%s", role, user, err, sql, out)
+	}
+	return strings.TrimSpace(out)
+}
+
+// wantStateAs is wantState with user's signed context.
+func (e *env) wantStateAs(role, user, stmt, want string) {
+	e.t.Helper()
+	out, err := e.asUser(role, user, trap(stmt))
+	if got := stateOf(out, err); got != want {
+		e.t.Errorf("%s as %s: %s\n got %s, want %s", role, user, stmt, got, want)
+	}
 }
 
 func addMACKey(e *env, id string) {
@@ -90,16 +127,17 @@ func addMACKey(e *env, id string) {
 	e.mustOwner("SELECT posture.add_mac_key('" + id + "', authz.gen_random_bytes(32))")
 }
 
-// request returns the SQL that records a change.
-func request(key, bu, value, explanation, user, approval string) string {
-	return "posture.request_change('" + key + "', " + bu + ", '" + value + "', " + explanation + ", '" + user + "', " + approval + ")"
+// request returns SQL for the id of a change recorded by posture.request_change
+// (run it with a signed context: mustAsUser, wantStateAs).
+func request(key, bu, value, explanation string) string {
+	return "(posture.request_change('" + key + "', " + bu + ", '" + value + "', " + explanation + ")).change_id"
 }
 
 // Verification for T-09: application roles cannot write; only the definer
 // functions can, and only for app_posture.
 func TestPostureNoDirectWrites(t *testing.T) {
 	e := setup(t)
-	user := postureFixture(e)
+	postureFixture(e)
 	addMACKey(e, "k1")
 	for _, role := range []string{"app_rw", "app_engine", "app_posture"} {
 		for _, stmt := range []string{
@@ -114,7 +152,7 @@ func TestPostureNoDirectWrites(t *testing.T) {
 		}
 	}
 	for _, role := range []string{"app_rw", "app_engine"} {
-		e.wantState(role, "PERFORM "+request("session.idle_timeout", "NULL", `"10m0s"`, "NULL", user, "NULL"), "42501")
+		e.wantStateAs(role, "admin", "PERFORM "+request("session.idle_timeout", "NULL", `"10m0s"`, "NULL"), "42501")
 		e.wantState(role, "PERFORM posture.apply_change(gen_random_uuid())", "42501")
 		e.wantState(role, "PERFORM posture.apply_revert(gen_random_uuid())", "42501")
 		e.wantState(role, "PERFORM posture.mac_mismatches()", "42501")
@@ -127,10 +165,10 @@ func TestPostureNoDirectWrites(t *testing.T) {
 
 func TestPostureChangeFlow(t *testing.T) {
 	e := setup(t)
-	user := postureFixture(e)
+	postureFixture(e)
 
 	// No MAC key yet: nothing can be written (fail closed).
-	id := strings.TrimSpace(mustAs(e, "app_posture", "SELECT "+request("session.idle_timeout", "NULL", `"10m0s"`, "NULL", user, "NULL")))
+	id := strings.TrimSpace(e.mustAsUser("app_posture", "admin", "SELECT "+request("session.idle_timeout", "NULL", `"10m0s"`, "NULL")))
 	e.wantState("app_posture", "PERFORM posture.apply_change('"+id+"')", "PF006")
 	addMACKey(e, "k1")
 
@@ -145,7 +183,7 @@ func TestPostureChangeFlow(t *testing.T) {
 	e.wantState("app_posture", "PERFORM posture.apply_change('"+id+"')", "PF003") // applied once only
 
 	// Loosen within bounds (lockout 3 -> 5, bound 5) applies; it is recorded as a loosening.
-	id = mustAs(e, "app_posture", "SELECT "+request("auth.lockout_threshold", "NULL", "5", "NULL", user, "NULL"))
+	id = e.mustAsUser("app_posture", "admin", "SELECT "+request("auth.lockout_threshold", "NULL", "5", "NULL"))
 	e.wantState("app_posture", "PERFORM posture.apply_change('"+id+"')", "ok")
 	if got := e.adminQuery("SELECT direction FROM posture.change WHERE id = '" + id + "'"); got != "loosen" {
 		t.Fatalf("lockout 3 -> 5 recorded as %s", got)
@@ -153,17 +191,24 @@ func TestPostureChangeFlow(t *testing.T) {
 
 	// Out of bounds: needs an explanation and an approval request, then
 	// cannot be applied until approvals can be verified (F-001 T-26).
-	e.wantState("app_posture", "PERFORM "+request("auth.lockout_threshold", "NULL", "8", "NULL", user, "NULL"), "PF002")
-	e.wantState("app_posture", "PERFORM "+request("auth.lockout_threshold", "NULL", "8", "'needed for a pilot'", user, "NULL"), "PF002")
-	id = mustAs(e, "app_posture", "SELECT "+request("auth.lockout_threshold", "NULL", "8", "'needed for a pilot'", user, "gen_random_uuid()"))
-	if got := e.adminQuery("SELECT state FROM posture.change WHERE id = '" + id + "'"); got != "pending_approval" {
+	// (Since T-14 the explanation opens the approval request itself.)
+	e.wantStateAs("app_posture", "admin", "PERFORM "+request("auth.lockout_threshold", "NULL", "8", "NULL"), "PF002")
+	id = e.mustAsUser("app_posture", "admin", "SELECT "+request("auth.lockout_threshold", "NULL", "8", "'needed for a pilot'"))
+	if got := e.adminQuery("SELECT c.state || ':' || a.status FROM posture.change c JOIN iam.approval_request a ON a.id = c.approval_request_id WHERE c.id = '" + id + "'"); got != "pending_approval:pending" {
 		t.Fatalf("out-of-bounds change is %s", got)
 	}
-	e.wantState("app_posture", "PERFORM posture.apply_change('"+id+"')", "PF005")
+	e.wantState("app_posture", "PERFORM posture.apply_change('"+id+"')", "AP004") // not approved yet
+
+	// Requesters need a signed context and settings.change.
+	e.wantState("app_posture", "PERFORM "+request("auth.lockout_threshold", "NULL", "4", "NULL"), "PF007")
+	e.mustOwner("INSERT INTO iam.app_user (email) VALUES ('viewer@example.test')")
+	e.mustOwner(grant("admin", "user:viewer", "Auditor", "ENTERPRISE"))
+	e.drain()
+	e.wantStateAs("app_posture", "viewer", "PERFORM "+request("auth.lockout_threshold", "NULL", "4", "NULL"), "PF008")
 
 	// Hard floors, everywhere and per family.
-	e.wantState("app_posture", "PERFORM "+request("tls.min_version", "NULL", `"1.1"`, "'x'", user, "gen_random_uuid()"), "PF001")
-	e.wantState("app_posture", "PERFORM "+request("fips.enabled", "NULL", "false", "'x'", user, "gen_random_uuid()"), "PF001")
+	e.wantStateAs("app_posture", "admin", "PERFORM "+request("tls.min_version", "NULL", `"1.1"`, "'x'"), "PF001")
+	e.wantStateAs("app_posture", "admin", "PERFORM "+request("fips.enabled", "NULL", "false", "'x'"), "PF001")
 
 	// Invalid values.
 	for _, c := range [][2]string{
@@ -171,18 +216,18 @@ func TestPostureChangeFlow(t *testing.T) {
 		{"auth.lockout_threshold", `"3"`}, {"auth.lockout_threshold", "3.5"}, {"tls.min_version", `"2.0"`},
 		{"tls.min_version", "1.3"}, {"fips.enabled", `"true"`}, {"no.such_setting", "1"},
 	} {
-		e.wantState("app_posture", "PERFORM "+request(c[0], "NULL", c[1], "NULL", user, "NULL"), "PF004")
+		e.wantStateAs("app_posture", "admin", "PERFORM "+request(c[0], "NULL", c[1], "NULL"), "PF004")
 	}
 
 	// BU overrides only where the setting allows them.
 	root := e.adminQuery("SELECT id FROM iam.bu WHERE parent_id IS NULL")
-	e.wantState("app_posture", "PERFORM "+request("session.idle_timeout", "'"+root+"'", `"5m0s"`, "NULL", user, "NULL"), "PF004")
-	id = mustAs(e, "app_posture", "SELECT "+request("session.network_binding", "'"+root+"'", `"reauthenticate"`, "NULL", user, "NULL"))
+	e.wantStateAs("app_posture", "admin", "PERFORM "+request("session.idle_timeout", "'"+root+"'", `"5m0s"`, "NULL"), "PF004")
+	id = e.mustAsUser("app_posture", "admin", "SELECT "+request("session.network_binding", "'"+root+"'", `"reauthenticate"`, "NULL"))
 	e.wantState("app_posture", "PERFORM posture.apply_change('"+id+"')", "ok")
 
 	// Re-evaluated at apply time: a change recorded in bounds is refused if
 	// the bound has since tightened.
-	id = mustAs(e, "app_posture", "SELECT "+request("session.network_binding", "NULL", `"flag"`, "NULL", user, "NULL"))
+	id = e.mustAsUser("app_posture", "admin", "SELECT "+request("session.network_binding", "NULL", `"flag"`, "NULL"))
 	e.admin(e.db, `UPDATE posture.profile_value SET bound = '"reauthenticate"' WHERE key = 'session.network_binding'`)
 	e.wantState("app_posture", "PERFORM posture.apply_change('"+id+"')", "PF002")
 
@@ -195,10 +240,10 @@ func TestPostureChangeFlow(t *testing.T) {
 // bypasses every grant and policy) is detected by the drift check.
 func TestPostureDirectEditDetected(t *testing.T) {
 	e := setup(t)
-	user := postureFixture(e)
+	postureFixture(e)
 	addMACKey(e, "k1")
 	for _, c := range [][2]string{{"session.idle_timeout", `"10m0s"`}, {"auth.lockout_threshold", "4"}} {
-		id := mustAs(e, "app_posture", "SELECT "+request(c[0], "NULL", c[1], "NULL", user, "NULL"))
+		id := e.mustAsUser("app_posture", "admin", "SELECT "+request(c[0], "NULL", c[1], "NULL"))
 		e.wantState("app_posture", "PERFORM posture.apply_change('"+id+"')", "ok")
 	}
 	edits := map[string]string{
@@ -222,7 +267,7 @@ func TestPostureDirectEditDetected(t *testing.T) {
 	// Rotation: rows signed by a retired key still verify; new writes use the new key.
 	addMACKey(e, "k2")
 	e.mustOwner("SELECT posture.retire_mac_key('k1')")
-	id := mustAs(e, "app_posture", "SELECT "+request("auth.lockout_threshold", "NULL", "3", "NULL", user, "NULL"))
+	id := e.mustAsUser("app_posture", "admin", "SELECT "+request("auth.lockout_threshold", "NULL", "3", "NULL"))
 	e.wantState("app_posture", "PERFORM posture.apply_change('"+id+"')", "ok")
 	if got := e.adminQuery("SELECT string_agg(key || '=' || mac_key_id, ',' ORDER BY key) FROM posture.setting_value"); got != "auth.lockout_threshold=k2,session.idle_timeout=k1" {
 		t.Fatalf("keys after rotation: %s", got)
@@ -269,7 +314,7 @@ func TestPostureRevert(t *testing.T) {
 
 	// A later change already replaced the exception's value: only the exception closes.
 	sup := seed("tls.min_version", "NULL", `"1.2"`, `"1.2"`, true)
-	id := mustAs(e, "app_posture", "SELECT "+request("tls.min_version", "NULL", `"1.3"`, "NULL", user, "NULL"))
+	id := e.mustAsUser("app_posture", "admin", "SELECT "+request("tls.min_version", "NULL", `"1.3"`, "NULL"))
 	e.wantState("app_posture", "PERFORM posture.apply_change('"+id+"')", "ok")
 	e.wantState("app_posture", "PERFORM posture.apply_revert('"+sup+"')", "ok")
 	if got := e.adminQuery("SELECT value::text || ':' || source FROM posture.setting_value WHERE key = 'tls.min_version'"); got != `"1.3":change` {

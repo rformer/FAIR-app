@@ -77,8 +77,8 @@ func TestPostureStartupRegistration(t *testing.T) {
 		t.Fatalf("restart: %v", err)
 	}
 	// A registered change can now go through the write path.
-	user := e.adminQuery("INSERT INTO iam.app_user (email) VALUES ('reg@example.test') RETURNING id")
-	e.wantState("app_posture", "PERFORM "+request(settings.KeyAuthLockoutThreshold, "NULL", "2", "NULL", user, "NULL"), "ok")
+	postureAdmins(e)
+	e.wantStateAs("app_posture", "admin", "PERFORM "+request(settings.KeyAuthLockoutThreshold, "NULL", "2", "NULL"), "ok")
 }
 
 // Registration is open to every service, so it can never weaken anything.
