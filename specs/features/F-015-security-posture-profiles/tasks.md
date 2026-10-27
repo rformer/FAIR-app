@@ -35,7 +35,7 @@ Prerequisite: F-001 Phases 0–1 (DB roles, BU closure, approvals interface, eve
 | T-18 | Auto-revert job (system actor), ≤ 60 s effect, retry with backoff, critical finding + hourly escalation on failure | AC-27 – AC-29 | Fault-injection test; sessions end on next request after timeout revert | M | Done (2026-10-27); the session-ending half is verified up to the settings client (sessions are F-001 Phase 2) |
 | T-19 | Custom profiles: clone, per-key editor data (base vs new, direction, controls), justification for loosened keys, validation, `profile.approve` by different person, "Deviates from <base>" label | AC-11 – AC-13 | Functional + self-approval-impossible tests | M | Done (2026-10-27) |
 | T-20 | Custom profile versioning/diff, JSON + OSCAL profile export/import (import → draft), base-update pinning (never silently weaker) | AC-14, AC-15 | Upgrade simulation: weaker base pinned, stricter proposed | M | Done (2026-10-27) |
-| T-21 | Profile switch state machine: conflict computation, per-conflict resolution (conform/exception, not on floor), loosening detection + dual approval, atomic activation, pending display | AC-07, AC-16 – AC-19 | Activation blocked with any unresolved conflict; rollback-safe activation | L | Todo |
+| T-21 | Profile switch state machine: conflict computation, per-conflict resolution (conform/exception, not on floor), loosening detection + dual approval, atomic activation, pending display | AC-07, AC-16 – AC-19 | Activation blocked with any unresolved conflict; rollback-safe activation | L | Done (2026-10-27) |
 
 ## Phase D — BU scope & overlay
 | # | Task | Traces to | Verification | Size | Status |

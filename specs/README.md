@@ -16,7 +16,7 @@ These are the approved specs for the FAIR Risk Platform. They are mirrored from 
 ## Where we are
 - **Done:** F-001 Phase 0 (T-00a, T-00b, T-00c, T-01, T-02). See `features/F-001-identity-bu-rbac/tasks.md`.
 - **Done:** F-001 Phase 1, the authorization core (T-02b, T-03 to T-12; benchmark gate passed).
-- **In progress:** F-015. Phase A done (T-01 to T-07; T-04 signed off 2026-10-27). Phase B done (T-08 to T-16); F-001 T-26 (dual approval) done, pulled forward. Phase C: T-17 to T-20 done. **Next:** F-015 T-21 (profile switch), then the rest of F-015.
+- **In progress:** F-015. Phase A done (T-01 to T-07; T-04 signed off 2026-10-27). Phase B done (T-08 to T-16); F-001 T-26 (dual approval) done, pulled forward. Phase C done (T-17 to T-21). **Next:** F-015 T-22 (BU overrides), then the rest of F-015.
 - **Then:** the rest of F-001.
 
 ## Rules for contributors (human or AI)

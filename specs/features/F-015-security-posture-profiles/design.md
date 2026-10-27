@@ -676,3 +676,28 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
     - Versions: a copy, only one draft, approved versions immutable, an Auditor cannot diff.
     - Export/import: the JSON round trip, the OSCAL export validating with the parameter and the label, the OSCAL round trip through back-matter, and import from bare `set-parameters` (justification kept). Refused, with nothing created: a wrong format, below the floor, loosened without a justification, an unknown setting, an unmapped parameter, no permission. A built-in profile cannot be exported.
     - A mutation that lets rebase take the new base's weaker value fails the upgrade simulation.
+- 2026-10-27: T-21 implementation notes (`db/migrations/0025_profile_switch.sql`, `internal/posture/switch.go`).
+  - States: the design's `requested → conflicts_computed → resolving → (awaiting_approval) → activating → active | cancelled` maps to `resolving → activated | cancelled`. Requesting computes the conflicts in the same call, "awaiting approval" is whether the approvals have been granted, and activating is the activation transaction itself. At most one switch is open at a time.
+  - Request (`posture.request_switch`, `profile.manage`): the target must be an `approved` profile version: a built-in, a custom profile, or a newer version of the active built-in (AC-07, whose differences `profile_diff` shows first).
+    - Conflicts (AC-16) are the explicit values (changes, exceptions, reverts, BU overrides) that are weaker than the target's bound. Instance values that came from the current profile are not conflicts; they follow the target's defaults at activation (§6.4). This keeps a switch from Enterprise to FedRAMP from presenting every relaxed Enterprise default as a conflict.
+    - A target with any bound weaker than the current profile's is a loosening (AC-19): a justification is required, a `profile.switch` approval is opened (new F-001 approval kind; approver `profile.approve`), and the request is audited high.
+  - Resolve (`posture.resolve_conflict`):
+    - `conform` sets the target default at activation.
+    - `exception` needs a reason and an optional duration, and opens a `settings.out_of_bounds` approval. It is refused when the value is below a hard floor of the target's family, for example FIPS off when switching to FedRAMP.
+  - Activate (`posture.activate_switch`) is one transaction (AC-17, rollback-safe):
+    - It refuses while any conflict is unresolved, or if a value became a new conflict after the request.
+    - It consumes the loosening approval and every exception approval; any missing approval aborts everything.
+    - It makes the target active and the previous profile `approved`.
+    - It re-seeds values from the old profile with the target's defaults, first, so that new exceptions use the target's `exception.max_duration`.
+    - It keeps explicit values within the new bounds, applies conforms, creates the exceptions (superseding old ones on conflicting values), records the switch on `active_profile`, and notifies SecOps of a loosening switch in SaaS mode.
+    - The service audits `profile.activated` (high) inside the transaction and announces `posture.profile.activated` and a settings change when a publisher is configured.
+  - While pending (AC-18), the current profile stays in force. `posture.pending_switch` and `Switches.Pending` give the Posture page the switch and its conflicts, with unresolved counts.
+  - Verification (DB tests):
+    - Enterprise to FedRAMP: the explicit 30m idle timeout and FIPS-off are the only two conflicts.
+    - Still pending: the current profile in force, no second switch, no activation while unresolved.
+    - Conflict rules: FIPS cannot be an exception (below the floor); an exception needs a reason.
+    - Activation before the exception's approval fails with nothing changed. After approval, activation conforms FIPS, re-seeds lockout and network binding to FedRAMP, keeps idle timeout under a new 30-day exception approved by the second admin, and updates the profile statuses, with an audit and no MAC mismatches.
+    - FedRAMP to Enterprise in SaaS mode: a justification is required, audited high; activation is refused before approval; self-approval is refused; after activation the SecOps queue holds `profile.switched` and the settings client sees the Enterprise values.
+    - Newer built-in (AC-07): the 1.0.0 → 1.1.0 diff shows three changes, and the switch is a loosening; cancelling allows a new request.
+    - Stale conflict: a value made weaker after the request blocks activation.
+    - A mutation that drops the unresolved-conflict check fails the activation test.
