@@ -297,3 +297,21 @@ Until F-015 exists, F-001 ships a minimal settings module that holds the three p
   - `authz.WithDBContext(ctx, pool, token, fn)` sets `authz.ctx` with `set_config(..., true)`: parameterized, and local to the transaction.
   - Contract change: `Principal` gains `DBToken`, the gateway-minted context, which the loader and services use.
   - Service accounts are denied until T-33.
+- 2026-10-26: T-26 implementation notes (`db/migrations/0017_approvals.sql`, `internal/approvals`). T-26 was pulled forward before F-015 T-14 (approved by Robert Former).
+  - Decision (Robert Former): approver authority is per kind. Each kind names the permission its approver must hold at the request's BU, or the root when none: `access.approve` (AC-30), `breakglass.manage` (AC-41), `sod.manage` (AC-53), `bu.restrict` (AC-63, un-restrict and roll-up loosening) and `settings.approve` (F-015 AC-21). Today only Platform Admin holds these, so this is "a second Platform Admin" (§5.5) and also F-015's "holder of `settings.approve`". A custom role given one of these privileged permissions would let its holders approve that kind.
+  - §3 `approval_request` gains `bu_id`, `decision_reason`, `created_at` and `consumed_at`. A new table `approval_kind` holds each kind's approve permission and its TTL (72 h by default, configurable per kind by the operator). The design's `CHECK decided_by <> requested_by` is in place.
+  - Requester and approver come from the signed database context (`authz.ctx_scope`, ADR-007), never from parameters, so self-approval is impossible in the database. The API (`approvals.Service.Decide`) refuses it first as well. A disabled user's still-valid token is refused.
+  - Functions:
+    - `request_approval`, `decide_approval` (a rejection needs a reason), `expire_approvals` (scheduled job) and `approval` (a read for the requester or an eligible approver; anyone else gets "not found") are executable by `app_rw`.
+    - `consume_approval(id, kind, target)` is for the approved action's own definer function. It allows one use of an unexpired approval of exactly that kind and target, and returns the payload. Each consuming feature's definer role is granted it with that feature (F-015 T-14: `posture_definer`).
+    - Application roles have no table privileges.
+  - Every step writes an audit event to `iam.event_outbox` in the same transaction: requested, approved (high severity), rejected, expired and consumed. Errors use SQLSTATE class AP.
+  - Gap, still open: AC-30's consumer. T-07 still refuses an assignment that would combine admin and risk-data permissions; routing it through an `access.admin_risk_combination` approval is not done yet. The other consumers arrive with their own tasks (break-glass, SoD T-27, restricted BU T-30, F-015 T-14).
+  - Verification (DB tests):
+    - The full lifecycle with audit trail and one-time consumption.
+    - Self-approval refused by the API and, when the API is bypassed, by the database function and the table check.
+    - A BU Admin can neither see nor decide a request.
+    - A Platform Admin's own request needs the second Platform Admin, and a rejection needs a reason.
+    - Expiry: an expired request cannot be decided, an approval cannot be used after its window, the expiry job marks overdue requests and audits them, and the TTL is configurable.
+    - Missing, forged and disabled-user contexts are refused; unknown kinds and blank reasons are refused.
+    - A mutation that lets anyone approve fails the tests.
