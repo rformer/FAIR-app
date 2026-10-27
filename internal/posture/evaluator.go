@@ -26,7 +26,7 @@ import (
 // database enforces every rule (migrations 0012 and 0018); the evaluator
 // adds the warning, the audit events and the change announcement.
 type Evaluator struct {
-	DB      *pgxpool.Pool // connected as app_posture
+	DB      *pgxpool.Pool // app_posture in the posture service; app_rw where a service embeds settings.Set (T-16)
 	Audit   audit.Emitter
 	Publish Publisher // optional: posture.setting.changed; caches also poll
 }
@@ -90,6 +90,7 @@ type preview struct {
 	belowFloor, outOfBounds bool
 	current, bound, floor   json.RawMessage
 	params                  []string
+	covered                 bool // out of bounds, but a tightening under an active exception (AC-22)
 }
 
 // Change evaluates and, where the rules allow, applies a change requested by
@@ -100,9 +101,9 @@ func (ev Evaluator) Change(ctx context.Context, p authz.Principal, r ChangeReque
 	var res ChangeResult
 	bu := nullable(r.BUID)
 	var pv preview
-	err := ev.DB.QueryRow(ctx, `SELECT direction, below_floor, out_of_bounds, current_value, bound, hard_floor, params
+	err := ev.DB.QueryRow(ctx, `SELECT direction, below_floor, out_of_bounds, current_value, bound, hard_floor, params, covered
 		FROM posture.preview_change($1, $2, $3)`, r.Key, bu, []byte(r.Value)).
-		Scan(&pv.direction, &pv.belowFloor, &pv.outOfBounds, &pv.current, &pv.bound, &pv.floor, &pv.params)
+		Scan(&pv.direction, &pv.belowFloor, &pv.outOfBounds, &pv.current, &pv.bound, &pv.floor, &pv.params, &pv.covered)
 	if err != nil {
 		return res, mapErr(err)
 	}
@@ -110,7 +111,7 @@ func (ev Evaluator) Change(ctx context.Context, p authz.Principal, r ChangeReque
 	if pv.belowFloor {
 		return res, ev.refuseFloor(ctx, p, r, pv.floor)
 	}
-	if pv.outOfBounds {
+	if pv.outOfBounds && !pv.covered {
 		res.Warning = &Warning{Key: r.Key, Current: pv.current, Proposed: r.Value, Bound: pv.bound, Params: pv.params,
 			Controls: ControlsForParams(pv.params),
 			Message: fmt.Sprintf("%s = %s is weaker than the active profile allows (%s). It affects %s and needs a written explanation and a second approver; on approval it applies as a time-limited exception.",

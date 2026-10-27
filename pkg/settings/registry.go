@@ -66,14 +66,16 @@ type Warning struct {
 type Request struct {
 	Key         string
 	Value       any
-	Actor       string
+	Actor       string // the stand-in Registry's actor; Setter takes the actor from the principal's signed context
 	Explanation string
+	BUID        string // BU override (Setter only; "" = instance-wide)
 }
 
 // Result describes what happened to a request.
 type Result struct {
 	Outcome    Outcome
 	ApprovalID string
+	ChangeID   string // Setter: the recorded change, applied with ApplyApproved once approved
 	Warning    *Warning
 }
 

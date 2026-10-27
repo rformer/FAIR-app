@@ -151,12 +151,21 @@ func TestPostureNoDirectWrites(t *testing.T) {
 			e.wantState(role, stmt, "42501") // insufficient_privilege
 		}
 	}
+	e.wantStateAs("app_engine", "admin", "PERFORM "+request("session.idle_timeout", "NULL", `"10m0s"`, "NULL"), "42501")
+	e.wantState("app_engine", "PERFORM posture.apply_change(gen_random_uuid())", "42501")
 	for _, role := range []string{"app_rw", "app_engine"} {
-		e.wantStateAs(role, "admin", "PERFORM "+request("session.idle_timeout", "NULL", `"10m0s"`, "NULL"), "42501")
-		e.wantState(role, "PERFORM posture.apply_change(gen_random_uuid())", "42501")
 		e.wantState(role, "PERFORM posture.apply_revert(gen_random_uuid())", "42501")
 		e.wantState(role, "PERFORM posture.mac_mismatches()", "42501")
 	}
+	// Since T-16 every service embeds settings.Set as app_rw: the change
+	// functions are callable, and the database still decides who may change
+	// what (signed context, settings.change).
+	e.wantState("app_rw", "PERFORM "+request("session.idle_timeout", "NULL", `"10m0s"`, "NULL"), "PF007")
+	e.mustOwner("INSERT INTO iam.app_user (email) VALUES ('nobody@example.test')")
+	e.mustOwner(grant("admin", "user:nobody", "Executive Viewer", "ENTERPRISE"))
+	e.drain()
+	e.wantStateAs("app_rw", "nobody", "PERFORM "+request("session.idle_timeout", "NULL", `"10m0s"`, "NULL"), "PF008")
+	e.wantStateAs("app_rw", "admin", "PERFORM "+request("session.idle_timeout", "NULL", `"10m0s"`, "NULL"), "ok")
 	// Internal helpers are not callable, not even by the posture service.
 	e.wantState("app_posture", "PERFORM posture.write_value('tls.min_version', NULL, '\"1.0\"', 'profile', NULL, NULL)", "42501")
 	e.wantState("app_posture", "PERFORM posture.add_mac_key('evil', decode(repeat('00', 32), 'hex'))", "42501")

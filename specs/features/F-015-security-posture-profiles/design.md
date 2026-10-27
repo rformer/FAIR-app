@@ -570,3 +570,26 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
       - Delivery to a TLS receiver that checks every signature: while the intake is down, both fail and back off; after recovery both are delivered once, with distinct delivery ids; a wrong secret is rejected and stays queued.
       - A failing queue insert rolls the weakening back. Only `fair_owner` can set the mode. Application roles cannot claim from or touch the queue.
     - A mutation that queues regardless of mode fails the self-hosted test.
+- 2026-10-27: T-16 implementation notes (`db/migrations/0020_settings_registry.sql`, `pkg/settings/setter.go`, `internal/posture/setter.go`).
+  - Decision (Robert Former): `settings.Set` is served by the change evaluator embedded in each service, connecting as `app_rw`. The evaluator's entry points (`preview_change`, `request_change`, `apply_change` and the summaries) are therefore granted to `app_rw` as well as `app_posture`. This is safe because the database enforces every rule on the caller's signed context: requester and `settings.change`, floors, bounds, approvals and the SecOps queue. The posture service keeps import, seed, SecOps delivery and (later) drift. A posture HTTP API (§7) can wrap the same evaluator.
+  - `settings.Setter` (`Set(ctx, principal, Request)`) is the F-001 §8 contract. `posture.Setter` implements it and adds `ApplyApproved`. `settings.Request` gains `BUID`, and `settings.Result` gains `ChangeID`; both are additive, so the public API stays stable. Reads use `settings.Client` (T-11) and startup uses `Client.Start` (T-12).
+  - Fix found while porting the F-001 tests (AC-22): T-14 sent a tightening that is still outside the bound back to approval, even when an active exception covered the value in force. Now:
+    - Such a tightening applies at once, under the covering exception, whose value follows it.
+    - A change back within the bound supersedes the exception (new state `superseded`).
+    - A further loosening inside the exception still needs approval.
+    - `preview_change` reports `covered`.
+  - F-001 keys: they are bound in every package (T-05/T-06), seeded (T-10) and registered by `Client.Start` with the F-001 definitions (T-12). Nothing else needs to move.
+  - The T-00b `Registry` remains for the exception lifecycle (renewal, auto-revert, notices) until T-17 and T-18. Its `BuiltinProfiles` equality test with the bindings stays until then.
+  - No service calls `settings.Set` yet. `iam` gets a database pool and `Client.Start` when its first settings-dependent feature arrives (F-001 Phase 2, sessions), so the iam image keeps starting without a database for the CI image checks.
+  - Verification: the T-00b tests, ported as `TestRegistry*` against the real registry through `settings.Setter` and `settings.Client` as `app_rw`:
+    - tightening immediate, with no SecOps notification;
+    - loosening within bounds, audited low and notified;
+    - out of bounds needing an explanation, a control warning, dual approval and a 90-day exception;
+    - hard-floor refusals audited in all three profiles;
+    - the FIPS floor conditional on family;
+    - break-glass enablement needing approval in all three profiles;
+    - tightening inside an exception keeping coverage, then superseding it;
+    - failing closed without audit.
+    - The stand-in tests for seed audit, missing bindings, floor validation and the comparators map to the T-10, T-12, T-06/T-10 and T-13 tests.
+    - A mutation that disables the coverage rule fails the exception test.
+    - The T-09 test now checks that `app_rw` can call the change functions but is refused without a signed context (PF007) or without `settings.change` (PF008), while `app_engine` gets no access.
