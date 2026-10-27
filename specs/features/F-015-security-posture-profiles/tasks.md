@@ -42,7 +42,8 @@ Prerequisite: F-001 Phases 0–1 (DB roles, BU closure, approvals interface, eve
 |---|---|---|---|---|---|
 | T-22 | BU overrides with inheritance via `iam.bu_closure` (blocked at restricted BUs) and strictest-of resolution | AC-32, AC-35 | Property tests on random trees | M | Done (2026-10-27) |
 | T-23 | Restricted BU overlay: auto-apply on `bu.restricted`, editable, weakening via R-06/R-07, removal on unrestrict | AC-33, AC-34 | Overlay present on every restricted BU; weakening requires approval | S | Done (2026-10-27) |
-| T-24 | **F-001 change:** session `auth_time`; `authz.Check()` returns `ErrStepUpRequired` per `bu.reauth_max_age`; 401 `step_up`; SAML ForceAuthn / OIDC `prompt=login`+`max_age` re-auth | AC-33, Design §6.6 | E2E: stale auth on restricted BU → step-up → access | M | Todo |
+| T-24 | **F-001 change (split 2026-10-27):** register `bu.reauth_max_age` (BU-scopable; default and bound = each profile's session absolute timeout); `Principal.AuthTime`; `authz.Check()` returns `ErrStepUpRequired` (`*StepUpError` with the max age) per the BU's effective `bu.reauth_max_age`, only after the permission is granted; 401 `WWW-Authenticate: step_up max_age=…` | AC-33, Design §6.6 | Unit and DB tests: stale sign-in on a restricted BU → step-up, fresh → access, unrestricted and per-BU override values, denial precedence | S | Done (2026-10-27) |
+| T-24b | **F-001 change:** session `auth_time` captured at sign-in and carried into `Principal.AuthTime`; SAML ForceAuthn / OIDC `prompt=login`+`max_age` re-auth on `step_up`; sequenced after F-001 T-13, T-15 and T-16 | AC-33, Design §6.6 | E2E: stale auth on restricted BU → step-up → access | S | Todo |
 
 ## Phase E — Drift detection
 | # | Task | Traces to | Verification | Size | Status |

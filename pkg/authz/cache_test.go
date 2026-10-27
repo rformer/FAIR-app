@@ -184,3 +184,51 @@ func TestWithDBContextRequiresToken(t *testing.T) {
 		t.Fatalf("err = %v, want ErrNoDBContext", err)
 	}
 }
+
+// F-015 T-24: a granted check on a BU whose bu.reauth_max_age the sign-in
+// exceeds needs step-up; a denial stays a denial; a policy error denies.
+func TestCheckStepUp(t *testing.T) {
+	f := &fakeLoader{snaps: map[string]Snapshot{}}
+	clk := &clock{t: time.Unix(1_800_000_000, 0)}
+	policyErr := errors.New("settings stale")
+	maxAge := map[string]time.Duration{"restricted": 15 * time.Minute, "open": 12 * time.Hour}
+	c := NewCache(CacheOptions{Loader: f.load, Now: clk.now, ReauthMaxAge: func(bu string) (time.Duration, error) {
+		if bu == "broken" {
+			return 0, policyErr
+		}
+		return maxAge[bu], nil
+	}})
+	f.set("u1", 1, "risk.view", "restricted", "open", "broken")
+	ctx := context.Background()
+	at := func(ago time.Duration) Principal {
+		return Principal{UserID: "u1", ScopeVersion: 1, DBToken: "t", AuthTime: clk.t.Add(-ago)}
+	}
+
+	for _, tc := range []struct {
+		name string
+		p    Principal
+		bu   string
+		want error
+	}{
+		{"fresh sign-in, restricted", at(10 * time.Minute), "restricted", nil},
+		{"exactly at the limit", at(15 * time.Minute), "restricted", nil},
+		{"stale sign-in, restricted", at(16 * time.Minute), "restricted", ErrStepUpRequired},
+		{"same sign-in, unrestricted", at(16 * time.Minute), "open", nil},
+		{"older than the session lifetime", at(13 * time.Hour), "open", ErrStepUpRequired},
+		{"unknown auth time", Principal{UserID: "u1", ScopeVersion: 1, DBToken: "t"}, "open", ErrStepUpRequired},
+		{"no permission: denied, not step-up", at(16 * time.Minute), "other", ErrDenied},
+		{"policy unavailable", at(time.Minute), "broken", policyErr},
+	} {
+		err := c.Check(ctx, tc.p, "risk.view", tc.bu)
+		if tc.want == nil && err != nil || tc.want != nil && !errors.Is(err, tc.want) {
+			t.Errorf("%s: %v, want %v", tc.name, err, tc.want)
+		}
+		if errors.Is(err, ErrDenied) && errors.Is(err, ErrStepUpRequired) {
+			t.Errorf("%s: both denied and step-up", tc.name)
+		}
+	}
+	var su *StepUpError
+	if err := c.Check(ctx, at(time.Hour), "risk.view", "restricted"); !errors.As(err, &su) || su.MaxAge != 15*time.Minute {
+		t.Fatalf("step-up error %v, want max age 15m", err)
+	}
+}

@@ -1,0 +1,21 @@
+# F-015 T-24: binding for bu.reauth_max_age: Re-authentication before accessing a BU's data (IA-11); F-015 AC-33.
+# Outside restricted BUs it equals the profile's session absolute timeout, so
+# step-up never triggers before the session ends; the Restricted BU overlay
+# lowers it to 15 minutes (posture.overlay_defaults).
+setting: bu.reauth_max_age
+type: duration
+direction: lower_is_stricter
+bu_scopable: true
+profiles:
+  fedramp-moderate:
+    default: "12h"
+    bound: { max: "12h" }
+    platform_choice: "IA-11 leaves the circumstances to the organization; the session absolute timeout (12h), lowered to 15m by the Restricted BU overlay (F-015 AC-33)"
+  cmmc-l2-r2:
+    default: "12h"
+    bound: { max: "12h" }
+    platform_choice: "No 800-171 Rev 2 requirement; matches FedRAMP Moderate and the session absolute timeout"
+  enterprise-baseline:
+    default: "12h"
+    bound: { max: "24h" }
+    platform_choice: "Enterprise Baseline: the session absolute timeout and its 24-hour relaxation"

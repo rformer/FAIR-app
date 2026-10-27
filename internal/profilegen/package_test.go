@@ -83,6 +83,23 @@ func TestPackagesUpToDate(t *testing.T) {
 	}
 }
 
+// shippedFile is the file of the package version profiles/packages.yaml
+// ships for id, from the built manifest.
+func shippedFile(t *testing.T, files map[string][]byte, id string) string {
+	t.Helper()
+	m, err := profilepkg.DecodeManifest(files[ManifestFile])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range m.Packages {
+		if e.ID == id {
+			return e.File
+		}
+	}
+	t.Fatalf("no package %s in the manifest", id)
+	return ""
+}
+
 // The packages carry exactly the values the pkg/settings stand-in serves
 // until the posture service (T-16) imports packages instead.
 func TestPackagesMatchBuiltinProfiles(t *testing.T) {
@@ -97,7 +114,7 @@ func TestPackagesMatchBuiltinProfiles(t *testing.T) {
 	}
 	defs := settings.F001Defs()
 	for _, want := range builtin {
-		b := files[profilepkg.FileName(want.ID, "1.0.0")]
+		b := files[shippedFile(t, files, want.ID)]
 		p, err := profilepkg.Decode(b)
 		if err != nil {
 			t.Fatalf("%s: %v", want.ID, err)
@@ -226,7 +243,7 @@ func TestPackagesSignedReleaseTamper(t *testing.T) {
 		t.Fatalf("%d packages: %v", len(pkgs), err)
 	}
 
-	fed := profilepkg.FileName(settings.ProfileFedRAMPModerate, "1.0.0")
+	fed := shippedFile(t, files, settings.ProfileFedRAMPModerate)
 	weakened := []byte(strings.Replace(string(files[fed]), `"bound": "15m0s"`, `"bound": "1h0m0s"`, 1))
 	if string(weakened) == string(files[fed]) {
 		t.Fatal("test did not change the package")

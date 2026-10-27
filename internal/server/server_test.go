@@ -4,10 +4,14 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/rformer/fair-app/pkg/authz"
 )
 
 func TestHealthAndHeaders(t *testing.T) {
@@ -52,5 +56,30 @@ func TestUnknownMethodRejected(t *testing.T) {
 	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/healthz", nil))
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("POST /healthz = %d, want 405", rec.Code)
+	}
+}
+
+// F-015 T-24: step-up is 401 with the challenge; every other refusal is 404.
+func TestWriteAuthzError(t *testing.T) {
+	for _, tc := range []struct {
+		err       error
+		code      int
+		challenge string
+	}{
+		{&authz.StepUpError{MaxAge: 15 * time.Minute}, http.StatusUnauthorized, "step_up max_age=900"},
+		{fmt.Errorf("wrapped: %w", &authz.StepUpError{MaxAge: time.Hour}), http.StatusUnauthorized, "step_up max_age=3600"},
+		{authz.ErrStepUpRequired, http.StatusUnauthorized, "step_up"},
+		{authz.ErrDenied, http.StatusNotFound, ""},
+		{authz.ErrStaleScope, http.StatusNotFound, ""},
+		{errors.New("settings stale: secret detail"), http.StatusNotFound, ""},
+	} {
+		rec := httptest.NewRecorder()
+		WriteAuthzError(rec, tc.err)
+		if rec.Code != tc.code || rec.Header().Get("WWW-Authenticate") != tc.challenge {
+			t.Errorf("%v: %d %q, want %d %q", tc.err, rec.Code, rec.Header().Get("WWW-Authenticate"), tc.code, tc.challenge)
+		}
+		if strings.Contains(rec.Body.String(), "secret") {
+			t.Errorf("%v: error leaked: %s", tc.err, rec.Body.String())
+		}
 	}
 }

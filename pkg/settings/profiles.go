@@ -53,6 +53,7 @@ const (
 	KeyBannerEnabled          = "banner.enabled"
 	KeyTokenMaxLifetime       = "token.max_lifetime"
 	KeyBUNewRestricted        = "bu.new_restricted_default"
+	KeyBUReauthMaxAge         = "bu.reauth_max_age"
 	KeyBreakGlassEnabled      = "breakglass.enabled"
 	KeyExceptionMaxDuration   = "exception.max_duration"
 	KeyTLSMinVersion          = "tls.min_version"
@@ -81,6 +82,7 @@ func F001Defs() []Def {
 		{Key: KeyBannerEnabled, Kind: KindBool, Direction: TrueIsStricter, Params: []string{"ac-08_odp.01"}, Controls: []string{"AC-8"}, Description: "System use notification banner"},
 		{Key: KeyTokenMaxLifetime, Kind: KindDuration, Direction: LowerIsStricter, Params: []string{"ia-05_odp.01"}, Controls: []string{"IA-5"}, Description: "Maximum API token lifetime"},
 		{Key: KeyBUNewRestricted, Kind: KindBool, Direction: TrueIsStricter, Controls: []string{"AC-3", "AC-6"}, Description: "New business units are restricted by default"},
+		{Key: KeyBUReauthMaxAge, Kind: KindDuration, Direction: LowerIsStricter, Controls: []string{"IA-11"}, BUScopable: true, Description: "Re-authentication required when the sign-in is older than this, before accessing a BU's data (step-up)"},
 		{Key: KeyBreakGlassEnabled, Kind: KindBool, Direction: FalseIsStricter, Controls: []string{"AC-2", "AC-6"}, Description: "Break-glass local admin accounts enabled"},
 		{Key: KeyExceptionMaxDuration, Kind: KindDuration, Direction: LowerIsStricter, Controls: []string{"CA-5", "CM-6"}, Description: "Maximum exception duration before automatic revert"},
 		{Key: KeyTLSMinVersion, Kind: KindEnum, Direction: OrderedEnum, Order: []string{"1.0", "1.1", "1.2", "1.3"}, Controls: []string{"SC-8", "SC-13"}, Floor: "1.2", Description: "Minimum TLS version"},
@@ -112,7 +114,8 @@ func BuiltinProfiles() []Profile {
 			KeyBannerEnabled:          strict(true),
 			KeyTokenMaxLifetime:       strict(90 * day),
 			KeyBUNewRestricted:        strict(true),
-			KeyBreakGlassEnabled:      strict(false), // enabling always needs approval
+			KeyBUReauthMaxAge:         strict(12 * time.Hour), // the session absolute timeout: no step-up outside restricted BUs
+			KeyBreakGlassEnabled:      strict(false),          // enabling always needs approval
 			KeyExceptionMaxDuration:   strict(90 * day),
 			KeyTLSMinVersion:          {Default: "1.2", Weakest: "1.2"},
 			KeyAuditEnabled:           strict(true),
@@ -133,6 +136,7 @@ func BuiltinProfiles() []Profile {
 	ent[KeyAuthLockoutThreshold] = Bound{Default: 5, Weakest: 10}
 	ent[KeyAuthInactiveDisable] = Bound{Default: 90 * day, Weakest: 180 * day}
 	ent[KeyBUNewRestricted] = Bound{Default: true, Weakest: false}
+	ent[KeyBUReauthMaxAge] = Bound{Default: 12 * time.Hour, Weakest: 24 * time.Hour}
 	ent[KeyFIPSEnabled] = Bound{Default: true, Weakest: false}
 
 	return []Profile{

@@ -147,6 +147,12 @@ func (c *Client) Get(key, buID string) (any, error) {
 	return DecodeValue(d, raw)
 }
 
+// ReauthMaxAge is the effective bu.reauth_max_age at a BU, for
+// authz.CacheOptions.ReauthMaxAge (F-015 T-24).
+func (c *Client) ReauthMaxAge(buID string) (time.Duration, error) {
+	return c.Duration(KeyBUReauthMaxAge, buID)
+}
+
 // Duration is Get for a duration setting.
 func (c *Client) Duration(key, buID string) (time.Duration, error) {
 	return typed[time.Duration](c, key, buID)

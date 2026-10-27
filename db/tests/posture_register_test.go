@@ -69,7 +69,7 @@ func TestPostureStartupRegistration(t *testing.T) {
 		(SELECT hard_floor::text FROM posture.setting_def WHERE key = 'tls.min_version') || ':' ||
 		(SELECT array_to_string(params, ',') FROM posture.setting_def WHERE key = 'session.idle_timeout')
 		FROM posture.setting_def WHERE owner_feature = 'F-001'`)
-	if got != `19:true:{fedramp,cmmc}:"1.2":ac-11_odp.02` {
+	if got != `20:true:{fedramp,cmmc}:"1.2":ac-11_odp.02` {
 		t.Fatalf("registered definitions: %s", got)
 	}
 	// Restarting (another replica, or the same service later) is idempotent.

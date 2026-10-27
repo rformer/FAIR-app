@@ -9,6 +9,8 @@ package authz
 import (
 	"context"
 	"errors"
+	"fmt"
+	"time"
 )
 
 // Permission is a catalog permission key such as "analysis.edit".
@@ -23,6 +25,10 @@ type Principal struct {
 	// request (MintDBContext). Snapshots are loaded through it, and services
 	// pass it to WithDBContext.
 	DBToken string
+	// AuthTime is when the user last authenticated at the IdP (the session's
+	// auth_time, F-015 T-24b). Zero means unknown, which fails any step-up
+	// check.
+	AuthTime time.Time
 }
 
 var (
@@ -31,12 +37,26 @@ var (
 	ErrDenied = errors.New("authz: denied")
 
 	// ErrStepUpRequired means the BU requires fresher authentication
-	// (F-015 Restricted BU overlay; tracked as F-015 T-24).
+	// (F-015 Restricted BU overlay; F-015 T-24). Check returns it as a
+	// *StepUpError, which carries the maximum age to re-authenticate within.
 	ErrStepUpRequired = errors.New("authz: step-up authentication required")
 
 	// ErrStaleScope means the principal's scope version is older than current.
 	ErrStaleScope = errors.New("authz: stale scope version")
 )
+
+// StepUpError is ErrStepUpRequired with the BU's maximum authentication age
+// (bu.reauth_max_age), for the IdP re-authentication (max_age).
+type StepUpError struct {
+	MaxAge time.Duration
+}
+
+func (e *StepUpError) Error() string {
+	return fmt.Sprintf("%s (re-authenticate within %s)", ErrStepUpRequired, e.MaxAge)
+}
+
+// Is makes errors.Is(err, ErrStepUpRequired) hold.
+func (e *StepUpError) Is(target error) bool { return target == ErrStepUpRequired }
 
 // Checker answers action-level authorization questions.
 type Checker interface {

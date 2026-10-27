@@ -40,24 +40,24 @@ func TestCustomProfileLifecycle(t *testing.T) {
 	admin, admin2, auditor := e.principal("admin"), e.principal("admin2"), e.principal("auditor")
 
 	// AC-11: profile.manage derives from any built-in profile (FedRAMP, not the active Enterprise).
-	if _, err := pr.Create(ctx, auditor, settings.ProfileFedRAMPModerate, "1.0.0", "acme-fedramp", "ACME FedRAMP"); !errors.Is(err, posture.ErrNotPermitted) {
+	if _, err := pr.Create(ctx, auditor, settings.ProfileFedRAMPModerate, "1.1.0", "acme-fedramp", "ACME FedRAMP"); !errors.Is(err, posture.ErrNotPermitted) {
 		t.Fatalf("auditor create: %v", err)
 	}
-	v, err := pr.Create(ctx, admin, settings.ProfileFedRAMPModerate, "1.0.0", "acme-fedramp", "ACME FedRAMP")
+	v, err := pr.Create(ctx, admin, settings.ProfileFedRAMPModerate, "1.1.0", "acme-fedramp", "ACME FedRAMP")
 	if err != nil || v != "1" {
 		t.Fatalf("create: %q %v", v, err)
 	}
 	if got := profileRow(e, "acme-fedramp"); got != "draft:false:fedramp:fedramp-moderate" {
 		t.Fatalf("new profile %s", got)
 	}
-	if _, err := pr.Create(ctx, admin, settings.ProfileFedRAMPModerate, "1.0.0", "acme-fedramp", "again"); !errors.Is(err, posture.ErrInvalidValue) {
+	if _, err := pr.Create(ctx, admin, settings.ProfileFedRAMPModerate, "1.1.0", "acme-fedramp", "again"); !errors.Is(err, posture.ErrInvalidValue) {
 		t.Fatalf("duplicate id: %v", err)
 	}
 	if _, err := pr.Create(ctx, admin, "acme-fedramp", "1", "acme-2", "custom of custom"); !errors.Is(err, posture.ErrNotApplicable) {
 		t.Fatalf("custom base: %v", err)
 	}
 	keys, err := pr.View(ctx, admin, "acme-fedramp", "1")
-	if err != nil || len(keys) != 19 {
+	if err != nil || len(keys) != 20 {
 		t.Fatalf("view: %d keys, %v", len(keys), err)
 	}
 	if k := viewKey(t, keys, settings.KeySessionIdleTimeout); k.Direction != "unchanged" || !slices.Equal(k.Controls, []string{"AC-11"}) {
@@ -161,7 +161,7 @@ func TestCustomProfileReopen(t *testing.T) {
 	ctx := context.Background()
 	pr := posture.Profiles{DB: e.appPool(), Audit: audit.NewMemory()}
 	admin, admin2 := e.principal("admin"), e.principal("admin2")
-	if _, err := pr.Create(ctx, admin, settings.ProfileEnterpriseBaseline, "1.0.0", "acme-ent", "ACME Enterprise"); err != nil {
+	if _, err := pr.Create(ctx, admin, settings.ProfileEnterpriseBaseline, "1.1.0", "acme-ent", "ACME Enterprise"); err != nil {
 		t.Fatal(err)
 	}
 	// FIPS has no floor in the Enterprise family. Its base default is on

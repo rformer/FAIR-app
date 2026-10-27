@@ -316,7 +316,7 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
 | Notifications | Email/webhook + vendor SecOps | Customer channels | Internal relay |
 
 ## 12. Changes to other features
-- **F-001:** add `ErrStepUpRequired` and the reauth-freshness check to `authz.Check()` (§6.6). Add `auth_time` to the session. Replace the T-00b settings stub with this feature. → Adds F-001 task T-44 (step-up). The F-001 design gets a change-log entry once this design is approved.
+- **F-001:** add `ErrStepUpRequired` and the reauth-freshness check to `authz.Check()` (§6.6). Add `auth_time` to the session. Replace the T-00b settings stub with this feature. → Tracked as F-015 T-24 (the `authz` check, done) and T-24b (session `auth_time` and IdP re-authentication, after F-001 T-13/T-15/T-16).
 - **F-014:** installer profile selection, the permission manifest UI for scanner consent, and `fips-probe` attestation.
 - **F-010:** enforce `export.reason_required`.
 
@@ -729,3 +729,13 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
     - `TestOverlayTighteningAndMAC`: tightening under the exception and returning to the default apply at once (the exception is superseded); an out-of-band edit of `overlay_value` shows in `mac_mismatches()`; application roles cannot reach the table or the write functions.
     - The T-22 tests now weaken the overlay to `off` through an approved overlay exception, so that it does not mask the inheritance rule.
     - Mutations (applied everywhere, never applied, missing from the snapshot, no approval for weakening, revert keeping the value) each fail the tests.
+- 2026-10-27: T-24 split, approved by Robert Former. The F-001 pieces T-24 needs for its end-to-end verification do not exist yet: gateway sessions (F-001 T-13), the SAML SP (T-15) and the OIDC RP (T-16). T-24 now covers everything that does not need them; new task T-24b, sequenced after F-001 T-16, captures the session's `auth_time`, runs the IdP re-authentication on `step_up`, and carries the E2E test.
+  - **`bu.reauth_max_age`** (F-001 setting, `bindings/bu.reauth_max_age.yaml`, IA-11): BU-scopable duration, lower is stricter. Its default and bound equal each profile's session absolute timeout (12h; Enterprise Baseline may relax to 24h), so step-up never triggers outside restricted BUs before the session would end anyway. The Restricted BU overlay lowers it to 15m (T-23), and per-BU overrides can tighten it (T-22).
+  - All three built-in packages move to version 1.1.0 for the new binding (packages are immutable); the release ships 1.1.0 only. Installs already on 1.0.0 keep those rows and can switch to 1.1.0 (AC-07). DB tests that synthesize a newer release now use 1.2.0.
+  - **`authz`:** `Principal.AuthTime` (zero = unknown, which always needs step-up). `CacheOptions.ReauthMaxAge` (wired to `settings.Client.ReauthMaxAge`) enables the check. `Cache.Check` returns `*StepUpError{MaxAge}` (`errors.Is(err, ErrStepUpRequired)`) when the sign-in is older than the BU's effective value. The check runs only after the permission is granted, so a stale sign-in never reveals an out-of-scope BU (F-001 AC-25). A settings error denies. Service accounts are unaffected; they are refused before this until F-001 T-33.
+  - **HTTP:** `server.WriteAuthzError` answers step-up with 401 and `WWW-Authenticate: step_up max_age=<seconds>`, and every other refusal with 404, without echoing the error.
+  - Verification:
+    - `pkg/authz` `TestCheckStepUp`: fresh, at the limit, stale, unrestricted, unknown auth time, denial precedence, policy error, max age carried.
+    - `internal/server` `TestWriteAuthzError`.
+    - DB `TestStepUpOnRestrictedBU`: real grants, overlay and settings client. A 20-minute-old sign-in needs step-up within 15m on a restricted BU and below it, but not on an unrestricted BU (12h). A stricter 1h BU override applies. Unrestricting removes the requirement.
+    - A mutation that skips the step-up check fails both the unit and the DB test.

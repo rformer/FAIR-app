@@ -34,10 +34,10 @@ func TestSwitchConflictsAndActivation(t *testing.T) {
 		}
 	}
 
-	if _, err := sw.Request(ctx, e.principal("auditor"), settings.ProfileFedRAMPModerate, "1.0.0", ""); !errors.Is(err, posture.ErrNotPermitted) {
+	if _, err := sw.Request(ctx, e.principal("auditor"), settings.ProfileFedRAMPModerate, "1.1.0", ""); !errors.Is(err, posture.ErrNotPermitted) {
 		t.Fatalf("auditor request: %v", err)
 	}
-	r, err := sw.Request(ctx, admin, settings.ProfileFedRAMPModerate, "1.0.0", "")
+	r, err := sw.Request(ctx, admin, settings.ProfileFedRAMPModerate, "1.1.0", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,13 +47,13 @@ func TestSwitchConflictsAndActivation(t *testing.T) {
 	}
 	// AC-18: pending, and the current profile stays in force.
 	ps, err := sw.Pending(ctx, admin)
-	if err != nil || ps == nil || ps.Unresolved() != 2 || ps.Target != "fedramp-moderate@1.0.0" {
+	if err != nil || ps == nil || ps.Unresolved() != 2 || ps.Target != "fedramp-moderate@1.1.0" {
 		t.Fatalf("pending %+v %v", ps, err)
 	}
-	if got := activeProfile(e); got != "enterprise-baseline@1.0.0" {
+	if got := activeProfile(e); got != "enterprise-baseline@1.1.0" {
 		t.Fatalf("active while pending: %s", got)
 	}
-	if _, err := sw.Request(ctx, admin, settings.ProfileCMMCL2R2, "1.0.0", ""); !errors.Is(err, posture.ErrNotApplicable) {
+	if _, err := sw.Request(ctx, admin, settings.ProfileCMMCL2R2, "1.1.0", ""); !errors.Is(err, posture.ErrNotApplicable) {
 		t.Fatalf("second pending switch: %v", err)
 	}
 
@@ -81,7 +81,7 @@ func TestSwitchConflictsAndActivation(t *testing.T) {
 	if _, err := sw.Activate(ctx, admin, r.ID); !errors.Is(err, posture.ErrNotApproved) {
 		t.Fatalf("activate before the exception's approval: %v", err)
 	}
-	if after := e.adminQuery("SELECT string_agg(key || '=' || value::text || ':' || source, ',' ORDER BY key) FROM posture.setting_value"); after != before || activeProfile(e) != "enterprise-baseline@1.0.0" {
+	if after := e.adminQuery("SELECT string_agg(key || '=' || value::text || ':' || source, ',' ORDER BY key) FROM posture.setting_value"); after != before || activeProfile(e) != "enterprise-baseline@1.1.0" {
 		t.Fatal("a failed activation changed something")
 	}
 	if _, err := (approvals.Service{DB: e.appPool()}).Decide(ctx, admin2, approval, true, ""); err != nil {
@@ -91,7 +91,7 @@ func TestSwitchConflictsAndActivation(t *testing.T) {
 	if err != nil || changed == 0 {
 		t.Fatalf("activate: %d %v", changed, err)
 	}
-	if got := activeProfile(e); got != "fedramp-moderate@1.0.0" {
+	if got := activeProfile(e); got != "fedramp-moderate@1.1.0" {
 		t.Fatalf("active %s", got)
 	}
 	checks := map[string]string{
@@ -132,10 +132,10 @@ func TestSwitchLoosening(t *testing.T) {
 	admin, admin2 := e.principal("admin"), e.principal("admin2")
 	mem := audit.NewMemory()
 	sw := posture.Switches{DB: e.appPool(), Audit: mem}
-	if _, err := sw.Request(ctx, admin, settings.ProfileEnterpriseBaseline, "1.0.0", ""); !errors.Is(err, posture.ErrExplanationRequired) {
+	if _, err := sw.Request(ctx, admin, settings.ProfileEnterpriseBaseline, "1.1.0", ""); !errors.Is(err, posture.ErrExplanationRequired) {
 		t.Fatalf("loosening without justification: %v", err)
 	}
-	req, err := sw.Request(ctx, admin, settings.ProfileEnterpriseBaseline, "1.0.0", "spin-off leaves federal scope")
+	req, err := sw.Request(ctx, admin, settings.ProfileEnterpriseBaseline, "1.1.0", "spin-off leaves federal scope")
 	if err != nil || !req.Loosening || req.ApprovalID == "" || req.Conflicts != 0 {
 		t.Fatalf("loosening request %+v %v", req, err)
 	}
@@ -155,7 +155,7 @@ func TestSwitchLoosening(t *testing.T) {
 	if _, err := sw.Activate(ctx, admin, req.ID); err != nil {
 		t.Fatal(err)
 	}
-	if got := activeProfile(e); got != "enterprise-baseline@1.0.0" {
+	if got := activeProfile(e); got != "enterprise-baseline@1.1.0" {
 		t.Fatalf("active %s", got)
 	}
 	if got := e.adminQuery("SELECT string_agg(event->>'type', ',') FROM posture.secops_outbox"); got != "profile.switched" {
@@ -180,9 +180,9 @@ func TestSwitchToNewerBuiltin(t *testing.T) {
 	e := r.e
 	ctx := context.Background()
 	admin := e.principal("admin")
-	loadBase(t, e) // fedramp-moderate 1.1.0: idle relaxed, lockout and token tightened
+	loadBase(t, e) // fedramp-moderate 1.2.0: idle relaxed, lockout and token tightened
 	pr := posture.Profiles{DB: e.appPool(), Audit: audit.NewMemory()}
-	diff, err := pr.Diff(ctx, admin, settings.ProfileFedRAMPModerate, "1.0.0", settings.ProfileFedRAMPModerate, "1.1.0")
+	diff, err := pr.Diff(ctx, admin, settings.ProfileFedRAMPModerate, "1.1.0", settings.ProfileFedRAMPModerate, "1.2.0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestSwitchToNewerBuiltin(t *testing.T) {
 		t.Fatalf("differences %v", changes)
 	}
 	sw := posture.Switches{DB: e.appPool(), Audit: audit.NewMemory()}
-	req, err := sw.Request(ctx, admin, settings.ProfileFedRAMPModerate, "1.1.0", "FedRAMP baseline update")
+	req, err := sw.Request(ctx, admin, settings.ProfileFedRAMPModerate, "1.2.0", "FedRAMP baseline update")
 	if err != nil || !req.Loosening {
 		t.Fatalf("upgrade request %+v %v (relaxed idle timeout makes it a loosening)", req, err)
 	}
@@ -207,10 +207,10 @@ func TestSwitchToNewerBuiltin(t *testing.T) {
 		t.Fatal("cancelled switch still pending")
 	}
 	// Cancelled: a new request is possible, and nothing changed.
-	if _, err := sw.Request(ctx, admin, settings.ProfileFedRAMPModerate, "1.1.0", "again"); err != nil {
+	if _, err := sw.Request(ctx, admin, settings.ProfileFedRAMPModerate, "1.2.0", "again"); err != nil {
 		t.Fatal(err)
 	}
-	if got := activeProfile(e); got != "fedramp-moderate@1.0.0" {
+	if got := activeProfile(e); got != "fedramp-moderate@1.1.0" {
 		t.Fatalf("active %s", got)
 	}
 }
@@ -221,7 +221,7 @@ func TestSwitchRefusesStaleConflicts(t *testing.T) {
 	ctx := context.Background()
 	admin := e.principal("admin")
 	sw := posture.Switches{DB: e.appPool(), Audit: audit.NewMemory()}
-	req, err := sw.Request(ctx, admin, settings.ProfileFedRAMPModerate, "1.0.0", "")
+	req, err := sw.Request(ctx, admin, settings.ProfileFedRAMPModerate, "1.1.0", "")
 	if err != nil || req.Conflicts != 0 {
 		t.Fatalf("request %+v %v", req, err)
 	}
@@ -231,7 +231,7 @@ func TestSwitchRefusesStaleConflicts(t *testing.T) {
 	if _, err := sw.Activate(ctx, admin, req.ID); !errors.Is(err, posture.ErrNotApplicable) {
 		t.Fatalf("activation over a new conflict: %v", err)
 	}
-	if got := activeProfile(e); got != "enterprise-baseline@1.0.0" {
+	if got := activeProfile(e); got != "enterprise-baseline@1.1.0" {
 		t.Fatalf("active %s", got)
 	}
 }

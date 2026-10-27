@@ -29,7 +29,8 @@ This repo is built **spec-first**. Before doing anything, read:
 - F-015 T-21 done: profile switch (`posture.Switches`: request computes conflicts and loosening, resolve conform/exception, one-transaction activation, cancel, pending view).
 - F-015 T-22 done: BU overrides inherit through `iam.bu_closure` (blocked at restricted BUs); `posture.current_value` and the settings snapshot give the strictest-of effective value per BU.
 - F-015 T-23 done: Restricted BU overlay, computed for every restricted subtree (`posture.overlay_defaults()`; keys apply once registered BU-scopable); edits through `posture.Overlay`, weaker than the default only as an approved, expiring overlay exception.
-- **Next: F-015 T-24** (`specs/features/F-015-security-posture-profiles/tasks.md`; F-001 change: step-up re-authentication per `bu.reauth_max_age`), then the rest of F-015 in task order, except that **F-001 T-26 (dual-approval engine) comes before F-015 T-14** (approved 2026-10-26); then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
+- F-015 T-24 done (split): `bu.reauth_max_age` registered (packages now 1.1.0); `authz.CacheOptions.ReauthMaxAge` + `Principal.AuthTime` make `Cache.Check` return `*StepUpError` after a granted check; `server.WriteAuthzError` gives 401 `step_up`. **T-24b** (session `auth_time`, IdP re-auth, E2E) waits for F-001 T-13/T-15/T-16.
+- **Next: F-015 T-25** (`specs/features/F-015-security-posture-profiles/tasks.md`; app drift engine), then the rest of F-015 in task order (T-24b after F-001 T-16), except that **F-001 T-26 (dual-approval engine) comes before F-015 T-14** (approved 2026-10-26); then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
 
 ## Working rules
 - Implement only tasks that are marked Approved and listed in a `tasks.md`. If a task needs a design change, stop and propose the spec change; don't silently diverge.

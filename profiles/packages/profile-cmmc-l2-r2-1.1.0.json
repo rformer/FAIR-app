@@ -4,7 +4,7 @@
     "id": "cmmc-l2-r2",
     "title": "CMMC Level 2 (NIST SP 800-171 Rev 2)",
     "family": "cmmc",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "base": "profiles/cmmc-l2-r2/profile.json",
     "sources": [
       {
@@ -59,6 +59,10 @@
       {
         "path": "bindings/bu.new_restricted_default.yaml",
         "sha256": "0c0cc27d87382fe815a0918fc7f44ac6ef176fa1e36ccfcb352159641a38a88a"
+      },
+      {
+        "path": "bindings/bu.reauth_max_age.yaml",
+        "sha256": "153b5b84bad5923d9b813da3edd9e7b44504446e1dfe28e9b9d900ffafe28c4a"
       },
       {
         "path": "bindings/exception.max_duration.yaml",
@@ -219,6 +223,16 @@
       "bound": true,
       "origin": {
         "platform_choice": "F-001 AC-61: new BUs restricted by default"
+      }
+    },
+    "bu.reauth_max_age": {
+      "type": "duration",
+      "direction": "lower_is_stricter",
+      "bu_scopable": true,
+      "default": "12h0m0s",
+      "bound": "12h0m0s",
+      "origin": {
+        "platform_choice": "No 800-171 Rev 2 requirement; matches FedRAMP Moderate and the session absolute timeout"
       }
     },
     "exception.max_duration": {

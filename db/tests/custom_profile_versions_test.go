@@ -18,14 +18,14 @@ import (
 // F-015 T-20 (AC-14, AC-15): custom profile versions, diffs, base updates,
 // and export/import.
 
-// approvedCustom creates ACME FedRAMP version 1 from fedramp-moderate 1.0.0:
+// approvedCustom creates ACME FedRAMP version 1 from fedramp-moderate 1.1.0:
 // idle timeout tightened to 10m, lockout loosened to 5 (bound 6) with a
 // justification; submitted and approved by the second admin.
 func approvedCustom(t *testing.T, e *env, pr posture.Profiles) {
 	t.Helper()
 	ctx := context.Background()
 	admin := e.principal("admin")
-	if _, err := pr.Create(ctx, admin, settings.ProfileFedRAMPModerate, "1.0.0", "acme", "ACME FedRAMP"); err != nil {
+	if _, err := pr.Create(ctx, admin, settings.ProfileFedRAMPModerate, "1.1.0", "acme", "ACME FedRAMP"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pr.Edit(ctx, admin, "acme", "1", settings.KeySessionIdleTimeout, j(`"10m0s"`), j(`"10m0s"`), ""); err != nil {
@@ -52,13 +52,13 @@ func approve(t *testing.T, e *env, pr posture.Profiles, id, version string) {
 	}
 }
 
-// loadBase loads fedramp-moderate 1.1.0 through the release path: idle
+// loadBase loads fedramp-moderate 1.2.0 through the release path: idle
 // timeout relaxed to 20m (weaker than ACME's 10m), lockout tightened to 4
 // and token lifetime tightened to 30 days (stricter than ACME).
 func loadBase(t *testing.T, e *env) {
 	t.Helper()
 	files, _ := releaseFiles(t)
-	b := variant(t, files, settings.ProfileFedRAMPModerate, "1.1.0", func(s map[string]profilepkg.Setting) {
+	b := variant(t, files, settings.ProfileFedRAMPModerate, "1.2.0", func(s map[string]profilepkg.Setting) {
 		set := func(key string, def, bound any) {
 			x := s[key]
 			x.Default, x.Bound = def, bound
@@ -88,7 +88,7 @@ func TestBaseUpdatePinsAndProposes(t *testing.T) {
 	loadBase(t, e)
 
 	// AC-15: the effect on each derived profile, before anything changes.
-	effects, err := pr.BaseUpdateEffects(ctx, admin, settings.ProfileFedRAMPModerate, "1.1.0")
+	effects, err := pr.BaseUpdateEffects(ctx, admin, settings.ProfileFedRAMPModerate, "1.2.0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,11 +100,11 @@ func TestBaseUpdatePinsAndProposes(t *testing.T) {
 		actions[f.Key] = f.Action
 	}
 	if actions[settings.KeySessionIdleTimeout] != "pinned" || actions[settings.KeyAuthLockoutThreshold] != "proposed" ||
-		actions[settings.KeyTokenMaxLifetime] != "proposed" || actions[settings.KeyAuditEnabled] != "unchanged" || len(actions) != 19 {
+		actions[settings.KeyTokenMaxLifetime] != "proposed" || actions[settings.KeyAuditEnabled] != "unchanged" || len(actions) != 20 {
 		t.Fatalf("effects %v", actions)
 	}
 
-	v2, err := pr.Rebase(ctx, admin, "acme", "1", "1.1.0")
+	v2, err := pr.Rebase(ctx, admin, "acme", "1", "1.2.0")
 	if err != nil || v2 != "2" {
 		t.Fatalf("rebase: %q %v", v2, err)
 	}
@@ -148,12 +148,12 @@ func TestBaseUpdatePinsAndProposes(t *testing.T) {
 			t.Errorf("%s silently weakened (%s)", k, c)
 		}
 	}
-	if got := e.adminQuery("SELECT base_version || ':' || status FROM posture.profile WHERE id = 'acme' AND version = '2'"); got != "1.1.0:approved" {
+	if got := e.adminQuery("SELECT base_version || ':' || status FROM posture.profile WHERE id = 'acme' AND version = '2'"); got != "1.2.0:approved" {
 		t.Fatalf("version 2 %s", got)
 	}
 	// A rebased version no longer shows up in the effects of that base version.
-	if effects, _ := pr.BaseUpdateEffects(ctx, admin, settings.ProfileFedRAMPModerate, "1.1.0"); len(effects) != 19 {
-		t.Fatalf("%d effects; only version 1 still derives from 1.0.0", len(effects))
+	if effects, _ := pr.BaseUpdateEffects(ctx, admin, settings.ProfileFedRAMPModerate, "1.2.0"); len(effects) != 20 {
+		t.Fatalf("%d effects; only version 1 still derives from 1.1.0", len(effects))
 	}
 	if ev := mem.OfType("profile.rebased"); len(ev) != 1 {
 		t.Fatalf("rebase audit %+v", ev)
@@ -282,7 +282,7 @@ func TestCustomProfileExportImport(t *testing.T) {
 	if n := e.adminQuery("SELECT count(*) FROM posture.profile WHERE id LIKE 'x%'"); n != "0" {
 		t.Fatalf("refused imports left %s profiles", n)
 	}
-	if _, err := pr.ExportJSON(ctx, admin, settings.ProfileFedRAMPModerate, "1.0.0"); !errors.Is(err, posture.ErrNotApplicable) {
+	if _, err := pr.ExportJSON(ctx, admin, settings.ProfileFedRAMPModerate, "1.1.0"); !errors.Is(err, posture.ErrNotApplicable) {
 		t.Fatalf("export of a built-in profile: %v", err)
 	}
 }

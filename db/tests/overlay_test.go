@@ -174,7 +174,8 @@ func (o overlayEnv) entry(t *testing.T, key string) posture.OverlayEntry {
 }
 
 // AC-33: the overlay's defaults, present on the restricted BU and below it
-// and nowhere else; the keys not yet registered wait for their features.
+// and nowhere else; a key not yet registered (export.reason_required, F-010)
+// waits for its feature.
 func TestOverlayDefaults(t *testing.T) {
 	o := overlayFixture(t, "self-hosted")
 	all, err := o.ov.View(context.Background())
@@ -185,7 +186,7 @@ func TestOverlayDefaults(t *testing.T) {
 	for _, x := range all {
 		got = append(got, fmt.Sprintf("%s=%s:%s:%t", x.Key, x.Value, x.Source, x.Applies))
 	}
-	want := []string{`bu.reauth_max_age="15m0s":default:false`, `export.reason_required=true:default:false`,
+	want := []string{`bu.reauth_max_age="15m0s":default:true`, `export.reason_required=true:default:false`,
 		`session.network_binding="reauthenticate":default:true`}
 	if !slices.Equal(got, want) {
 		t.Fatalf("overlay %v, want %v", got, want)
@@ -200,7 +201,7 @@ func TestOverlayDefaults(t *testing.T) {
 	if got := o.binding(t, o.r1); got != "off" {
 		t.Fatalf("after unrestrict: %s", got)
 	}
-	if _, err := o.ov.Change(context.Background(), o.e.principal("admin"), "bu.reauth_max_age", json.RawMessage(`"30m0s"`), "x", 0); !errors.Is(err, posture.ErrNotApplicable) {
+	if _, err := o.ov.Change(context.Background(), o.e.principal("admin"), "export.reason_required", json.RawMessage(`false`), "x", 0); !errors.Is(err, posture.ErrNotApplicable) {
 		t.Fatalf("editing an unregistered overlay key: %v", err)
 	}
 }

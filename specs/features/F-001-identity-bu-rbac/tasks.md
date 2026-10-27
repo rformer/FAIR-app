@@ -5,7 +5,7 @@ Status: **Approved** (Robert Former, 2026-10-24) | Design: Approved 2026-10-24
 
 **Cross-feature stubs:** F-002 (audit), F-012 (CI/images) and F-015 (profiles) don't exist yet. F-001 codes against their interfaces using minimal stubs, tracked as T-00a/b/c. Each stub is replaced when its feature lands (T-00b is replaced by F-015 T-16).
 
-**Cross-feature change:** step-up re-authentication for restricted BUs (`ErrStepUpRequired`, session `auth_time`) is implemented in F-001 code but tracked as **F-015 T-24**.
+**Cross-feature change:** step-up re-authentication for restricted BUs (`ErrStepUpRequired`, session `auth_time`) is implemented in F-001 code but tracked as **F-015 T-24** (the `authz.Check` step-up rule and the 401 `step_up` response, done 2026-10-27) and **F-015 T-24b** (session `auth_time` and SAML ForceAuthn / OIDC `prompt=login` re-authentication; do it with or right after T-13, T-15 and T-16).
 
 ## Phase 0 — Foundations
 | # | Task | Traces to | Verification | Size | Status |

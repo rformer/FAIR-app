@@ -30,6 +30,11 @@ type CacheOptions struct {
 	MaxAge     time.Duration // default 60 s: bounds staleness if an event is missed
 	MaxEntries int           // default 10,000 users
 	Now        func() time.Time
+	// ReauthMaxAge returns the effective bu.reauth_max_age for a BU
+	// (settings.Client.ReauthMaxAge; F-015 T-24). When set, Check requires
+	// the principal's AuthTime to be at most that old. An error denies.
+	// Nil disables the step-up check.
+	ReauthMaxAge func(buID string) (time.Duration, error)
 }
 
 type entry struct {
@@ -69,8 +74,10 @@ func NewCache(o CacheOptions) *Cache {
 	return &Cache{o: o, entries: map[string]entry{}, latest: map[string]int64{}, inflight: map[string]*call{}}
 }
 
-// Check implements Checker. It returns nil, ErrDenied, ErrStaleScope or a
-// loader error; any error must be treated as a denial.
+// Check implements Checker. It returns nil, ErrDenied, ErrStaleScope, a
+// *StepUpError, or a loader or settings error; any error must be treated as
+// a denial. The step-up check runs only once the permission is granted, so
+// a stale sign-in never reveals that an out-of-scope BU exists (AC-25).
 func (c *Cache) Check(ctx context.Context, p Principal, perm Permission, buID string) error {
 	if p.UserID == "" || p.ServiceAcct {
 		return ErrDenied // service accounts arrive with T-33
@@ -81,6 +88,23 @@ func (c *Cache) Check(ctx context.Context, p Principal, perm Permission, buID st
 	}
 	if snap.Version != p.ScopeVersion || !snap.allows(perm, buID) {
 		return ErrDenied
+	}
+	return c.stepUp(p, buID)
+}
+
+// stepUp returns a *StepUpError when p authenticated longer ago than the
+// BU's effective bu.reauth_max_age (15 minutes under the Restricted BU
+// overlay).
+func (c *Cache) stepUp(p Principal, buID string) error {
+	if c.o.ReauthMaxAge == nil {
+		return nil
+	}
+	maxAge, err := c.o.ReauthMaxAge(buID)
+	if err != nil {
+		return fmt.Errorf("authz: re-authentication policy for BU %s: %w", buID, err)
+	}
+	if p.AuthTime.IsZero() || c.o.Now().Sub(p.AuthTime) > maxAge {
+		return &StepUpError{MaxAge: maxAge}
 	}
 	return nil
 }
