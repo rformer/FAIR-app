@@ -51,8 +51,8 @@ Prerequisite: F-001 Phases 0–1 (DB roles, BU closure, approvals interface, eve
 | T-25 | App drift engine: row-MAC verification, bounds + exceptions check, missed-revert check, service heartbeat comparison; on change + every 15 min | AC-36, AC-37 | Direct DB edit detected; ≤ 30 s at target scale | M | Done (2026-10-27) |
 | T-26 | `drift_finding` lifecycle (open/acknowledged/resolved), events to audit + SIEM | AC-37, AC-42 | Event schema tests | S | Done (2026-10-27) |
 | T-27 | `posture-scanner`: separate Deployment, own ServiceAccount, read-only RBAC (no Secrets), mTLS gRPC to `posture`, NetworkPolicy-restricted egress | AC-38, AC-39 | RBAC audit: no write verbs, no secrets; egress test | M | Done (2026-10-27) |
-| T-28 | Deployment check catalog (10 checks in design §6.8) with severity, controls, remediation text | AC-41, AC-42 | Each check has passing and failing fixtures (kind/k3d, OpenShift, RKE2) | L | Done (2026-10-28; live runs on OpenShift and RKE2 follow with T-37) |
-| T-29 | `fips-probe` DaemonSet (single-file read-only hostPath) **and** installer-attested label path; exports mark "attested, not verified" for the latter | AC-41, D-OQ2 | Both paths tested; OpenShift SCC compatibility | M | Done (2026-10-28; live OpenShift run, incl. SELinux, follows with T-37) |
+| T-28 | Deployment check catalog (10 checks in design §6.8) with severity, controls, remediation text | AC-41, AC-42 | Each check has passing and failing fixtures (kind/k3d, OpenShift, RKE2) | L | Done (2026-10-28; live on kind and a 4-node Docker Desktop cluster with T-37; live OpenShift and RKE2 runs are an open item, design §15) |
+| T-29 | `fips-probe` DaemonSet (single-file read-only hostPath) **and** installer-attested label path; exports mark "attested, not verified" for the latter | AC-41, D-OQ2 | Both paths tested; OpenShift SCC compatibility | M | Done (2026-10-28; live OpenShift run, incl. SELinux, is an open item, design §15) |
 | T-30 | Kubernetes-access consent model: permission manifest content, granted/declined state, persistent warning, audit, "Not assessed" mapping, later grant | AC-39, AC-40 | Declined path → no scanner, banner, export marks Not assessed | S | Done (2026-10-28) |
 
 ## Phase F — Posture page & evidence
@@ -68,7 +68,7 @@ Prerequisite: F-001 Phases 0–1 (DB roles, BU closure, approvals interface, eve
 | # | Task | Traces to | Verification | Size | Status |
 |---|---|---|---|---|---|
 | T-36 | STRIDE test suite (package forgery, DB tampering, exception extension, scanner privilege, revert starvation) | Design §8 | Suite green in CI | M | Done (2026-10-28; `make test-stride`, CI step "STRIDE suite") |
-| T-37 | Deployment-mode matrix (SaaS / self-hosted / air-gapped offline import, signing keys per mode) | Deployment modes | CI matrix green | M | Todo |
+| T-37 | Deployment-mode matrix (SaaS / self-hosted / air-gapped offline import, signing keys per mode) | Deployment modes | CI matrix green | M | Done (2026-10-28; CI jobs `deployment-modes` and `k8s-e2e` added, first Actions run pending) |
 | T-38 | 800-53r5 control implementation statements for F-015 (CM-2/3/5/6/7, CA-2/5/7, SI-4, AU-6, PL-2) | Control mapping | Reviewed statements | S | Todo |
 
 ## Definition of Done (F-015)

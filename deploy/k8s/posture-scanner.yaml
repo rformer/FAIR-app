@@ -136,6 +136,8 @@ spec:
           image: ghcr.io/rformer/fair-posture-scanner:REPLACE_WITH_DIGEST
           env:
             - { name: FAIR_ENV, value: production }
+            # The install's mode: air-gapped refuses public ingress endpoints (T-37).
+            - { name: FAIR_DEPLOYMENT_MODE, value: self-hosted }
             - { name: FAIR_POSTURE_GRPC_ADDR, value: "posture.fair-platform:9443" }
             - { name: FAIR_POSTURE_CA_FILE, value: /tls/ca.crt }
             - { name: FAIR_SCANNER_TLS_CERT_FILE, value: /tls/tls.crt }

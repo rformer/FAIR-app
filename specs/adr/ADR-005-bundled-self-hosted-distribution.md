@@ -10,6 +10,8 @@ One artifact set serves both deployment modes:
 1. **Vendor-operated SaaS:** a dedicated instance per customer (ADR-001), managed via GitOps.
 2. **Customer self-hosted:** the customer installs the same versioned bundle on their own Kubernetes cluster, connected or air-gapped.
 
+**Amendment (2026-10-28, F-015 T-37, approved by Robert Former):** the configured deployment mode (`FAIR_DEPLOYMENT_MODE`, recorded by the installer with `posture.set_deployment_mode`) has three values: `saas`, `self-hosted` and `air-gapped`. `air-gapped` is a self-hosted install with no outside network. It behaves as self-hosted, and in addition the services refuse outbound integrations (such as a vendor SecOps webhook), the scanner probes internal endpoints only, and profile packages arrive only through signed offline import.
+
 ### The bundle (per release)
 - An umbrella **Helm chart** with feature flags for every bundled dependency.
 - All **container images**, **SBOMs**, **signatures**, and **provenance attestations**, in an OCI layout the customer can push to a private registry.

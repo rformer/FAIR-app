@@ -74,6 +74,52 @@ jobs:
           name: coverage
           path: coverage.out
 
+  # F-015 T-37: the deployment-mode matrix (design §11), one install per mode.
+  deployment-modes:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [saas, self-hosted, air-gapped]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci-only-admin
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+      - name: Mode ${{ matrix.mode }}
+        env:
+          FAIR_TEST_PG: "1"
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: ci-only-admin
+        run: go test -count=1 -v -run 'TestDeploymentModeMatrix/^${{ matrix.mode }}$' ./db/tests/
+
+  # F-015 T-27 to T-29, T-37: posture-scanner and fips-probe on a live kind
+  # cluster (RBAC, egress, check catalog, node FIPS evidence).
+  k8s-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install kind
+        run: go install sigs.k8s.io/kind@v0.33.0 && echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Scanner end to end on kind
+        run: scripts/k8s-e2e-scanner.sh
+
   # F-001 T-11: visible_bus + RLS at target scale. Fails when a request-path
   # p95 exceeds 10 ms or regresses past max(3x, +5 ms) of db/bench/baseline.json.
   bench:

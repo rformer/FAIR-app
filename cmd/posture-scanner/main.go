@@ -97,6 +97,14 @@ func run() error {
 			return err
 		}
 	}
+	// Air-gapped installs probe internal endpoints only (T-37; design §11).
+	if os.Getenv("FAIR_DEPLOYMENT_MODE") == "air-gapped" {
+		if err := scanner.InternalOnly(context.Background(), cfg.IngressEndpoints, func(ctx context.Context, host string) ([]net.IP, error) {
+			return net.DefaultResolver.LookupIP(ctx, "ip", host)
+		}); err != nil {
+			return err
+		}
+	}
 	namespaces := list(getenv("FAIR_PLATFORM_NAMESPACES", "fair-platform"))
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

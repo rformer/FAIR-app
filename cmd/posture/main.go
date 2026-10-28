@@ -284,6 +284,14 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// T-37: the mode's keys and integrations (posture.CheckInstall).
+	var macKey *string
+	if err := pool.QueryRow(ctx, "SELECT posture.mac_key_active()").Scan(&macKey); err != nil {
+		return fmt.Errorf("posture MAC key: %w", err)
+	}
+	if err := posture.CheckInstall(posture.InstallCheck{Env: cfg.Env, Mode: cfg.DeploymentMode, Getenv: os.Getenv, ActiveMACKey: macKey}); err != nil {
+		return err
+	}
 	if secops != nil {
 		go posture.RunSecOps(ctx, pool, secops, 10*time.Second, func(err error) {
 			logger.Error("SecOps notification delivery", "error", err.Error())

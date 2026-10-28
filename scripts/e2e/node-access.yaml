@@ -1,0 +1,37 @@
+# Test-only node access for scripts/k8s-e2e-scanner.sh on an existing cluster
+# (CONTEXT=...), where `kind load` and `docker exec` into nodes are not
+# available: one privileged pod per node, in its own namespace, that enters
+# the node's mount namespace to import image archives into containerd and to
+# write the simulated FIPS flag file. Deleted by the script's cleanup. Never
+# deploy this anywhere else.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fair-e2e-node-access
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-access
+  namespace: fair-e2e-node-access
+spec:
+  selector:
+    matchLabels: { app: node-access }
+  template:
+    metadata:
+      labels: { app: node-access }
+    spec:
+      hostPID: true
+      tolerations: [{ operator: Exists }]
+      automountServiceAccountToken: false
+      containers:
+        - name: shell
+          image: busybox:1.36
+          command: ["sleep", "7200"]
+          securityContext: { privileged: true }
+          volumeMounts: [{ name: images, mountPath: /images }]
+      volumes:
+        - name: images
+          hostPath: { path: /var/lib/fair-e2e-images, type: DirectoryOrCreate }

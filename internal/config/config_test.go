@@ -19,6 +19,7 @@ func TestValidateSecureDefaults(t *testing.T) {
 		{"production requires a deployment mode", Config{Env: "production", TLSCertFile: "c", TLSKeyFile: "k", RequireFIPS: true}, true},
 		{"unknown deployment mode rejected", Config{Env: "production", TLSCertFile: "c", TLSKeyFile: "k", RequireFIPS: true, DeploymentMode: "cloud"}, true},
 		{"self-hosted ok", Config{Env: "production", TLSCertFile: "c", TLSKeyFile: "k", RequireFIPS: true, DeploymentMode: ModeSelfHosted}, false},
+		{"air-gapped ok", Config{Env: "production", TLSCertFile: "c", TLSKeyFile: "k", RequireFIPS: true, DeploymentMode: ModeAirGapped}, false},
 		{"development may use plaintext", Config{Env: "development", AllowPlaintext: true, DeploymentMode: ModeSelfHosted}, false},
 		{"unknown env rejected", Config{Env: "staging", TLSCertFile: "c", TLSKeyFile: "k", RequireFIPS: true, DeploymentMode: ModeSaaS}, true},
 	}

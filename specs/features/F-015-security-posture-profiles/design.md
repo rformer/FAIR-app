@@ -306,6 +306,7 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
 | R-13 OSCAL export (AC-45–48) | §6.9 |
 
 ## 11. Deployment modes
+The configured mode is `saas`, `self-hosted` or `air-gapped` (ADR-005, amended 2026-10-28 with T-37).
 
 | Concern | SaaS | Self-hosted | Air-gapped |
 |---|---|---|---|
@@ -342,6 +343,7 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
 - OSCAL pins (T-01, approved by Robert Former, 2026-10-26): OSCAL **v1.2.3** schemas, and NIST content from usnistgov/oscal-content **v1.6.0** (SP 800-53 v5.2.0). Pinned files are committed under `third_party/oscal` with a SHA-256 manifest. Go types come from `defenseunicorns/go-oscal` v0.7.2, wrapped in `internal/oscal`.
 
 ## 15. Open items
+- Live OpenShift and RKE2 runs of the scanner and `fips-probe` (from T-28/T-29; T-37 ran them live on kind and on a four-node Docker Desktop cluster only). They need OpenShift and RKE2 clusters or CI runners; the OpenShift run includes the SELinux behaviour of the probe's hostPath under its SCC.
 - D-OQ5 (needed by T-10 and the release pipeline, not by T-06): where the release signing key is held (KMS or Vault, per §8) and where the bundled public key ships in the install bundle. T-06 reads the private key from a file and takes the public key as a file.
 
 ## Change Log
@@ -1038,3 +1040,21 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
   - **Fix 2, revert lock timeout.** A revert waiting on a row lock held by another session (a DBA's open transaction) blocked indefinitely, and every revert behind it. Each revert transaction now sets `lock_timeout` (`posture.RevertLockTimeout`, 5 s); a timeout is an ordinary failure: recorded, backed off, escalated, retried.
   - **Deferred to F-002:** "expiry is checked against the audit trail" and "every step goes to the hash-chained audit" need F-002's audit store; today the evidence is the audit events (sinks) and the exception MAC. The revert runs on posture's own loop (T-18), not a River queue; starvation is covered by the lock timeout and the `missed_revert` drift check.
   - Verification: `make test-stride` (22 tests in four packages) green; the full database suite green. Mutations each fail the suite: signing for any writer, re-signing tampered rows, leaving exceptions out of the drift check, no lock timeout (the pass took 60 s), and letting the scanner run application checks.
+- 2026-10-28: T-37 implementation notes. Robert Former approved air-gapped as a third deployment mode (ADR-005 amended), startup checks and matrix tests for the per-mode keys, and live runs on the local Docker Desktop cluster.
+  - **`air-gapped` mode** (migration 0036; `config.ModeAirGapped`): `posture.state` and `posture.set_deployment_mode` accept it; `FAIR_DEPLOYMENT_MODE` validation accepts it. Every database rule that differs by mode tests for `saas`, so air-gapped behaves as self-hosted there (Kubernetes access opt-in with the warning, no SecOps queue). What is specific to it:
+    - the posture service refuses `FAIR_SECOPS_WEBHOOK_URL` and `FAIR_SECOPS_SECRET_FILE` (no outbound connections), in every environment;
+    - the scanner (`FAIR_DEPLOYMENT_MODE`, now in `deploy/k8s/posture-scanner.yaml`) refuses at startup any ingress endpoint that is not, or does not resolve only to, a private, loopback or link-local address (`scanner.InternalOnly`; an unresolvable one is refused too): TLS probing is internal only;
+    - profile packages: the release's packages load at migrate as in every mode; later ones come through `posture import` with the bundled public key.
+  - **Keys per mode** (`posture.CheckInstall`, run by the posture service at startup; the table is in `internal/posture/install.go`): in production every mode needs an active posture MAC key (`posture.mac_key_active()`, migration 0036), `FAIR_EXPORT_SIGNING_KEY_FILE` and `FAIR_JWT_KEYS_DIR`; SaaS also needs the SecOps webhook URL and secret and the scanner channel; air-gapped refuses the SecOps webhook. The release public key is bundled and passed to `posture import -pub` in every mode. Key custody in KMS or Vault stays D-OQ5.
+  - **The matrix** (`db/tests` `TestDeploymentModeMatrix`, one subtest per mode; CI job `deployment-modes`, `strategy.matrix.mode`) checks every row of the table for each mode: the recorded mode; the startup key check passes for a complete install and the SecOps webhook is refused only when air-gapped; the three built-in profiles from the release; a signed offline import accepted and an unsigned one refused; Kubernetes access granted by default only in SaaS, undecided with the warning otherwise, and declining refused only in SaaS; an in-bounds loosening queues a SecOps notification only in SaaS; an Assessment Results export, signed with the installation's key, naming the mode; an unknown mode refused.
+  - **Live Kubernetes:** `scripts/k8s-e2e-scanner.sh` gains `CONTEXT=<kube context>` to run on an existing cluster instead of a new kind one.
+    - Images are imported into each node's containerd, and node files written, through test-only privileged pods (`scripts/e2e/node-access.yaml`, own namespace).
+    - The script refuses to start if the platform namespaces already exist, and its cleanup deletes everything it created (manifests, namespaces, node labels, node files).
+    - Multi-node fixes: the probe pod is chosen on the node under test, and the simulated FIPS flag is written on every node, because the DaemonSet's rolling update waits for each node's probe.
+    - The CI job `k8s-e2e` runs the script on kind (single node).
+  - Verification:
+    - Live on the local Docker Desktop Kubernetes (v1.36.1, four nodes, kind-based, local-path storage): all 62 checks pass: reports over mTLS, the check catalog, the RBAC audit, egress (the CNI enforces policy), and node FIPS evidence probed, attested and verified on the control-plane node; afterwards the cluster was left clean (no namespaces, labels or node files).
+    - Live on kind: all 62 checks pass (single node, unchanged path).
+    - Unit: `TestCheckInstall` (each mode complete; no MAC key; no export key; SaaS without SecOps or scanner; air-gapped with a webhook, also outside production); `TestInternalOnly` (private, IPv6 ULA and loopback pass; public, mixed, unresolvable and malformed refused); the config accepts `air-gapped`.
+    - Mutations (the database refusing `air-gapped`, an air-gapped webhook allowed, SaaS without the scanner channel) each fail the tests.
+    - **Not covered:** OpenShift and RKE2 live (an open item, §15). The new CI jobs have not yet run in GitHub Actions.

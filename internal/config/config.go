@@ -27,7 +27,7 @@ type Config struct {
 
 	RequireFIPS bool // default true; startup fails if the FIPS module is not active
 
-	// DeploymentMode is ModeSaaS or ModeSelfHosted (ADR-005). Required when
+	// DeploymentMode is ModeSaaS, ModeSelfHosted or ModeAirGapped (ADR-005). Required when
 	// FAIR_ENV=production, so a SaaS instance can never run as self-hosted
 	// by omission; development defaults to self-hosted.
 	DeploymentMode string
@@ -39,6 +39,9 @@ type Config struct {
 const (
 	ModeSaaS       = "saas"
 	ModeSelfHosted = "self-hosted"
+	// ModeAirGapped is a self-hosted install with no outside network: no
+	// outbound integrations, offline package import (F-015 T-37).
+	ModeAirGapped = "air-gapped"
 )
 
 // Load reads configuration for the named service from environment variables.
@@ -91,11 +94,11 @@ func (c Config) Validate() error {
 		errs = append(errs, errors.New("FAIR_REQUIRE_FIPS=false is not permitted when FAIR_ENV=production"))
 	}
 	switch c.DeploymentMode {
-	case ModeSaaS, ModeSelfHosted:
+	case ModeSaaS, ModeSelfHosted, ModeAirGapped:
 	case "":
-		errs = append(errs, errors.New("FAIR_DEPLOYMENT_MODE (saas or self-hosted) is required when FAIR_ENV=production"))
+		errs = append(errs, errors.New("FAIR_DEPLOYMENT_MODE (saas, self-hosted or air-gapped) is required when FAIR_ENV=production"))
 	default:
-		errs = append(errs, fmt.Errorf("FAIR_DEPLOYMENT_MODE must be saas or self-hosted, got %q", c.DeploymentMode))
+		errs = append(errs, fmt.Errorf("FAIR_DEPLOYMENT_MODE must be saas, self-hosted or air-gapped, got %q", c.DeploymentMode))
 	}
 	return errors.Join(errs...)
 }
