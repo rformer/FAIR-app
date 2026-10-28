@@ -33,9 +33,10 @@ import (
 
 type apiEnv struct {
 	registryEnv
-	url  string
-	keys *authz.LocalKeys
-	mem  *audit.Memory
+	url       string
+	keys      *authz.LocalKeys
+	mem       *audit.Memory
+	exportKey *ecdsa.PrivateKey // signs OSCAL exports (T-35)
 }
 
 func apiFixture(t *testing.T, profile string) apiEnv {
@@ -58,10 +59,11 @@ func apiFixture(t *testing.T, profile string) apiEnv {
 	}
 	pool := e.posturePool()
 	mem := audit.NewMemory()
-	api := &postureapi.API{DB: pool, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool)}), Audit: mem}
+	exportKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	api := &postureapi.API{DB: pool, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool)}), Audit: mem, ExportKey: exportKey}
 	srv := httptest.NewServer(api.Handler(keys, nil))
 	t.Cleanup(srv.Close)
-	return apiEnv{registryEnv: rg, url: srv.URL, keys: keys, mem: mem}
+	return apiEnv{registryEnv: rg, url: srv.URL, keys: keys, mem: mem, exportKey: exportKey}
 }
 
 type apiResp struct {

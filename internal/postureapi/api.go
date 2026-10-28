@@ -10,6 +10,7 @@ package postureapi
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -47,6 +48,8 @@ type API struct {
 	Authz   Authorizer
 	Audit   audit.Emitter
 	Publish posture.Publisher // optional
+	// ExportKey signs OSCAL exports (T-35); without it exports answer 503.
+	ExportKey *ecdsa.PrivateKey
 
 	rootOnce sync.Once
 	root     string
@@ -84,6 +87,9 @@ var routes = []route{
 	{"POST", "/drift/{id}/acknowledge", (*API).acknowledgeDrift},
 	{"GET", "/k8s-access", (*API).k8sAccess},
 	{"POST", "/k8s-access/acknowledge-grant", (*API).acknowledgeGrant},
+	{"GET", "/exports", (*API).listExports},
+	{"POST", "/exports", (*API).createExport},
+	{"GET", "/exports/{id}", (*API).getExport},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).

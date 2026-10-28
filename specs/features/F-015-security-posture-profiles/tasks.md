@@ -62,7 +62,7 @@ Prerequisite: F-001 Phases 0–1 (DB roles, BU closure, approvals interface, eve
 | T-32 | Posture page UI: profile + conformance, deviations/exceptions, upcoming expiries, recent reverts, pending switches, drift, K8s access status, per-control view; links to audit + actions | AC-43, AC-44 | E2E + WCAG 2.1 AA checks | L | Done (2026-10-28) |
 | T-33 | OSCAL Assessment Results export (observations per parameter, findings, not-assessed, component-definition reference) | AC-45, AC-48 | Validates against pinned schema; deterministic output for same `as_of` | M | Done (2026-10-28; `/exports`, signing and stored snapshots with T-35) |
 | T-34 | OSCAL POA&M export for open exceptions/deviations | AC-46 | Schema validation; content matches DB | S | Done (2026-10-28; `/exports` and signing with T-35) |
-| T-35 | Export signing, digest recording, reproducibility from audit snapshot | AC-47 | Re-generate → identical digest | S | Todo |
+| T-35 | Export signing, digest recording, reproducibility from audit snapshot | AC-47 | Re-generate → identical digest | S | Done (2026-10-28; KMS/Vault signing follows D-OQ5) |
 
 ## Phase G — Hardening
 | # | Task | Traces to | Verification | Size | Status |

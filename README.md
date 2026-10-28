@@ -157,6 +157,11 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_DB_PASSWORD_FILE=<app_posture passwor
 # The Posture API (T-31, contract api/openapi/posture.yaml) is served under
 # /api/v1/posture when FAIR_JWT_KEYS_DIR holds the gateway's internal-JWT
 # public keys (PEM files named by key id; required in production).
+# OSCAL exports (T-33 to T-35) are signed with FAIR_EXPORT_SIGNING_KEY_FILE
+# (required in production); create the pair once at install, and give the
+# public key to whoever receives exports:
+#   ./bin/posture export-key -out /secrets/export.key -pub export.pub
+#   ./bin/posture verify-export -pub export.pub -document ar.json -statement st.json -signature sig.txt
 # Web UI (T-32): web/ (React + TypeScript, Vite; cd web && npm ci && npm run build).
 # End to end against the real API and database: scripts/ui-e2e.sh (Playwright
 # with axe WCAG 2.1 AA scans; needs the DB test containers and node).

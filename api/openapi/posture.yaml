@@ -12,8 +12,16 @@ info:
     permission named in `x-permission`, checked by the database (403 without it), and
     an `Idempotency-Key` header: a repeated key with the same request returns the
     stored response; with a different request it is 422. Loosening calls need an
-    `explanation`. Approvals are handled by F-001 `/api/v1/approvals`. Exports
-    (`/exports`) follow with F-015 T-33 to T-35.
+    `explanation`. Approvals are handled by F-001 `/api/v1/approvals`.
+
+    Exports (F-015 T-33 to T-35, AC-45 to AC-47) are OSCAL 1.2.3 documents validated
+    against the pinned schema. Each is signed: `signature` is a base64 ASN.1 DER ECDSA
+    P-256 signature over SHA-256 of the exact `statement` bytes, which name the export,
+    its `as_of`, its creation time and the SHA-256 of the document and of the snapshot
+    it was built from. Verify with the installation's export public key
+    (`posture verify-export`). A recorded export is rebuilt from its snapshot whenever
+    it is served; one that no longer matches its record is never served (500,
+    reported as a critical audit event).
 servers:
   - url: /api/v1/posture
 security:
@@ -37,6 +45,21 @@ components:
         error: { type: string }
         detail: { type: string }
         warning: { type: object, description: Out-of-bounds warning naming the affected controls (AC-21) }
+    Export:
+      type: object
+      required: [export_id, kind, as_of, created_at, created_by, document_sha256, snapshot_sha256, key_id]
+      properties:
+        export_id: { type: string, format: uuid }
+        kind: { enum: [assessment_results, poam] }
+        as_of: { type: string, format: date-time, description: The time of the posture snapshot }
+        created_at: { type: string, format: date-time, description: Signed creation time }
+        created_by: { type: string, format: uuid }
+        document_sha256: { type: string }
+        snapshot_sha256: { type: string }
+        key_id: { type: string, description: SHA-256 of the signing public key (PKIX) }
+        document: { type: string, description: The OSCAL JSON document, exactly as signed }
+        statement: { type: string, description: The signed statement, exactly as signed }
+        signature: { type: string, description: Base64 ECDSA P-256 signature over SHA-256 of statement }
     ChangeOutcome:
       type: object
       properties:
@@ -227,3 +250,28 @@ paths:
       parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [permissions_digest], properties: { permissions_digest: { type: string } } } } } }
       responses: { "200": { description: Granted } }
+  /exports:
+    get:
+      summary: The export history, newest first (without documents)
+      x-permission: posture.view
+      responses: { "200": { description: Exports } }
+    post:
+      summary: Export the posture now (no as_of; 201), or reproduce the export of that kind recorded at as_of (200)
+      x-permission: posture.export
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [kind], properties: { kind: { enum: [assessment_results, poam] }, as_of: { type: string, format: date-time } } } } } }
+      responses:
+        "201": { description: Exported, content: { application/json: { schema: { $ref: "#/components/schemas/Export" } } } }
+        "200": { description: Reproduced, content: { application/json: { schema: { $ref: "#/components/schemas/Export" } } } }
+        "404": { description: No export of that kind at that as_of, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        "409": { description: "POA&M with no open exception or deviation (nothing_open)", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        "503": { description: No export signing key configured, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+  /exports/{id}:
+    get:
+      summary: A recorded export with its document, statement and signature, rebuilt from its snapshot
+      x-permission: posture.export
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        "200": { description: Export, content: { application/json: { schema: { $ref: "#/components/schemas/Export" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+        "500": { description: The export cannot be reproduced from its record (export_not_reproducible) }

@@ -13,16 +13,30 @@
 //	                                     the installer
 //	posture import -pub FILE -dir DIR    load a signed release directory of
 //	                                     profile packages (offline; AC-05)
+//	posture export-key -out FILE -pub FILE
+//	                                     generate the installation's OSCAL
+//	                                     export signing key (install time,
+//	                                     F-015 T-35; no database)
+//	posture verify-export -pub FILE -document FILE -statement FILE -signature FILE
+//	                                     verify an export as its recipient
+//	                                     would (no database)
 //
 // Environment: as for iam (FAIR_ENV, FAIR_DEPLOYMENT_MODE, FAIR_LISTEN_ADDR, FAIR_TLS_*_FILE,
 // FAIR_REQUIRE_FIPS, ...), plus FAIR_DB_PASSWORD_FILE (app_posture's password)
 // and the libpq connection variables; in SaaS mode FAIR_SECOPS_WEBHOOK_URL and
-// FAIR_SECOPS_SECRET_FILE (vendor SecOps notifications, F-015 AC-23).
+// FAIR_SECOPS_SECRET_FILE (vendor SecOps notifications, F-015 AC-23);
+// FAIR_EXPORT_SIGNING_KEY_FILE (PEM ECDSA P-256; signs OSCAL exports,
+// F-015 AC-47; required in production).
 package main
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/fips140"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
@@ -31,6 +45,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -88,6 +103,28 @@ func main() {
 		}
 		_ = fs.Parse(os.Args[3:])
 		err = k8sAccess(os.Args[2], *reason, *actor)
+	case len(os.Args) > 1 && os.Args[1] == "export-key":
+		fs := flag.NewFlagSet("export-key", flag.ExitOnError)
+		out := fs.String("out", "", "private key file to create (PEM PKCS#8, mode 0600)")
+		pub := fs.String("pub", "", "public key file to create (PEM PKIX), given to export recipients")
+		_ = fs.Parse(os.Args[2:])
+		if *out == "" || *pub == "" {
+			fmt.Fprintln(os.Stderr, "usage: posture export-key -out FILE -pub FILE")
+			os.Exit(2)
+		}
+		err = exportKey(*out, *pub)
+	case len(os.Args) > 1 && os.Args[1] == "verify-export":
+		fs := flag.NewFlagSet("verify-export", flag.ExitOnError)
+		pub := fs.String("pub", "", "the installation's export public key (PEM)")
+		doc := fs.String("document", "", "the OSCAL document")
+		st := fs.String("statement", "", "the signed statement")
+		sig := fs.String("signature", "", "the signature (base64)")
+		_ = fs.Parse(os.Args[2:])
+		if *pub == "" || *doc == "" || *st == "" || *sig == "" {
+			fmt.Fprintln(os.Stderr, "usage: posture verify-export -pub FILE -document FILE -statement FILE -signature FILE")
+			os.Exit(2)
+		}
+		err = verifyExport(*pub, *doc, *st, *sig)
 	default:
 		err = run()
 	}
@@ -345,6 +382,18 @@ func run() error {
 		Plaintext:   cfg.AllowPlaintext,
 		Logger:      logger,
 	})
+	// OSCAL exports are signed with the installation's key (T-35).
+	var exportKey *ecdsa.PrivateKey
+	if f := os.Getenv("FAIR_EXPORT_SIGNING_KEY_FILE"); f != "" {
+		if exportKey, err = profilepkg.LoadPrivateKey(f); err != nil {
+			return fmt.Errorf("FAIR_EXPORT_SIGNING_KEY_FILE: %w", err)
+		}
+		if exportKey.Curve.Params().Name != "P-256" {
+			return errors.New("FAIR_EXPORT_SIGNING_KEY_FILE: the export signing key must be ECDSA P-256")
+		}
+	} else if cfg.Env == "production" {
+		return errors.New("FAIR_EXPORT_SIGNING_KEY_FILE is required in production (OSCAL exports are signed, F-015 AC-47)")
+	}
 	// The Posture API (T-31): internal JWTs verified with the gateway's public
 	// keys (FAIR_JWT_KEYS_DIR, required in production).
 	if dir := os.Getenv("FAIR_JWT_KEYS_DIR"); dir != "" {
@@ -352,7 +401,7 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		api := &postureapi.API{DB: pool, Authz: grants, Audit: emitter}
+		api := &postureapi.API{DB: pool, Authz: grants, Audit: emitter, ExportKey: exportKey}
 		srv.Mux().Handle(postureapi.Prefix+"/", server.SecurityHeaders(api.Handler(keys, nil)))
 	} else if cfg.Env == "production" {
 		return errors.New("FAIR_JWT_KEYS_DIR is required in production (the Posture API verifies the gateway's internal JWTs)")
@@ -408,4 +457,65 @@ func secOpsSender(ctx context.Context, pool *pgxpool.Pool, cfg config.Config) (p
 		return nil, nil
 	}
 	return posture.NewSecOpsWebhook(cfg.Env, os.Getenv("FAIR_SECOPS_WEBHOOK_URL"), os.Getenv("FAIR_SECOPS_SECRET_FILE"))
+}
+
+// exportKey creates the installation's export signing key pair. It never
+// overwrites a file: replacing a key is a deliberate act (old exports stay
+// verifiable only with the old public key).
+func exportKey(out, pubOut string) error {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return err
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return err
+	}
+	pubDER, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		return err
+	}
+	for _, f := range []struct {
+		path, typ string
+		der       []byte
+		mode      os.FileMode
+	}{{out, "PRIVATE KEY", der, 0o600}, {pubOut, "PUBLIC KEY", pubDER, 0o644}} {
+		fh, err := os.OpenFile(f.path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, f.mode) // #nosec G304 -- operator-chosen output path
+		if err != nil {
+			return err
+		}
+		if err := pem.Encode(fh, &pem.Block{Type: f.typ, Bytes: f.der}); err != nil {
+			_ = fh.Close()
+			return err
+		}
+		if err := fh.Close(); err != nil {
+			return err
+		}
+	}
+	kid, err := posture.KeyID(&key.PublicKey)
+	if err != nil {
+		return err
+	}
+	fmt.Println("export signing key", kid)
+	return nil
+}
+
+// verifyExport checks a downloaded export against the installation's
+// public key.
+func verifyExport(pubFile, docFile, stFile, sigFile string) error {
+	pub, err := profilepkg.LoadPublicKey(pubFile)
+	if err != nil {
+		return err
+	}
+	var b [3][]byte
+	for i, f := range []string{docFile, stFile, sigFile} {
+		if b[i], err = os.ReadFile(f); err != nil { // #nosec G304 -- operator-supplied files
+			return err
+		}
+	}
+	if err := posture.VerifyExport(pub, b[0], b[1], strings.TrimSpace(string(b[2]))); err != nil {
+		return err
+	}
+	fmt.Println("export verified")
+	return nil
 }
