@@ -161,6 +161,11 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_DB_PASSWORD_FILE=<app_posture passwor
 # FAIR_DB_CONTEXT_KEY_ID and _FILE (the key in authz.ctx_key), FAIR_JWT_KEYS_DIR
 # (signing keys), FAIR_PUBLIC_ORIGIN, FAIR_UPSTREAMS (e.g.
 # posture=https://posture.fair-platform:8443) and FAIR_UPSTREAM_CA_FILE.
+# SAML login (F-001 T-15; ADR-009): the iam service serves /api/v1/auth/saml/ when
+# FAIR_PUBLIC_ORIGIN is set (with FAIR_DB_PASSWORD_FILE and FAIR_LOGIN_TICKET_KEYS_DIR,
+# its ES256 ticket key); the gateway forwards it given an iam upstream and
+# FAIR_LOGIN_TICKET_KEYS_DIR with iam's public key. Live interop with Keycloak
+# (needs the DB test containers): scripts/saml-e2e-keycloak.sh
 # The Posture API (T-31, contract api/openapi/posture.yaml) is served under
 # /api/v1/posture when FAIR_JWT_KEYS_DIR holds the gateway's internal-JWT
 # public keys (PEM files named by key id; required in production).

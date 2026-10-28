@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -63,6 +64,13 @@ type gwEnv struct {
 	idle     time.Duration
 	absolute time.Duration
 	upstream chan *http.Request // requests the posture stand-in received
+	handler  atomic.Value       // the gateway's handler (rebuilt by resetHandler)
+}
+
+// resetHandler rebuilds the gateway's handler after its configuration changed.
+func (ge *gwEnv) resetHandler(t *testing.T) {
+	t.Helper()
+	ge.handler.Store(ge.g.Handler())
 }
 
 func gatewayFixture(t *testing.T) *gwEnv {
@@ -101,7 +109,10 @@ func gatewayFixture(t *testing.T) *gwEnv {
 		JWT:        keys,
 		Upstreams:  map[string]*url.URL{"posture": up},
 	}
-	srv := httptest.NewServer(ge.g.Handler())
+	ge.handler.Store(ge.g.Handler())
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ge.handler.Load().(http.Handler).ServeHTTP(w, r)
+	}))
 	t.Cleanup(srv.Close)
 	ge.url = srv.URL
 	ge.g.Origin = srv.URL

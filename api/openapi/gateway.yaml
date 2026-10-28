@@ -17,6 +17,11 @@ info:
     (repeating one leaves the same state), so they take no `Idempotency-Key`; requests
     proxied to the services under `/api/v1/<service>/` keep theirs.
 
+    Login routes (T-15) are forwarded to the iam service without a session:
+    `GET /auth/saml/{idp}/login?return=/path` (redirect to the IdP), `POST /auth/saml/{idp}/acs`
+    (the IdP's HTTP-POST; on success the gateway answers with the session cookie and a page
+    that moves the browser to the return path) and `GET /auth/saml/{idp}/metadata`.
+
     Other users' sessions need `session.view` / `session.revoke` (403 otherwise), checked
     by the database from the signed context, and revoking them needs a `reason` (422).
 servers:

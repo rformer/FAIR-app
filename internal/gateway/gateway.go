@@ -32,6 +32,7 @@ type Gateway struct {
 	Sessions   Sessions
 	ContextKey authz.ContextKey    // signs DB context tokens (authz.ctx_key)
 	JWT        authz.KeyProvider   // signs internal JWTs
+	Tickets    authz.KeyProvider   // verifies iam's login tickets (T-15)
 	Origin     string              // the platform's public origin, e.g. https://fair.example.com
 	Upstreams  map[string]*url.URL // service name -> base URL (/api/v1/<name>/ is routed there)
 	Transport  http.RoundTripper   // to the services (mTLS); default http.DefaultTransport
@@ -89,6 +90,9 @@ func (g *Gateway) Handler() http.Handler {
 	}
 	for name, base := range g.Upstreams {
 		mux.Handle("/api/v1/"+name+"/", g.authenticated(g.forward(name, g.proxy(base))))
+	}
+	if iam, ok := g.Upstreams["iam"]; ok {
+		mux.Handle("/api/v1/auth/saml/", g.loginRoutes(iam)) // no session yet (T-15)
 	}
 	mux.Handle("/api/", server.SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "")

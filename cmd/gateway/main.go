@@ -15,6 +15,9 @@
 //	FAIR_PUBLIC_ORIGIN           the platform's origin, e.g. https://fair.example.com
 //	FAIR_UPSTREAMS               name=https://host:port,... (/api/v1/<name>/ goes there)
 //	FAIR_UPSTREAM_CA_FILE        the CA of the services' certificates
+//	FAIR_LOGIN_TICKET_KEYS_DIR   iam's login-ticket public key(s) (PEM per key
+//	                             id); with an iam upstream, /api/v1/auth/saml/
+//	                             is forwarded and its tickets become sessions
 //	FAIR_UI_DIR                  optional: the built web UI (web/dist)
 package main
 
@@ -143,6 +146,11 @@ func run() error {
 		Upstreams:  upstreams,
 		Transport:  transport,
 		Logger:     logger,
+	}
+	if _, ok := upstreams["iam"]; ok {
+		if g.Tickets, err = authz.LoadLocalKeys(os.Getenv("FAIR_LOGIN_TICKET_KEYS_DIR")); err != nil {
+			return fmt.Errorf("FAIR_LOGIN_TICKET_KEYS_DIR (iam's login-ticket public key): %w", err)
+		}
 	}
 	if dir := os.Getenv("FAIR_UI_DIR"); dir != "" {
 		g.UI = http.FileServer(http.Dir(dir))
