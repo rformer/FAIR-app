@@ -11,17 +11,17 @@ import (
 	"github.com/rformer/fair-app/internal/oscal"
 )
 
-func arFixture() ARSnapshot {
+func arFixture() ExportSnapshot {
 	asOf := time.Date(2026, 10, 28, 12, 0, 0, 123456000, time.UTC)
 	expires := asOf.Add(10 * 24 * time.Hour)
 	report := asOf.Add(-5 * time.Minute)
-	return ARSnapshot{
+	return ExportSnapshot{
 		AsOf:           asOf,
-		Profile:        ARProfile{ID: "enterprise-baseline", Version: "1.0.0", Name: "Enterprise Baseline", Family: "enterprise"},
+		Profile:        SnapshotProfile{ID: "enterprise-baseline", Version: "1.0.0", Name: "Enterprise Baseline", Family: "enterprise"},
 		DeploymentMode: "self-hosted",
 		K8sAccess:      AccessGranted,
 		ScannerReport:  &report,
-		Settings: []ARSetting{
+		Settings: []SnapshotSetting{
 			{Key: "tls.min_version", Params: []string{"sc-8_odp", "sc-13_odp"}, Value: json.RawMessage(`"1.1"`), Source: "change",
 				Default: json.RawMessage(`"1.2"`), Bound: json.RawMessage(`"1.2"`), Deviation: "below_floor"},
 			{Key: "auth.lockout_threshold", Params: []string{"ac-7_odp.01"}, Value: json.RawMessage(`10`), Source: "exception",
@@ -30,27 +30,27 @@ func arFixture() ARSnapshot {
 			{Key: "audit.export_format", Value: json.RawMessage(`{"kind": "ocsf",  "v": 1}`), Source: "profile",
 				Default: json.RawMessage(`{"kind":"ocsf","v":1}`), Bound: json.RawMessage(`null`), Deviation: "in_bounds"},
 		},
-		Findings: []ARFinding{
+		Findings: []SnapshotFinding{
 			{ID: "11111111-1111-4111-8111-111111111111", Kind: "app", CheckID: CheckHardFloor, Severity: "critical",
-				Controls: []string{"CM-6", "SC-8"}, Subject: "tls.min_version", Detail: json.RawMessage(`{"value":"1.1"}`),
+				Controls: []string{"CM-6", "SC-8"}, Subject: "setting:tls.min_version", Detail: json.RawMessage(`{"value":"1.1"}`),
 				Remediation: "Restore TLS 1.2.", Status: "open", FirstSeen: asOf.Add(-time.Hour), LastSeen: asOf},
 			{ID: "22222222-2222-4222-8222-222222222222", Kind: "deployment", CheckID: "pod_hardening", Severity: "high",
 				Controls: []string{"CM-7"}, Subject: "fair/iam", Detail: json.RawMessage(`{}`),
 				Remediation: "Run as non-root.", Status: "acknowledged", FirstSeen: asOf.Add(-2 * time.Hour), LastSeen: asOf},
 		},
-		Checks: []ARCheck{
+		Checks: []SnapshotCheck{
 			{ID: "pod_hardening", Title: "Platform pods run non-root with a read-only root filesystem", Controls: []string{"CM-7", "AC-6(10)"}, Assessed: true},
 			{ID: "storage_encryption", Title: "Platform volumes use encrypted storage classes", Controls: []string{"SC-28", "SC-28(1)"},
 				Reason: "the check failed: storage classes unreadable"},
 		},
-		Observations: []ARObservation{
+		Observations: []SnapshotObservation{
 			{CheckID: "node_fips", Subject: "node-b", Method: "attested", Detail: json.RawMessage(`{"label":"attested"}`), ObservedAt: report},
 			{CheckID: "node_fips", Subject: "node-a", Method: "verified", Detail: json.RawMessage(`{"probe":"ready"}`), ObservedAt: report},
 		},
 	}
 }
 
-func exportAR(t *testing.T, s ARSnapshot) ([]byte, *oscal.AssessmentResultsModel) {
+func exportAR(t *testing.T, s ExportSnapshot) ([]byte, *oscal.AssessmentResultsModel) {
 	t.Helper()
 	b, err := ExportAssessmentResults(s)
 	if err != nil {
@@ -148,8 +148,8 @@ func TestAssessmentResultsContent(t *testing.T) {
 		got = append(got, fk{f.Title, f.Target.TargetId, f.Target.Status.State, f.Target.Status.Reason})
 	}
 	want := []fk{
-		{"hard_floor_violation: tls.min_version", "cm-6", "not-satisfied", "fail"},
-		{"hard_floor_violation: tls.min_version", "sc-8", "not-satisfied", "fail"},
+		{"hard_floor_violation: setting:tls.min_version", "cm-6", "not-satisfied", "fail"},
+		{"hard_floor_violation: setting:tls.min_version", "sc-8", "not-satisfied", "fail"},
 		{"pod_hardening: fair/iam", "cm-7", "not-satisfied", "fail"},
 		{"Not assessed: Platform volumes use encrypted storage classes", "sc-28", "not-satisfied", "other"},
 		{"Not assessed: Platform volumes use encrypted storage classes", "sc-28.1", "not-satisfied", "other"},
@@ -224,7 +224,7 @@ func TestAssessmentResultsDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var rt ARSnapshot
+	var rt ExportSnapshot
 	if err := json.Unmarshal(raw, &rt); err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +265,7 @@ func TestAssessmentResultsNoAccess(t *testing.T) {
 		t.Errorf("not-assessed findings = %d, want one per control (4)", n)
 	}
 
-	exportAR(t, ARSnapshot{AsOf: s.AsOf})
+	exportAR(t, ExportSnapshot{AsOf: s.AsOf})
 }
 
 func TestOSCALControlID(t *testing.T) {

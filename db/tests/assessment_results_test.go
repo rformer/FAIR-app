@@ -37,15 +37,15 @@ func TestAssessmentResultsExport(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	load := func() posture.ARSnapshot {
+	load := func() posture.ExportSnapshot {
 		t.Helper()
-		s, err := posture.LoadARSnapshot(ctx, e.posturePool())
+		s, err := posture.LoadExportSnapshot(ctx, e.posturePool())
 		if err != nil {
 			t.Fatal(err)
 		}
 		return s
 	}
-	export := func(s posture.ARSnapshot) ([]byte, *oscal.AssessmentResultsModel) {
+	export := func(s posture.ExportSnapshot) ([]byte, *oscal.AssessmentResultsModel) {
 		t.Helper()
 		b, err := posture.ExportAssessmentResults(s)
 		if err != nil {
@@ -112,6 +112,11 @@ func TestAssessmentResultsExport(t *testing.T) {
 			drift[props(f.Props, "fair-check")[0]] = true
 		}
 	}
+	for _, f := range *r.Findings {
+		if props(f.Props, "fair-check")[0] == posture.CheckDeviation && f.RelatedObservations == nil {
+			t.Errorf("the deviation finding %q relates no observation of its setting", f.Title)
+		}
+	}
 	for _, c := range []string{posture.CheckDeviation, posture.CheckRowMAC, "pod_hardening"} {
 		if !drift[c] {
 			t.Errorf("no finding for drift check %s; have %v", c, drift)
@@ -147,7 +152,7 @@ func TestAssessmentResultsExport(t *testing.T) {
 		t.Error("the same posture and as_of gave a different document")
 	}
 	raw, _ := json.Marshal(s1)
-	var stored posture.ARSnapshot
+	var stored posture.ExportSnapshot
 	if err := json.Unmarshal(raw, &stored); err != nil {
 		t.Fatal(err)
 	}

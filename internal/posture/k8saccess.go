@@ -113,12 +113,12 @@ func (k K8sAccess) Status(ctx context.Context) (AccessStatus, error) { return ac
 
 func accessStatus(ctx context.Context, db Reader) (AccessStatus, error) {
 	var s AccessStatus
-	var digest, actor, reason *string
+	var digest, actor, reason, mode *string // mode is unset until the installer records it (T-15)
 	if err := db.QueryRow(ctx, `SELECT state, permissions_digest, decided_actor, decided_at, reason, deployment_mode, last_report
-		FROM posture.k8s_access_status()`).Scan(&s.State, &digest, &actor, &s.DecidedAt, &reason, &s.DeploymentMode, &s.LastReport); err != nil {
+		FROM posture.k8s_access_status()`).Scan(&s.State, &digest, &actor, &s.DecidedAt, &reason, &mode, &s.LastReport); err != nil {
 		return s, mapErr(err)
 	}
-	s.Digest, s.DecidedActor, s.Reason = deref(digest), deref(actor), deref(reason)
+	s.Digest, s.DecidedActor, s.Reason, s.DeploymentMode = deref(digest), deref(actor), deref(reason), deref(mode)
 	var err error
 	if s.CurrentDigest, err = currentDigest(); err != nil {
 		return s, err

@@ -20,7 +20,7 @@ import (
 )
 
 // OSCAL Assessment Results export (F-015 T-33; AC-45, AC-48; design §6.9).
-// The export is a pure function of an ARSnapshot: LoadARSnapshot reads the
+// The export is a pure function of an ExportSnapshot: LoadExportSnapshot reads the
 // posture in one read-only repeatable-read transaction, stamped with that
 // transaction's time (as_of), and BuildAssessmentResults turns it into the
 // document. Identifiers are UUIDv5 names and every list is sorted, so the
@@ -38,30 +38,31 @@ type Reader interface {
 // every export's subjects resolve to it.
 var PlatformComponentUUID = uuidV5("component/fair-platform")
 
-// ARSnapshot is everything an Assessment Results export is built from. Its
-// JSON form is what T-35 records to reproduce an export.
-type ARSnapshot struct {
-	AsOf           time.Time       `json:"as_of"`
-	Profile        ARProfile       `json:"profile"`
-	DeploymentMode string          `json:"deployment_mode"`
-	K8sAccess      string          `json:"k8s_access"`
-	ScannerReport  *time.Time      `json:"scanner_report,omitempty"` // the latest report received
-	Settings       []ARSetting     `json:"settings"`
-	Findings       []ARFinding     `json:"findings"` // unresolved (open or acknowledged)
-	Checks         []ARCheck       `json:"checks"`
-	Observations   []ARObservation `json:"observations"` // deployment observations (node FIPS evidence)
+// ExportSnapshot is everything the Assessment Results and POA&M exports are
+// built from. Its JSON form is what T-35 records to reproduce an export.
+type ExportSnapshot struct {
+	AsOf           time.Time             `json:"as_of"`
+	Profile        SnapshotProfile       `json:"profile"`
+	DeploymentMode string                `json:"deployment_mode"`
+	K8sAccess      string                `json:"k8s_access"`
+	ScannerReport  *time.Time            `json:"scanner_report,omitempty"` // the latest report received
+	Settings       []SnapshotSetting     `json:"settings"`
+	Findings       []SnapshotFinding     `json:"findings"` // unresolved (open or acknowledged)
+	Checks         []SnapshotCheck       `json:"checks"`
+	Observations   []SnapshotObservation `json:"observations"` // deployment observations (node FIPS evidence)
+	Exceptions     []SnapshotException   `json:"exceptions"`   // open: active or revert_failed (T-34)
 }
 
-// ARProfile is the active profile.
-type ARProfile struct {
+// SnapshotProfile is the active profile.
+type SnapshotProfile struct {
 	ID      string `json:"id"`
 	Version string `json:"version"`
 	Name    string `json:"name"`
 	Family  string `json:"family"`
 }
 
-// ARSetting is a setting's instance-wide effective value (registry_view).
-type ARSetting struct {
+// SnapshotSetting is a setting's instance-wide effective value (registry_view).
+type SnapshotSetting struct {
 	Key              string          `json:"key"`
 	Params           []string        `json:"params"`
 	Value            json.RawMessage `json:"value"`
@@ -73,8 +74,8 @@ type ARSetting struct {
 	ExceptionExpires *time.Time      `json:"exception_expires,omitempty"`
 }
 
-// ARFinding is an unresolved drift finding.
-type ARFinding struct {
+// SnapshotFinding is an unresolved drift finding.
+type SnapshotFinding struct {
 	ID          string          `json:"id"`
 	Kind        string          `json:"kind"`
 	CheckID     string          `json:"check_id"`
@@ -88,8 +89,8 @@ type ARFinding struct {
 	LastSeen    time.Time       `json:"last_seen"`
 }
 
-// ARCheck is a deployment check, assessed or not (K8sAccess.Assessment).
-type ARCheck struct {
+// SnapshotCheck is a deployment check, assessed or not (K8sAccess.Assessment).
+type SnapshotCheck struct {
 	ID       string   `json:"id"`
 	Title    string   `json:"title"`
 	Controls []string `json:"controls"`
@@ -97,9 +98,27 @@ type ARCheck struct {
 	Reason   string   `json:"reason,omitempty"`
 }
 
-// ARObservation is a deployment observation (T-29), e.g. a node's FIPS
+// SnapshotException is an open exception: instance-wide, for a BU, or a
+// Restricted BU overlay exception.
+type SnapshotException struct {
+	ID              string          `json:"id"`
+	Key             string          `json:"key"`
+	BUID            string          `json:"bu_id,omitempty"`
+	Overlay         bool            `json:"overlay,omitempty"`
+	Value           json.RawMessage `json:"value"`
+	BoundAtCreation json.RawMessage `json:"bound_at_creation"`
+	Justification   string          `json:"justification"`
+	OwnerID         string          `json:"owner_id"`
+	ApprovedBy      string          `json:"approved_by"`
+	CreatedAt       time.Time       `json:"created_at"`
+	ExpiresAt       time.Time       `json:"expires_at"`
+	RenewedFrom     string          `json:"renewed_from,omitempty"`
+	State           string          `json:"state"`
+}
+
+// SnapshotObservation is a deployment observation (T-29), e.g. a node's FIPS
 // mode verified by fips-probe or only attested by the installer.
-type ARObservation struct {
+type SnapshotObservation struct {
 	CheckID    string          `json:"check_id"`
 	Subject    string          `json:"subject"`
 	Method     string          `json:"method"` // verified or attested
@@ -107,11 +126,11 @@ type ARObservation struct {
 	ObservedAt time.Time       `json:"observed_at"`
 }
 
-// LoadARSnapshot reads the posture in one read-only repeatable-read
+// LoadExportSnapshot reads the posture in one read-only repeatable-read
 // transaction (design §6.9: a consistent snapshot); as_of is the
 // transaction's time. Connect as app_posture.
-func LoadARSnapshot(ctx context.Context, db *pgxpool.Pool) (ARSnapshot, error) {
-	var s ARSnapshot
+func LoadExportSnapshot(ctx context.Context, db *pgxpool.Pool) (ExportSnapshot, error) {
+	var s ExportSnapshot
 	tx, err := db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return s, err
@@ -133,11 +152,28 @@ func LoadARSnapshot(ctx context.Context, db *pgxpool.Pool) (ARSnapshot, error) {
 	if err != nil {
 		return s, mapErr(err)
 	}
-	s.Settings, err = pgx.CollectRows(rows, func(r pgx.CollectableRow) (ARSetting, error) {
-		var v ARSetting
+	s.Settings, err = pgx.CollectRows(rows, func(r pgx.CollectableRow) (SnapshotSetting, error) {
+		var v SnapshotSetting
 		err := r.Scan(&v.Key, &v.Params, &v.Value, &v.Source, &v.Default, &v.Bound, &v.Deviation, &v.ExceptionID, &v.ExceptionExpires)
 		v.ExceptionExpires = utcPtr(v.ExceptionExpires)
 		return v, err
+	})
+	if err != nil {
+		return s, mapErr(err)
+	}
+
+	rows, err = tx.Query(ctx, `SELECT exception_id::text, key, coalesce(bu_id::text, ''), is_overlay, value, bound_at_creation,
+		justification, owner_id::text, approved_by::text, created_at, expires_at, coalesce(renewed_from::text, ''), state
+		FROM posture.exceptions_view() WHERE state IN ('active', 'revert_failed')`)
+	if err != nil {
+		return s, mapErr(err)
+	}
+	s.Exceptions, err = pgx.CollectRows(rows, func(r pgx.CollectableRow) (SnapshotException, error) {
+		var x SnapshotException
+		err := r.Scan(&x.ID, &x.Key, &x.BUID, &x.Overlay, &x.Value, &x.BoundAtCreation, &x.Justification, &x.OwnerID,
+			&x.ApprovedBy, &x.CreatedAt, &x.ExpiresAt, &x.RenewedFrom, &x.State)
+		x.CreatedAt, x.ExpiresAt = x.CreatedAt.UTC(), x.ExpiresAt.UTC()
+		return x, err
 	})
 	if err != nil {
 		return s, mapErr(err)
@@ -151,7 +187,7 @@ func LoadARSnapshot(ctx context.Context, db *pgxpool.Pool) (ARSnapshot, error) {
 		if f.Status == "resolved" {
 			continue
 		}
-		s.Findings = append(s.Findings, ARFinding{f.ID, f.Kind, f.CheckID, f.Severity, f.Controls, f.Subject, f.Detail,
+		s.Findings = append(s.Findings, SnapshotFinding{f.ID, f.Kind, f.CheckID, f.Severity, f.Controls, f.Subject, f.Detail,
 			f.Remediation, f.Status, f.FirstSeen.UTC(), f.LastSeen.UTC()})
 	}
 
@@ -169,14 +205,14 @@ func LoadARSnapshot(ctx context.Context, db *pgxpool.Pool) (ARSnapshot, error) {
 		s.ScannerReport = &r
 	}
 	for _, a := range as {
-		s.Checks = append(s.Checks, ARCheck{a.CheckID, a.Title, a.Controls, a.Assessed, a.Reason})
+		s.Checks = append(s.Checks, SnapshotCheck{a.CheckID, a.Title, a.Controls, a.Assessed, a.Reason})
 	}
 	os, err := Observations(ctx, tx)
 	if err != nil {
 		return s, err
 	}
 	for _, o := range os {
-		s.Observations = append(s.Observations, ARObservation{o.CheckID, o.Subject, o.Method, o.Detail, o.ObservedAt.UTC()})
+		s.Observations = append(s.Observations, SnapshotObservation{o.CheckID, o.Subject, o.Method, o.Detail, o.ObservedAt.UTC()})
 	}
 	return s, tx.Commit(ctx)
 }
@@ -191,7 +227,7 @@ func utcPtr(t *time.Time) *time.Time {
 
 // ExportAssessmentResults builds the document and validates it against the
 // pinned OSCAL schema; an invalid document is never returned (AC-47).
-func ExportAssessmentResults(s ARSnapshot) ([]byte, error) {
+func ExportAssessmentResults(s ExportSnapshot) ([]byte, error) {
 	return oscal.Marshal(BuildAssessmentResults(s))
 }
 
@@ -212,14 +248,94 @@ func ExportAssessmentResults(s ARSnapshot) ([]byte, error) {
 //     declared in the result and linked to its component definition in
 //     back-matter (AC-48); import-ap references the generated assessment
 //     plan in back-matter.
-func BuildAssessmentResults(s ARSnapshot) *oscal.Document {
+func BuildAssessmentResults(s ExportSnapshot) *oscal.Document {
+	asOf := s.AsOf.UTC()
+	stamp := asOf.Format(time.RFC3339Nano)
+	a := assess(s)
+	observations, findings, controls := a.observations, a.findings, a.controls
+
+	var include []oscal.ControlByID
+	for cid := range controls {
+		include = append(include, oscal.ControlByID{ControlId: cid})
+	}
+	slices.SortFunc(include, func(a, b oscal.ControlByID) int { return compareControlIDs(a.ControlId, b.ControlId) })
+	selection := oscal.AssessedControls{Description: "The controls the active profile's settings and the deployment checks implement or assess."}
+	if len(include) > 0 {
+		selection.IncludeControls = &include
+	} else {
+		selection.IncludeAll = &oscal.IncludeAll{}
+	}
+
+	profile := s.Profile.ID + "@" + s.Profile.Version
+	planUUID := uuidV5("assessment-plan/" + profile)
+	resultProps := props("fair-profile", profile, "fair-profile-family", s.Profile.Family,
+		"fair-deployment-mode", s.DeploymentMode, "fair-k8s-access", s.K8sAccess)
+	result := oscal.Result{
+		UUID:  uuidV5("assessment-results/" + stamp + "/result"),
+		Title: "Security posture as of " + stamp,
+		Description: "The platform's security posture at " + stamp + ": the effective value of every posture setting, " +
+			"the unresolved drift findings, and the deployment checks, assessed or not assessed.",
+		Start:            asOf,
+		End:              &asOf,
+		Props:            &resultProps,
+		ReviewedControls: oscal.ReviewedControls{ControlSelections: []oscal.AssessedControls{selection}},
+		LocalDefinitions: &oscal.ResultLocalDefinitions{Components: &[]oscal.SystemComponent{platformComponent()}},
+	}
+	if len(observations) > 0 {
+		result.Observations = &observations
+	}
+	if len(findings) > 0 {
+		result.Findings = &findings
+	}
+
+	name := s.Profile.Name
+	if name == "" {
+		name = profile
+	}
+	metaProps := props("fair-profile", profile)
+	return &oscal.Document{AssessmentResults: &oscal.AssessmentResultsModel{
+		UUID: uuidV5("assessment-results/" + stamp),
+		Metadata: oscal.Metadata{
+			Title:        "FAIR Risk Platform security posture: " + name,
+			LastModified: asOf,
+			Version:      stamp,
+			OscalVersion: oscal.Version,
+			Props:        &metaProps,
+		},
+		ImportAp: oscal.ImportAp{Href: "#" + planUUID},
+		Results:  []oscal.Result{result},
+		BackMatter: &oscal.BackMatter{Resources: &[]oscal.Resource{
+			{
+				UUID:  planUUID,
+				Title: "FAIR continuous posture assessment plan (" + profile + ")",
+				Description: "Generated assessment plan: posture tests each setting's effective value against the active profile's " +
+					"bounds and hard floors continuously (application drift), and the posture-scanner runs the deployment checks " +
+					"every 15 minutes when Kubernetes access is granted (deployment drift).",
+				Props: ptr(props("fair-profile", profile)),
+			},
+			componentDefinitionResource(),
+		}},
+	}}
+}
+
+// arParts is the observations and findings of a snapshot, shared by the
+// Assessment Results and the POA&M (T-34), which reference them by UUID.
+type arParts struct {
+	observations []oscal.Observation
+	findings     []oscal.Finding
+	controls     map[string]bool     // OSCAL control ids touched
+	settingObs   map[string][]string // setting key -> observation UUIDs
+	driftFinding map[string][]string // drift finding subject (driftSubject) -> finding UUIDs
+}
+
+func assess(s ExportSnapshot) arParts {
 	asOf := s.AsOf.UTC()
 	stamp := asOf.Format(time.RFC3339Nano)
 	platform := []oscal.SubjectReference{{SubjectUuid: PlatformComponentUUID, Type: "component", Title: "FAIR Risk Platform"}}
 	controls := map[string]bool{}
 
 	settings := slices.Clone(s.Settings)
-	slices.SortFunc(settings, func(a, b ARSetting) int { return strings.Compare(a.Key, b.Key) })
+	slices.SortFunc(settings, func(a, b SnapshotSetting) int { return strings.Compare(a.Key, b.Key) })
 	settingObs := map[string][]string{} // setting key -> observation UUIDs
 	var observations []oscal.Observation
 	for _, st := range settings {
@@ -273,7 +389,7 @@ func BuildAssessmentResults(s ARSnapshot) *oscal.Document {
 	}
 
 	checks := slices.Clone(s.Checks)
-	slices.SortFunc(checks, func(a, b ARCheck) int { return strings.Compare(a.ID, b.ID) })
+	slices.SortFunc(checks, func(a, b SnapshotCheck) int { return strings.Compare(a.ID, b.ID) })
 	checkObs := map[string]string{}
 	var notAssessed []oscal.Finding
 	for _, c := range checks {
@@ -319,7 +435,7 @@ func BuildAssessmentResults(s ARSnapshot) *oscal.Document {
 	}
 
 	dobs := slices.Clone(s.Observations)
-	slices.SortFunc(dobs, func(a, b ARObservation) int {
+	slices.SortFunc(dobs, func(a, b SnapshotObservation) int {
 		return cmp.Or(strings.Compare(a.CheckID, b.CheckID), strings.Compare(a.Subject, b.Subject))
 	})
 	for _, o := range dobs {
@@ -344,18 +460,19 @@ func BuildAssessmentResults(s ARSnapshot) *oscal.Document {
 	}
 
 	drift := slices.Clone(s.Findings)
-	slices.SortFunc(drift, func(a, b ARFinding) int {
+	slices.SortFunc(drift, func(a, b SnapshotFinding) int {
 		return cmp.Or(cmp.Compare(severityRank(a.Severity), severityRank(b.Severity)), strings.Compare(a.CheckID, b.CheckID),
 			strings.Compare(a.Subject, b.Subject), strings.Compare(a.ID, b.ID))
 	})
 	var findings []oscal.Finding
+	driftBySubject := map[string][]string{} // drift finding subject -> OSCAL finding UUIDs
 	for _, f := range drift {
 		cids := oscalControlIDs(f.Controls)
 		if len(cids) == 0 {
 			cids = []string{"cm-6"} // drift from configured settings (CM-6) when a check names no control
 		}
 		var related []oscal.RelatedObservation
-		for _, id := range settingObs[f.Subject] {
+		for _, id := range settingObs[strings.TrimPrefix(f.Subject, "setting:")] { // instance-wide subjects only
 			related = append(related, oscal.RelatedObservation{ObservationUuid: id})
 		}
 		if id, ok := checkObs[f.CheckID]; ok {
@@ -379,82 +496,32 @@ func BuildAssessmentResults(s ARSnapshot) *oscal.Document {
 				of.RelatedObservations = &related
 			}
 			findings = append(findings, of)
+			driftBySubject[f.Subject] = append(driftBySubject[f.Subject], of.UUID)
 		}
 	}
 	findings = append(findings, notAssessed...)
+	return arParts{observations, findings, controls, settingObs, driftBySubject}
+}
 
-	var include []oscal.ControlByID
-	for cid := range controls {
-		include = append(include, oscal.ControlByID{ControlId: cid})
+// platformComponent is the platform as an OSCAL component, linked to its
+// component definition (AC-48).
+func platformComponent() oscal.SystemComponent {
+	return oscal.SystemComponent{
+		UUID: PlatformComponentUUID, Type: "software", Title: "FAIR Risk Platform",
+		Description: "The FAIR Risk Platform, as described by its OSCAL component definition.",
+		Status:      oscal.ComponentStatus{State: "operational"},
+		Links:       &[]oscal.Link{{Href: "#" + componentDefinitionUUID, Rel: "component-definition"}},
 	}
-	slices.SortFunc(include, func(a, b oscal.ControlByID) int { return compareControlIDs(a.ControlId, b.ControlId) })
-	selection := oscal.AssessedControls{Description: "The controls the active profile's settings and the deployment checks implement or assess."}
-	if len(include) > 0 {
-		selection.IncludeControls = &include
-	} else {
-		selection.IncludeAll = &oscal.IncludeAll{}
-	}
+}
 
-	profile := s.Profile.ID + "@" + s.Profile.Version
-	planUUID := uuidV5("assessment-plan/" + profile)
-	compDefUUID := uuidV5("component-definition/fair-platform")
-	resultProps := props("fair-profile", profile, "fair-profile-family", s.Profile.Family,
-		"fair-deployment-mode", s.DeploymentMode, "fair-k8s-access", s.K8sAccess)
-	result := oscal.Result{
-		UUID:  uuidV5("assessment-results/" + stamp + "/result"),
-		Title: "Security posture as of " + stamp,
-		Description: "The platform's security posture at " + stamp + ": the effective value of every posture setting, " +
-			"the unresolved drift findings, and the deployment checks, assessed or not assessed.",
-		Start:            asOf,
-		End:              &asOf,
-		Props:            &resultProps,
-		ReviewedControls: oscal.ReviewedControls{ControlSelections: []oscal.AssessedControls{selection}},
-		LocalDefinitions: &oscal.ResultLocalDefinitions{Components: &[]oscal.SystemComponent{{
-			UUID: PlatformComponentUUID, Type: "software", Title: "FAIR Risk Platform",
-			Description: "The FAIR Risk Platform, as described by its OSCAL component definition.",
-			Status:      oscal.ComponentStatus{State: "operational"},
-			Links:       &[]oscal.Link{{Href: "#" + compDefUUID, Rel: "component-definition"}},
-		}}},
-	}
-	if len(observations) > 0 {
-		result.Observations = &observations
-	}
-	if len(findings) > 0 {
-		result.Findings = &findings
-	}
+var componentDefinitionUUID = uuidV5("component-definition/fair-platform")
 
-	name := s.Profile.Name
-	if name == "" {
-		name = profile
+func componentDefinitionResource() oscal.Resource {
+	return oscal.Resource{
+		UUID:        componentDefinitionUUID,
+		Title:       "FAIR Risk Platform component definition",
+		Description: "The platform's OSCAL component definition (F-014), defining component " + PlatformComponentUUID + ".",
 	}
-	metaProps := props("fair-profile", profile)
-	return &oscal.Document{AssessmentResults: &oscal.AssessmentResultsModel{
-		UUID: uuidV5("assessment-results/" + stamp),
-		Metadata: oscal.Metadata{
-			Title:        "FAIR Risk Platform security posture: " + name,
-			LastModified: asOf,
-			Version:      stamp,
-			OscalVersion: oscal.Version,
-			Props:        &metaProps,
-		},
-		ImportAp: oscal.ImportAp{Href: "#" + planUUID},
-		Results:  []oscal.Result{result},
-		BackMatter: &oscal.BackMatter{Resources: &[]oscal.Resource{
-			{
-				UUID:  planUUID,
-				Title: "FAIR continuous posture assessment plan (" + profile + ")",
-				Description: "Generated assessment plan: posture tests each setting's effective value against the active profile's " +
-					"bounds and hard floors continuously (application drift), and the posture-scanner runs the deployment checks " +
-					"every 15 minutes when Kubernetes access is granted (deployment drift).",
-				Props: ptr(props("fair-profile", profile)),
-			},
-			{
-				UUID:        compDefUUID,
-				Title:       "FAIR Risk Platform component definition",
-				Description: "The platform's OSCAL component definition (F-014), defining component " + PlatformComponentUUID + ".",
-			},
-		}},
-	}}
 }
 
 // props builds name/value pairs into properties in the FAIR namespace,
@@ -567,4 +634,17 @@ func compareControlIDs(a, b string) int {
 	af, an, ae := key(a)
 	bf, bn, be := key(b)
 	return cmp.Or(strings.Compare(af, bf), cmp.Compare(an, bn), cmp.Compare(ae, be))
+}
+
+// driftSubject is the subject app drift findings use for a setting
+// (posture.setting_subject, migration 0028; overlay rows, 0027); the
+// revert_failed finding of an exception is "exception:<id>" (0022).
+func driftSubject(key, buID string, overlay bool) string {
+	switch {
+	case overlay:
+		return "overlay:" + key
+	case buID != "":
+		return "setting:" + key + "@" + buID
+	}
+	return "setting:" + key
 }

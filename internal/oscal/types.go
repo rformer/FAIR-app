@@ -49,6 +49,9 @@ type (
 	RelatedObservation = oscaltypes.RelatedObservation
 	SystemComponent    = oscaltypes.SystemComponent
 	ComponentStatus    = oscaltypes.SystemComponentStatus
+	POAMItem           = oscaltypes.PoamItem
+	POAMLocalDefs      = oscaltypes.PlanOfActionAndMilestonesLocalDefinitions
+	RelatedFinding     = oscaltypes.RelatedFinding
 )
 
 // go-oscal v0.7.2 generates a single LocalDefinitions type for three
