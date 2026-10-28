@@ -1,0 +1,283 @@
+# NIST SP 800-53 Rev 5 control implementation statements for F-015
+# (Security posture profiles), task T-38. Source for the platform's OSCAL
+# component definition (F-014 assembles the features' files); checked by
+# internal/compliance tests: the controls are exactly F-015's control
+# mapping, every evidence path and test exists, and the OSCAL output
+# validates against the pinned schema.
+#
+# responsibility, per deployment mode (ADR-005):
+#   provider  the platform (and, in SaaS, the vendor operating it) meets it
+#   shared    the platform provides the mechanism; the customer operates it
+#   customer  the customer meets it
+# customer: what the customer does wherever the responsibility is shared
+# or customer. Evidence tests are "<package dir>:<test name>".
+feature: F-015
+title: Security posture profiles
+status: approved # signed off by Robert Former, 2026-10-28
+controls:
+  - id: cm-2
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      The platform's baseline configuration is the active security profile:
+      FedRAMP Moderate (the default), CMMC Level 2 (NIST SP 800-171 Rev 2) or
+      the Enterprise Baseline, each resolved at build time from pinned OSCAL
+      content into a signed, versioned profile package whose digest is pinned
+      in the release manifest. Each package binds every platform setting to
+      its OSCAL parameters with a default, a bound and a hard floor. The
+      installer seeds every setting from the selected profile, and the active
+      profile and version are recorded. Custom profiles derive from a
+      built-in profile, are versioned, labelled when they deviate, and take
+      effect only after approval; switching profiles requires dual approval
+      and the explicit resolution of every conflict.
+    customer: >-
+      Select the profile at installation and approve any custom profile or
+      profile switch that fits the system's categorization.
+    evidence:
+      code: [bindings, profiles/packages, internal/profilegen, internal/profilepkg, db/migrations/0013_posture_packages.sql,
+             internal/posture/profiles.go, internal/posture/switch.go]
+      tests: ["db/tests:TestPosturePackagesLoadedAtMigrate", "db/tests:TestPostureSeed", "internal/profilegen:TestPackagesSignedReleaseTamper",
+              "db/tests:TestCustomProfileLifecycle", "db/tests:TestSwitchConflictsAndActivation"]
+
+  - id: cm-2.2
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Automated mechanisms keep the recorded baseline accurate and current:
+      the application drift engine compares every stored value with the
+      active profile (bounds, hard floors, exceptions, row MACs) on every
+      change and at least every 15 minutes, and compares the configuration
+      each running service reports in its heartbeat with the configuration
+      it should enforce. The deployment scanner compares the running
+      Kubernetes deployment with the signed release manifest every 15
+      minutes.
+    evidence:
+      code: [internal/posture/drift.go, db/migrations/0028_app_drift.sql, internal/scanner]
+      tests: ["db/tests:TestDriftDetectsDirectDBEdit", "db/tests:TestDriftHeartbeats", "db/tests:TestRunDriftDetectsDirectEdit",
+              "internal/scanner/checks:TestCatalogFixtures"]
+
+  - id: cm-3
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Every change to a security setting goes through the posture service,
+      which classifies it as tightening, neutral or loosening against the
+      active profile. Tightening applies immediately. Loosening within the
+      profile's bounds requires a written explanation; loosening beyond them
+      requires an explanation and approval by a second administrator who
+      holds the approval permission (the requester cannot approve), and
+      becomes a time-bound exception. Values below the hard floor are refused
+      by the database. Every step, with both identities, is recorded in the
+      audit trail.
+    customer: >-
+      Assign the change and approval permissions to separate, appropriately
+      trained people, and review proposed loosenings before approving them.
+    evidence:
+      code: [internal/posture/evaluator.go, db/migrations/0018_posture_evaluator.sql, internal/approvals, db/migrations/0017_approvals.sql]
+      tests: ["db/tests:TestPostureChangeFlow", "db/tests:TestRegistryOutOfBoundsNeedsExplanationAndDualApproval",
+              "db/tests:TestRegistryHardFloorRefused", "db/tests:TestApprovalLifecycle", "db/tests:TestSTRIDERepudiationAndCollusion"]
+
+  - id: cm-3.1
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Change control is automated: proposed loosenings are documented with
+      their explanation and routed for approval; changes below the hard
+      floor, and out-of-bounds changes without an approved exception, are
+      prohibited by the database itself; each change, approval, exception,
+      renewal and revert emits an audit event; expiry notices are queued for
+      exception owners 14, 7 and 1 days ahead (delivered by the notification
+      service, F-009); in SaaS mode every weakening is
+      also sent to the vendor's security operations through a signed webhook.
+    customer: >-
+      Route the platform's notifications (expiry notices, revert alerts) to
+      monitored channels.
+    evidence:
+      code: [internal/posture/lifecycle.go, internal/posture/secops.go, db/migrations/0021_posture_exception_lifecycle.sql]
+      tests: ["db/tests:TestExceptionNotices", "db/tests:TestSecOpsSaaSNotifiesWeakening", "db/tests:TestRegistryFailsClosedWhenAuditUnavailable"]
+
+  - id: cm-5
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Application database roles have no privileges on the posture tables;
+      all reads and writes go through database functions owned by a
+      non-login role, which take the acting user from a signed database
+      context and check that user's permission. Settings, overlay values and
+      exceptions carry HMAC-SHA-256 row MACs computed only inside those
+      functions, so a direct edit by any other role, a database administrator
+      included, is detected as a critical finding, and later updates never
+      re-sign a tampered row.
+    customer: >-
+      Restrict database superuser access, keep the posture MAC key secret,
+      and review critical tampering findings.
+    evidence:
+      code: [db/migrations/0011_posture.sql, db/migrations/0012_posture_write.sql, db/migrations/0035_exception_mac.sql, pkg/authz]
+      tests: ["db/tests:TestPostureNoDirectWrites", "db/tests:TestPostureTablesLocked", "db/tests:TestPostureDirectEditDetected",
+              "db/tests:TestSTRIDEExceptionExtension", "db/tests:TestEvaluatorAuthorization"]
+
+  - id: cm-6
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Every platform security setting is registered with a type, a
+      strictness direction and its OSCAL parameters, and is held within the
+      active profile's bounds and hard floors. Business units may only
+      tighten inherited values (strictest-of), and restricted business units
+      receive a stricter overlay. Services read their effective values
+      through the settings client, which refreshes on change and refuses to
+      serve stale values.
+    customer: >-
+      Document any deviation that is approved as an exception, and the
+      business units designated as restricted.
+    evidence:
+      code: [pkg/settings, db/migrations/0026_bu_overrides.sql, db/migrations/0027_restricted_bu_overlay.sql]
+      tests: ["db/tests:TestPostureEffectiveSettings", "db/tests:TestBUOverridesProperty", "db/tests:TestOverlayOnEveryRestrictedBU",
+              "pkg/settings:TestClientFailsClosedWhenStale", "db/tests:TestFloorNeverViolatedRealRegistry"]
+
+  - id: cm-6.1
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Configuration settings are managed, applied and verified centrally:
+      the posture service is the only writer; services receive changes
+      through change events and a 30-second version poll, refuse to start
+      with an unbound setting, and report the configuration they enforce in
+      heartbeats, which drift detection compares with the expected values.
+    evidence:
+      code: [pkg/settings/client.go, internal/posture/drift.go]
+      tests: ["pkg/settings:TestClientRefreshAndEvents", "pkg/settings:TestClientStart", "pkg/settings:TestClientHeartbeat", "db/tests:TestDriftHeartbeats"]
+
+  - id: cm-6.2
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Unauthorized changes are answered automatically: drift findings are
+      raised (critical for tampering and hard-floor violations), audited and
+      sent to the SIEM; expired exceptions revert automatically within 60
+      seconds, with retries, a critical finding and hourly escalation if a
+      revert fails; findings stay open until their check passes.
+    customer: >-
+      Investigate drift findings, acknowledge them with a reason, and
+      restore the approved configuration.
+    evidence:
+      code: [internal/posture/revert.go, internal/posture/drift_events.schema.json]
+      tests: ["db/tests:TestRevertWithin60Seconds", "db/tests:TestRevertFaultInjection", "db/tests:TestDriftLifecycleAndEventSchema",
+              "db/tests:TestSTRIDERevertStarvation"]
+
+  - id: cm-7
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      The deployment scanner verifies least functionality in the platform's
+      Kubernetes deployment: pod security admission at the restricted level,
+      default-deny network policies with per-workload allow rules, non-root
+      workloads with read-only root filesystems, and the absence of
+      plaintext secrets. The posture components follow the same rules: the
+      scanner is read-only, cannot read Secrets and may reach only the API
+      server, the posture service and the endpoints it probes; the FIPS probe
+      reads a single file and neither listens nor connects.
+    customer: >-
+      Remediate deployment findings in the cluster, and grant the scanner its
+      read-only access (self-hosted installs ask for consent).
+    evidence:
+      code: [internal/scanner/checks, deploy/k8s/posture-scanner.yaml, deploy/k8s/fips-probe.yaml]
+      tests: ["internal/scanner:TestScannerRBACIsReadOnlyAndMatchesAccess", "internal/scanner:TestScannerPodHardenedAndEgressRestricted",
+              "internal/scanner:TestFIPSProbeManifest", "internal/scanner/checks:TestCatalogFixtures"]
+
+  - id: ca-2
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      The platform produces assessment evidence on demand: an OSCAL
+      Assessment Results document, validated against the published schema,
+      with an observation of every setting's effective value per OSCAL
+      parameter, every open drift finding, and every deployment control that
+      cannot be assessed marked "Not assessed". Exports are signed,
+      timestamped, recorded and reproducible.
+    customer: >-
+      Plan and conduct control assessments, using the exports as evidence.
+    evidence:
+      code: [internal/posture/assessment_results.go, internal/posture/exports.go]
+      tests: ["internal/posture:TestAssessmentResultsContent", "db/tests:TestAssessmentResultsExport", "db/tests:TestExportsSignedRecordedReproducible"]
+
+  - id: ca-5
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Every open exception and every deviation without an exception is an
+      item of an OSCAL plan of action and milestones, with its
+      justification, owner, approver, expiry and related controls,
+      observations and findings. Exceptions cannot exceed the profile's
+      maximum duration, can be renewed only before expiry with dual
+      approval, and revert automatically at expiry.
+    customer: >-
+      Maintain the system's POA&M, incorporating the exported items, and
+      track their remediation.
+    evidence:
+      code: [internal/posture/poam.go, internal/posture/lifecycle.go]
+      tests: ["internal/posture:TestPOAMContent", "db/tests:TestPOAMExport", "db/tests:TestExceptionDuration", "db/tests:TestExceptionRenewal"]
+
+  - id: ca-7
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Security configuration is monitored continuously: application drift
+      on every change and at least every 15 minutes, the deployment every 15
+      minutes, with findings tracked from open to acknowledged to resolved
+      and shown, with their severity and controls, on the Posture page
+      alongside per-control status.
+    customer: >-
+      In self-hosted installs, grant the scanner Kubernetes access (until it
+      is granted, deployment controls are reported as not assessed), and
+      review the Posture page.
+    evidence:
+      code: [internal/posture/drift.go, internal/posture/k8saccess.go, web/src/posture]
+      tests: ["db/tests:TestRunDriftDetectsDirectEdit", "db/tests:TestScannerReportsOverMTLS", "db/tests:TestK8sAccessConsent",
+              "db/tests:TestDriftLifecycleAndEventSchema"]
+
+  - id: ca-7.4
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Risk monitoring is supported by the severity of every finding, the
+      exceptions in force with their expiry and owners, the upcoming
+      expiries and recent reverts, and the POA&M export.
+    customer: >-
+      Monitor these as part of the organization's risk monitoring and act on
+      them.
+    evidence:
+      code: [internal/postureapi, web/src/posture/PosturePage.tsx]
+      tests: ["db/tests:TestPostureAPIAccessAndChanges", "db/tests:TestPOAMExport"]
+
+  - id: si-4
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      The posture service monitors the platform's own security configuration
+      and deployment and emits drift events (detected, acknowledged,
+      resolved) in a published JSON schema for the SIEM; deployment scan
+      reports arrive over mutually authenticated TLS from a scanner whose
+      reports cannot alter application findings.
+    customer: >-
+      Collect the platform's audit and drift events in the organization's
+      SIEM and monitor them.
+    evidence:
+      code: [internal/posture/drift_events.go, internal/posture/drift_events.schema.json, internal/posture/scanner_server.go]
+      tests: ["internal/posture:TestDriftEventSchema", "db/tests:TestScannerChannelAuthentication", "db/tests:TestSTRIDECompromisedScanner"]
+
+  - id: au-6
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Posture events carry the actor, target, severity and reason, and
+      critical events (tampering, hard-floor violations, failed reverts,
+      unreproducible exports) are marked as such for review. The Posture page
+      links every item to its audit history (shown by the audit service,
+      F-002), and acknowledging a finding
+      requires a stated reason, which is recorded.
+    customer: >-
+      Review and analyze the platform's audit records and report findings.
+    evidence:
+      code: [internal/posture/drift_events.go, web/src/links.ts]
+      tests: ["db/tests:TestDriftLifecycleAndEventSchema", "db/tests:TestExportsSignedRecordedReproducible"]
+
+  - id: pl-2
+    responsibility: { saas: provider, self-hosted: customer, air-gapped: customer }
+    statement: >-
+      The platform supplies the inputs to the system security plan in OSCAL:
+      this control implementation description, the active profile and its
+      parameter values, and the Assessment Results and POA&M exports, which
+      reference the platform's component definition.
+    customer: >-
+      In self-hosted installs the customer owns the authorization boundary
+      (ADR-005) and maintains the SSP, incorporating the platform's component
+      definition and exports.
+    evidence:
+      code: [internal/posture/assessment_results.go, internal/compliance]
+      tests: ["internal/compliance:TestF015Statements", "db/tests:TestAssessmentResultsExport"]

@@ -1,12 +1,13 @@
 package profilegen
 
 import (
-	"crypto/sha1" // #nosec G505 -- RFC 9562 UUIDv5 name hashing, not a security function
 	"encoding/json"
 	"fmt"
 	"path"
 	"slices"
 	"strings"
+
+	"github.com/rformer/fair-app/internal/oscal"
 )
 
 // Tool is recorded in resolved catalogs as metadata prop "resolution-tool".
@@ -568,16 +569,7 @@ func dedupeResources(rs []any) []any {
 
 // uuidV5 derives a stable RFC 9562 version-5 UUID from name, so resolved
 // catalogs are reproducible (T-06).
-func uuidV5(name string) string {
-	ns := []byte{0x6b, 0xa7, 0xb8, 0x11, 0x9d, 0xad, 0x11, 0xd1, 0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8} // URL namespace
-	h := sha1.New()                                                                                              // #nosec G401 -- RFC 9562 UUIDv5 name hashing, not a security function
-	h.Write(ns)
-	h.Write([]byte(name))
-	b := h.Sum(nil)[:16]
-	b[6] = (b[6] & 0x0f) | 0x50
-	b[8] = (b[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
-}
+func uuidV5(name string) string { return oscal.UUIDv5(name) }
 
 func list(v any) []any {
 	l, _ := v.([]any)

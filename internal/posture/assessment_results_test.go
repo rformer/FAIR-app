@@ -289,3 +289,11 @@ func keys[V any](m map[string]V) []string {
 	slices.Sort(out)
 	return out
 }
+
+// The platform component's UUID is fixed: F-014's component definition
+// (internal/compliance) and every export name it.
+func TestPlatformComponentUUID(t *testing.T) {
+	if PlatformComponentUUID != oscal.UUIDv5("urn:fair-app:posture:component/fair-platform") || PlatformComponentUUID != "37bf5fe7-42b0-582b-a343-8c12e1ae7c89" {
+		t.Fatalf("PlatformComponentUUID changed: %s", PlatformComponentUUID)
+	}
+}

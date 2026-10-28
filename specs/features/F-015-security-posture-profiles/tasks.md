@@ -69,7 +69,7 @@ Prerequisite: F-001 Phases 0–1 (DB roles, BU closure, approvals interface, eve
 |---|---|---|---|---|---|
 | T-36 | STRIDE test suite (package forgery, DB tampering, exception extension, scanner privilege, revert starvation) | Design §8 | Suite green in CI | M | Done (2026-10-28; `make test-stride`, CI step "STRIDE suite") |
 | T-37 | Deployment-mode matrix (SaaS / self-hosted / air-gapped offline import, signing keys per mode) | Deployment modes | CI matrix green | M | Done (2026-10-28; CI jobs `deployment-modes` and `k8s-e2e` added, first Actions run pending) |
-| T-38 | 800-53r5 control implementation statements for F-015 (CM-2/3/5/6/7, CA-2/5/7, SI-4, AU-6, PL-2) | Control mapping | Reviewed statements | S | Todo |
+| T-38 | 800-53r5 control implementation statements for F-015 (CM-2/3/5/6/7, CA-2/5/7, SI-4, AU-6, PL-2) | Control mapping | Reviewed statements | S | Done (2026-10-28; statements signed off by Robert Former) |
 
 ## Definition of Done (F-015)
 - All 48 acceptance criteria have passing automated tests
