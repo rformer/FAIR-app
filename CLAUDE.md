@@ -39,7 +39,8 @@ This repo is built **spec-first**. Before doing anything, read:
 - F-001 T-14 done (pulled forward): internal JWT (`authz.MintJWT` / `VerifyJWT`, `LoadLocalKeys`); shared API middleware `server.Authenticate` and `server.Idempotent` (F-001 T-42 reuses them).
 - F-015 T-31 done: Posture API (`internal/postureapi`, contract `api/openapi/posture.yaml`; `posture.view` on every route, BU overrides filtered to visible BUs); the posture service needs `FAIR_JWT_KEYS_DIR` in production.
 - F-015 T-32 done: the web UI in `web/` (React + TypeScript + Vite, React Aria Components; ADR-003) with the Posture page; `scripts/ui-e2e.sh` runs Playwright and axe (WCAG 2.1 AA) against the real API via `db/tests` `TestPostureUIHarness`; `server.UISecurityHeaders` for the UI.
-- **Next: F-015 T-33** (`specs/features/F-015-security-posture-profiles/tasks.md`; OSCAL Assessment Results export), then the rest of F-015 in task order (T-24b after F-001 T-16), except that **F-001 T-26 (dual-approval engine) comes before F-015 T-14** (approved 2026-10-26); then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
+- F-015 T-33 done: OSCAL Assessment Results export (`posture.LoadARSnapshot` reads a consistent snapshot; `BuildAssessmentResults` / `ExportAssessmentResults` are deterministic and schema-validated; `posture.PlatformComponentUUID` is the component F-014's component definition must define).
+- **Next: F-015 T-34** (`specs/features/F-015-security-posture-profiles/tasks.md`; OSCAL POA&M export), then the rest of F-015 in task order (T-24b after F-001 T-16), except that **F-001 T-26 (dual-approval engine) comes before F-015 T-14** (approved 2026-10-26); then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
 
 ## Working rules
 - Implement only tasks that are marked Approved and listed in a `tasks.md`. If a task needs a design change, stop and propose the spec change; don't silently diverge.

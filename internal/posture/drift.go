@@ -288,13 +288,13 @@ func RecordHeartbeat(ctx context.Context, db *pgxpool.Pool, data []byte) error {
 
 // OpenFindings returns the drift findings not yet resolved (open or
 // acknowledged), most severe first.
-func OpenFindings(ctx context.Context, db *pgxpool.Pool) ([]Finding, error) {
+func OpenFindings(ctx context.Context, db Reader) ([]Finding, error) {
 	return Findings(ctx, db, time.Time{})
 }
 
 // Findings returns the unresolved findings, then those resolved since
 // resolvedSince (none when zero), for the Posture page.
-func Findings(ctx context.Context, db *pgxpool.Pool, resolvedSince time.Time) ([]Finding, error) {
+func Findings(ctx context.Context, db Reader, resolvedSince time.Time) ([]Finding, error) {
 	var since any
 	if !resolvedSince.IsZero() {
 		since = resolvedSince

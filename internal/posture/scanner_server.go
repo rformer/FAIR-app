@@ -298,7 +298,7 @@ type Observation struct {
 
 // Observations returns the latest deployment observations, e.g. which
 // nodes' FIPS mode is verified and which only attested.
-func Observations(ctx context.Context, db *pgxpool.Pool) ([]Observation, error) {
+func Observations(ctx context.Context, db Reader) ([]Observation, error) {
 	rows, err := db.Query(ctx, "SELECT check_id, subject, method, detail, observed_at FROM posture.deployment_observations()")
 	if err != nil {
 		return nil, mapErr(err)

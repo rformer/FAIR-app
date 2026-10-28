@@ -109,10 +109,12 @@ func (k K8sAccess) Acknowledge(ctx context.Context, p authz.Principal, digest st
 }
 
 // Status returns the consent state and the banner to show.
-func (k K8sAccess) Status(ctx context.Context) (AccessStatus, error) {
+func (k K8sAccess) Status(ctx context.Context) (AccessStatus, error) { return accessStatus(ctx, k.DB) }
+
+func accessStatus(ctx context.Context, db Reader) (AccessStatus, error) {
 	var s AccessStatus
 	var digest, actor, reason *string
-	if err := k.DB.QueryRow(ctx, `SELECT state, permissions_digest, decided_actor, decided_at, reason, deployment_mode, last_report
+	if err := db.QueryRow(ctx, `SELECT state, permissions_digest, decided_actor, decided_at, reason, deployment_mode, last_report
 		FROM posture.k8s_access_status()`).Scan(&s.State, &digest, &actor, &s.DecidedAt, &reason, &s.DeploymentMode, &s.LastReport); err != nil {
 		return s, mapErr(err)
 	}
@@ -180,12 +182,20 @@ type CheckAssessment struct {
 // reported within staleAfter (default 45 minutes, three scan intervals), or
 // when the check did not complete in the latest report.
 func (k K8sAccess) Assessment(ctx context.Context, staleAfter time.Duration) ([]CheckAssessment, error) {
+	as, _, err := assessment(ctx, k.DB, time.Now(), staleAfter)
+	return as, err
+}
+
+// assessment is Assessment as of now, read through db (a transaction, for
+// the export's consistent snapshot); it also returns the latest scanner
+// report's time (zero when there is none).
+func assessment(ctx context.Context, db Reader, now time.Time, staleAfter time.Duration) ([]CheckAssessment, time.Time, error) {
 	if staleAfter <= 0 {
 		staleAfter = 45 * time.Minute
 	}
-	st, err := k.Status(ctx)
+	st, err := accessStatus(ctx, db)
 	if err != nil {
-		return nil, err
+		return nil, time.Time{}, err
 	}
 	var latest struct {
 		received time.Time
@@ -194,10 +204,10 @@ func (k K8sAccess) Assessment(ctx context.Context, staleAfter time.Duration) ([]
 	}
 	if st.State == AccessGranted {
 		var errs json.RawMessage
-		err := k.DB.QueryRow(ctx, "SELECT received_at, checks_run, check_errors FROM posture.scanner_reports() LIMIT 1").
+		err := db.QueryRow(ctx, "SELECT received_at, checks_run, check_errors FROM posture.scanner_reports() LIMIT 1").
 			Scan(&latest.received, &latest.run, &errs)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return nil, mapErr(err)
+			return nil, time.Time{}, mapErr(err)
 		}
 		var list []map[string]string
 		_ = json.Unmarshal(errs, &list)
@@ -214,7 +224,7 @@ func (k K8sAccess) Assessment(ctx context.Context, staleAfter time.Duration) ([]
 			a.Reason = "Kubernetes access " + st.State
 		case latest.received.IsZero():
 			a.Reason = "the scanner has not reported"
-		case time.Since(latest.received) > staleAfter:
+		case now.Sub(latest.received) > staleAfter:
 			a.Reason = "the scanner has not reported since " + latest.received.UTC().Format(time.RFC3339)
 		case latest.errors[m.ID] != "":
 			a.Reason = "the check failed: " + latest.errors[m.ID]
@@ -225,7 +235,7 @@ func (k K8sAccess) Assessment(ctx context.Context, staleAfter time.Duration) ([]
 		}
 		out = append(out, a)
 	}
-	return out, nil
+	return out, latest.received, nil
 }
 
 // notGrantedMessage is what a refused scanner is told.

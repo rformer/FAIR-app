@@ -28,6 +28,29 @@ type (
 	POAMModel = oscaltypes.PlanOfActionAndMilestones
 )
 
+// Metadata and the other aliases in this block are the parts of documents
+// that F-015's exports assemble (T-33, T-34).
+type (
+	Metadata           = oscaltypes.Metadata
+	Property           = oscaltypes.Property
+	Link               = oscaltypes.Link
+	BackMatter         = oscaltypes.BackMatter
+	Resource           = oscaltypes.Resource
+	ImportAp           = oscaltypes.ImportAp
+	ReviewedControls   = oscaltypes.ReviewedControls
+	AssessedControls   = oscaltypes.AssessedControls
+	ControlByID        = oscaltypes.AssessedControlsSelectControlById
+	IncludeAll         = oscaltypes.IncludeAll
+	Observation        = oscaltypes.Observation
+	SubjectReference   = oscaltypes.SubjectReference
+	Finding            = oscaltypes.Finding
+	FindingTarget      = oscaltypes.FindingTarget
+	ObjectiveStatus    = oscaltypes.ObjectiveStatus
+	RelatedObservation = oscaltypes.RelatedObservation
+	SystemComponent    = oscaltypes.SystemComponent
+	ComponentStatus    = oscaltypes.SystemComponentStatus
+)
+
 // go-oscal v0.7.2 generates a single LocalDefinitions type for three
 // different schema shapes, so an assessment result's local definitions lose
 // "tasks" and "assessment-assets". The assessment-results subtree is

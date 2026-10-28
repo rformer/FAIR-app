@@ -971,3 +971,22 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
     - A user without `posture.view` gets the no-access message; axe passes.
     - Every test fails on a CSP violation or script error.
     - Mutations (muted text below AA contrast, the reason field without its label, no refresh after acknowledging) each fail the tests.
+- 2026-10-28: T-33 implementation notes (`internal/posture/assessment_results.go`). Robert Former approved the commit; the choices below fill gaps in §6.9 and were made by default, without a separate question:
+  - **Snapshot:** `posture.LoadARSnapshot` reads the posture in one read-only repeatable-read transaction as `app_posture`. `as_of` is that transaction's time.
+    - The snapshot (`ARSnapshot`: active profile, deployment mode, Kubernetes access, the latest scanner report, every setting's instance-wide effective value, unresolved drift findings, deployment checks assessed or not, deployment observations) has a JSON form.
+    - `BuildAssessmentResults` is a pure function of it. T-35 stores the snapshot with the `export_record`, which is how an earlier `as_of` is reproduced; T-33 does not reconstruct past states.
+    - Who may export, the API and signing are T-35's.
+  - **Document** (validated against the pinned OSCAL 1.2.3 schema by `oscal.Marshal`; nothing is returned otherwise):
+    - an observation per setting and OSCAL parameter (a setting without one is still observed once): method `TEST`, type `finding` when the setting deviates (below the floor, out of bounds, or under an exception) and `control-objective` otherwise; the effective value, profile default, bound, source, deviation and exception are `urn:fair-app:posture` props;
+    - an observation per assessed deployment check (collected at the latest scanner report) and per deployment observation; attested node FIPS evidence says "attested, not verified" (T-29);
+    - a finding per unresolved drift finding and control (`objective-id` target, `not-satisfied`, reason `fail`), related to the observations of its setting or check; a check that names no control is reported against CM-6;
+    - **Not assessed:** OSCAL's objective status has only `satisfied` and `not-satisfied`, so a control of a deployment check that is not assessed is a finding with `not-satisfied`, reason `other`, the reason in its remarks, and the prop `fair-assessment-status=not-assessed`;
+    - reviewed controls: every control the settings and checks touch, in catalog order (800-53 ids such as `ac-2.3`).
+  - **Component definition (AC-48):** F-014 has not started, so the export declares the platform component under the fixed `posture.PlatformComponentUUID` (in the result's local definitions, so subjects resolve) and links it to a back-matter resource for the component definition. F-014 must publish the platform component definition with that component UUID.
+  - **Assessment plan:** `import-ap` references a generated plan, a back-matter resource describing the continuous tests for the active profile, rather than a separate assessment-plan document (not a model the pinned set supports).
+  - **Determinism:** UUIDv5 names (document and observations include `as_of`; a finding's UUID depends only on its subject, as OSCAL recommends) and every list sorted, so the output does not depend on row order.
+  - `posture.Reader` (a pool or a transaction) lets `Findings`, `Observations` and the Kubernetes-access status and assessment run inside the snapshot transaction; the assessment takes `as_of` instead of the wall clock.
+  - Verification:
+    - Unit: the document validates; observations per parameter with values; drift and Not assessed findings; reviewed controls; the component and plan references resolve; identical bytes after reversing every row order and after a JSON round trip of the snapshot; a different `as_of` gives a different document while finding UUIDs stay; with access declined every check is Not assessed; an empty posture is still valid.
+    - DB (`TestAssessmentResultsExport`): a real posture with a direct edit and a scanner run gives a valid document observing every setting, with the drift findings, the 8 checks that did not run as Not assessed and the node evidence; two snapshots at the same `as_of` give identical bytes, as does the stored snapshot; revoking access changes the document and makes all 10 checks Not assessed.
+    - Mutations (unsorted settings, wall-clock collection time, no Not assessed findings, no component link) each fail the tests.
