@@ -150,6 +150,10 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_DB_PASSWORD_FILE=<app_posture passwor
 # OpenShift also deploy/k8s/openshift/fips-probe-scc.yaml, and build that
 # release's manifest with -deploy deploy/k8s,deploy/k8s/openshift). Nodes
 # whose probe is declined are attested with the label fair-platform.io/fips=attested.
+# Kubernetes-access consent (T-30): the installer shows
+# deploy/k8s/permission-manifest.json and records the decision with
+#   ./bin/posture k8s-access grant | decline -reason TEXT | request | revoke -reason TEXT | status
+# A later grant (request) waits for an administrator's acknowledgement.
 # After changing a .proto in api/proto: scripts/gen-proto.sh (see its header).
 
 # The posture service itself (./bin/posture) also needs FAIR_NATS_URL (tls://

@@ -9,6 +9,9 @@
 //	releasegen sign -key FILE -in FILE
 //	    writes FILE.sig with the release signing key (PEM, ECDSA P-256).
 //	releasegen verify -pub FILE -in FILE
+//	releasegen permissions [-out deploy/k8s/permission-manifest.json]
+//	    the scanner's permission manifest for consent (T-30); a test keeps
+//	    the committed file current.
 package main
 
 import (
@@ -21,6 +24,7 @@ import (
 
 	"github.com/rformer/fair-app/internal/profilepkg"
 	"github.com/rformer/fair-app/internal/releasemanifest"
+	"github.com/rformer/fair-app/internal/scanner"
 )
 
 func main() {
@@ -82,6 +86,18 @@ func run(args []string) error {
 			return err
 		}
 		return os.WriteFile(*in+".sig", sig, 0o644) // #nosec G306 G703 -- a public release artifact at the operator's path
+	case "permissions":
+		out := fs.String("out", "deploy/k8s/permission-manifest.json", "output file")
+		_ = fs.Parse(args[1:])
+		m, err := scanner.Manifest()
+		if err != nil {
+			return err
+		}
+		b, err := m.Encode()
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(*out, b, 0o644) // #nosec G306 G703 -- a public release artifact at the operator's path
 	case "verify":
 		pubFile := fs.String("pub", "", "release public key (PEM)")
 		in := fs.String("in", "", "manifest file")

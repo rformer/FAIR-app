@@ -69,6 +69,10 @@ type scannerEnv struct {
 func scannerFixture(t *testing.T) scannerEnv {
 	t.Helper()
 	de := driftFixture(t)
+	// Reports are accepted only with Kubernetes access granted (T-30).
+	if _, err := (posture.K8sAccess{DB: de.e.posturePool(), Audit: audit.NewMemory()}).Decide(context.Background(), posture.AccessGranted, "", ""); err != nil {
+		t.Fatal(err)
+	}
 	ca := newTestCA(t, "platform")
 	srvCert, srvKey := ca.issue(t, "posture", false, []string{"posture.fair-platform"})
 	conf, err := posture.ScannerTLS(srvCert, srvKey, ca.pemFile)

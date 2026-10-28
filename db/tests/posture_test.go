@@ -7,7 +7,7 @@ import (
 )
 
 // F-015 T-08 (design §5 access model): posture tables.
-var postureTables = []string{"active_profile", "change", "deployment_observation", "drift_finding", "exception", "exception_notice", "mac_key", "notice_outbox", "overlay_change", "overlay_value", "profile", "profile_switch", "profile_value", "renewal", "scanner_report", "secops_outbox", "service_heartbeat", "setting_def", "setting_value", "state", "switch_conflict"}
+var postureTables = []string{"active_profile", "change", "deployment_observation", "drift_finding", "exception", "exception_notice", "k8s_access", "mac_key", "notice_outbox", "overlay_change", "overlay_value", "profile", "profile_switch", "profile_value", "renewal", "scanner_report", "secops_outbox", "service_heartbeat", "setting_def", "setting_value", "state", "switch_conflict"}
 
 // Verification for T-08: application roles have no access to posture tables,
 // reads included; RLS is forced with a posture_definer-only policy.

@@ -73,6 +73,14 @@ func (s *ScannerService) Report(ctx context.Context, r *posturev1.ScanReport) (*
 	if err := s.Authorize(ctx); err != nil {
 		return nil, err
 	}
+	// Declined (or not yet granted) Kubernetes access disables deployment
+	// drift detection (AC-40): a scanner deployed anyway records nothing.
+	if err := (K8sAccess{DB: s.DB}).requireGranted(ctx); err != nil {
+		if errors.Is(err, ErrAccessNotGranted) {
+			return nil, status.Error(codes.FailedPrecondition, notGrantedMessage(err))
+		}
+		return nil, status.Error(codes.Unavailable, "posture is unavailable")
+	}
 	now := time.Now
 	if s.Now != nil {
 		now = s.Now

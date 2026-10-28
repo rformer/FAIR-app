@@ -74,6 +74,18 @@ func main() {
 			os.Exit(2)
 		}
 		err = importDir(*pub, *dir, *actor)
+	case len(os.Args) > 1 && os.Args[1] == "k8s-access":
+		// The installer's record of the customer's Kubernetes-access decision
+		// (F-015 T-30): grant | decline | request | revoke | status.
+		fs := flag.NewFlagSet("k8s-access", flag.ExitOnError)
+		reason := fs.String("reason", "", "why access is declined or revoked (required for those)")
+		actor := fs.String("actor", posture.InstallerActor, "audit actor")
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: posture k8s-access grant|decline|request|revoke|status [-reason TEXT]")
+			os.Exit(2)
+		}
+		_ = fs.Parse(os.Args[3:])
+		err = k8sAccess(os.Args[2], *reason, *actor)
 	default:
 		err = run()
 	}
@@ -127,6 +139,45 @@ func seed(profile, version, actor string) error {
 	}
 	fmt.Fprintf(os.Stderr, "seeded %d settings from %s %s (package %s)\n", s.Settings, s.Profile, s.Version, s.Digest)
 	return nil
+}
+
+func k8sAccess(cmd, reason, actor string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	pool, err := command(ctx)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	k := posture.K8sAccess{DB: pool, Audit: audit.NewJSONLines(os.Stdout)}
+	state := map[string]string{"grant": posture.AccessGranted, "decline": posture.AccessDeclined,
+		"request": posture.AccessRequested, "revoke": posture.AccessRevoked}[cmd]
+	if cmd != "status" {
+		if state == "" {
+			return fmt.Errorf("unknown k8s-access command %q", cmd)
+		}
+		prev, err := k.Decide(ctx, state, reason, actor)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "Kubernetes access: %s -> %s\n", orUndecided(prev), state)
+	}
+	st, err := k.Status(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "state %s, permissions %s (this release %s)\n", st.State, st.Digest, st.CurrentDigest)
+	if st.Warning != "" {
+		fmt.Fprintln(os.Stderr, "warning:", st.Warning)
+	}
+	return nil
+}
+
+func orUndecided(s string) string {
+	if s == "" {
+		return posture.AccessUndecided
+	}
+	return s
 }
 
 func importDir(pubFile, dir, actor string) error {

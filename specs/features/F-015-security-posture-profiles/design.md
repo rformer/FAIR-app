@@ -890,3 +890,25 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
       - With the hostPath pointed at a node file reading `1` (a simulated FIPS kernel), the probe becomes Ready and the node is "verified" without the label.
       - With the flag back at `0`, the probe leaves Ready and the finding returns.
     - **Mutations:** any probe pod counting as verified, labels recorded as verified, `0` accepted, and observations never replaced each fail the tests.
+- 2026-10-28: T-30 implementation notes (`internal/scanner/permissions.go`, `deploy/k8s/permission-manifest.json`, `db/migrations/0032_k8s_access.sql`, `internal/posture/k8saccess.go`, `posture k8s-access`).
+  - **Permission manifest** (AC-39):
+    - Generated from `scanner.Access` by `releasegen permissions` into `deploy/k8s/permission-manifest.json`; a test keeps the committed file current.
+    - It lists every read with its purpose, by scope (cluster, platform namespaces, the fips-probe namespace). It also discloses the scanner's network reach and fips-probe's single host file, and states what is never granted (Secrets, any write, exec, logs, tokens, impersonation, escalation, bind).
+    - The scanner's RBAC already grants exactly these reads (static audit, T-27). The installer (F-014) shows the manifest; its SHA-256 is what consent records, so a release that changes the permissions asks again.
+  - **State** (`posture.k8s_access`, the design's `k8s_access` with the consented digest):
+    - The installer records decisions with `posture k8s-access grant|decline|request|revoke|status [-reason]` (actor `system:installer`): grant or decline at install, revoke later, and request after a later Helm flip.
+    - A request becomes granted only when an administrator acknowledges it in the UI (`K8sAccess.Acknowledge`, `settings.change` at the root, for the digest shown).
+    - Declines and revocations need a reason and are audited high (`posture.k8s_access_<state>`).
+    - In SaaS mode declining or revoking is refused, and an undecided install counts as granted (AC-38).
+  - **Declined means disabled** (AC-40): `ScannerService.Report` refuses reports with FailedPrecondition unless access is granted, so a scanner deployed anyway records nothing; the installer deploys none.
+  - **Banner:** `K8sAccess.Status` gives the persistent warning for the Posture page (T-32) when access is undecided, declined, revoked, or awaiting acknowledgement, or when this release's permissions differ from those consented to.
+  - **Not assessed:** `K8sAccess.Assessment` maps each of the 10 deployment checks (with its controls) for the OSCAL export (T-33). It is Not assessed while access is not granted, when the scanner has not reported for 45 minutes (three scan intervals), when the check failed in the latest report, or when it did not run; otherwise it is assessed.
+  - Verification:
+    - `TestK8sAccessConsent`:
+      - Granted at install: reports are accepted; ran checks are assessed, while a failed check, checks not run, and a silent scanner are Not assessed.
+      - Revoking needs a reason and is audited high; reports are then refused, a banner appears, and everything is Not assessed.
+      - The installer cannot grant directly after a revoke; a request plus acknowledgement is needed. Acknowledging without `settings.change` or for other permissions is refused; after acknowledgement reports are accepted again.
+      - Changed permissions raise a banner until re-consent.
+    - `TestK8sAccessDeclinedAndSaaS`: undecided gives a banner; a decline needs a reason and leaves everything Not assessed with a banner; SaaS counts as granted and cannot decline.
+    - `TestPermissionManifest`.
+    - Mutations (no report gate, SaaS decline allowed, acknowledged digest not checked, assessment ignoring the state) each fail the tests.

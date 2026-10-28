@@ -1,0 +1,256 @@
+{
+  "format": "fair-scanner-permission-manifest/v1",
+  "summary": "Read-only access for deployment drift detection: get, list and watch on the resources below, never Secrets, never any write.",
+  "permissions": [
+    {
+      "scope": "cluster",
+      "api_group": "",
+      "resources": [
+        "namespaces"
+      ],
+      "verbs": [
+        "get",
+        "list",
+        "watch"
+      ],
+      "purpose": "Pod security admission level of the platform namespaces (labels only)"
+    },
+    {
+      "scope": "cluster",
+      "api_group": "",
+      "resources": [
+        "nodes"
+      ],
+      "verbs": [
+        "get",
+        "list",
+        "watch"
+      ],
+      "purpose": "FIPS mode attestation labels on nodes"
+    },
+    {
+      "scope": "cluster",
+      "api_group": "storage.k8s.io",
+      "resources": [
+        "storageclasses"
+      ],
+      "verbs": [
+        "get",
+        "list",
+        "watch"
+      ],
+      "purpose": "Whether the storage classes of platform volumes encrypt at rest"
+    },
+    {
+      "scope": "cluster",
+      "api_group": "rbac.authorization.k8s.io",
+      "resources": [
+        "clusterroles"
+      ],
+      "verbs": [
+        "get",
+        "list",
+        "watch"
+      ],
+      "purpose": "Detect changes to the platform's cluster-level RBAC"
+    },
+    {
+      "scope": "cluster",
+      "api_group": "rbac.authorization.k8s.io",
+      "resources": [
+        "clusterrolebindings"
+      ],
+      "verbs": [
+        "get",
+        "list",
+        "watch"
+      ],
+      "purpose": "Detect cluster-level grants to platform service accounts"
+    },
+    {
+      "scope": "cluster",
+      "api_group": "admissionregistration.k8s.io",
+      "resources": [
+        "validatingadmissionpolicies"
+      ],
+      "verbs": [
+        "get",
+        "list",
+        "watch"
+      ],
+      "purpose": "Presence of an image signature verification policy (metadata)"
+    },
+    {
+      "scope": "cluster",
+      "api_group": "admissionregistration.k8s.io",
+      "resources": [
+        "validatingwebhookconfigurations"
+      ],
+      "verbs": [
+        "get",
+        "list",
+        "watch"
+      ],
+      "purpose": "Presence of an image signature verification webhook (metadata)"
+    },
+    {
+      "scope": "platform namespaces",
+      "api_group": "",
+      "resources": [
+        "pods"
+      ],
+      "verbs": [
+        "get",
+        "list",
+        "watch"
+      ],
+      "purpose": "Workload hardening, running image digests, secret references (never secret values)"
+    },
+    {
+      "scope": "platform namespaces",
+      "api_group": "apps",
+      "resources": [
+        "deployments",
+        "statefulsets",
+        "daemonsets"
+      ],
+      "verbs": [
+        "get",
+        "list",
+        "watch"
+      ],
+      "purpose": "Platform workload inventory"
+    },
+    {
+      "scope": "platform namespaces",
+      "api_group": "",
+      "resources": [
+        "services"
+      ],
+      "verbs": [
+        "get",
+        "list",
+        "watch"
+      ],
+      "purpose": "TLS endpoints to check (handshake only)"
+    },
+    {
+      "scope": "platform namespaces",
+      "api_group": "",
+      "resources": [
+        "persistentvolumeclaims"
+      ],
+      "verbs": [
+        "get",
+        "list",
+        "watch"
+      ],
+      "purpose": "Storage classes used by platform volumes (no data access)"
+    },
+    {
+      "scope": "platform namespaces",
+      "api_group": "networking.k8s.io",
+      "resources": [
+        "networkpolicies"
+      ],
+      "verbs": [
+        "get",
+        "list",
+        "watch"
+      ],
+      "purpose": "Default-deny and per-service NetworkPolicies"
+    },
+    {
+      "scope": "platform namespaces",
+      "api_group": "",
+      "resources": [
+        "serviceaccounts"
+      ],
+      "verbs": [
+        "get",
+        "list",
+        "watch"
+      ],
+      "purpose": "Subjects of the platform's RBAC"
+    },
+    {
+      "scope": "platform namespaces",
+      "api_group": "rbac.authorization.k8s.io",
+      "resources": [
+        "roles",
+        "rolebindings"
+      ],
+      "verbs": [
+        "get",
+        "list",
+        "watch"
+      ],
+      "purpose": "Detect changes to the platform's namespace RBAC"
+    },
+    {
+      "scope": "platform namespaces",
+      "api_group": "external-secrets.io",
+      "resources": [
+        "externalsecrets"
+      ],
+      "verbs": [
+        "get",
+        "list",
+        "watch"
+      ],
+      "purpose": "Whether secrets come from the secrets store (if External Secrets is installed)"
+    },
+    {
+      "scope": "fips-probe namespace",
+      "api_group": "",
+      "resources": [
+        "pods"
+      ],
+      "verbs": [
+        "get",
+        "list",
+        "watch"
+      ],
+      "purpose": "fips-probe readiness per node (FIPS mode verified)"
+    },
+    {
+      "scope": "fips-probe namespace",
+      "api_group": "rbac.authorization.k8s.io",
+      "resources": [
+        "roles",
+        "rolebindings"
+      ],
+      "verbs": [
+        "get",
+        "list",
+        "watch"
+      ],
+      "purpose": "Detect changes to the platform's namespace RBAC"
+    }
+  ],
+  "other_access": [
+    {
+      "component": "posture-scanner",
+      "what": "Network: the Kubernetes API server, the posture service (mTLS), platform pods' TLS ports and the ingress (TLS handshake only), DNS",
+      "purpose": "Read the cluster, report findings, check TLS versions and certificates"
+    },
+    {
+      "component": "fips-probe",
+      "what": "On every node, one host file read-only: /proc/sys/crypto/fips_enabled; no API access, no network",
+      "purpose": "Verify the node kernel runs in FIPS mode (optional; nodes may be attested instead)"
+    }
+  ],
+  "never_grants": [
+    "secrets",
+    "create",
+    "update",
+    "patch",
+    "delete",
+    "pods/exec",
+    "pods/log",
+    "serviceaccounts/token",
+    "impersonate",
+    "escalate",
+    "bind"
+  ]
+}
