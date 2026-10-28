@@ -129,7 +129,7 @@ func seedPostureScenario(t *testing.T, ae apiEnv) {
 	}
 	set(settings.KeySessionIdleTimeout, 25*time.Minute, "call centre shifts")
 	lockout := approve(set(settings.KeyAuthLockoutThreshold, 12, "legacy kiosk accounts"))
-	e.admin(e.db, "UPDATE posture.exception SET expires_at = now() + interval '10 days' WHERE id = '"+lockout.ID+"'")
+	e.timeTravel("UPDATE posture.exception SET expires_at = now() + interval '10 days' WHERE id = '" + lockout.ID + "'")
 	token := approve(set(settings.KeyTokenMaxLifetime, 120*24*time.Hour, "integration partner migration"))
 	expire(e, token.ID)
 	if out, err := posture.RevertDue(ctx, e.posturePool(), audit.NewMemory(), nil); err != nil || len(out) != 1 {

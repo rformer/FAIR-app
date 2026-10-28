@@ -1,7 +1,7 @@
 export GOFIPS140 ?= v1.0.0
 export CGO_ENABLED ?= 0
 
-.PHONY: build test test-db migrate lint fmt vet image clean
+.PHONY: build test test-db test-stride migrate lint fmt vet image clean
 
 build:
 	go build -trimpath -o bin/iam ./cmd/iam
@@ -15,6 +15,15 @@ test:
 # The T-08 scale test runs only with FAIR_TEST_SCALE=1 (slow).
 test-db:
 	FAIR_TEST_PG=1 go test -count=1 -timeout 60m -v ./db/tests/
+
+# F-015 T-36: the STRIDE suite (design §8), with the database (as test-db).
+# db/tests TestSTRIDECatalog checks that every §8 threat maps to tests and
+# that each of them is named here.
+STRIDE_DB_TESTS = TestSTRIDE|TestPostureImportSigned|TestPostureNoDirectWrites|TestPostureDirectEditDetected|TestDriftDetectsDirectDBEdit|TestApprovalLifecycle|TestPostureAPIRestrictedBUHidden|TestRevertFaultInjection|TestDriftExceptionsAndMissedRevert|TestSecOpsSaaSNotifiesWeakening|TestExceptionDuration|TestRevertOnExpiry|TestScannerChannelAuthentication
+STRIDE_UNIT_TESTS = TestVerifyRelease|TestPackagesSignedReleaseTamper|TestScannerRBACIsReadOnlyAndMatchesAccess|TestPermissionManifest|TestScannerPodHardenedAndEgressRestricted
+test-stride:
+	go test -count=1 -run '^($(STRIDE_UNIT_TESTS))$$' ./internal/profilepkg/ ./internal/profilegen/ ./internal/scanner/
+	FAIR_TEST_PG=1 go test -count=1 -timeout 30m -v -run '^($(STRIDE_DB_TESTS))' ./db/tests/
 
 # Applies the embedded migrations and release catalog as app_migrator (T-02b).
 # Needs PGDATABASE, FAIR_MIGRATOR_PASSWORD_FILE and libpq connection vars;

@@ -67,7 +67,7 @@ Prerequisite: F-001 Phases 0–1 (DB roles, BU closure, approvals interface, eve
 ## Phase G — Hardening
 | # | Task | Traces to | Verification | Size | Status |
 |---|---|---|---|---|---|
-| T-36 | STRIDE test suite (package forgery, DB tampering, exception extension, scanner privilege, revert starvation) | Design §8 | Suite green in CI | M | Todo |
+| T-36 | STRIDE test suite (package forgery, DB tampering, exception extension, scanner privilege, revert starvation) | Design §8 | Suite green in CI | M | Done (2026-10-28; `make test-stride`, CI step "STRIDE suite") |
 | T-37 | Deployment-mode matrix (SaaS / self-hosted / air-gapped offline import, signing keys per mode) | Deployment modes | CI matrix green | M | Todo |
 | T-38 | 800-53r5 control implementation statements for F-015 (CM-2/3/5/6/7, CA-2/5/7, SI-4, AU-6, PL-2) | Control mapping | Reviewed statements | S | Todo |
 

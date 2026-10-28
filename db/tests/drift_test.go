@@ -140,7 +140,7 @@ func TestDriftExceptionsAndMissedRevert(t *testing.T) {
 	// Expired 1 s ago: within the revert loop's grace.
 	expire(e, x.ID)
 	wantIDs(t, "just expired", ids(de.scan(t).Findings))
-	e.admin(e.db, "UPDATE posture.exception SET expires_at = now() - interval '2 minutes' WHERE id = '"+x.ID+"'")
+	e.timeTravel("UPDATE posture.exception SET expires_at = now() - interval '2 minutes' WHERE id = '" + x.ID + "'")
 	wantIDs(t, "missed revert", ids(de.scan(t).Opened), "missed_revert exception:"+x.ID)
 
 	if out, err := posture.RevertDue(ctx, e.posturePool(), audit.NewMemory(), nil); err != nil || len(out) != 1 || out[0].Err != nil {

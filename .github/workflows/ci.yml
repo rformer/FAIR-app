@@ -60,6 +60,15 @@ jobs:
           PGUSER: postgres
           PGPASSWORD: ci-only-admin
         run: go test -count=1 -v ./db/tests/
+      - name: STRIDE suite (F-015 T-36, design §8)
+        env:
+          FAIR_TEST_PG: "1"
+          FAIR_TEST_NATS: nats://localhost:4222
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: ci-only-admin
+        run: make test-stride
       - uses: actions/upload-artifact@v4
         with:
           name: coverage

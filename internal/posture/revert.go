@@ -22,6 +22,9 @@ import (
 // RevertActor is the audit actor of automatic reverts.
 const RevertActor = "system:posture"
 
+// RevertLockTimeout bounds how long one revert waits for a row lock.
+const RevertLockTimeout = 5 * time.Second
+
 // RevertOutcome reports one revert attempt.
 type RevertOutcome struct {
 	ExceptionID, Key, BUID string
@@ -65,6 +68,12 @@ func RevertDue(ctx context.Context, db *pgxpool.Pool, em audit.Emitter, pub Publ
 		}
 		attrs := map[string]string{"exception_id": d.id, "key": d.key, "bu_id": o.BUID, "owner": d.owner}
 		o.Err = pgx.BeginFunc(ctx, db, func(tx pgx.Tx) error {
+			// A row held by another transaction (a DBA's open session, say)
+			// must not stall this revert and every one behind it (design §8,
+			// revert starvation): give up, record the failure, retry later.
+			if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL lock_timeout = '%dms'", RevertLockTimeout.Milliseconds())); err != nil {
+				return err
+			}
 			if _, err := tx.Exec(ctx, "SELECT posture.apply_revert($1)", d.id); err != nil {
 				return err
 			}

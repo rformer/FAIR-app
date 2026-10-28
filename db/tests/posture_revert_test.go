@@ -16,8 +16,16 @@ import (
 // F-015 T-18 (AC-27 - AC-29): automatic revert. Time travel moves an
 // exception's timestamps; the rules use the database clock.
 
+// timeTravel moves an exception's times (or retry schedule) as the posture
+// functions would, as posture_definer, so its row MAC stays valid (T-36);
+// a direct edit by any other role is tampering that drift reports.
+func (e *env) timeTravel(sql string) {
+	e.t.Helper()
+	e.admin(e.db, "SET ROLE posture_definer; "+sql)
+}
+
 func expire(e *env, exceptionID string) {
-	e.admin(e.db, "UPDATE posture.exception SET created_at = now() - interval '30 days', expires_at = now() - interval '1 second' WHERE id = '"+exceptionID+"'")
+	e.timeTravel("UPDATE posture.exception SET created_at = now() - interval '30 days', expires_at = now() - interval '1 second' WHERE id = '" + exceptionID + "'")
 }
 
 func exceptionState(e *env, id string) string {
@@ -104,7 +112,7 @@ func TestRevertFaultInjection(t *testing.T) {
 	finding := func() string {
 		return e.adminQuery("SELECT coalesce(string_agg(severity || ':' || status || ':' || (detail->>'attempts'), ','), '') FROM posture.drift_finding WHERE check_id = 'revert_failed'")
 	}
-	due := func() { e.admin(e.db, "UPDATE posture.exception SET revert_next_at = now() WHERE id = '"+x.ID+"'") }
+	due := func() { e.timeTravel("UPDATE posture.exception SET revert_next_at = now() WHERE id = '" + x.ID + "'") }
 
 	// Fault 1: the audit sink is down, so the revert cannot be recorded and rolls back.
 	out, err := posture.RevertDue(ctx, pool, failingEmitter{}, nil)
@@ -199,7 +207,7 @@ func TestRevertWithin60Seconds(t *testing.T) {
 	go c.Run(ctx, nil)
 	go posture.RunReverts(ctx, e.posturePool(), audit.NewMemory(), nil, 10*time.Second, func(err error) { mu.Lock(); loopErr = err; mu.Unlock() })
 
-	e.admin(e.db, "UPDATE posture.exception SET created_at = now() - interval '30 days', expires_at = now() + interval '1 second' WHERE id = '"+x.ID+"'")
+	e.timeTravel("UPDATE posture.exception SET created_at = now() - interval '30 days', expires_at = now() + interval '1 second' WHERE id = '" + x.ID + "'")
 	expired := time.Now().Add(time.Second)
 	for {
 		if d, err := c.Duration(settings.KeyAuthInactiveDisable, ""); err == nil && d == 90*24*time.Hour {

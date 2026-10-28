@@ -300,7 +300,7 @@ func TestPostureRevert(t *testing.T) {
 		if expired {
 			at, created = "now() - interval '1 second'", "now() - interval '90 days'"
 		}
-		id := e.adminQuery(`INSERT INTO posture.exception (key, bu_id, value, bound_at_creation, justification, owner_id, approved_by, created_at, expires_at, state)
+		id := e.adminQuery(`SET ROLE posture_definer; INSERT INTO posture.exception (key, bu_id, value, bound_at_creation, justification, owner_id, approved_by, created_at, expires_at, state)
 			VALUES ('` + key + `', ` + bu + `, '` + value + `', '` + bound + `', 'pilot', '` + user + `', '` + user + `', ` + created + `, ` + at + `, 'active') RETURNING id`)
 		e.adminQuery(`SELECT posture.write_value('` + key + `', ` + bu + `, '` + value + `', 'exception', NULL, '` + id + `')`)
 		return id

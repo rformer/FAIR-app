@@ -148,7 +148,7 @@ func TestExceptionRenewal(t *testing.T) {
 	if _, err := appr.Decide(ctx, admin2, r2.ApprovalID, true, ""); err != nil {
 		t.Fatal(err)
 	}
-	e.admin(e.db, "UPDATE posture.exception SET created_at = created_at - interval '20 days', expires_at = now() - interval '1 second' WHERE id = '"+x.ID+"'")
+	e.timeTravel("UPDATE posture.exception SET created_at = created_at - interval '20 days', expires_at = now() - interval '1 second' WHERE id = '" + x.ID + "'")
 	if _, err := ev.ApplyRenewal(ctx, r2.ID); !errors.Is(err, posture.ErrNotApplicable) {
 		t.Fatalf("applying a renewal after expiry: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestExceptionNotices(t *testing.T) {
 	pool := e.posturePool()
 	x := approvedException(t, e, ev, 0)
 	travel := func(left string) {
-		e.admin(e.db, "UPDATE posture.exception SET created_at = least(created_at, now() - interval '1 day'), expires_at = now() + interval '"+left+"' WHERE id = '"+x.ID+"'")
+		e.timeTravel("UPDATE posture.exception SET created_at = least(created_at, now() - interval '1 day'), expires_at = now() + interval '" + left + "' WHERE id = '" + x.ID + "'")
 	}
 	run := func(want ...int) {
 		t.Helper()
