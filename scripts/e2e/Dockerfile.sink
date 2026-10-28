@@ -1,6 +1,6 @@
 # Test image for scripts/k8s-e2e-scanner.sh: the scanner-sink stand-in for
 # posture's scanner channel (F-015 T-27). Never shipped.
-FROM golang:1.24-bookworm AS build
+FROM golang:1.26-bookworm AS build
 WORKDIR /src
 ENV CGO_ENABLED=0 GOFIPS140=v1.0.0 GOFLAGS=-trimpath
 COPY go.mod go.sum ./

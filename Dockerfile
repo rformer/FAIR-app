@@ -10,7 +10,7 @@
 # - Runs as non-root (65532) and works with a read-only root filesystem.
 # TODO(F-012): pin both base images by digest; Dependabot keeps digests current.
 
-ARG GO_VERSION=1.24
+ARG GO_VERSION=1.26
 
 FROM golang:${GO_VERSION}-bookworm AS build
 WORKDIR /src

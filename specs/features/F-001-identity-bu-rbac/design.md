@@ -229,13 +229,14 @@ Until F-015 exists, F-001 ships a minimal settings module that holds the three p
 - **Plain RLS with an unsigned session variable:** rejected by ADR-007 (accepted).
 
 ## 12. Risks & open items (resolved during implementation)
-- **D-OQ1. SAML library selection** (`crewjam/saml` vs `russellhaering/gosaml2`), judged on maintenance record, CVE history and FIPS-only algorithms. An XML signature wrapping (XSW) test corpus is required regardless. → Task T-15.
+- **D-OQ1. SAML library selection:** resolved, see Resolved.
 - **D-OQ3. `authz.visible_bus` performance at target scale:** resolved, see Resolved.
 - **R1. Closure rebuild on large subtree moves:** resolved, see Resolved.
 - **D-OQ4. Contents of the v1 permission catalog:** resolved, see Resolved.
 - **D-OQ5. Removed or reclassified permissions on upgrade.** T-03 reports them in the catalog diff but does not reject them. T-29 must decide whether a release may remove a key that custom roles reference, and whether reclassifying a permission as non-privileged is allowed.
 
 ## Resolved
+- **D-OQ1 SAML library:** `russellhaering/gosaml2` with `goxmldsig`, wrapped in `internal/authn/saml`, with F-001's own algorithm, structure, time and replay checks around it and the XSW corpus (ADR-009, accepted by Robert Former, 2026-10-28). The module moves to Go 1.26 (gosaml2 needs 1.25; 1.24 is out of support).
 - D-OQ3 `visible_bus` performance: meets the NFR at target scale (T-11, `db/bench/REPORT.md`, 2026-10-26). The context check plus query has p95 0.4 ms for small and medium scopes and 1.2–1.7 ms for the largest (1,952 BUs).
 - Assignment authority (T-07, approved by Robert Former, 2026-10-26):
   - A **root-level grantor** holds `access.assign` through an assignment at the Enterprise root. Root-level grantors may assign into restricted BUs; this is for assigning only and never widens data access. Everyone else needs an assignment at or below the restricted BU (AC-22). Without this, nobody could make the first assignment in a new BU, because new BUs are restricted by default (AC-61).

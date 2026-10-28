@@ -77,7 +77,7 @@ specs/              approved specs (requirements, designs, tasks, ADRs)
 
 ## Develop
 
-Requirements: Go 1.24+, PostgreSQL 16+ and `psql` (for the DB tests).
+Requirements: Go 1.26+, PostgreSQL 16+ and `psql` (for the DB tests).
 
 ```sh
 make test       # unit tests, race detector, FIPS 140 module
@@ -99,7 +99,7 @@ docker run -d --name fairnats --network fairtest nats:2.10 -js
 docker run --rm --network fairtest -v "$PWD:/src" -w /src \
   -e PGHOST=fairpg -e PGUSER=postgres -e PGPASSWORD=pgtest -e GOFLAGS=-buildvcs=false \
   -e FAIR_TEST_NATS=nats://fairnats:4222 \
-  golang:1.24-bookworm sh -c 'apt-get update -qq && apt-get install -y -qq postgresql-client >/dev/null && make test-db'
+  golang:1.26-bookworm sh -c 'apt-get update -qq && apt-get install -y -qq postgresql-client >/dev/null && make test-db'
 ```
 
 ### Database setup (installer / DBA)

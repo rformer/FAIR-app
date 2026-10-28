@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Regenerates internal/api from api/proto (F-015 T-27). Generated code is
 # committed; run this after changing a .proto, from the repository root:
-#   docker run --rm -v "$PWD:/src" -w /src golang:1.24-bookworm scripts/gen-proto.sh
+#   docker run --rm -v "$PWD:/src" -w /src golang:1.26-bookworm scripts/gen-proto.sh
 set -euo pipefail
 PROTOC_GEN_GO=v1.36.6
 PROTOC_GEN_GO_GRPC=v1.5.1
