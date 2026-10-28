@@ -242,3 +242,24 @@ func TestScannerReportValidation(t *testing.T) {
 	}
 	wantIDs(t, "only the good report recorded", se.open(t), "pod_security_admission deployment:namespace/x")
 }
+
+// AC-41: node FIPS findings count only where the active profile requires
+// FIPS mode (fips.enabled).
+func TestScannerNodeFIPSFollowsProfile(t *testing.T) {
+	ctx := context.Background()
+	se := scannerFixture(t) // FedRAMP Moderate: FIPS required
+	fips := &staticCheck{id: posture.CheckNodeFIPS, findings: []scanner.Finding{
+		{Severity: "high", Controls: []string{"SC-13"}, Subject: "node/worker-0", DetailJSON: `{"fips":""}`, Remediation: "Enable FIPS mode."}}}
+	sc := &scanner.Scanner{Reader: fakeReader{}, Checks: []scanner.Check{fips}, Instance: "s-0", Report: se.report}
+	if _, err := sc.ScanOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	wantIDs(t, "FIPS required", se.open(t), "node_fips deployment:node/worker-0")
+
+	// Under a profile that does not require FIPS the same scan passes.
+	se.e.admin(se.e.db, `UPDATE posture.setting_value SET value = 'false' WHERE key = 'fips.enabled' AND bu_id IS NULL`)
+	if _, err := sc.ScanOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	wantIDs(t, "FIPS not required", se.open(t))
+}

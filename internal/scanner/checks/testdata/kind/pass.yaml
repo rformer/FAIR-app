@@ -1,0 +1,129 @@
+# kind / k3d: a compliant platform. local-path storage is attested as
+# encrypted at install (e.g. the node disk is LUKS-encrypted); the
+# External Secrets Operator is not installed.
+kind: FixtureCluster
+metadata: { name: cluster }
+notServed: externalsecrets
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fair-platform
+  labels:
+    kubernetes.io/metadata.name: fair-platform
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: fair-control-plane
+  labels:
+    kubernetes.io/hostname: fair-control-plane
+    node-role.kubernetes.io/control-plane: ""
+    fair-platform.io/fips: attested
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: standard
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+    fair-platform.io/encrypted-at-rest: "true"
+provisioner: rancher.io/local-path
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: nats-data, namespace: fair-platform }
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: { requests: { storage: 1Gi } }
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: fair-image-signatures
+  annotations: { fair-platform.io/verifies-image-signatures: "true" }
+spec:
+  failurePolicy: Fail
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: default-deny, namespace: fair-platform }
+spec: { podSelector: {}, policyTypes: [Ingress, Egress] }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: iam-ingress-from-gateway, namespace: fair-platform }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/name: iam } }
+  policyTypes: [Ingress]
+  ingress: [{ from: [{ podSelector: { matchLabels: { app.kubernetes.io/name: gateway } } }], ports: [{ port: 8443 }] }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: posture-scanner, namespace: fair-platform }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/name: posture-scanner } }
+  policyTypes: [Ingress, Egress]
+  egress: [{ ports: [{ port: 53, protocol: UDP }] }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: iam, namespace: fair-platform, annotations: { fixture/tls: good } }
+spec: { ports: [{ name: https, port: 443, protocol: TCP }] }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: posture, namespace: fair-platform, annotations: { fixture/tls: good } }
+spec: { ports: [{ name: scanner, port: 9443, protocol: TCP }] }
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: iam-6d4cf56db6-x2k9p
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: iam, pod-template-hash: 6d4cf56db6 }
+  ownerReferences: [{ apiVersion: apps/v1, kind: ReplicaSet, name: iam-6d4cf56db6, uid: a1 }]
+spec:
+  automountServiceAccountToken: false
+  securityContext: { runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, fsGroup: 65532, seccompProfile: { type: RuntimeDefault } }
+  containers:
+    - name: iam
+      image: ghcr.io/rformer/fair-iam@sha256:1111111111111111111111111111111111111111111111111111111111111111
+      env:
+        - { name: FAIR_ENV, value: production }
+        - { name: FAIR_DB_PASSWORD_FILE, value: /secrets/db/password }
+      securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+  volumes:
+    - { name: tls, secret: { secretName: iam-tls } }
+status:
+  containerStatuses:
+    - name: iam
+      image: ghcr.io/rformer/fair-iam@sha256:1111111111111111111111111111111111111111111111111111111111111111
+      imageID: ghcr.io/rformer/fair-iam@sha256:1111111111111111111111111111111111111111111111111111111111111111
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: posture-scanner-55bb747cb9-jtpvq
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: posture-scanner, pod-template-hash: 55bb747cb9 }
+  ownerReferences: [{ apiVersion: apps/v1, kind: ReplicaSet, name: posture-scanner-55bb747cb9, uid: a2 }]
+spec:
+  automountServiceAccountToken: false
+  securityContext: { runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, fsGroup: 65532, seccompProfile: { type: RuntimeDefault } }
+  containers:
+    - name: scanner
+      image: ghcr.io/rformer/fair-posture-scanner@sha256:2222222222222222222222222222222222222222222222222222222222222222
+      env:
+        - { name: FAIR_SCANNER_TLS_KEY_FILE, value: /tls/tls.key }
+      securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+  volumes:
+    - { name: tls, secret: { secretName: posture-scanner-tls, defaultMode: 288 } }
+status:
+  containerStatuses:
+    - name: scanner
+      imageID: ghcr.io/rformer/fair-posture-scanner@sha256:2222222222222222222222222222222222222222222222222222222222222222

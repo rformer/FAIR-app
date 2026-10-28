@@ -140,6 +140,12 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_DB_PASSWORD_FILE=<app_posture passwor
 # posture opens with FAIR_SCANNER_GRPC_ADDR (e.g. :9443),
 # FAIR_SCANNER_GRPC_CERT_FILE / _KEY_FILE and FAIR_SCANNER_CLIENT_CA_FILE
 # (required in SaaS mode). Live check on kind: scripts/k8s-e2e-scanner.sh.
+# The scanner (T-28) also reads the signed platform release manifest from the
+# fair-release-manifest ConfigMap (release-manifest.json, .sig and
+# release-signing.pub): go run ./cmd/releasegen manifest -release X -images
+# images.json -out release-manifest.json, then releasegen sign -key FILE -in
+# release-manifest.json. Installer attestations: FAIR_PSA_DEFAULT, node label
+# fair-platform.io/fips, StorageClass annotation fair-platform.io/encrypted-at-rest.
 # After changing a .proto in api/proto: scripts/gen-proto.sh (see its header).
 
 # The posture service itself (./bin/posture) also needs FAIR_NATS_URL (tls://

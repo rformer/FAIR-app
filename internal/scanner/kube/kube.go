@@ -62,6 +62,7 @@ var (
 	Nodes                           = Resource{Version: "v1", Plural: "nodes"}
 	Pods                            = Resource{Version: "v1", Plural: "pods", Namespaced: true}
 	Services                        = Resource{Version: "v1", Plural: "services", Namespaced: true}
+	PersistentVolumeClaims          = Resource{Version: "v1", Plural: "persistentvolumeclaims", Namespaced: true}
 	ServiceAccounts                 = Resource{Version: "v1", Plural: "serviceaccounts", Namespaced: true}
 	Deployments                     = Resource{Group: "apps", Version: "v1", Plural: "deployments", Namespaced: true}
 	StatefulSets                    = Resource{Group: "apps", Version: "v1", Plural: "statefulsets", Namespaced: true}

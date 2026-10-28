@@ -1,0 +1,118 @@
+# RKE2: one violation per check (see distributions in fixtures_test.go).
+kind: FixtureCluster
+metadata: { name: cluster }
+notServed: externalsecrets
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fair-platform
+  labels:
+    kubernetes.io/metadata.name: fair-platform
+    pod-security.kubernetes.io/enforce: privileged # exempted from the restricted default
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: rke2-server-0
+  labels: { node-role.kubernetes.io/control-plane: "true", fair-platform.io/fips: verified }
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: rke2-agent-1
+  labels: { node.kubernetes.io/instance-type: rke2 } # joined without the FIPS build
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-path
+  annotations: { storageclass.kubernetes.io/is-default-class: "true" }
+provisioner: rancher.io/local-path
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: nats-data, namespace: fair-platform }
+spec: { accessModes: [ReadWriteOnce], storageClassName: local-path, resources: { requests: { storage: 1Gi } } }
+---
+# No signature verifier, no default deny.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: iam-ingress-from-gateway, namespace: fair-platform }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/name: iam } }
+  policyTypes: [Ingress]
+  ingress: [{ from: [{ podSelector: { matchLabels: { app.kubernetes.io/name: gateway } } }] }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: posture-scanner, namespace: fair-platform }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/name: posture-scanner } }
+  policyTypes: [Ingress, Egress]
+  egress: [{ ports: [{ port: 53, protocol: UDP }] }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: iam, namespace: fair-platform, annotations: { fixture/tls: weak } }
+spec: { ports: [{ name: https, port: 443, protocol: TCP }] }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: posture, namespace: fair-platform, annotations: { fixture/tls: plaintext } }
+spec: { ports: [{ name: scanner, port: 9443 }] }
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: iam-58d6c9f7b-p2rtz
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: iam, pod-template-hash: 58d6c9f7b }
+  ownerReferences: [{ apiVersion: apps/v1, kind: ReplicaSet, name: iam-58d6c9f7b, uid: c1 }]
+spec:
+  securityContext: { runAsNonRoot: true, runAsUser: 65532, seccompProfile: { type: RuntimeDefault } }
+  containers:
+    - name: iam
+      image: docker.io/library/nginx@sha256:3333333333333333333333333333333333333333333333333333333333333333 # not a release image
+      securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+status:
+  containerStatuses:
+    - name: iam
+      imageID: docker.io/library/nginx@sha256:3333333333333333333333333333333333333333333333333333333333333333
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: posture-scanner-7b8c5d6f9-wq2mn
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: posture-scanner, pod-template-hash: 7b8c5d6f9 }
+  ownerReferences: [{ apiVersion: apps/v1, kind: ReplicaSet, name: posture-scanner-7b8c5d6f9, uid: c2 }]
+spec:
+  hostNetwork: true
+  securityContext: { runAsNonRoot: true, runAsUser: 65532, seccompProfile: { type: RuntimeDefault } }
+  containers:
+    - name: scanner
+      image: ghcr.io/rformer/fair-posture-scanner:latest # by tag
+      args: [--token=eyJhbGciOiJFUzI1NiJ9.e30.x] # secret on the command line
+      securityContext: { privileged: true, allowPrivilegeEscalation: true, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+status:
+  containerStatuses:
+    - name: scanner
+      imageID: ghcr.io/rformer/fair-posture-scanner@sha256:2222222222222222222222222222222222222222222222222222222222222222
+---
+# RBAC drift: the scanner's Role now reads Secrets; a hand-made binding appeared.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: { name: posture-scanner, namespace: fair-platform }
+rules:
+  - { apiGroups: [""], resources: [pods, services, serviceaccounts, persistentvolumeclaims, secrets], verbs: [get, list, watch] }
+  - { apiGroups: [apps], resources: [deployments, statefulsets, daemonsets], verbs: [get, list, watch] }
+  - { apiGroups: [networking.k8s.io], resources: [networkpolicies], verbs: [get, list, watch] }
+  - { apiGroups: [rbac.authorization.k8s.io], resources: [roles, rolebindings], verbs: [get, list, watch] }
+  - { apiGroups: [external-secrets.io], resources: [externalsecrets], verbs: [get, list, watch] }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: { name: debug, namespace: fair-platform }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: edit }
+subjects: [{ kind: User, name: dev@example.com, apiGroup: rbac.authorization.k8s.io }]

@@ -57,7 +57,7 @@ type Reader interface {
 var Access = struct {
 	Namespaced, Cluster []kube.Resource
 }{
-	Namespaced: []kube.Resource{kube.Pods, kube.Deployments, kube.StatefulSets, kube.DaemonSets, kube.Services,
+	Namespaced: []kube.Resource{kube.Pods, kube.Deployments, kube.StatefulSets, kube.DaemonSets, kube.Services, kube.PersistentVolumeClaims,
 		kube.NetworkPolicies, kube.ServiceAccounts, kube.Roles, kube.RoleBindings, kube.ExternalSecrets},
 	Cluster: []kube.Resource{kube.Namespaces, kube.Nodes, kube.StorageClasses, kube.ClusterRoles, kube.ClusterRoleBindings,
 		kube.ValidatingAdmissionPolicies, kube.ValidatingWebhookConfigurations},

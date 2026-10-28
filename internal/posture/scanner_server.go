@@ -27,6 +27,7 @@ import (
 	posturev1 "github.com/rformer/fair-app/internal/api/posturev1"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/audit"
+	"github.com/rformer/fair-app/pkg/settings"
 )
 
 // Deployment scan reports (F-015 T-27; AC-38, AC-39; design §6.8; migration
@@ -80,6 +81,11 @@ func (s *ScannerService) Report(ctx context.Context, r *posturev1.ScanReport) (*
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
+	// Node FIPS mode matters only where the active profile requires it
+	// (AC-41): otherwise the check counts as passed, resolving its findings.
+	if slices.Contains(r.GetChecksRun(), CheckNodeFIPS) && !s.fipsRequired(ctx) {
+		findings = slices.DeleteFunc(findings, func(f Finding) bool { return f.CheckID == CheckNodeFIPS })
+	}
 	payload, err := json.Marshal(findings)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "encode findings")
@@ -107,6 +113,23 @@ func (s *ScannerService) Report(ctx context.Context, r *posturev1.ScanReport) (*
 		return nil, status.Error(codes.Unavailable, "recording the scan failed") // details stay in the service log
 	}
 	return &posturev1.ReportAck{Opened: int32(len(opened)), Resolved: int32(len(resolved))}, nil // #nosec G115 -- bounded by maxFindings
+}
+
+// CheckNodeFIPS is the deployment check whose findings depend on the profile.
+const CheckNodeFIPS = "node_fips"
+
+// fipsRequired reports whether fips.enabled is in force; if it cannot be
+// read, FIPS counts as required (fail safe).
+func (s *ScannerService) fipsRequired(ctx context.Context) bool {
+	snap, err := settings.DBSource{DB: s.DB}.Snapshot(ctx)
+	if err != nil {
+		return true
+	}
+	var on bool
+	if err := json.Unmarshal(snap.Instance["fips.enabled"], &on); err != nil {
+		return true
+	}
+	return on
 }
 
 // Authorize requires a verified client certificate carrying the scanner

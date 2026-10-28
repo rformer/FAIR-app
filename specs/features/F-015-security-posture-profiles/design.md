@@ -222,7 +222,7 @@ Each check produces a `drift_finding` with `check_id`, severity, controls, and r
 
 | Scope | Resources (get/list/watch) | Purpose |
 |---|---|---|
-| Platform namespaces | pods, deployments, statefulsets, daemonsets, services, networkpolicies, serviceaccounts, roles, rolebindings, externalsecrets (CRD, if present) | Workload hardening, NetworkPolicy presence, secret references, platform RBAC |
+| Platform namespaces | pods, deployments, statefulsets, daemonsets, services, networkpolicies, serviceaccounts, roles, rolebindings, persistentvolumeclaims, externalsecrets (CRD, if present) | Workload hardening, NetworkPolicy presence, secret references, platform RBAC, storage classes of platform volumes (PVCs added 2026-10-28, T-28) |
 | Cluster | namespaces (labels only), nodes (labels/annotations), storageclasses, clusterroles, clusterrolebindings (filtered to platform subjects), validatingadmissionpolicies / admission webhooks (metadata) | Pod security admission level, FIPS node labels, encryption, RBAC drift, presence of a signature-verification policy |
 
 **Checks (initial catalog; each maps to controls):**
@@ -824,3 +824,44 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
       - From the scanner pod's own network namespace, the API server and posture:9443 (with DNS) are reachable. Another platform pod, posture on another port, the node's kubelet and the internet are not.
       - A control allow rule makes the decoy reachable, proving the CNI enforces the policy.
     - **Mutations:** a write verb and Secrets in the Role fail the static audit; an egress rule opened to the namespace fails the live test; accepting any CA-signed identity fails the channel test.
+- 2026-10-28: T-28 implementation notes. Robert Former approved four choices:
+  - the scanner probes TLS itself, with its egress widened to the platform's TLS ports;
+  - a signed platform release manifest is defined now;
+  - PersistentVolumeClaims are added to the permission table above;
+  - verification uses kind live runs plus distribution fixtures, with live OpenShift and RKE2 runs following in T-37.
+  - **Release manifest** (`internal/releasemanifest`, `cmd/releasegen`): `fair-platform-release-manifest/v1`.
+    - It lists the image of each platform component by digest, and a SHA-256 of each platform RBAC object's normalized content. Rules, verbs and subjects are sorted and defaulted subject `apiGroup`s dropped, so the YAML reference manifest and the API server's object hash the same.
+    - `releasegen manifest` hashes the RBAC of `deploy/k8s` and takes the digests from the image builds; `releasegen sign` adds a detached ECDSA P-256 signature with the release key (as profile packages; D-OQ5 custody still open).
+    - The scanner verifies it from the `fair-release-manifest` ConfigMap on every scan. A missing, unsigned or tampered manifest makes the image and RBAC checks report errors, never "passed".
+  - **Catalog** (`internal/scanner/checks`, wired into `cmd/posture-scanner`). Every finding carries a severity, controls and remediation (AC-42). Findings name the owning workload rather than the pod, so they do not change across restarts.
+    1. `pod_security_admission` (CM-6, CM-7): `enforce=restricted` on each platform namespace. Where the API server enforces restricted cluster-wide (RKE2 CIS), the installer attests it (`FAIR_PSA_DEFAULT`); an explicit weaker label still fails.
+    2. `network_policy` (SC-7, AC-4): a default deny per namespace (high), and a non-default policy selecting every workload (medium).
+    3. `tls_endpoints` (SC-8, SC-13, SC-23): every TCP port of every platform Service, plus the ingress endpoints (`FAIR_INGRESS_ENDPOINTS`).
+       - A real handshake records the negotiated version and suite and the certificate's expiry: under 30 days is medium, expired is high, plaintext is high. The state is captured in `VerifyConnection`, so mTLS servers such as posture still reveal their certificate.
+       - Hand-built ClientHellos, which read only the ServerHello and need no cryptography (the FIPS-mode client cannot offer them), detect TLS 1.0/1.1 (high) and non-approved TLS 1.2 suites (medium: CBC, RSA key exchange, 3DES, ChaCha20).
+       - The probes were validated against a real, deliberately weak Go TLS server in a non-FIPS helper process.
+    4. `node_fips` (SC-13): each node labelled `fair-platform.io/fips` = `verified` (fips-probe, T-29) or `attested` (installer). Posture keeps these findings only where `fips.enabled` is in force (AC-41 "where the profile requires it"); an unreadable value counts as required.
+    5. `image_digests` (CM-14, SI-7, SR-4): every container's image is a release image by digest (unknown image high, tag reference medium, other digest critical), and the running image digest matches (critical).
+    6. `signature_admission` (CM-14, SI-7): a ValidatingAdmissionPolicy or webhook annotated `fair-platform.io/verifies-image-signatures=true`, or a known verifier (Sigstore policy-controller, Connaisseur, Ratify). Absent is high; a fail-open webhook is medium.
+    7. `pod_hardening` (CM-6, CM-7): non-root (an explicit UID 0 is root whatever `runAsNonRoot` says; OpenShift's SCC-assigned UIDs count as non-root), read-only root filesystem, no privilege escalation, `drop: [ALL]` (only `NET_BIND_SERVICE` may be added), no privileged mode, host namespaces or hostPath.
+    8. `storage_encryption` (SC-28): the class of every platform PVC, or the default class. Recognized are EBS `encrypted`, provider-managed GCE/Azure, Ceph RBD and Longhorn `encrypted`, and Portworx `secure`; anything else (local-path, no-provisioner, NFS, vSphere) fails unless the installer annotates the class `fair-platform.io/encrypted-at-rest=true`.
+    9. `plaintext_secrets` (IA-5, SC-28): secret-looking env names with literal values (not `*_FILE` or paths), credentials in URLs, and secrets in command-line arguments (high; values are never copied into findings). Where the External Secrets Operator is installed, referenced Secrets that no ExternalSecret produces are low.
+    10. `platform_rbac` (AC-6, CM-5): every manifest object present (missing is medium) and unchanged (high); unexpected objects are high. This covers Roles and bindings in platform namespaces, platform-labelled cluster roles, and any ClusterRoleBinding granting to a platform ServiceAccount.
+  - **Permissions and egress** (`deploy/k8s/posture-scanner.yaml`):
+    - The Role adds `persistentvolumeclaims` (get/list/watch).
+    - Egress adds platform pods (`app.kubernetes.io/part-of: fair-platform`) on their TLS pod ports 8443, 9443 and 4222 (policies apply after Service translation), and the ingress controller address (`REPLACE_WITH_INGRESS_CIDR`) on 443. Pods outside the platform, other ports, the kubelet and the internet stay unreachable.
+    - The release manifest ConfigMap is mounted at `/release`.
+  - Verification:
+    - **Fixtures** (`internal/scanner/checks/testdata/{kind,openshift,rke2}/{pass,fail}.yaml`, `TestCatalogFixtures`): each distribution's compliant cluster gives no findings, and its non-compliant cluster gives exactly the expected findings for all 10 checks. The fixtures are written as each distribution's API objects:
+      - OpenShift: SCC-assigned UIDs, `openshift.io/scc` restricted-v2 or anyuid, gp3/gp2-csi, RHCOS nodes, the Sigstore policy-controller, ESO.
+      - RKE2: the attested restricted default, Longhorn vs local-path, FIPS-verified nodes, Connaisseur.
+      - kind/k3d: local-path, attested or not.
+      - Service addresses dial local endpoints: real TLS with good, expiring or expired certificates, plaintext, and raw TLS 1.0 or weak-suite servers.
+    - **Other unit tests:** `TestReleaseManifestRequired` (none, wrong key, tampered → errors); `TestRawProbesAgainstRealTLS`; the release manifest hash, signature and format tests.
+    - **DB test** `TestScannerNodeFIPSFollowsProfile`.
+    - **Live kind run** (`scripts/k8s-e2e-scanner.sh`, 49 checks, PASS):
+      - All 10 checks ran without errors against a signed release manifest.
+      - `pod_security_admission`, `network_policy` and `platform_rbac` passed, and posture's mTLS endpoint passed the TLS check.
+      - The expected findings appeared: a plaintext platform endpoint, the unlabelled node, no signature verifier, kind's unencrypted local-path class, an unhardened workload, an inline password, and tag-referenced images.
+      - The T-27 RBAC and egress checks still pass, plus "platform TLS port reachable".
+    - **Mutations:** PSA accepting baseline, root UID 0 under `runAsNonRoot`, URL credentials ignored, the legacy-TLS probe disabled, the running digest ignored, extra RBAC ignored, and a fail-open webhook accepted each fail the tests. The root-UID mutation needed a stricter OpenShift fixture, which was added.

@@ -45,13 +45,22 @@ issue() { # name subjectAltName extendedKeyUsage
   openssl ecparam -name prime256v1 -genkey -noout -out "$TMP/$1.key"
   openssl req -new -key "$TMP/$1.key" -subj "/CN=$1" -out "$TMP/$1.csr" 2>/dev/null
   printf 'subjectAltName=%s\nextendedKeyUsage=%s\nkeyUsage=digitalSignature\n' "$2" "$3" > "$TMP/$1.ext"
-  openssl x509 -req -in "$TMP/$1.csr" -CA "$TMP/ca.crt" -CAkey "$TMP/ca.key" -CAcreateserial -days 1 -sha256 \
+  openssl x509 -req -in "$TMP/$1.csr" -CA "$TMP/ca.crt" -CAkey "$TMP/ca.key" -CAcreateserial -days 90 -sha256 \
     -extfile "$TMP/$1.ext" -out "$TMP/$1.crt" 2>/dev/null
 }
 openssl ecparam -name prime256v1 -genkey -noout -out "$TMP/ca.key"
-openssl req -x509 -new -key "$TMP/ca.key" -sha256 -days 1 -subj "/CN=fair-e2e-ca" -out "$TMP/ca.crt" 2>/dev/null
+openssl req -x509 -new -key "$TMP/ca.key" -sha256 -days 90 -subj "/CN=fair-e2e-ca" -out "$TMP/ca.crt" 2>/dev/null
 issue posture "DNS:posture.$NS,DNS:posture.$NS.svc" serverAuth
 issue posture-scanner "URI:spiffe://fair-platform/posture-scanner" clientAuth
+
+echo "== signed release manifest (T-28)"
+openssl ecparam -name prime256v1 -genkey -noout -out "$TMP/release.key"
+openssl ec -in "$TMP/release.key" -pubout -out "$TMP/release-signing.pub" 2>/dev/null
+D1=sha256:$(printf '1%.0s' $(seq 64))
+D2=sha256:$(printf '2%.0s' $(seq 64))
+printf '{"iam": "ghcr.io/rformer/fair-iam@%s", "posture-scanner": "ghcr.io/rformer/fair-posture-scanner@%s"}\n' "$D1" "$D2" > "$TMP/images.json"
+GOFIPS140=v1.0.0 go run ./cmd/releasegen manifest -release e2e -images "$TMP/images.json" -deploy deploy/k8s -out "$TMP/release-manifest.json"
+GOFIPS140=v1.0.0 go run ./cmd/releasegen sign -key "$TMP/release.key" -in "$TMP/release-manifest.json"
 
 echo "== platform namespace, posture stand-in, decoy"
 sed "s/__NS__/$NS/g" scripts/e2e/scanner-e2e-fixtures.yaml | $K apply -f -
@@ -59,12 +68,16 @@ $K -n $NS create secret generic posture-scanner-tls --from-file=tls.crt="$TMP/po
   --from-file=tls.key="$TMP/posture-scanner.key" --from-file=ca.crt="$TMP/ca.crt"
 $K -n $NS create secret generic posture-tls --from-file=tls.crt="$TMP/posture.crt" \
   --from-file=tls.key="$TMP/posture.key" --from-file=ca.crt="$TMP/ca.crt"
+$K -n $NS create configmap fair-release-manifest --from-file="$TMP/release-manifest.json" \
+  --from-file="$TMP/release-manifest.json.sig" --from-file="$TMP/release-signing.pub"
+$K -n $NS rollout status deploy/e2e-bad --timeout=180s
 
 echo "== posture-scanner from deploy/k8s/posture-scanner.yaml"
 APISERVER_IP=$($K get endpoints kubernetes -n default -o jsonpath='{.subsets[0].addresses[0].ip}')
 APISERVER_PORT=$($K get endpoints kubernetes -n default -o jsonpath='{.subsets[0].ports[0].port}')
 sed -e "s#ghcr.io/rformer/fair-posture-scanner:REPLACE_WITH_DIGEST#fair-posture-scanner:e2e#" \
-    -e "s#REPLACE_WITH_APISERVER_CIDR#$APISERVER_IP/32#" deploy/k8s/posture-scanner.yaml | $K apply -f -
+    -e "s#REPLACE_WITH_APISERVER_CIDR#$APISERVER_IP/32#" -e 's#"REPLACE_WITH_INGRESS_HOST:443"#""#' \
+    -e "s#REPLACE_WITH_INGRESS_CIDR#192.0.2.1/32#" deploy/k8s/posture-scanner.yaml | $K apply -f -
 $K -n $NS rollout status deploy/posture --timeout=180s
 $K -n $NS rollout status deploy/posture-scanner --timeout=180s
 $K -n $NS wait --for=condition=Ready pod/decoy --timeout=120s
@@ -87,8 +100,31 @@ else
   pass "report received from $POD"
 fi
 case "$report" in
-  *'"check_errors":null'* | *'"check_errors":[]'*) pass "access probe: every read the manifest grants works" ;;
-  *) bad "access probe reported refused reads" ;;
+  *'"check_errors":null'* | *'"check_errors":[]'*) pass "no check errors: every granted read works, the release manifest verifies" ;;
+  *) bad "check errors reported" ;;
+esac
+
+echo "== 1b. the check catalog on a live cluster (T-28)"
+NODE=$($K get nodes -o jsonpath='{.items[0].metadata.name}')
+for c in pod_security_admission network_policy tls_endpoints node_fips image_digests signature_admission pod_hardening \
+         storage_encryption plaintext_secrets platform_rbac; do
+  case "$report" in *"\"$c\""*) ;; *) bad "check $c did not run" ;; esac
+done
+finds() { case "$report" in *"$1"*) pass "finding: $1" ;; *) bad "missing finding: $1" ;; esac; }
+none() { case "$report" in *"\"$1 "*) bad "unexpected $1 finding" ;; *) pass "passes: $1" ;; esac; }
+none pod_security_admission # the namespace enforces restricted
+none network_policy         # default deny plus a policy for every workload
+none platform_rbac          # RBAC as applied from deploy/k8s, matching the signed manifest
+finds "tls_endpoints endpoint/e2e-bad.$NS.svc:8443 high"
+finds "node_fips node/$NODE high"
+finds "signature_admission cluster/admission high"
+finds "storage_encryption storageclass/standard high"
+finds "pod_hardening workload/$NS/Deployment/e2e-bad high"
+finds "plaintext_secrets workload/$NS/Deployment/e2e-bad high"
+finds "image_digests workload/$NS/Deployment/posture-scanner high"
+case "$report" in
+  *"tls_endpoints endpoint/posture.$NS.svc:9443"*) bad "posture's mTLS endpoint flagged" ;;
+  *) pass "posture's mTLS endpoint passes the TLS check" ;;
 esac
 
 echo "== 2. RBAC audit ($SA)"
@@ -141,7 +177,8 @@ done
 reach() { $K -n $NS exec "$POD" -c probe -- nc -z -w 3 "$1" "$2" >/dev/null 2>&1; }
 if reach "$APISERVER_IP" "$APISERVER_PORT"; then pass "allowed: API server $APISERVER_IP:$APISERVER_PORT"; else bad "API server unreachable"; fi
 if reach "posture.$NS.svc.cluster.local" 9443; then pass "allowed: posture:9443 (with DNS)"; else bad "posture:9443 unreachable"; fi
-if reach "$DECOY_IP" 8080; then bad "REACHED decoy $DECOY_IP:8080"; else pass "denied: another platform pod ($DECOY_IP:8080)"; fi
+if reach "e2e-bad.$NS.svc.cluster.local" 8443; then pass "allowed: a platform workload's TLS port (8443)"; else bad "platform TLS port unreachable"; fi
+if reach "$DECOY_IP" 8080; then bad "REACHED decoy $DECOY_IP:8080"; else pass "denied: a pod outside the platform ($DECOY_IP:8080)"; fi
 if reach "$POSTURE_IP" 8443; then bad "REACHED posture on 8443"; else pass "denied: posture on a port other than 9443"; fi
 if reach "$APISERVER_IP" 10250; then bad "REACHED the kubelet ($APISERVER_IP:10250)"; else pass "denied: kubelet on the API server's node (10250)"; fi
 if reach 1.1.1.1 443; then bad "REACHED the internet (1.1.1.1:443)"; else pass "denied: internet (1.1.1.1:443)"; fi

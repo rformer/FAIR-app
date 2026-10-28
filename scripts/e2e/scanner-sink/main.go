@@ -30,8 +30,12 @@ func (s *sink) Report(ctx context.Context, r *posturev1.ScanReport) (*posturev1.
 	if p, ok := peer.FromContext(ctx); ok {
 		from = p.Addr.String()
 	}
+	findings := []string{}
+	for _, f := range r.GetFindings() {
+		findings = append(findings, f.GetCheckId()+" "+f.GetSubject()+" "+f.GetSeverity())
+	}
 	b, _ := json.Marshal(map[string]any{"report": map[string]any{"instance": r.GetScannerInstance(), "checks_run": r.GetChecksRun(),
-		"check_errors": r.GetCheckErrors(), "findings": len(r.GetFindings()), "from": from}})
+		"check_errors": r.GetCheckErrors(), "findings": findings, "from": from}})
 	_, _ = os.Stdout.Write(append(b, '\n'))
 	return &posturev1.ReportAck{}, nil
 }

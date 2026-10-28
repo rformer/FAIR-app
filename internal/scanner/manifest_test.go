@@ -194,6 +194,8 @@ func TestScannerPodHardenedAndEgressRestricted(t *testing.T) {
 			switch {
 			case p.m("ipBlock") != nil:
 				to = append(to, "ip:"+str(p.m("ipBlock")["cidr"]))
+			case p.m("podSelector") != nil && str(p.m("podSelector").m("matchLabels")["app.kubernetes.io/part-of"]) == "fair-platform":
+				to = append(to, "platform-pods")
 			case p.m("podSelector") != nil:
 				to = append(to, "pod:"+str(p.m("podSelector").m("matchLabels")["app.kubernetes.io/name"]))
 			default:
@@ -209,7 +211,8 @@ func TestScannerPodHardenedAndEgressRestricted(t *testing.T) {
 		}
 		rules = append(rules, strings.Join(to, "+")+" "+strings.Join(ports, ","))
 	}
-	want := []string{"ip:REPLACE_WITH_APISERVER_CIDR TCP/443,TCP/6443", "pod:posture TCP/9443", "any UDP/53,TCP/53"}
+	want := []string{"ip:REPLACE_WITH_APISERVER_CIDR TCP/443,TCP/6443", "pod:posture TCP/9443",
+		"platform-pods TCP/8443,TCP/9443,TCP/4222", "ip:REPLACE_WITH_INGRESS_CIDR TCP/443", "any UDP/53,TCP/53"}
 	if !slices.Equal(rules, want) {
 		t.Errorf("egress\n got %v\nwant %v", rules, want)
 	}

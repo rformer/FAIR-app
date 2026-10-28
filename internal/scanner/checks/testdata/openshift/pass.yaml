@@ -1,0 +1,150 @@
+# OpenShift 4.x: a compliant platform as the API server returns it after SCC
+# admission (restricted-v2 assigns a UID from the namespace range), on AWS
+# with encrypted gp3-csi volumes, RHCOS nodes installed in FIPS mode, the
+# Sigstore policy-controller, and the External Secrets Operator.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fair-platform
+  labels:
+    kubernetes.io/metadata.name: fair-platform
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+    security.openshift.io/scc.podSecurityLabelSync: "false"
+  annotations:
+    openshift.io/sa.scc.uid-range: 1000680000/10000
+    openshift.io/sa.scc.supplemental-groups: 1000680000/10000
+    openshift.io/sa.scc.mcs: s0:c26,c15
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: worker-0
+  labels:
+    node-role.kubernetes.io/worker: ""
+    node.openshift.io/os_id: rhcos
+    fair-platform.io/fips: attested
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3-csi
+  annotations: { storageclass.kubernetes.io/is-default-class: "true" }
+provisioner: ebs.csi.aws.com
+parameters: { encrypted: "true", type: gp3 }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: nats-data, namespace: fair-platform }
+spec: { accessModes: [ReadWriteOnce], storageClassName: gp3-csi, resources: { requests: { storage: 1Gi } } }
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata: { name: policy.sigstore.dev }
+webhooks:
+  - name: policy.sigstore.dev
+    failurePolicy: Fail
+    rules: [{ apiGroups: [""], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [pods] }]
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata: { name: iam-tls, namespace: fair-platform }
+spec: { target: { name: iam-tls } }
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata: { name: iam-db-app, namespace: fair-platform }
+spec: { target: { name: iam-db-app } }
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata: { name: posture-scanner-tls, namespace: fair-platform }
+spec: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: default-deny, namespace: fair-platform }
+spec: { podSelector: {}, policyTypes: [Ingress, Egress] }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: iam-ingress-from-gateway, namespace: fair-platform }
+spec:
+  podSelector: { matchExpressions: [{ key: app.kubernetes.io/name, operator: In, values: [iam] }] }
+  policyTypes: [Ingress]
+  ingress: [{ from: [{ namespaceSelector: { matchLabels: { policy-group.network.openshift.io/ingress: "" } } }] }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: posture-scanner, namespace: fair-platform }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/name: posture-scanner } }
+  policyTypes: [Ingress, Egress]
+  egress: [{ ports: [{ port: 53, protocol: UDP }, { port: 5353, protocol: UDP }] }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iam
+  namespace: fair-platform
+  annotations: { fixture/tls: good, service.beta.openshift.io/serving-cert-secret-name: iam-tls }
+spec: { type: ClusterIP, ports: [{ name: https, port: 443, protocol: TCP, targetPort: 8443 }] }
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: iam-7c9f8b6d5-q4lzm
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: iam, pod-template-hash: 7c9f8b6d5 }
+  annotations: { openshift.io/scc: restricted-v2, seccomp.security.alpha.kubernetes.io/pod: runtime/default }
+  ownerReferences: [{ apiVersion: apps/v1, kind: ReplicaSet, name: iam-7c9f8b6d5, uid: b1 }]
+spec:
+  securityContext:
+    fsGroup: 1000680000
+    seLinuxOptions: { level: "s0:c26,c15" }
+    seccompProfile: { type: RuntimeDefault }
+  containers:
+    - name: iam
+      image: ghcr.io/rformer/fair-iam@sha256:1111111111111111111111111111111111111111111111111111111111111111
+      env:
+        - name: FAIR_DB_PASSWORD
+          valueFrom: { secretKeyRef: { name: iam-db-app, key: password } }
+      securityContext:
+        runAsUser: 1000680000
+        runAsNonRoot: true
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: { drop: [ALL] }
+  volumes:
+    - { name: tls, secret: { secretName: iam-tls } }
+status:
+  containerStatuses:
+    - name: iam
+      imageID: ghcr.io/rformer/fair-iam@sha256:1111111111111111111111111111111111111111111111111111111111111111
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: posture-scanner-6f7d9c8b4-h8sxn
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: posture-scanner, pod-template-hash: 6f7d9c8b4 }
+  annotations: { openshift.io/scc: restricted-v2 }
+  ownerReferences: [{ apiVersion: apps/v1, kind: ReplicaSet, name: posture-scanner-6f7d9c8b4, uid: b2 }]
+spec:
+  securityContext: { fsGroup: 1000680000, seccompProfile: { type: RuntimeDefault } }
+  containers:
+    - name: scanner
+      image: ghcr.io/rformer/fair-posture-scanner@sha256:2222222222222222222222222222222222222222222222222222222222222222
+      securityContext:
+        runAsUser: 1000680000
+        runAsNonRoot: true
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: { drop: [ALL] }
+  volumes:
+    - { name: tls, secret: { secretName: posture-scanner-tls } }
+status:
+  containerStatuses:
+    - name: scanner
+      imageID: ghcr.io/rformer/fair-posture-scanner@sha256:2222222222222222222222222222222222222222222222222222222222222222

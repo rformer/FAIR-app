@@ -56,7 +56,7 @@ metadata:
   labels: { app.kubernetes.io/name: posture-scanner, app.kubernetes.io/part-of: fair-platform }
 rules:
   - apiGroups: [""]
-    resources: [pods, services, serviceaccounts]
+    resources: [pods, services, serviceaccounts, persistentvolumeclaims] # PVCs: storage class names only (T-28)
     verbs: [get, list, watch]
   - apiGroups: [apps]
     resources: [deployments, statefulsets, daemonsets]
@@ -115,6 +115,12 @@ spec:
             - { name: FAIR_SCANNER_TLS_CERT_FILE, value: /tls/tls.crt }
             - { name: FAIR_SCANNER_TLS_KEY_FILE, value: /tls/tls.key }
             - { name: FAIR_PLATFORM_NAMESPACES, value: fair-platform }
+            # T-28: the signed release manifest and the release public key
+            # (installer-provided ConfigMap), and installer attestations.
+            - { name: FAIR_RELEASE_MANIFEST_FILE, value: /release/release-manifest.json }
+            - { name: FAIR_RELEASE_PUBLIC_KEY_FILE, value: /release/release-signing.pub }
+            - { name: FAIR_INGRESS_ENDPOINTS, value: "REPLACE_WITH_INGRESS_HOST:443" }
+            - { name: FAIR_PSA_DEFAULT, value: "" } # "restricted" where the cluster enforces it by default (e.g. RKE2 CIS)
             - name: POD_NAME
               valueFrom: { fieldRef: { fieldPath: metadata.name } }
           securityContext:
@@ -129,6 +135,7 @@ spec:
             # Client certificate with URI SAN spiffe://fair-platform/posture-scanner
             # (cert-manager or the installer) and the CA of posture's certificate.
             - { name: tls, mountPath: /tls, readOnly: true }
+            - { name: release, mountPath: /release, readOnly: true }
       volumes:
         - name: kube-api-access
           projected:
@@ -140,11 +147,16 @@ spec:
                   items: [{ key: ca.crt, path: ca.crt }]
         - name: tls
           secret: { secretName: posture-scanner-tls, defaultMode: 0440 }
+        - name: release
+          configMap: { name: fair-release-manifest } # release-manifest.json, .sig, release-signing.pub
 ---
 # No ingress. Egress: the Kubernetes API server, posture's scanner channel,
-# DNS. REPLACE_WITH_APISERVER_CIDR is the API server endpoint address(es)
-# (kubectl get endpoints kubernetes -n default); policies apply after the
-# Service address is translated, so the Service IP alone is not enough.
+# the platform's TLS ports (the TLS check's handshakes, T-28: pod ports, as
+# policies apply after Service translation), the ingress, and DNS.
+# REPLACE_WITH_APISERVER_CIDR is the API server endpoint address(es)
+# (kubectl get endpoints kubernetes -n default), REPLACE_WITH_INGRESS_CIDR
+# the ingress controller's; the chart adds a namespaceSelector rule for each
+# further platform namespace.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -162,6 +174,13 @@ spec:
         - podSelector:
             matchLabels: { app.kubernetes.io/name: posture }
       ports: [{ port: 9443, protocol: TCP }]
+    - to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/part-of: fair-platform }
+      ports: [{ port: 8443, protocol: TCP }, { port: 9443, protocol: TCP }, { port: 4222, protocol: TCP }]
+    - to:
+        - ipBlock: { cidr: REPLACE_WITH_INGRESS_CIDR }
+      ports: [{ port: 443, protocol: TCP }]
     - ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]
 ---
 # posture accepts the scanner channel from the scanner only.

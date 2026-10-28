@@ -14,6 +14,10 @@
 //	FAIR_SCANNER_TLS_KEY_FILE   its key
 //	FAIR_PLATFORM_NAMESPACES    comma-separated platform namespaces (default fair-platform)
 //	FAIR_SCAN_INTERVAL          default 15m
+//	FAIR_RELEASE_MANIFEST_FILE  signed release manifest (FILE and FILE.sig; T-28)
+//	FAIR_RELEASE_PUBLIC_KEY_FILE release signing public key (PEM)
+//	FAIR_PSA_DEFAULT            cluster-wide pod security level attested at install (e.g. restricted on RKE2)
+//	FAIR_INGRESS_ENDPOINTS      comma-separated host:port of the platform ingress, probed for TLS
 //	POD_NAME                    instance name (downward API)
 package main
 
@@ -30,7 +34,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rformer/fair-app/internal/profilepkg"
 	"github.com/rformer/fair-app/internal/scanner"
+	"github.com/rformer/fair-app/internal/scanner/checks"
 	"github.com/rformer/fair-app/internal/scanner/kube"
 )
 
@@ -81,20 +87,34 @@ func run() error {
 	}
 	defer func() { _ = conn.Close() }()
 
-	var namespaces []string
-	for _, ns := range strings.Split(getenv("FAIR_PLATFORM_NAMESPACES", "fair-platform"), ",") {
-		if ns = strings.TrimSpace(ns); ns != "" {
-			namespaces = append(namespaces, ns)
+	// The check catalog (T-28). Without the release manifest and key the
+	// image and RBAC checks report errors (never "passed"); the others run.
+	cfg := checks.Config{PSADefault: os.Getenv("FAIR_PSA_DEFAULT"), IngressEndpoints: list(os.Getenv("FAIR_INGRESS_ENDPOINTS")),
+		ReleaseManifest: os.Getenv("FAIR_RELEASE_MANIFEST_FILE")}
+	if f := os.Getenv("FAIR_RELEASE_PUBLIC_KEY_FILE"); f != "" {
+		if cfg.ReleaseKey, err = profilepkg.LoadPublicKey(f); err != nil {
+			return err
 		}
 	}
+	namespaces := list(getenv("FAIR_PLATFORM_NAMESPACES", "fair-platform"))
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	s := &scanner.Scanner{Kube: k, Checks: nil, // the check catalog is F-015 T-28
+	s := &scanner.Scanner{Kube: k, Checks: checks.Catalog(cfg),
 		Scope: scanner.Scope{Namespaces: namespaces}, Instance: getenv("POD_NAME", "posture-scanner"),
 		Report: report, Interval: interval, Logger: logger}
 	logger.Info("scanner started", "posture", addr, "namespaces", strings.Join(namespaces, ","), "fips140", fips140.Enabled())
 	s.Run(ctx)
 	return nil
+}
+
+func list(s string) []string {
+	var out []string
+	for _, v := range strings.Split(s, ",") {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 func getenv(k, def string) string {
