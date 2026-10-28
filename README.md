@@ -157,6 +157,9 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_DB_PASSWORD_FILE=<app_posture passwor
 # The Posture API (T-31, contract api/openapi/posture.yaml) is served under
 # /api/v1/posture when FAIR_JWT_KEYS_DIR holds the gateway's internal-JWT
 # public keys (PEM files named by key id; required in production).
+# Web UI (T-32): web/ (React + TypeScript, Vite; cd web && npm ci && npm run build).
+# End to end against the real API and database: scripts/ui-e2e.sh (Playwright
+# with axe WCAG 2.1 AA scans; needs the DB test containers and node).
 # After changing a .proto in api/proto: scripts/gen-proto.sh (see its header).
 
 # The posture service itself (./bin/posture) also needs FAIR_NATS_URL (tls://

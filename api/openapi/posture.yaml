@@ -151,6 +151,10 @@ paths:
         - { name: format, in: query, schema: { enum: [json, oscal] } }
       responses: { "200": { description: The document } }
   /switches:
+    get:
+      summary: "The pending profile switch, if any (pending is null when none)"
+      x-permission: posture.view
+      responses: { "200": { description: The pending switch } }
     post:
       summary: Request a profile switch (conflicts computed at once)
       x-permission: profile.manage

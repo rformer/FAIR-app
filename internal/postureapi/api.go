@@ -72,6 +72,7 @@ var routes = []route{
 	{"GET", "/profiles/{id}/diff", (*API).diffProfile},
 	{"POST", "/profiles/import", (*API).importProfile},
 	{"GET", "/profiles/{id}/export", (*API).exportProfile},
+	{"GET", "/switches", (*API).pendingSwitch},
 	{"POST", "/switches", (*API).requestSwitch},
 	{"GET", "/switches/{id}", (*API).getSwitch},
 	{"POST", "/switches/{id}/conflicts/{cid}/resolve", (*API).resolveConflict},
@@ -245,6 +246,9 @@ func (a *API) registry(w http.ResponseWriter, r *http.Request, p authz.Principal
 		err := row.Scan(&e.Key, &e.Type, &e.Direction, &e.Order, &e.BUScopable, &e.Owner, &e.Params, &e.HardFloor,
 			&e.Value, &e.Source, &e.Default, &e.Bound, &e.Deviation, &e.ExceptionID, &e.ExceptionExpires)
 		e.Controls = posture.ControlsForParams(e.Params)
+		if e.Controls == nil {
+			e.Controls = []string{} // an empty list, never null
+		}
 		return e, err
 	})
 	if err != nil {
@@ -682,6 +686,24 @@ func (a *API) requestSwitch(w http.ResponseWriter, r *http.Request, p authz.Prin
 		"approval_id": req.ApprovalID})
 }
 
+// pendingSwitch: the pending switch, if any (the Posture page finds it here;
+// T-32).
+func (a *API) pendingSwitch(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	if !a.view(w, r, p, "") {
+		return
+	}
+	ps, err := a.switches().Pending(r.Context(), p)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if ps == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"pending": nil})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"pending": switchJSON(ps)})
+}
+
 func (a *API) getSwitch(w http.ResponseWriter, r *http.Request, p authz.Principal) {
 	if !a.view(w, r, p, "") {
 		return
@@ -695,6 +717,10 @@ func (a *API) getSwitch(w http.ResponseWriter, r *http.Request, p authz.Principa
 		problem(w, http.StatusNotFound, "not_found", "", nil)
 		return
 	}
+	writeJSON(w, http.StatusOK, switchJSON(ps))
+}
+
+func switchJSON(ps *posture.PendingSwitch) map[string]any {
 	type conflict struct {
 		ID         string          `json:"conflict_id"`
 		Key        string          `json:"key"`
@@ -712,8 +738,8 @@ func (a *API) getSwitch(w http.ResponseWriter, r *http.Request, p authz.Principa
 		}
 		cs = append(cs, conflict{id, c.Key, c.BUID, c.Current, c.NewBound, c.BelowFloor, c.Resolution})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"switch_id": ps.ID, "from": ps.From, "target": ps.Target, "loosening": ps.Loosening,
-		"approval_id": ps.ApprovalID, "unresolved": ps.Unresolved(), "conflicts": cs})
+	return map[string]any{"switch_id": ps.ID, "from": ps.From, "target": ps.Target, "loosening": ps.Loosening,
+		"approval_id": ps.ApprovalID, "unresolved": ps.Unresolved(), "conflicts": cs}
 }
 
 func (a *API) resolveConflict(w http.ResponseWriter, r *http.Request, p authz.Principal) {

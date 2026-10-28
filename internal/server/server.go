@@ -171,6 +171,30 @@ func SecurityHeaders(next http.Handler) http.Handler {
 	})
 }
 
+// UICSP is the content security policy of the web UI (F-015 T-32): the
+// page's own scripts, styles and API, nothing else; no framing, no inline
+// script. The one inline stylesheet allowed, by hash, is the fixed rule React
+// Aria injects ("react-aria-pressable-style", touch-action); the UI's E2E test
+// fails on any CSP violation, so a library change that alters it is caught.
+const UICSP = "default-src 'none'; script-src 'self'; style-src 'self' 'sha256-38RhXrc7EdReTKsOm23ZPOCUgniTUUcjky8QOOrQx6o='; " +
+	"img-src 'self' data:; font-src 'self'; " +
+	"connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+
+// UISecurityHeaders is SecurityHeaders for the web UI and its assets (the
+// gateway, F-001 T-13, serves them): the UI's CSP instead of the API's.
+func UISecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "no-referrer")
+		h.Set("Content-Security-Policy", UICSP)
+		h.Set("Cache-Control", "no-store")
+		next.ServeHTTP(w, r)
+	})
+}
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

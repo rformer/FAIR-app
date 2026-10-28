@@ -5,6 +5,7 @@ Date: 2026-10-24
 | Concern | Decision | Self-hosted note (ADR-005) |
 |---|---|---|
 | Frontend | React + TypeScript (Vite) | Served from the platform; no CDN dependency |
+| UI components | React Aria Components (accessible, unstyled primitives) with the platform's own design tokens and CSS (amended 2026-10-28, F-015 T-32) | Bundled; WCAG 2.1 AA checked with axe in E2E |
 | Charts | Apache ECharts | Bundled with the frontend |
 | Primary DB | PostgreSQL 16+ | CloudNativePG bundled, or bring your own managed Postgres |
 | Async jobs / events | NATS JetStream | Bundled or bring your own |

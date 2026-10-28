@@ -38,7 +38,8 @@ This repo is built **spec-first**. Before doing anything, read:
 - F-015 T-30 done: Kubernetes-access consent (`posture k8s-access`, `posture.K8sAccess`: Decide, Acknowledge, Status banner, Assessment for "Not assessed"); `deploy/k8s/permission-manifest.json` (`releasegen permissions`); scanner reports refused unless granted.
 - F-001 T-14 done (pulled forward): internal JWT (`authz.MintJWT` / `VerifyJWT`, `LoadLocalKeys`); shared API middleware `server.Authenticate` and `server.Idempotent` (F-001 T-42 reuses them).
 - F-015 T-31 done: Posture API (`internal/postureapi`, contract `api/openapi/posture.yaml`; `posture.view` on every route, BU overrides filtered to visible BUs); the posture service needs `FAIR_JWT_KEYS_DIR` in production.
-- **Next: F-015 T-32** (`specs/features/F-015-security-posture-profiles/tasks.md`; Posture page UI), then the rest of F-015 in task order (T-24b after F-001 T-16), except that **F-001 T-26 (dual-approval engine) comes before F-015 T-14** (approved 2026-10-26); then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
+- F-015 T-32 done: the web UI in `web/` (React + TypeScript + Vite, React Aria Components; ADR-003) with the Posture page; `scripts/ui-e2e.sh` runs Playwright and axe (WCAG 2.1 AA) against the real API via `db/tests` `TestPostureUIHarness`; `server.UISecurityHeaders` for the UI.
+- **Next: F-015 T-33** (`specs/features/F-015-security-posture-profiles/tasks.md`; OSCAL Assessment Results export), then the rest of F-015 in task order (T-24b after F-001 T-16), except that **F-001 T-26 (dual-approval engine) comes before F-015 T-14** (approved 2026-10-26); then the rest of F-001 (Phase 2 onward). The Verification column defines "done" for each task.
 
 ## Working rules
 - Implement only tasks that are marked Approved and listed in a `tasks.md`. If a task needs a design change, stop and propose the spec change; don't silently diverge.

@@ -936,3 +936,38 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
     - `TestOpenAPIMatchesRoutes`.
     - The T-19/T-20 tests now expect the auditor to read profiles and diffs, still not to edit.
     - Mutations (unfiltered overrides, no `posture.view` check, loosening without explanation, the JWT not bound to the DB context, replay disabled) each fail the tests.
+- 2026-10-28: T-32 implementation notes. Robert Former approved two choices: React Aria Components for UI primitives (recorded in ADR-003), and E2E tests against the real backend through a test-only dev gateway.
+  - **Frontend** (`web/`): React 19 and TypeScript 7 (strict) with Vite 8 (ADR-003); exact versions pinned with a lockfile; served from the platform with no CDN.
+    - Design tokens and base CSS (`web/src/styles.css`) give AA contrast in the light and dark themes, a visible focus ring, reduced motion honoured, and status always as text (colour only reinforces it).
+    - Data tables are semantic HTML (caption, `th scope`). Buttons, dialogs (focus trapping, Escape, focus return) and form fields with errors are React Aria Components.
+    - Every mutation sends a fresh `Idempotency-Key` (T-31).
+  - **The Posture page** (AC-43): a section, with a heading and a region, for each item AC-43 lists:
+    - the active profile and conformance (settings within bounds, under exception, out of bounds, below the floor);
+    - deviations and the active exceptions with owners, approvers, expiry and justification;
+    - expiries within 30 days and reverts in the last 30 days;
+    - the pending switch and its conflicts;
+    - drift findings, most severe first;
+    - Kubernetes access, with the AC-40 banner at the top of the page and each deployment check assessed or Not assessed;
+    - per-control status, from the settings' OSCAL parameters, the deployment checks and the open findings (worst first: deviation, open finding, exception, not assessed, OK).
+  - **Links and actions** (AC-44):
+    - Every item links to its audit history at `/audit?target=<audit target>` (the route of F-002's audit page) and, where one exists, to its approval at `/approvals/<id>` (F-001's).
+    - The actions are renewing an exception and acknowledging a drift finding (each a dialog with a required reason) and acknowledging a requested Kubernetes grant (a confirmation naming the permission digest).
+    - The server decides permissions; a refusal is shown in the dialog.
+  - **API addition:** `GET /switches` returns the pending switch (or null), because §7's `GET /switches/{id}` gives the page no way to find it. It is in the OpenAPI contract.
+  - **Fixes found by the E2E tests:**
+    - The page recomputed the drift cut-off on every render, so it refetched forever; it is now fixed per page load.
+    - The registry sent `controls: null` for settings without OSCAL parameters, which crashed the page; it now sends `[]`, and the client tolerates either.
+  - **UI security headers** (`server.UISecurityHeaders`, for the gateway, F-001 T-13): the API's CSP blocks everything, so the UI has its own `server.UICSP`.
+    - It allows only the page's own scripts, styles, images, fonts and API, with no framing, no `<base>`, and forms to self only.
+    - The one inline stylesheet allowed is the fixed rule React Aria injects, by its SHA-256. The E2E tests fail on any CSP violation or script error, so a library update that changes it is caught.
+  - **E2E harness:** `scripts/ui-e2e.sh`, and the CI job `ui-e2e`.
+    - `db/tests` `TestPostureUIHarness` (`FAIR_UI_HARNESS=1`) seeds a scenario through the real services: an in-bounds loosening, an approved exception expiring in 10 days, a reverted exception, overrides in a restricted BU, a pending switch to FedRAMP Moderate with conflicts, drift findings from a direct database edit, and undecided Kubernetes access.
+    - It then serves `web/dist` and the real Posture API as a dev gateway, minting the internal JWT and DB context token for the user chosen with `/dev/as/{user}`.
+    - Playwright runs `web/e2e/posture.spec.ts`.
+  - Verification (4 E2E tests, PASS; axe with the wcag2a, wcag2aa, wcag21a and wcag21aa tags):
+    - An auditor sees every AC-43 part with the seeded data, the AC-40 banner, and audit links with the right targets; no axe violations.
+    - An administrator acknowledges a finding by keyboard only: Enter opens the dialog, axe passes on it, Escape returns focus to the button, an empty reason is refused, and the typed reason is submitted and shown.
+    - An auditor's acknowledge is refused with the permission message in the dialog; axe passes on the error state.
+    - A user without `posture.view` gets the no-access message; axe passes.
+    - Every test fails on a CSP violation or script error.
+    - Mutations (muted text below AA contrast, the reason field without its label, no refresh after acknowledging) each fail the tests.
