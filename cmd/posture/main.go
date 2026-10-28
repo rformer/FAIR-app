@@ -40,9 +40,11 @@ import (
 	"github.com/rformer/fair-app/internal/dbconn"
 	"github.com/rformer/fair-app/internal/natspub"
 	"github.com/rformer/fair-app/internal/posture"
+	"github.com/rformer/fair-app/internal/postureapi"
 	"github.com/rformer/fair-app/internal/profilepkg"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/audit"
+	"github.com/rformer/fair-app/pkg/authz"
 	"github.com/rformer/fair-app/pkg/settings"
 )
 
@@ -265,6 +267,9 @@ func run() error {
 	// Application drift (F-015 T-25): heartbeats and change events arrive on
 	// NATS, which production requires (otherwise check 4 would never run).
 	wake := make(chan struct{}, 1)
+	// The Posture API's permission checks (T-31): the caller's grants,
+	// refreshed on iam.scope.changed and at least every 60 s.
+	grants := authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool)})
 	if url := os.Getenv("FAIR_NATS_URL"); url != "" {
 		nc, err := natspub.Connect(ctx, natspub.Options{Env: cfg.Env, URL: url, CredsFile: os.Getenv("FAIR_NATS_CREDS_FILE"), Name: "fair-posture"})
 		if err != nil {
@@ -274,6 +279,13 @@ func run() error {
 		if _, err := nc.Subscribe(settings.SubjectHeartbeat, func(data []byte) {
 			if err := posture.RecordHeartbeat(ctx, pool, data); err != nil && ctx.Err() == nil {
 				logger.Warn("settings heartbeat", "error", err.Error())
+			}
+		}); err != nil {
+			return fmt.Errorf("nats: %w", err)
+		}
+		if _, err := nc.Subscribe(authz.SubjectScopeChanged, func(data []byte) {
+			if err := grants.HandleScopeChanged(data); err != nil {
+				logger.Warn("scope change event", "error", err.Error())
 			}
 		}); err != nil {
 			return fmt.Errorf("nats: %w", err)
@@ -333,6 +345,18 @@ func run() error {
 		Plaintext:   cfg.AllowPlaintext,
 		Logger:      logger,
 	})
+	// The Posture API (T-31): internal JWTs verified with the gateway's public
+	// keys (FAIR_JWT_KEYS_DIR, required in production).
+	if dir := os.Getenv("FAIR_JWT_KEYS_DIR"); dir != "" {
+		keys, err := authz.LoadLocalKeys(dir)
+		if err != nil {
+			return err
+		}
+		api := &postureapi.API{DB: pool, Authz: grants, Audit: emitter}
+		srv.Mux().Handle(postureapi.Prefix+"/", server.SecurityHeaders(api.Handler(keys, nil)))
+	} else if cfg.Env == "production" {
+		return errors.New("FAIR_JWT_KEYS_DIR is required in production (the Posture API verifies the gateway's internal JWTs)")
+	}
 	srv.AddReadinessCheck(server.ReadinessCheck{Name: "database", Check: func(ctx context.Context) error {
 		return schemaReady(ctx, pool)
 	}})

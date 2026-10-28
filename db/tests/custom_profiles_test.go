@@ -103,8 +103,12 @@ func TestCustomProfileLifecycle(t *testing.T) {
 	if k := viewKey(t, keys, settings.KeySessionIdleTimeout); k.Direction != "tighten" || k.Loosened {
 		t.Fatalf("idle row %+v", k)
 	}
-	if _, err := pr.View(ctx, auditor, "acme-fedramp", "1"); !errors.Is(err, posture.ErrNotPermitted) {
+	// posture.view holders (the Auditor) may read profiles (AC-43; T-31), not edit them.
+	if _, err := pr.View(ctx, auditor, "acme-fedramp", "1"); err != nil {
 		t.Fatalf("auditor view: %v", err)
+	}
+	if _, err := pr.Edit(ctx, auditor, "acme-fedramp", "1", settings.KeySessionIdleTimeout, json.RawMessage(`"5m0s"`), json.RawMessage(`"5m0s"`), ""); !errors.Is(err, posture.ErrNotPermitted) {
+		t.Fatalf("auditor edit: %v", err)
 	}
 
 	// Submit; drafts only are editable.

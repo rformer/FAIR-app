@@ -109,6 +109,26 @@ func (c *Cache) stepUp(p Principal, buID string) error {
 	return nil
 }
 
+// BUsWith returns the BUs where p holds perm, from the same snapshot Check
+// uses (for filtering lists, such as BU overrides, to what p may see).
+func (c *Cache) BUsWith(ctx context.Context, p Principal, perm Permission) (map[string]struct{}, error) {
+	if p.UserID == "" || p.ServiceAcct {
+		return nil, ErrDenied
+	}
+	snap, err := c.snapshot(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	if snap.Version != p.ScopeVersion {
+		return nil, ErrDenied
+	}
+	out := map[string]struct{}{}
+	for bu := range snap.Grants[perm] {
+		out[bu] = struct{}{}
+	}
+	return out, nil
+}
+
 func (c *Cache) snapshot(ctx context.Context, p Principal) (Snapshot, error) {
 	now := c.o.Now()
 	c.mu.Lock()

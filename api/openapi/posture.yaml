@@ -1,0 +1,225 @@
+openapi: 3.1.0
+info:
+  title: FAIR Posture API
+  version: "1"
+  description: |
+    F-015 design §7. Requests reach the posture service through the gateway, which
+    authenticates the session and forwards an internal JWT (ES256, at most 5 minutes)
+    and the DB context token it was minted with (F-001 design §4, §5.2).
+
+    Every route requires `posture.view` (at the root BU, or at the BU asked about);
+    without it the answer is 404 (F-001 AC-25). Mutations additionally need the
+    permission named in `x-permission`, checked by the database (403 without it), and
+    an `Idempotency-Key` header: a repeated key with the same request returns the
+    stored response; with a different request it is 422. Loosening calls need an
+    `explanation`. Approvals are handled by F-001 `/api/v1/approvals`. Exports
+    (`/exports`) follow with F-015 T-33 to T-35.
+servers:
+  - url: /api/v1/posture
+security:
+  - internalJWT: []
+    dbContext: []
+components:
+  securitySchemes:
+    internalJWT: { type: http, scheme: bearer, bearerFormat: JWT }
+    dbContext: { type: apiKey, in: header, name: X-Fair-DB-Context }
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 8, maxLength: 128 }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        detail: { type: string }
+        warning: { type: object, description: Out-of-bounds warning naming the affected controls (AC-21) }
+    ChangeOutcome:
+      type: object
+      properties:
+        outcome: { enum: [applied, pending_approval] }
+        change_id: { type: string }
+        direction: { enum: [tighten, neutral, loosen] }
+        approval_id: { type: string }
+        warning: { type: object }
+  responses:
+    Error: { description: Error, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+paths:
+  /registry:
+    get:
+      summary: Every registered setting with its value, source, bound and deviation status (AC-03)
+      x-permission: posture.view
+      responses: { "200": { description: Settings }, "404": { $ref: "#/components/responses/Error" } }
+  /settings:
+    get:
+      summary: Values in force for the instance or a BU, and the BU overrides the caller may see
+      x-permission: posture.view (at the BU when bu is given)
+      parameters: [{ name: bu, in: query, schema: { type: string, format: uuid } }]
+      responses: { "200": { description: Effective settings }, "404": { $ref: "#/components/responses/Error" } }
+  /settings/{key}:
+    post:
+      summary: Change a setting (tightening applies; out of bounds needs explanation and dual approval)
+      x-permission: settings.change
+      parameters:
+        - { name: key, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value: {}
+                bu_id: { type: string, format: uuid }
+                explanation: { type: string }
+                exception_duration: { type: string, description: Go duration, at most exception.max_duration }
+      responses:
+        "200": { description: Applied, content: { application/json: { schema: { $ref: "#/components/schemas/ChangeOutcome" } } } }
+        "202": { description: Pending approval, content: { application/json: { schema: { $ref: "#/components/schemas/ChangeOutcome" } } } }
+        "422": { $ref: "#/components/responses/Error" }
+  /changes:
+    get:
+      summary: Recent setting changes
+      x-permission: posture.view
+      parameters: [{ name: limit, in: query, schema: { type: integer, maximum: 500 } }]
+      responses: { "200": { description: Changes } }
+  /exceptions:
+    get:
+      summary: Exceptions (settings and overlay), active first
+      x-permission: posture.view
+      responses: { "200": { description: Exceptions } }
+  /exceptions/{id}/renew:
+    post:
+      summary: Request renewal of an active exception (dual approval)
+      x-permission: settings.change
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [justification], properties: { justification: { type: string }, duration: { type: string } } } } } }
+      responses: { "202": { description: Renewal requested } }
+  /profiles:
+    get:
+      summary: Profiles, every version
+      x-permission: posture.view
+      responses: { "200": { description: Profiles } }
+    post:
+      summary: Create a custom profile from a built-in one
+      x-permission: profile.manage
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [base_id, base_version, id, name], properties: { base_id: { type: string }, base_version: { type: string }, id: { type: string }, name: { type: string } } } } } }
+      responses: { "201": { description: Created } }
+  /profiles/{id}:
+    patch:
+      summary: Edit one key of a draft custom profile
+      x-permission: profile.manage
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [version, key], properties: { version: { type: string }, key: { type: string }, default: {}, bound: {}, justification: { type: string } } } } } }
+      responses: { "200": { description: Edited } }
+  /profiles/{id}/submit:
+    post:
+      summary: Submit a draft custom profile for approval
+      x-permission: profile.manage
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [version], properties: { version: { type: string } } } } } }
+      responses: { "202": { description: Submitted } }
+  /profiles/{id}/diff:
+    get:
+      summary: Compare a profile version with another
+      x-permission: posture.view
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: version, in: query, required: true, schema: { type: string } }
+        - { name: against, in: query, required: true, schema: { type: string, description: "ID@VERSION" } }
+      responses: { "200": { description: Differences } }
+  /profiles/import:
+    post:
+      summary: Import a custom profile (JSON or OSCAL)
+      x-permission: profile.manage
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [id, format, document], properties: { id: { type: string }, format: { enum: [json, oscal] }, document: { type: object } } } } } }
+      responses: { "201": { description: Imported } }
+  /profiles/{id}/export:
+    get:
+      summary: Export a profile version (JSON or OSCAL)
+      x-permission: posture.view
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: version, in: query, required: true, schema: { type: string } }
+        - { name: format, in: query, schema: { enum: [json, oscal] } }
+      responses: { "200": { description: The document } }
+  /switches:
+    post:
+      summary: Request a profile switch (conflicts computed at once)
+      x-permission: profile.manage
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [target_id, target_version], properties: { target_id: { type: string }, target_version: { type: string }, justification: { type: string } } } } } }
+      responses: { "201": { description: Requested } }
+  /switches/{id}:
+    get:
+      summary: The pending switch and its conflicts
+      x-permission: posture.view
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { description: Switch }, "404": { $ref: "#/components/responses/Error" } }
+  /switches/{id}/conflicts/{cid}/resolve:
+    post:
+      summary: Resolve a conflict (conform, or exception with a reason)
+      x-permission: profile.manage
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: cid, in: path, required: true, schema: { type: string, description: "KEY or KEY@BU" } }
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [resolution], properties: { resolution: { enum: [conform, exception] }, reason: { type: string }, duration: { type: string } } } } } }
+      responses: { "200": { description: Resolved } }
+  /switches/{id}/activate:
+    post:
+      summary: Activate a switch in one transaction
+      x-permission: profile.manage
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { $ref: "#/components/parameters/IdempotencyKey" }]
+      responses: { "200": { description: Activated } }
+  /switches/{id}/cancel:
+    post:
+      summary: Cancel a pending switch
+      x-permission: profile.manage
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { $ref: "#/components/parameters/IdempotencyKey" }]
+      responses: { "200": { description: Cancelled } }
+  /overlay:
+    get:
+      summary: The Restricted BU overlay
+      x-permission: posture.view
+      responses: { "200": { description: Overlay } }
+    patch:
+      summary: Change an overlay value (weaker than the default needs dual approval)
+      x-permission: settings.change
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [key, value], properties: { key: { type: string }, value: {}, explanation: { type: string }, exception_duration: { type: string } } } } } }
+      responses:
+        "200": { description: Applied, content: { application/json: { schema: { $ref: "#/components/schemas/ChangeOutcome" } } } }
+        "202": { description: Pending approval, content: { application/json: { schema: { $ref: "#/components/schemas/ChangeOutcome" } } } }
+  /drift:
+    get:
+      summary: Unresolved drift findings, and those resolved since a time
+      x-permission: posture.view
+      parameters: [{ name: resolved_since, in: query, schema: { type: string, format: date-time } }]
+      responses: { "200": { description: Findings } }
+  /drift/{id}/acknowledge:
+    post:
+      summary: Acknowledge an open finding (it stays until its check resolves it)
+      x-permission: drift.acknowledge
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [reason], properties: { reason: { type: string } } } } } }
+      responses: { "200": { description: Acknowledged } }
+  /k8s-access:
+    get:
+      summary: Kubernetes-access consent, its banner and which deployment checks are Not assessed
+      x-permission: posture.view
+      responses: { "200": { description: Status } }
+  /k8s-access/acknowledge-grant:
+    post:
+      summary: Acknowledge a requested grant for the permissions shown
+      x-permission: settings.change
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [permissions_digest], properties: { permissions_digest: { type: string } } } } } }
+      responses: { "200": { description: Granted } }

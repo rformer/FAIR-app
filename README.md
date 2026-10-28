@@ -154,6 +154,9 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_DB_PASSWORD_FILE=<app_posture passwor
 # deploy/k8s/permission-manifest.json and records the decision with
 #   ./bin/posture k8s-access grant | decline -reason TEXT | request | revoke -reason TEXT | status
 # A later grant (request) waits for an administrator's acknowledgement.
+# The Posture API (T-31, contract api/openapi/posture.yaml) is served under
+# /api/v1/posture when FAIR_JWT_KEYS_DIR holds the gateway's internal-JWT
+# public keys (PEM files named by key id; required in production).
 # After changing a .proto in api/proto: scripts/gen-proto.sh (see its header).
 
 # The posture service itself (./bin/posture) also needs FAIR_NATS_URL (tls://

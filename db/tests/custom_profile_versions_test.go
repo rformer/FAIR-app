@@ -180,7 +180,8 @@ func TestCustomProfileVersions(t *testing.T) {
 	if _, err := pr.Edit(ctx, admin, "acme", "1", settings.KeySessionIdleTimeout, j(`"5m0s"`), j(`"5m0s"`), ""); !errors.Is(err, posture.ErrNotApplicable) {
 		t.Fatalf("edit of an approved version: %v", err)
 	}
-	if _, err := pr.Diff(ctx, e.principal("auditor"), "acme", "1", "acme", "2"); !errors.Is(err, posture.ErrNotPermitted) {
+	// posture.view holders may compare versions (AC-43; T-31).
+	if _, err := pr.Diff(ctx, e.principal("auditor"), "acme", "1", "acme", "2"); err != nil {
 		t.Fatalf("auditor diff: %v", err)
 	}
 }

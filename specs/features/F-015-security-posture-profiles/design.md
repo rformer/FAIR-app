@@ -912,3 +912,27 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
     - `TestK8sAccessDeclinedAndSaaS`: undecided gives a banner; a decline needs a reason and leaves everything Not assessed with a banner; SaaS counts as granted and cannot decline.
     - `TestPermissionManifest`.
     - Mutations (no report gate, SaaS decline allowed, acknowledged digest not checked, assessment ignoring the state) each fail the tests.
+- 2026-10-28: T-31 implementation notes. Robert Former approved two choices: pulling F-001 T-14 (internal JWT) forward, and a shared idempotency middleware with a store.
+  - **API** (`internal/postureapi`, mounted by `cmd/posture` under `/api/v1/posture/` when `FAIR_JWT_KEYS_DIR` holds the gateway's public keys; required in production). It serves the 24 routes of §7 apart from `/exports`, which come with T-33 to T-35. The contract is `api/openapi/posture.yaml`; a test keeps it equal to the routes served and requires an `Idempotency-Key` and an `x-permission` on every mutation.
+  - **Authentication and idempotency:** the shared F-001 middleware (internal JWT plus DB context token, see the F-001 change log) and `server.Idempotent`, with posture's store (`posture.idempotency`, 24 hours; an in-progress key is taken over after 5 minutes).
+  - **Authorization:**
+    - Every route requires `posture.view`, checked on the caller's grant snapshot (`authz.Cache`; the posture service may now read `authz.grant_snapshot`, which returns only the signed-context user's own grants). It is checked at the root, or at the BU of `?bu=`. Without it the answer is 404 (F-001 AC-25).
+    - Mutations then go through the posture services, whose functions check their own permission (`settings.change`, `profile.manage`, `drift.acknowledge`); 403 without it.
+    - BU overrides and BU exceptions are listed only for BUs where the caller holds `posture.view`, so a restricted BU's overrides are hidden from users not assigned inside it, administrators at the root included (AC-32).
+  - **Responses:**
+    - Domain errors map to 400 (invalid values), 403, 404, 409 (not applicable or not approved), 422 (hard floor, explanation required, with the AC-21 warning) and 503; other errors are 500 without detail.
+    - Applied changes are 200; changes waiting for approval are 202 with the approval ID.
+    - Design §7's "loosening calls require explanation" is enforced for setting changes in bounds too: the API previews the change and refuses an unexplained loosening.
+  - **New reads** (migration 0033): `registry_view` (AC-03: value, source, default, bound, deviation in_bounds, exception, out_of_bounds, below_floor or unbound, and the exception's expiry), `bu_overrides`, `changes_view`, `exceptions_view` and `profiles_view`.
+  - **Change to T-19/T-20:** reading profiles, their differences, exports and the pending switch (`profile_reader`, `custom_profile_view`) now also accepts `posture.view`, because AC-43's Posture page shows them to `posture.view` holders. Every profile write still needs `profile.manage`.
+  - Verification (DB tests over HTTP, with gateway-style tokens):
+    - `TestPostureAPIAccessAndChanges`:
+      - Unauthenticated requests are 401, and callers without `posture.view` get 404 on reads and mutations.
+      - The registry gives 20 settings with value, source, bound, deviation and controls.
+      - The auditor gets 403 on changes. A tightening is 200, an unexplained loosening 422, an explained in-bounds loosening 200, out of bounds 202 with the approval and warning, a hard-floor violation 422, and an unknown field 400.
+      - Idempotency: a missing key is 400; a replayed key returns the same body without a second change; a key reused for another request is 422.
+      - The other read endpoints answer, and an unknown switch is 404.
+    - `TestPostureAPIRestrictedBUHidden`: the auditor and the administrator at the root see the override at A but not at the restricted R, and get 404 for `?bu=R`. A user assigned at R sees R's values but not the instance-wide views.
+    - `TestOpenAPIMatchesRoutes`.
+    - The T-19/T-20 tests now expect the auditor to read profiles and diffs, still not to edit.
+    - Mutations (unfiltered overrides, no `posture.view` check, loosening without explanation, the JWT not bound to the DB context, replay disabled) each fail the tests.

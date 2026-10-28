@@ -315,3 +315,15 @@ Until F-015 exists, F-001 ships a minimal settings module that holds the three p
     - Expiry: an expired request cannot be decided, an approval cannot be used after its window, the expiry job marks overdue requests and audits them, and the TTL is configurable.
     - Missing, forged and disabled-user contexts are refused; unknown kinds and blank reasons are refused.
     - A mutation that lets anyone approve fails the tests.
+- 2026-10-28: T-14 pulled forward with F-015 T-31 (approved by Robert Former), so the Posture API can authenticate requests (`pkg/authz/jwt.go`).
+  - **Token:** the gateway mints, per request and per target service, an ES256 JWT valid at most 5 minutes. Claims: `iss` `fair-gateway`, `aud` the service, `sub` user, `sv` scope version, `auth_time`, `iat`, `exp`, `jti`, and `dbc`, the SHA-256 of the DB context token sent alongside, so the two cannot be recombined across requests.
+  - **Verification** (`VerifyJWT`) accepts only `alg` ES256 with a known `kid`, the issuer, the audience, a lifetime of at most 5 minutes, and an unexpired token (30 s leeway).
+  - **Keys** sit behind `KeyProvider`. `LoadLocalKeys` reads a directory of PEM files named by key ID: the newest private key signs, every key verifies, and a service may hold public keys only. KMS and Vault providers implement the same interface with T-41.
+  - **Shared middleware** (`internal/server/api.go`), which T-42 will reuse and lint-enforce:
+    - `Authenticate` turns the JWT and the `X-Fair-DB-Context` header into the `authz.Principal` (401 otherwise).
+    - `Idempotent` requires `Idempotency-Key` on POST, PUT, PATCH and DELETE (400 otherwise). It stores each outcome per user and key and replays it for the same request; the same key with a different request is 422, one in progress is 409, and a server error frees the key.
+  - `authz.Cache.BUsWith` lists where a permission applies, for filtering lists to what the caller may see.
+  - Verification:
+    - `TestInternalJWT`: tampered claims, `alg` none and HS256, an unknown or missing key ID, the wrong audience or issuer, a lifetime over 5 minutes, expiry, a missing DB context, a foreign signer, and malformed tokens are refused; verification with public keys only works; rotation keeps old tokens valid.
+    - `TestAuthenticate` and `TestIdempotent` (internal/server).
+    - A mutation that drops the DB-context binding fails `TestAuthenticate`.

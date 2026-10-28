@@ -280,3 +280,7 @@ func ControlsForParams(params []string) []string {
 	}
 	return out
 }
+
+// MapError maps a posture database error to the evaluator's errors (for
+// callers, such as the Posture API, that run posture functions directly).
+func MapError(err error) error { return mapErr(err) }
