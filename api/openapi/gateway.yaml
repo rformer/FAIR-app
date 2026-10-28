@@ -1,0 +1,128 @@
+openapi: 3.1.0
+info:
+  title: FAIR Gateway API
+  version: "1"
+  description: |
+    F-001 design §2, §5.1, §5.2, §6 (T-13; AC-31, AC-33, AC-35). The gateway owns
+    browser sessions: the `__Host-sid` cookie (Secure, HttpOnly, SameSite=Strict,
+    Path=/; 256 random bits, stored only as an HMAC), the idle and absolute timeouts in
+    force (`session.idle_timeout`, `session.absolute_timeout`), and revocation.
+
+    Every route needs a live session (401 otherwise, with the cookie cleared when it has
+    ended). State-changing requests also need the session's CSRF token, from `GET /me`,
+    in `X-CSRF-Token`, and must come from the platform's own origin (`Origin`, or
+    `Sec-Fetch-Site: same-origin`); otherwise 403 `csrf`.
+
+    The gateway's own mutations (logout, revocations) are idempotent by their nature
+    (repeating one leaves the same state), so they take no `Idempotency-Key`; requests
+    proxied to the services under `/api/v1/<service>/` keep theirs.
+
+    Other users' sessions need `session.view` / `session.revoke` (403 otherwise), checked
+    by the database from the signed context, and revoking them needs a `reason` (422).
+servers:
+  - url: /api/v1
+security:
+  - session: []
+components:
+  securitySchemes:
+    session: { type: apiKey, in: cookie, name: __Host-sid }
+  parameters:
+    CSRF:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      schema: { type: string }
+    User:
+      name: user
+      in: query
+      required: true
+      schema: { type: string, format: uuid }
+    Handle:
+      name: handle
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        detail: { type: string }
+    Session:
+      type: object
+      properties:
+        session: { type: string, format: uuid, description: The session's public id }
+        user_id: { type: string, format: uuid }
+        auth_method: { type: string }
+        created_at: { type: string, format: date-time }
+        last_seen_at: { type: string, format: date-time }
+        absolute_expiry_at: { type: string, format: date-time }
+        ip: { type: string }
+        user_agent: { type: string }
+        current: { type: boolean }
+    Reason:
+      type: object
+      properties:
+        reason: { type: string, description: Required when revoking another user's sessions }
+paths:
+  /me:
+    get:
+      summary: The signed-in user's session, and its CSRF token
+      x-permission: none (any session)
+      responses:
+        "200":
+          description: Session
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id: { type: string, format: uuid }
+                  session: { type: string, format: uuid }
+                  auth_method: { type: string }
+                  created_at: { type: string, format: date-time }
+                  expires_at: { type: string, format: date-time, description: The earlier of the idle and absolute deadlines }
+                  csrf_token: { type: string }
+        "401": { description: No live session, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+  /auth/logout:
+    post:
+      summary: End this session and clear the cookie
+      x-permission: none (own session)
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      responses: { "204": { description: Signed out } }
+  /me/sessions:
+    get:
+      summary: The user's active sessions
+      x-permission: none (own sessions)
+      responses: { "200": { description: Sessions, content: { application/json: { schema: { type: object, properties: { sessions: { type: array, items: { $ref: "#/components/schemas/Session" } } } } } } } }
+    delete:
+      summary: Revoke the user's other sessions (sign out everywhere else)
+      x-permission: none (own sessions)
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      responses: { "200": { description: How many were revoked } }
+  /me/sessions/{handle}:
+    delete:
+      summary: Revoke one of the user's sessions
+      x-permission: none (own sessions); session.revoke for another user's
+      parameters: [{ $ref: "#/components/parameters/Handle" }, { $ref: "#/components/parameters/CSRF" }]
+      responses: { "204": { description: Revoked }, "404": { description: No active session with that id } }
+  /sessions:
+    get:
+      summary: A user's active sessions
+      x-permission: session.view (for another user)
+      parameters: [{ $ref: "#/components/parameters/User" }]
+      responses: { "200": { description: Sessions }, "403": { description: Forbidden } }
+    delete:
+      summary: Revoke every session of a user
+      x-permission: session.revoke (for another user; with a reason)
+      parameters: [{ $ref: "#/components/parameters/User" }, { $ref: "#/components/parameters/CSRF" }]
+      requestBody: { content: { application/json: { schema: { $ref: "#/components/schemas/Reason" } } } }
+      responses: { "200": { description: How many were revoked }, "403": { description: Forbidden }, "422": { description: A reason is required } }
+  /sessions/{handle}:
+    delete:
+      summary: Revoke a session
+      x-permission: session.revoke (for another user's; with a reason)
+      parameters: [{ $ref: "#/components/parameters/Handle" }, { $ref: "#/components/parameters/CSRF" }]
+      requestBody: { content: { application/json: { schema: { $ref: "#/components/schemas/Reason" } } } }
+      responses: { "204": { description: Revoked }, "403": { description: Forbidden }, "404": { description: Not found }, "422": { description: A reason is required } }

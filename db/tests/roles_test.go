@@ -55,7 +55,7 @@ func setup(t *testing.T) *env {
 
 	e := &env{t: t, root: root, db: "fairtest_" + randHex(6), secrets: map[string]string{}, adminEnv: os.Environ()}
 	dir := t.TempDir()
-	for _, r := range []string{"app_migrator", "app_rw", "app_engine", "app_posture"} {
+	for _, r := range []string{"app_migrator", "app_rw", "app_engine", "app_posture", "app_gateway"} {
 		p := filepath.Join(dir, r)
 		if err := os.WriteFile(p, []byte(randHex(24)+"\n"), 0o600); err != nil {
 			t.Fatal(err)
@@ -74,6 +74,7 @@ func setup(t *testing.T) *env {
 		"FAIR_RW_PASSWORD_FILE":       e.secrets["app_rw"],
 		"FAIR_ENGINE_PASSWORD_FILE":   e.secrets["app_engine"],
 		"FAIR_POSTURE_PASSWORD_FILE":  e.secrets["app_posture"],
+		"FAIR_GATEWAY_PASSWORD_FILE":  e.secrets["app_gateway"],
 	})
 	res, err := e.migrate("")
 	if err != nil {
@@ -274,6 +275,7 @@ func TestBootstrapRepairsRoleDrift(t *testing.T) {
 		"FAIR_RW_PASSWORD_FILE":       e.secrets["app_rw"],
 		"FAIR_ENGINE_PASSWORD_FILE":   e.secrets["app_engine"],
 		"FAIR_POSTURE_PASSWORD_FILE":  e.secrets["app_posture"],
+		"FAIR_GATEWAY_PASSWORD_FILE":  e.secrets["app_gateway"],
 	})
 	out, err := e.as("app_rw", "SELECT rolbypassrls FROM pg_roles WHERE rolname = 'app_rw'")
 	if err != nil || out != "f" {

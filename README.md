@@ -109,7 +109,7 @@ docker run --rm --network fairtest -v "$PWD:/src" -w /src \
 #    upgrade: releases may add roles (F-015 T-08 adds app_posture and
 #    posture_definer).
 PGDATABASE=fair FAIR_MIGRATOR_PASSWORD_FILE=... FAIR_RW_PASSWORD_FILE=... \
-FAIR_ENGINE_PASSWORD_FILE=... FAIR_POSTURE_PASSWORD_FILE=... ./scripts/db-bootstrap.sh
+FAIR_ENGINE_PASSWORD_FILE=... FAIR_POSTURE_PASSWORD_FILE=... FAIR_GATEWAY_PASSWORD_FILE=... ./scripts/db-bootstrap.sh
 
 # 2. Migrations and release catalog (as app_migrator). In production the
 #    server certificate must be verified: PGSSLMODE=verify-full.
@@ -155,6 +155,12 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_DB_PASSWORD_FILE=<app_posture passwor
 # deploy/k8s/permission-manifest.json and records the decision with
 #   ./bin/posture k8s-access grant | decline -reason TEXT | request | revoke -reason TEXT | status
 # A later grant (request) waits for an administrator's acknowledgement.
+# The gateway (F-001 T-13; image target gateway; contract api/openapi/gateway.yaml)
+# holds browser sessions and proxies /api/v1/<service>/ with fresh internal
+# credentials. It needs FAIR_DB_PASSWORD_FILE (app_gateway), FAIR_SESSION_PEPPER_FILE,
+# FAIR_DB_CONTEXT_KEY_ID and _FILE (the key in authz.ctx_key), FAIR_JWT_KEYS_DIR
+# (signing keys), FAIR_PUBLIC_ORIGIN, FAIR_UPSTREAMS (e.g.
+# posture=https://posture.fair-platform:8443) and FAIR_UPSTREAM_CA_FILE.
 # The Posture API (T-31, contract api/openapi/posture.yaml) is served under
 # /api/v1/posture when FAIR_JWT_KEYS_DIR holds the gateway's internal-JWT
 # public keys (PEM files named by key id; required in production).

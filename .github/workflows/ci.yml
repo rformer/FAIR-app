@@ -241,6 +241,7 @@ jobs:
         include:
           - { component: posture-scanner, smoke: "" }
           - { component: fips-probe, smoke: "check" }
+          - { component: gateway, smoke: "" }
     permissions:
       contents: read
       packages: write   # push to GHCR (main only)

@@ -29,7 +29,7 @@ COPY profiles/packages ./profiles/packages
 COPY third_party/oscal/oscal.go third_party/oscal/MANIFEST.json ./third_party/oscal/
 COPY third_party/oscal/schemas/oscal_complete_schema.json ./third_party/oscal/schemas/
 ARG VERSION=dev
-RUN for c in iam posture posture-scanner fips-probe; do \
+RUN for c in iam posture posture-scanner fips-probe gateway; do \
       go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/$c ./cmd/$c || exit 1; \
     done
 
@@ -48,6 +48,12 @@ COPY --from=build /out/posture /posture
 USER 65532:65532
 EXPOSE 8443 9443
 ENTRYPOINT ["/posture"]
+
+FROM gcr.io/distroless/static-debian12:nonroot AS gateway
+COPY --from=build /out/gateway /gateway
+USER 65532:65532
+EXPOSE 8443
+ENTRYPOINT ["/gateway"]
 
 FROM gcr.io/distroless/static-debian12:nonroot AS iam
 COPY --from=build /out/iam /iam
