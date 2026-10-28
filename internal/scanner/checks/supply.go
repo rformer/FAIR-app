@@ -170,8 +170,13 @@ func platformRBAC(cfg Config) check {
 			live[releasemanifest.RBACEntry{Kind: kind, Namespace: o.Metadata.Namespace, Name: o.Metadata.Name}.Key()] = h
 			return nil
 		}
+		// The platform namespaces and fips-probe's (T-29).
+		rbacScope := s
+		if s.ProbeNamespace != "" {
+			rbacScope.Namespaces = append(slices.Clone(s.Namespaces), s.ProbeNamespace)
+		}
 		for kind, res := range map[string]kube.Resource{"Role": kube.Roles, "RoleBinding": kube.RoleBindings} {
-			objs, err := listAll(ctx, r, res, s)
+			objs, err := listAll(ctx, r, res, rbacScope)
 			if err != nil {
 				return nil, err
 			}
@@ -187,7 +192,7 @@ func platformRBAC(cfg Config) check {
 			}
 			_ = json.Unmarshal(raw, &b)
 			return slices.ContainsFunc(b.Subjects, func(sub struct{ Kind, Namespace string }) bool {
-				return sub.Kind == "ServiceAccount" && slices.Contains(s.Namespaces, sub.Namespace)
+				return sub.Kind == "ServiceAccount" && slices.Contains(rbacScope.Namespaces, sub.Namespace)
 			})
 		}
 		for kind, res := range map[string]kube.Resource{"ClusterRole": kube.ClusterRoles, "ClusterRoleBinding": kube.ClusterRoleBindings} {

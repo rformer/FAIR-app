@@ -4,6 +4,7 @@
 #   docker build .                          iam (the default, last stage)
 #   docker build --target posture .         posture service (F-015)
 #   docker build --target posture-scanner . deployment drift scanner (F-015 T-27)
+#   docker build --target fips-probe .      node FIPS probe (F-015 T-29)
 # - FIPS 140-3: built with GOFIPS140=v1.0.0; go.mod sets fips140=on at runtime.
 # - Static, CGO-free binary on distroless: no shell, no package manager.
 # - Runs as non-root (65532) and works with a read-only root filesystem.
@@ -28,7 +29,14 @@ COPY profiles/packages ./profiles/packages
 COPY third_party/oscal/oscal.go third_party/oscal/MANIFEST.json ./third_party/oscal/
 COPY third_party/oscal/schemas/oscal_complete_schema.json ./third_party/oscal/schemas/
 ARG VERSION=dev
-RUN for c in iam posture posture-scanner; do       go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/$c ./cmd/$c || exit 1;     done
+RUN for c in iam posture posture-scanner fips-probe; do \
+      go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/$c ./cmd/$c || exit 1; \
+    done
+
+FROM gcr.io/distroless/static-debian12:nonroot AS fips-probe
+COPY --from=build /out/fips-probe /fips-probe
+USER 65532:65532
+ENTRYPOINT ["/fips-probe"]
 
 FROM gcr.io/distroless/static-debian12:nonroot AS posture-scanner
 COPY --from=build /out/posture-scanner /posture-scanner

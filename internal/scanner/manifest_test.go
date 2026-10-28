@@ -75,7 +75,7 @@ func list(v any) []doc {
 
 func TestScannerRBACIsReadOnlyAndMatchesAccess(t *testing.T) {
 	docs := loadManifest(t)
-	granted := map[string][]string{} // kind -> "group/resource"
+	granted := map[string][]string{} // kind (Role: kind/namespace) -> "group/resource"
 	for _, d := range docs {
 		if d.kind() != "Role" && d.kind() != "ClusterRole" {
 			continue
@@ -97,7 +97,11 @@ func TestScannerRBACIsReadOnlyAndMatchesAccess(t *testing.T) {
 					if res == "secrets" {
 						t.Errorf("%s %s: Secrets granted", d.kind(), d.name())
 					}
-					granted[d.kind()] = append(granted[d.kind()], g+"/"+res)
+					k := d.kind()
+					if k == "Role" {
+						k += "/" + str(d.m("metadata")["namespace"])
+					}
+					granted[k] = append(granted[k], g+"/"+res)
 				}
 			}
 			if len(strs(r["resourceNames"])) > 0 {
@@ -113,7 +117,8 @@ func TestScannerRBACIsReadOnlyAndMatchesAccess(t *testing.T) {
 		sort.Strings(out)
 		return out
 	}
-	for kind, rs := range map[string][]kube.Resource{"Role": Access.Namespaced, "ClusterRole": Access.Cluster} {
+	for kind, rs := range map[string][]kube.Resource{"Role/fair-platform": Access.Namespaced, "Role/fair-fips-probe": Access.ProbeNamespaced,
+		"ClusterRole": Access.Cluster} {
 		got := granted[kind]
 		sort.Strings(got)
 		if !slices.Equal(got, want(rs)) {

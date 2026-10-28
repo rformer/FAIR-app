@@ -81,6 +81,10 @@ func (s *ScannerService) Report(ctx context.Context, r *posturev1.ScanReport) (*
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
+	observations, err := validateObservations(r)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 	// Node FIPS mode matters only where the active profile requires it
 	// (AC-41): otherwise the check counts as passed, resolving its findings.
 	if slices.Contains(r.GetChecksRun(), CheckNodeFIPS) && !s.fipsRequired(ctx) {
@@ -99,6 +103,9 @@ func (s *ScannerService) Report(ctx context.Context, r *posturev1.ScanReport) (*
 	err = pgx.BeginFunc(ctx, s.DB, func(tx pgx.Tx) error {
 		if len(checks) > 0 {
 			if opened, resolved, err = recordFindings(ctx, tx, s.Audit, "deployment", checks, payload); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, "SELECT posture.record_deployment_observations($1, $2)", checks, observations); err != nil {
 				return err
 			}
 		}
@@ -226,6 +233,73 @@ func validateReport(r *posturev1.ScanReport, now time.Time) ([]Finding, error) {
 			Subject: subject, Detail: detail, Remediation: f.GetRemediation()})
 	}
 	return out, nil
+}
+
+// observation is a validated observation, as posture stores it.
+type observation struct {
+	CheckID string          `json:"check_id"`
+	Subject string          `json:"subject"`
+	Method  string          `json:"method"`
+	Detail  json.RawMessage `json:"detail"`
+}
+
+// validateObservations checks a report's observations (untrusted input,
+// like its findings) and returns them as JSON for the database.
+func validateObservations(r *posturev1.ScanReport) ([]byte, error) {
+	if len(r.GetObservations()) > maxFindings {
+		return nil, fmt.Errorf("more than %d observations", maxFindings)
+	}
+	out := make([]observation, 0, len(r.GetObservations()))
+	seen := map[string]bool{}
+	for i, o := range r.GetObservations() {
+		bad := func(what string) error { return fmt.Errorf("observation %d: %s", i, what) }
+		switch {
+		case !slices.Contains(r.GetChecksRun(), o.GetCheckId()):
+			return nil, bad("check_id is not one of checks_run")
+		case o.GetMethod() != "verified" && o.GetMethod() != "attested":
+			return nil, bad("method must be verified or attested")
+		case o.GetSubject() == "" || len(o.GetSubject()) > maxSubject || strings.IndexFunc(o.GetSubject(), unicode.IsControl) >= 0:
+			return nil, bad("invalid subject")
+		case len(o.GetDetailJson()) > maxDetailBytes:
+			return nil, bad("detail too large")
+		}
+		detail := json.RawMessage(o.GetDetailJson())
+		if len(detail) == 0 {
+			detail = json.RawMessage("{}")
+		}
+		var obj map[string]any
+		if err := json.Unmarshal(detail, &obj); err != nil || obj == nil {
+			return nil, bad("detail_json is not a JSON object")
+		}
+		subject := "deployment:" + o.GetSubject()
+		if k := o.GetCheckId() + " " + subject; seen[k] {
+			return nil, bad("duplicate check and subject")
+		}
+		seen[o.GetCheckId()+" "+subject] = true
+		out = append(out, observation{CheckID: o.GetCheckId(), Subject: subject, Method: o.GetMethod(), Detail: detail})
+	}
+	return json.Marshal(out)
+}
+
+// Observation is how a passing deployment subject was assessed.
+type Observation struct {
+	CheckID, Subject, Method string
+	Detail                   json.RawMessage
+	ObservedAt               time.Time
+}
+
+// Observations returns the latest deployment observations, e.g. which
+// nodes' FIPS mode is verified and which only attested.
+func Observations(ctx context.Context, db *pgxpool.Pool) ([]Observation, error) {
+	rows, err := db.Query(ctx, "SELECT check_id, subject, method, detail, observed_at FROM posture.deployment_observations()")
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (Observation, error) {
+		var o Observation
+		err := r.Scan(&o.CheckID, &o.Subject, &o.Method, &o.Detail, &o.ObservedAt)
+		return o, err
+	})
 }
 
 func checkErrors(in []*posturev1.CheckError) []map[string]string {

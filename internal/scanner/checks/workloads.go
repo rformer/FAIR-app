@@ -105,29 +105,78 @@ func networkPolicies() check {
 	return c
 }
 
-// 4. Node FIPS mode: each node attested or verified (fips-probe, T-29).
-// Posture keeps these findings only where the active profile requires
-// FIPS (fips.enabled).
+// 4. Node FIPS mode (T-29, D-OQ2): verified where the node's fips-probe
+// pod is Ready (its readiness runs the kernel-flag check), else attested
+// by the node label, else a finding. Every passing node is recorded with
+// how it is known. Posture keeps the findings only where the active profile
+// requires FIPS (fips.enabled).
 func nodeFIPS() check {
 	c := check{Meta: Meta{ID: "node_fips", Title: "Nodes run in FIPS mode",
 		Controls:    []string{"SC-13"},
-		Remediation: "Run the node in FIPS mode and deploy fips-probe, or attest FIPS mode at install, so the node is labelled fair-platform.io/fips."}}
-	c.run = func(ctx context.Context, r scanner.Reader, _ scanner.Scope) ([]scanner.Finding, error) {
-		objs, _, err := r.List(ctx, kube.Nodes, "")
+		Remediation: "Run the node in FIPS mode with fips-probe deployed (or, if the probe is declined, attest it at install with the node label fair-platform.io/fips=attested)."}}
+	c.result = func(ctx context.Context, r scanner.Reader, s scanner.Scope) (scanner.Result, error) {
+		var res scanner.Result
+		nodes, _, err := r.List(ctx, kube.Nodes, "")
 		if err != nil {
-			return nil, err
+			return res, err
 		}
-		var out []scanner.Finding
-		for _, o := range objs {
-			switch v := o.Metadata.Labels[LabelFIPS]; v {
-			case "verified", "attested":
-			default:
-				out = append(out, c.finding("high", "node/"+o.Metadata.Name, map[string]any{"node": o.Metadata.Name, "fips": v}, ""))
+		type probePod struct {
+			Metadata meta `json:"metadata"`
+			Spec     struct {
+				NodeName string `json:"nodeName"`
+			} `json:"spec"`
+			Status struct {
+				Conditions []struct{ Type, Status string } `json:"conditions"`
+			} `json:"status"`
+		}
+		probes := map[string]string{} // node -> "ready" or "not ready"
+		probePods := map[string]string{}
+		if s.ProbeNamespace != "" {
+			objs, _, err := r.List(ctx, kube.Pods, s.ProbeNamespace)
+			if err != nil {
+				return res, err
+			}
+			ps, err := decode[probePod](objs)
+			if err != nil {
+				return res, err
+			}
+			for _, p := range ps {
+				if p.Metadata.Labels["app.kubernetes.io/name"] != "fips-probe" || p.Spec.NodeName == "" {
+					continue
+				}
+				ready := slices.ContainsFunc(p.Status.Conditions, func(c struct{ Type, Status string }) bool { return c.Type == "Ready" && c.Status == "True" })
+				if ready {
+					probes[p.Spec.NodeName], probePods[p.Spec.NodeName] = "ready", p.Metadata.Name
+				} else if probes[p.Spec.NodeName] != "ready" {
+					probes[p.Spec.NodeName], probePods[p.Spec.NodeName] = "not ready", p.Metadata.Name
+				}
 			}
 		}
-		return out, nil
+		for _, o := range nodes {
+			n := o.Metadata.Name
+			label := o.Metadata.Labels[LabelFIPS]
+			switch {
+			case probes[n] == "ready":
+				res.Observations = append(res.Observations, c.observation("node/"+n, "verified", map[string]any{"node": n, "probe_pod": probePods[n]}))
+			case label == "attested":
+				res.Observations = append(res.Observations, c.observation("node/"+n, "attested", map[string]any{"node": n, "label": LabelFIPS + "=attested", "probe": probeState(probes[n])}))
+			default:
+				res.Findings = append(res.Findings, c.finding("high", "node/"+n, map[string]any{"node": n, "probe": probeState(probes[n]), "label": label}, ""))
+			}
+		}
+		return res, nil
 	}
 	return c
+}
+
+func probeState(s string) string {
+	switch s {
+	case "":
+		return "no fips-probe pod on this node"
+	case "not ready":
+		return "fips-probe not ready: the kernel FIPS flag is not 1, or unreadable"
+	}
+	return s
 }
 
 func isTrue(b *bool) bool  { return b != nil && *b }

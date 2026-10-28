@@ -174,28 +174,35 @@ jobs:
           cosign sign --yes "$digest"
           cosign attest --yes --type spdxjson --predicate sbom.spdx.json "$digest"
 
-  # F-015 T-27: the deployment drift scanner's own image (design §6.8):
-  # non-root, read-only, scanned and signed like iam.
+  # F-015 T-27/T-29: the deployment drift scanner's and the FIPS probe's own
+  # images (design §6.8, D-OQ2): non-root, read-only, scanned and signed like
+  # iam. Each must refuse to succeed unconfigured (the probe's "check" fails
+  # without the flag file mounted).
   scanner-image:
     needs: [test, lint]
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { component: posture-scanner, smoke: "" }
+          - { component: fips-probe, smoke: "check" }
     permissions:
       contents: read
       packages: write   # push to GHCR (main only)
       id-token: write   # keyless cosign signing (main only)
     env:
-      IMAGE: ghcr.io/${{ github.repository_owner }}/fair-posture-scanner
+      IMAGE: ghcr.io/${{ github.repository_owner }}/fair-${{ matrix.component }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
       - name: Set image tag
         run: echo "TAG=${GITHUB_SHA::12}" >> "$GITHUB_ENV"
       - name: Build
-        run: docker build --load --target posture-scanner --build-arg VERSION="$TAG" -t "$IMAGE:$TAG" .
+        run: docker build --load --target "${{ matrix.component }}" --build-arg VERSION="$TAG" -t "$IMAGE:$TAG" .
       - name: Verify non-root and refusal to start unconfigured
         run: |
           test "$(docker inspect -f '{{.Config.User}}' "$IMAGE:$TAG")" = "65532:65532"
-          if docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges "$IMAGE:$TAG"; then
+          if docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges "$IMAGE:$TAG" ${{ matrix.smoke }}; then
             echo "started without configuration"; exit 1
           fi
       - name: SBOM (SPDX)
@@ -203,7 +210,7 @@ jobs:
         with:
           image: ${{ env.IMAGE }}:${{ env.TAG }}
           format: spdx-json
-          output-file: sbom-posture-scanner.spdx.json
+          output-file: sbom-${{ matrix.component }}.spdx.json
       - name: Vulnerability scan (fail on HIGH/CRITICAL)
         uses: aquasecurity/trivy-action@0.28.0
         with:
@@ -213,8 +220,8 @@ jobs:
           ignore-unfixed: true
       - uses: actions/upload-artifact@v4
         with:
-          name: sbom-posture-scanner
-          path: sbom-posture-scanner.spdx.json
+          name: sbom-${{ matrix.component }}
+          path: sbom-${{ matrix.component }}.spdx.json
       - name: Push (main only)
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         env:
@@ -229,4 +236,4 @@ jobs:
         run: |
           digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:$TAG")"
           cosign sign --yes "$digest"
-          cosign attest --yes --type spdxjson --predicate sbom-posture-scanner.spdx.json "$digest"
+          cosign attest --yes --type spdxjson --predicate "sbom-${{ matrix.component }}.spdx.json" "$digest"

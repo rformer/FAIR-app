@@ -244,10 +244,11 @@ type distribution struct {
 	name       string
 	psaDefault string
 	failWant   map[string][]string // check id -> subjects of the expected findings
+	passObs    []string            // "check subject method" observations of the pass fixture
 }
 
 var distributions = []distribution{
-	{name: "kind", failWant: map[string][]string{
+	{name: "kind", passObs: []string{"node_fips node/fair-control-plane attested"}, failWant: map[string][]string{
 		"pod_security_admission": {"namespace/fair-platform"},
 		"network_policy":         {"namespace/fair-platform", "workload/fair-platform/Deployment/iam"},
 		"tls_endpoints":          {"endpoint/iam.fair-platform.svc:443", "endpoint/posture.fair-platform.svc:9443"},
@@ -259,7 +260,7 @@ var distributions = []distribution{
 		"plaintext_secrets":      {"workload/fair-platform/Deployment/iam"},
 		"platform_rbac":          {"rbac/ClusterRoleBinding/fair-posture-scanner", "rbac/Role/fair-platform/posture-scanner"},
 	}},
-	{name: "openshift", failWant: map[string][]string{
+	{name: "openshift", passObs: []string{"node_fips node/worker-0 attested"}, failWant: map[string][]string{
 		"pod_security_admission": {"namespace/fair-platform"},
 		"network_policy":         {"workload/fair-platform/Deployment/iam"},
 		"tls_endpoints":          {"endpoint/iam.fair-platform.svc:443"},
@@ -271,18 +272,19 @@ var distributions = []distribution{
 		"plaintext_secrets":      {"workload/fair-platform/Deployment/iam", "workload/fair-platform/Deployment/iam/secret-sources"},
 		"platform_rbac":          {"rbac/ClusterRoleBinding/fair-platform-debug"},
 	}},
-	{name: "rke2", psaDefault: "restricted", failWant: map[string][]string{
-		"pod_security_admission": {"namespace/fair-platform"},
-		"network_policy":         {"namespace/fair-platform"},
-		"tls_endpoints":          {"endpoint/iam.fair-platform.svc:443", "endpoint/posture.fair-platform.svc:9443"},
-		"node_fips":              {"node/rke2-agent-1"},
-		"image_digests":          {"workload/fair-platform/Deployment/iam", "workload/fair-platform/Deployment/posture-scanner"},
-		"signature_admission":    {"cluster/admission"},
-		"pod_hardening":          {"workload/fair-platform/Deployment/posture-scanner"},
-		"storage_encryption":     {"storageclass/local-path"},
-		"plaintext_secrets":      {"workload/fair-platform/Deployment/posture-scanner"},
-		"platform_rbac":          {"rbac/RoleBinding/fair-platform/debug", "rbac/Role/fair-platform/posture-scanner"},
-	}},
+	{name: "rke2", psaDefault: "restricted", passObs: []string{"node_fips node/rke2-agent-1 attested", "node_fips node/rke2-server-0 verified"},
+		failWant: map[string][]string{
+			"pod_security_admission": {"namespace/fair-platform"},
+			"network_policy":         {"namespace/fair-platform"},
+			"tls_endpoints":          {"endpoint/iam.fair-platform.svc:443", "endpoint/posture.fair-platform.svc:9443"},
+			"node_fips":              {"node/rke2-agent-1"},
+			"image_digests":          {"workload/fair-platform/Deployment/iam", "workload/fair-platform/Deployment/posture-scanner"},
+			"signature_admission":    {"cluster/admission"},
+			"pod_hardening":          {"workload/fair-platform/Deployment/posture-scanner"},
+			"storage_encryption":     {"storageclass/local-path"},
+			"plaintext_secrets":      {"workload/fair-platform/Deployment/posture-scanner"},
+			"platform_rbac":          {"rbac/RoleBinding/fair-platform/debug", "rbac/Role/fair-platform/posture-scanner"},
+		}},
 }
 
 const (
@@ -319,7 +321,7 @@ func releaseFor(t *testing.T) (string, *ecdsa.PublicKey) {
 	return file, &key.PublicKey
 }
 
-func run(t *testing.T, d distribution, variant string) map[string][]scanner.Finding {
+func run(t *testing.T, d distribution, variant string) (map[string][]scanner.Finding, []string) {
 	t.Helper()
 	f := loadFixture(t, d.name, variant)
 	// Each Service address goes to a test endpoint behaving as annotated.
@@ -345,11 +347,19 @@ func run(t *testing.T, d distribution, variant string) map[string][]scanner.Find
 			return (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "tcp", to)
 		}}
 	out := map[string][]scanner.Finding{}
-	scope := scanner.Scope{Namespaces: []string{"fair-platform"}}
+	obs := []string{}
+	scope := scanner.Scope{Namespaces: []string{"fair-platform"}, ProbeNamespace: "fair-fips-probe"}
 	for _, c := range Catalog(cfg) {
-		fs, err := c.Run(context.Background(), f, scope)
+		res, err := c.Run(context.Background(), f, scope)
 		if err != nil {
 			t.Fatalf("%s %s: %s: %v", d.name, variant, c.ID(), err)
+		}
+		fs := res.Findings
+		for _, o := range res.Observations {
+			if !json.Valid([]byte(o.DetailJSON)) || (o.Method != "verified" && o.Method != "attested") {
+				t.Errorf("%s: bad observation %+v", c.ID(), o)
+			}
+			obs = append(obs, c.ID()+" "+o.Subject+" "+o.Method)
 		}
 		for _, fd := range fs {
 			if fd.CheckID != c.ID() || fd.Severity == "" || len(fd.Controls) == 0 || fd.Remediation == "" || !json.Valid([]byte(fd.DetailJSON)) {
@@ -358,7 +368,8 @@ func run(t *testing.T, d distribution, variant string) map[string][]scanner.Find
 		}
 		out[c.ID()] = fs
 	}
-	return out
+	sort.Strings(obs)
+	return out, obs
 }
 
 func subjects(fs []scanner.Finding) []string {
@@ -376,12 +387,16 @@ func TestCatalogFixtures(t *testing.T) {
 	}
 	for _, d := range distributions {
 		t.Run(d.name, func(t *testing.T) {
-			for id, fs := range run(t, d, "pass") {
+			pass, obs := run(t, d, "pass")
+			for id, fs := range pass {
 				if len(fs) != 0 {
 					t.Errorf("pass fixture: %s found %v", id, fs)
 				}
 			}
-			got := run(t, d, "fail")
+			if !slices.Equal(obs, d.passObs) {
+				t.Errorf("pass fixture observations %v, want %v", obs, d.passObs)
+			}
+			got, _ := run(t, d, "fail")
 			for _, m := range Metas() {
 				want := slices.Sorted(slices.Values(d.failWant[m.ID]))
 				if len(want) == 0 {

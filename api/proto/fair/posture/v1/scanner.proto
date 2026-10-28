@@ -22,6 +22,7 @@ message ScanReport {
   repeated string checks_run = 4;       // every check that ran to completion
   repeated DeploymentFinding findings = 5;
   repeated CheckError check_errors = 6; // checks that could not run (not "passed")
+  repeated Observation observations = 7; // evidence for what passed (T-29), e.g. how a node's FIPS mode is known
 }
 
 message DeploymentFinding {
@@ -31,6 +32,15 @@ message DeploymentFinding {
   string subject = 4;                   // e.g. "namespace/fair-platform"
   string detail_json = 5;               // a JSON object
   string remediation = 6;
+}
+
+// Observation records how a passing subject was assessed, for the Posture
+// page and the OSCAL export ("attested, not verified").
+message Observation {
+  string check_id = 1;                  // one of checks_run
+  string subject = 2;                   // e.g. "node/worker-0"
+  string method = 3;                    // verified | attested
+  string detail_json = 4;               // a JSON object
 }
 
 message CheckError {

@@ -13,6 +13,7 @@
 //	FAIR_SCANNER_TLS_CERT_FILE  the scanner's client certificate (URI SAN spiffe://fair-platform/posture-scanner)
 //	FAIR_SCANNER_TLS_KEY_FILE   its key
 //	FAIR_PLATFORM_NAMESPACES    comma-separated platform namespaces (default fair-platform)
+//	FAIR_FIPS_PROBE_NAMESPACE   fips-probe's namespace (default fair-fips-probe; T-29)
 //	FAIR_SCAN_INTERVAL          default 15m
 //	FAIR_RELEASE_MANIFEST_FILE  signed release manifest (FILE and FILE.sig; T-28)
 //	FAIR_RELEASE_PUBLIC_KEY_FILE release signing public key (PEM)
@@ -100,7 +101,7 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	s := &scanner.Scanner{Kube: k, Checks: checks.Catalog(cfg),
-		Scope: scanner.Scope{Namespaces: namespaces}, Instance: getenv("POD_NAME", "posture-scanner"),
+		Scope: scanner.Scope{Namespaces: namespaces, ProbeNamespace: getenv("FAIR_FIPS_PROBE_NAMESPACE", "fair-fips-probe")}, Instance: getenv("POD_NAME", "posture-scanner"),
 		Report: report, Interval: interval, Logger: logger}
 	logger.Info("scanner started", "posture", addr, "namespaces", strings.Join(namespaces, ","), "fips140", fips140.Enabled())
 	s.Run(ctx)

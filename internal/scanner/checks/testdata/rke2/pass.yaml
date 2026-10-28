@@ -2,6 +2,8 @@
 # the API server's admission configuration (default restricted, attested at
 # install), so the namespace carries no enforce label. Longhorn volumes are
 # encrypted; Connaisseur verifies signatures; no External Secrets Operator.
+# FIPS: the server's fips-probe is Ready (verified); the agent declined the
+# probe and is attested by its label.
 kind: FixtureCluster
 metadata: { name: cluster }
 notServed: externalsecrets
@@ -16,13 +18,26 @@ apiVersion: v1
 kind: Node
 metadata:
   name: rke2-server-0
-  labels: { node-role.kubernetes.io/control-plane: "true", node.kubernetes.io/instance-type: rke2, fair-platform.io/fips: verified }
+  labels: { node-role.kubernetes.io/control-plane: "true", node.kubernetes.io/instance-type: rke2 }
 ---
 apiVersion: v1
 kind: Node
 metadata:
   name: rke2-agent-1
-  labels: { node.kubernetes.io/instance-type: rke2, fair-platform.io/fips: verified }
+  labels: { node.kubernetes.io/instance-type: rke2, fair-platform.io/fips: attested }
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: fips-probe-x7k2p
+  namespace: fair-fips-probe
+  labels: { app.kubernetes.io/name: fips-probe, controller-revision-hash: 6b7c8d9f }
+  ownerReferences: [{ apiVersion: apps/v1, kind: DaemonSet, name: fips-probe, uid: d1 }]
+spec:
+  nodeName: rke2-server-0
+  containers: [{ name: fips-probe, image: "ghcr.io/rformer/fair-fips-probe@sha256:4444444444444444444444444444444444444444444444444444444444444444" }]
+status:
+  conditions: [{ type: Ready, status: "True" }, { type: ContainersReady, status: "True" }]
 ---
 apiVersion: storage.k8s.io/v1
 kind: StorageClass

@@ -34,8 +34,12 @@ func (s *sink) Report(ctx context.Context, r *posturev1.ScanReport) (*posturev1.
 	for _, f := range r.GetFindings() {
 		findings = append(findings, f.GetCheckId()+" "+f.GetSubject()+" "+f.GetSeverity())
 	}
+	observations := []string{}
+	for _, o := range r.GetObservations() {
+		observations = append(observations, o.GetCheckId()+" "+o.GetSubject()+" "+o.GetMethod())
+	}
 	b, _ := json.Marshal(map[string]any{"report": map[string]any{"instance": r.GetScannerInstance(), "checks_run": r.GetChecksRun(),
-		"check_errors": r.GetCheckErrors(), "findings": findings, "from": from}})
+		"check_errors": r.GetCheckErrors(), "findings": findings, "observations": observations, "from": from}})
 	_, _ = os.Stdout.Write(append(b, '\n'))
 	return &posturev1.ReportAck{}, nil
 }

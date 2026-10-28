@@ -1,0 +1,56 @@
+# F-015 T-29: OpenShift only. restricted-v2 forbids hostPath, so fips-probe
+# gets an SCC of its own that allows nothing beyond restricted-v2 except
+# hostPath volumes, used only by the fips-probe ServiceAccount. The single
+# read-only file it mounts is fixed by the DaemonSet (deploy/k8s/fips-probe.yaml);
+# SCCs cannot restrict hostPath paths, so the namespace holds nothing else.
+#
+# Open (live verification with T-37): under SELinux the default container
+# type may be denied reading the host's /proc/sys/crypto file; if so this
+# SCC needs an seLinuxContext allowing it, never a privileged type.
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: fair-fips-probe
+  labels: { app.kubernetes.io/name: fips-probe, app.kubernetes.io/part-of: fair-platform }
+allowHostDirVolumePlugin: true
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+allowPrivilegeEscalation: false
+allowPrivilegedContainer: false
+allowedCapabilities: null
+defaultAddCapabilities: null
+requiredDropCapabilities: [ALL]
+readOnlyRootFilesystem: true
+runAsUser: { type: MustRunAsNonRoot }
+seLinuxContext: { type: MustRunAs }
+fsGroup: { type: RunAsAny }
+supplementalGroups: { type: RunAsAny }
+seccompProfiles: [runtime/default]
+volumes: [hostPath]
+users: []
+groups: []
+priority: null
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: fair-fips-probe-scc
+  namespace: fair-fips-probe
+  labels: { app.kubernetes.io/name: fips-probe, app.kubernetes.io/part-of: fair-platform }
+rules:
+  - apiGroups: [security.openshift.io]
+    resources: [securitycontextconstraints]
+    resourceNames: [fair-fips-probe]
+    verbs: [use]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fair-fips-probe-scc
+  namespace: fair-fips-probe
+  labels: { app.kubernetes.io/name: fips-probe, app.kubernetes.io/part-of: fair-platform }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: fair-fips-probe-scc }
+subjects:
+  - { kind: ServiceAccount, name: fips-probe, namespace: fair-fips-probe }

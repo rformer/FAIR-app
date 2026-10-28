@@ -1,0 +1,87 @@
+# F-015 T-29 (AC-41, design D-OQ2): fips-probe, the node FIPS check.
+# A DaemonSet on every node with exactly one host file mounted read-only,
+# the kernel's /proc/sys/crypto/fips_enabled. Its readiness probe runs
+# "fips-probe check": a probe pod is Ready only where the flag reads 1, and
+# posture-scanner reads the probe pods' readiness per node (Ready = FIPS
+# "verified"). The probe has no ServiceAccount token, no RBAC, no network
+# and does no cryptography. Deployed by default when the profile requires
+# FIPS; customers who decline it attest FIPS per node instead (node label
+# fair-platform.io/fips=attested; exports say "attested, not verified").
+#
+# hostPath is forbidden by the restricted and baseline pod security levels,
+# so the probe has a namespace of its own, enforcing privileged, holding
+# nothing else. On OpenShift also apply deploy/k8s/openshift/fips-probe-scc.yaml.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fair-fips-probe
+  labels:
+    app.kubernetes.io/part-of: fair-platform
+    pod-security.kubernetes.io/enforce: privileged # hostPath; nothing else runs here
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fips-probe
+  namespace: fair-fips-probe
+  labels: { app.kubernetes.io/name: fips-probe, app.kubernetes.io/part-of: fair-platform }
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fips-probe
+  namespace: fair-fips-probe
+  labels: { app.kubernetes.io/name: fips-probe, app.kubernetes.io/part-of: fair-platform }
+spec:
+  selector:
+    matchLabels: { app.kubernetes.io/name: fips-probe }
+  updateStrategy: { type: RollingUpdate }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: fips-probe, app.kubernetes.io/part-of: fair-platform }
+    spec:
+      serviceAccountName: fips-probe
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      tolerations: [{ operator: Exists }] # every node, control plane included
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: fips-probe
+          image: ghcr.io/rformer/fair-fips-probe:REPLACE_WITH_DIGEST
+          args: [serve]
+          env:
+            - name: NODE_NAME
+              valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
+          readinessProbe:
+            exec: { command: [/fips-probe, check] }
+            periodSeconds: 60
+            failureThreshold: 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 5m, memory: 8Mi }
+            limits: { memory: 32Mi }
+          volumeMounts:
+            - { name: fips-flag, mountPath: /host/fips_enabled, readOnly: true }
+      volumes:
+        - name: fips-flag
+          hostPath: { path: /proc/sys/crypto/fips_enabled, type: File }
+---
+# The probe neither listens nor connects.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: fair-fips-probe
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]

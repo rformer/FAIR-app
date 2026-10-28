@@ -81,6 +81,32 @@ roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: posture-scanne
 subjects:
   - { kind: ServiceAccount, name: posture-scanner, namespace: fair-platform }
 ---
+# T-29: fips-probe's namespace. Pods for the probes' readiness per node;
+# roles and bindings for the RBAC drift check.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: posture-scanner
+  namespace: fair-fips-probe
+  labels: { app.kubernetes.io/name: posture-scanner, app.kubernetes.io/part-of: fair-platform }
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: posture-scanner
+  namespace: fair-fips-probe
+  labels: { app.kubernetes.io/name: posture-scanner, app.kubernetes.io/part-of: fair-platform }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: posture-scanner }
+subjects:
+  - { kind: ServiceAccount, name: posture-scanner, namespace: fair-platform }
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -115,6 +141,7 @@ spec:
             - { name: FAIR_SCANNER_TLS_CERT_FILE, value: /tls/tls.crt }
             - { name: FAIR_SCANNER_TLS_KEY_FILE, value: /tls/tls.key }
             - { name: FAIR_PLATFORM_NAMESPACES, value: fair-platform }
+            - { name: FAIR_FIPS_PROBE_NAMESPACE, value: fair-fips-probe }
             # T-28: the signed release manifest and the release public key
             # (installer-provided ConfigMap), and installer attestations.
             - { name: FAIR_RELEASE_MANIFEST_FILE, value: /release/release-manifest.json }

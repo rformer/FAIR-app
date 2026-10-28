@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,14 +45,15 @@ func (f fakeReader) Watch(ctx context.Context, _ kube.Resource, _, _ string, _ f
 }
 
 type staticCheck struct {
-	id       string
-	findings []scanner.Finding
-	err      error
+	id           string
+	findings     []scanner.Finding
+	observations []scanner.Observation
+	err          error
 }
 
 func (c *staticCheck) ID() string { return c.id }
-func (c *staticCheck) Run(context.Context, scanner.Reader, scanner.Scope) ([]scanner.Finding, error) {
-	return c.findings, c.err
+func (c *staticCheck) Run(context.Context, scanner.Reader, scanner.Scope) (scanner.Result, error) {
+	return scanner.Result{Findings: c.findings, Observations: c.observations}, c.err
 }
 
 type scannerEnv struct {
@@ -241,6 +243,60 @@ func TestScannerReportValidation(t *testing.T) {
 		}
 	}
 	wantIDs(t, "only the good report recorded", se.open(t), "pod_security_admission deployment:namespace/x")
+}
+
+// T-29: observations record how passing subjects were assessed; each scan
+// replaces those of the checks it ran, and they are validated like findings.
+func TestScannerObservations(t *testing.T) {
+	ctx := context.Background()
+	se := scannerFixture(t)
+	fips := &staticCheck{id: posture.CheckNodeFIPS, observations: []scanner.Observation{
+		{Subject: "node/a", Method: "verified", DetailJSON: `{"probe_pod":"fips-probe-x"}`},
+		{Subject: "node/b", Method: "attested", DetailJSON: `{"label":"fair-platform.io/fips=attested"}`}}}
+	sc := &scanner.Scanner{Reader: fakeReader{}, Checks: []scanner.Check{fips}, Instance: "s-0", Report: se.report}
+	got := func() string {
+		t.Helper()
+		os, err := posture.Observations(ctx, se.e.posturePool())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, o := range os {
+			out = append(out, o.CheckID+" "+o.Subject+" "+o.Method)
+		}
+		return strings.Join(out, ", ")
+	}
+	if _, err := sc.ScanOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if g := got(); g != "node_fips deployment:node/a verified, node_fips deployment:node/b attested" {
+		t.Fatalf("observations %s", g)
+	}
+	fips.observations = fips.observations[1:] // node a left the cluster
+	if _, err := sc.ScanOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if g := got(); g != "node_fips deployment:node/b attested" {
+		t.Fatalf("after the second scan: %s", g)
+	}
+	fips.err = errors.New("apiserver timeout") // a failed check keeps its last observations
+	if _, err := sc.ScanOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if g := got(); g != "node_fips deployment:node/b attested" {
+		t.Fatalf("after a failed check: %s", g)
+	}
+	for name, o := range map[string]*posturev1.Observation{
+		"unknown method":       {CheckId: posture.CheckNodeFIPS, Subject: "node/c", Method: "assumed"},
+		"check not run":        {CheckId: "pod_hardening", Subject: "node/c", Method: "verified"},
+		"detail not an object": {CheckId: posture.CheckNodeFIPS, Subject: "node/c", Method: "verified", DetailJson: "[]"},
+	} {
+		r := &posturev1.ScanReport{ScannerInstance: "s-0", StartedUnixMs: time.Now().UnixMilli(), FinishedUnixMs: time.Now().UnixMilli(),
+			ChecksRun: []string{posture.CheckNodeFIPS}, Observations: []*posturev1.Observation{o}}
+		if err := se.report(ctx, r); status.Code(err) != codes.InvalidArgument {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
 }
 
 // AC-41: node FIPS findings count only where the active profile requires

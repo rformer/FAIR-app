@@ -5,6 +5,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -66,9 +67,18 @@ func TestRBACFromDeploy(t *testing.T) {
 	for _, e := range es {
 		keys = append(keys, e.Key())
 	}
-	want := "ClusterRole//fair-posture-scanner ClusterRoleBinding//fair-posture-scanner Role/fair-platform/posture-scanner RoleBinding/fair-platform/posture-scanner"
+	want := "ClusterRole//fair-posture-scanner ClusterRoleBinding//fair-posture-scanner Role/fair-fips-probe/posture-scanner " +
+		"Role/fair-platform/posture-scanner RoleBinding/fair-fips-probe/posture-scanner RoleBinding/fair-platform/posture-scanner"
 	if strings.Join(keys, " ") != want {
 		t.Fatalf("RBAC entries %v", keys)
+	}
+	// An OpenShift release adds its directory: the fips-probe SCC's Role and binding.
+	os, err := RBACFromDir("../../deploy/k8s", "../../deploy/k8s/openshift")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(os) != len(es)+2 || !strings.Contains(fmt.Sprint(os), "fair-fips-probe-scc") {
+		t.Fatalf("OpenShift RBAC entries %v", os)
 	}
 }
 

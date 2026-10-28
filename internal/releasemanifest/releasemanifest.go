@@ -182,12 +182,17 @@ func nonNil(l []string) []string {
 	return l
 }
 
-// RBACFromDir hashes every RBAC object in the YAML files of dir (the
-// reference manifests in deploy/k8s).
-func RBACFromDir(dir string) ([]RBACEntry, error) {
-	files, err := filepath.Glob(filepath.Join(dir, "*.yaml"))
-	if err != nil {
-		return nil, err
+// RBACFromDir hashes every RBAC object in the YAML files of the given
+// directories (not their subdirectories): deploy/k8s, plus a platform's own
+// directory such as deploy/k8s/openshift for that platform's releases.
+func RBACFromDir(dirs ...string) ([]RBACEntry, error) {
+	var files []string
+	for _, dir := range dirs {
+		fs, err := filepath.Glob(filepath.Join(dir, "*.yaml"))
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, fs...)
 	}
 	sort.Strings(files)
 	var out []RBACEntry

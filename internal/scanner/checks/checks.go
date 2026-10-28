@@ -24,7 +24,9 @@ import (
 // Labels and annotations the installer (F-014) or fips-probe (T-29) set to
 // attest what the API cannot show.
 const (
-	// LabelFIPS on a node: "verified" (fips-probe) or "attested" (installer).
+	// LabelFIPS on a node: "attested" when the installer or customer
+	// declares FIPS mode (exports say "attested, not verified"). Only a Ready
+	// fips-probe pod on the node verifies it (T-29).
 	LabelFIPS = "fair-platform.io/fips"
 	// AnnotationEncrypted on a StorageClass: "true" when the installer
 	// attests encryption at rest the parameters do not show (e.g. LUKS).
@@ -82,15 +84,27 @@ type Meta struct {
 	Remediation string
 }
 
-// check is a catalog entry.
+// check is a catalog entry: run returns findings; a check that also records
+// how passing subjects were assessed sets result instead.
 type check struct {
 	Meta
-	run func(ctx context.Context, r scanner.Reader, s scanner.Scope) ([]scanner.Finding, error)
+	run    func(ctx context.Context, r scanner.Reader, s scanner.Scope) ([]scanner.Finding, error)
+	result func(ctx context.Context, r scanner.Reader, s scanner.Scope) (scanner.Result, error)
 }
 
 func (c check) ID() string { return c.Meta.ID }
-func (c check) Run(ctx context.Context, r scanner.Reader, s scanner.Scope) ([]scanner.Finding, error) {
-	return c.run(ctx, r, s)
+func (c check) Run(ctx context.Context, r scanner.Reader, s scanner.Scope) (scanner.Result, error) {
+	if c.result != nil {
+		return c.result(ctx, r, s)
+	}
+	fs, err := c.run(ctx, r, s)
+	return scanner.Result{Findings: fs}, err
+}
+
+// observation builds an observation of this check.
+func (c check) observation(subject, method string, detail map[string]any) scanner.Observation {
+	b, _ := json.Marshal(detail)
+	return scanner.Observation{CheckID: c.Meta.ID, Subject: subject, Method: method, DetailJSON: string(b)}
 }
 
 // finding builds a finding of this check.

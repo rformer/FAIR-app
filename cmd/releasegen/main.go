@@ -4,7 +4,8 @@
 //
 //	releasegen manifest -release VERSION -images FILE [-deploy deploy/k8s] -out FILE
 //	    images FILE is JSON {"component": "repository@sha256:<digest>"} from the
-//	    image builds; RBAC hashes come from the reference manifests in -deploy.
+//	    image builds; RBAC hashes come from the reference manifests in -deploy,
+//	    a comma-separated list (OpenShift releases: deploy/k8s,deploy/k8s/openshift).
 //	releasegen sign -key FILE -in FILE
 //	    writes FILE.sig with the release signing key (PEM, ECDSA P-256).
 //	releasegen verify -pub FILE -in FILE
@@ -16,6 +17,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/rformer/fair-app/internal/profilepkg"
 	"github.com/rformer/fair-app/internal/releasemanifest"
@@ -37,7 +39,7 @@ func run(args []string) error {
 	case "manifest":
 		release := fs.String("release", "", "release version")
 		images := fs.String("images", "", "JSON file: component -> repository@sha256:<digest>")
-		deploy := fs.String("deploy", "deploy/k8s", "reference manifests")
+		deploy := fs.String("deploy", "deploy/k8s", "reference manifest directories, comma-separated")
 		out := fs.String("out", "", "output file")
 		_ = fs.Parse(args[1:])
 		b, err := os.ReadFile(*images) // #nosec G304 G703 -- release-pipeline operator input
@@ -48,7 +50,7 @@ func run(args []string) error {
 		if err := json.Unmarshal(b, &m.Images); err != nil {
 			return fmt.Errorf("%s: %w", *images, err)
 		}
-		if m.RBAC, err = releasemanifest.RBACFromDir(*deploy); err != nil {
+		if m.RBAC, err = releasemanifest.RBACFromDir(strings.Split(*deploy, ",")...); err != nil {
 			return err
 		}
 		enc, err := releasemanifest.Encode(m)

@@ -146,6 +146,10 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_DB_PASSWORD_FILE=<app_posture passwor
 # images.json -out release-manifest.json, then releasegen sign -key FILE -in
 # release-manifest.json. Installer attestations: FAIR_PSA_DEFAULT, node label
 # fair-platform.io/fips, StorageClass annotation fair-platform.io/encrypted-at-rest.
+# Node FIPS (T-29): deploy/k8s/fips-probe.yaml (image target fips-probe; on
+# OpenShift also deploy/k8s/openshift/fips-probe-scc.yaml, and build that
+# release's manifest with -deploy deploy/k8s,deploy/k8s/openshift). Nodes
+# whose probe is declined are attested with the label fair-platform.io/fips=attested.
 # After changing a .proto in api/proto: scripts/gen-proto.sh (see its header).
 
 # The posture service itself (./bin/posture) also needs FAIR_NATS_URL (tls://

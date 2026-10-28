@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# F-015 T-27 verification on a live cluster (kind, whose default CNI enforces
+# F-015 T-27/T-28/T-29 verification on a live cluster (kind, whose default CNI enforces
 # NetworkPolicy): posture-scanner deployed from deploy/k8s/posture-scanner.yaml
 #   * reports to a posture stand-in over mTLS gRPC, with no refused reads;
 #   * RBAC audit: its ServiceAccount can only get/list/watch what the
@@ -32,10 +32,11 @@ kind delete cluster --name "$CLUSTER" >/dev/null 2>&1 || true
 kind create cluster --name "$CLUSTER" --image "$NODE_IMAGE" --wait 180s
 docker build -q --target posture-scanner -t fair-posture-scanner:e2e . >/dev/null
 docker build -q -f scripts/e2e/Dockerfile.sink -t fair-scanner-sink:e2e . >/dev/null
+docker build -q --target fips-probe -t fair-fips-probe:e2e . >/dev/null
 docker image inspect busybox:1.36 >/dev/null 2>&1 || docker pull -q busybox:1.36 >/dev/null
 # Single-platform archives: kind's direct load imports every platform of a
 # multi-platform image, which fails when only one is present locally.
-for img in fair-posture-scanner:e2e fair-scanner-sink:e2e busybox:1.36; do
+for img in fair-posture-scanner:e2e fair-scanner-sink:e2e fair-fips-probe:e2e busybox:1.36; do
   docker save --platform linux/amd64 -o "$TMP/image.tar" "$img"
   kind load image-archive --name "$CLUSTER" "$TMP/image.tar"
 done
@@ -71,6 +72,9 @@ $K -n $NS create secret generic posture-tls --from-file=tls.crt="$TMP/posture.cr
 $K -n $NS create configmap fair-release-manifest --from-file="$TMP/release-manifest.json" \
   --from-file="$TMP/release-manifest.json.sig" --from-file="$TMP/release-signing.pub"
 $K -n $NS rollout status deploy/e2e-bad --timeout=180s
+
+echo "== fips-probe from deploy/k8s/fips-probe.yaml (T-29)"
+sed -e "s#ghcr.io/rformer/fair-fips-probe:REPLACE_WITH_DIGEST#fair-fips-probe:e2e#" deploy/k8s/fips-probe.yaml | $K apply -f -
 
 echo "== posture-scanner from deploy/k8s/posture-scanner.yaml"
 APISERVER_IP=$($K get endpoints kubernetes -n default -o jsonpath='{.subsets[0].addresses[0].ip}')
@@ -156,6 +160,10 @@ no_ impersonate serviceaccounts
 no_ escalate roles.rbac.authorization.k8s.io -n $NS
 no_ bind clusterroles.rbac.authorization.k8s.io
 no_ list pods -n kube-system
+yes_ list pods -n fair-fips-probe
+no_ list secrets -n fair-fips-probe
+no_ get configmaps -n fair-fips-probe
+no_ delete pods -n fair-fips-probe
 no_ list '*' -n $NS
 no_ '*' '*'
 # Every rule the scanner holds, apart from what all authenticated users hold
@@ -191,6 +199,62 @@ for _ in $(seq 1 15); do
 done
 if [ $ok = 1 ]; then pass "control: decoy reachable once allowed (the CNI enforces policy)"; else bad "control: decoy unreachable even when allowed"; fi
 $K -n $NS delete networkpolicy e2e-control-allow-decoy >/dev/null
+
+echo "== 4. node FIPS evidence: fips-probe readiness and attestation (T-29)"
+# A new scan: restart the scanner and wait for a report after the restart.
+rescan() {
+  local before
+  before=$($K -n $NS logs deploy/posture | grep -c '"report"' || true)
+  $K -n $NS rollout restart deploy/posture-scanner >/dev/null
+  $K -n $NS rollout status deploy/posture-scanner --timeout=180s >/dev/null
+  report=""
+  for _ in $(seq 1 60); do
+    if [ "$($K -n $NS logs deploy/posture | grep -c '"report"' || true)" -gt "$before" ]; then
+      report=$($K -n $NS logs deploy/posture | grep '"report"' | tail -1)
+      return
+    fi
+    sleep 2
+  done
+  bad "no report after the scanner restart"
+}
+# (a) This kernel has no FIPS flag file: the probe cannot become Ready.
+PROBE=$($K -n fair-fips-probe get pod -l app.kubernetes.io/name=fips-probe -o jsonpath='{.items[0].metadata.name}')
+ready=$($K -n fair-fips-probe get pod "$PROBE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
+if [ "$ready" != True ]; then pass "probe not Ready on a kernel without the FIPS flag ($PROBE)"; else bad "probe Ready without a FIPS flag"; fi
+finds "node_fips node/$NODE high"
+# (b) Attested at install: an observation, not a finding.
+$K label node "$NODE" fair-platform.io/fips=attested --overwrite >/dev/null
+rescan
+case "$report" in *"node_fips node/$NODE high"*) bad "attested node still a finding" ;; *) pass "attested node: no finding" ;; esac
+finds "node_fips node/$NODE attested"
+# (c) Verified: simulate a FIPS kernel by pointing the probe's single-file
+# hostPath at a node-local file reading 1 (the real path is the kernel's
+# /proc/sys/crypto/fips_enabled); the label is removed, so only the probe
+# can make the node pass.
+docker exec "$NODE" sh -c 'mkdir -p /var/lib/fair-e2e && echo 1 > /var/lib/fair-e2e/fips_enabled'
+$K label node "$NODE" fair-platform.io/fips- >/dev/null
+$K -n fair-fips-probe patch daemonset fips-probe --type=json \
+  -p '[{"op":"replace","path":"/spec/template/spec/volumes/0/hostPath/path","value":"/var/lib/fair-e2e/fips_enabled"}]' >/dev/null
+$K -n fair-fips-probe rollout status daemonset/fips-probe --timeout=180s >/dev/null
+ok=0
+for _ in $(seq 1 30); do
+  [ "$($K -n fair-fips-probe get pod -l app.kubernetes.io/name=fips-probe -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}')" = True ] && { ok=1; break; }
+  sleep 2
+done
+if [ $ok = 1 ]; then pass "probe Ready where the flag reads 1"; else bad "probe not Ready with the flag at 1"; fi
+rescan
+finds "node_fips node/$NODE verified"
+case "$report" in *"node_fips node/$NODE high"*) bad "verified node still a finding" ;; *) pass "verified node: no finding" ;; esac
+# The flag back at 0: the probe drops out of Ready at its next check.
+docker exec "$NODE" sh -c 'echo 0 > /var/lib/fair-e2e/fips_enabled'
+ok=0
+for _ in $(seq 1 45); do
+  [ "$($K -n fair-fips-probe get pod -l app.kubernetes.io/name=fips-probe -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}')" = False ] && { ok=1; break; }
+  sleep 2
+done
+if [ $ok = 1 ]; then pass "probe leaves Ready when the flag reads 0"; else bad "probe stayed Ready with the flag at 0"; fi
+rescan
+finds "node_fips node/$NODE high"
 
 echo
 if [ $fail = 0 ]; then echo "posture-scanner e2e: PASS"; else echo "posture-scanner e2e: FAIL"; exit 1; fi

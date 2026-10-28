@@ -34,6 +34,7 @@ type ScanReport struct {
 	ChecksRun       []string               `protobuf:"bytes,4,rep,name=checks_run,json=checksRun,proto3" json:"checks_run,omitempty"` // every check that ran to completion
 	Findings        []*DeploymentFinding   `protobuf:"bytes,5,rep,name=findings,proto3" json:"findings,omitempty"`
 	CheckErrors     []*CheckError          `protobuf:"bytes,6,rep,name=check_errors,json=checkErrors,proto3" json:"check_errors,omitempty"` // checks that could not run (not "passed")
+	Observations    []*Observation         `protobuf:"bytes,7,rep,name=observations,proto3" json:"observations,omitempty"`                  // evidence for what passed (T-29), e.g. how a node's FIPS mode is known
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -106,6 +107,13 @@ func (x *ScanReport) GetFindings() []*DeploymentFinding {
 func (x *ScanReport) GetCheckErrors() []*CheckError {
 	if x != nil {
 		return x.CheckErrors
+	}
+	return nil
+}
+
+func (x *ScanReport) GetObservations() []*Observation {
+	if x != nil {
+		return x.Observations
 	}
 	return nil
 }
@@ -194,6 +202,76 @@ func (x *DeploymentFinding) GetRemediation() string {
 	return ""
 }
 
+// Observation records how a passing subject was assessed, for the Posture
+// page and the OSCAL export ("attested, not verified").
+type Observation struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CheckId       string                 `protobuf:"bytes,1,opt,name=check_id,json=checkId,proto3" json:"check_id,omitempty"`          // one of checks_run
+	Subject       string                 `protobuf:"bytes,2,opt,name=subject,proto3" json:"subject,omitempty"`                         // e.g. "node/worker-0"
+	Method        string                 `protobuf:"bytes,3,opt,name=method,proto3" json:"method,omitempty"`                           // verified | attested
+	DetailJson    string                 `protobuf:"bytes,4,opt,name=detail_json,json=detailJson,proto3" json:"detail_json,omitempty"` // a JSON object
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Observation) Reset() {
+	*x = Observation{}
+	mi := &file_fair_posture_v1_scanner_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Observation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Observation) ProtoMessage() {}
+
+func (x *Observation) ProtoReflect() protoreflect.Message {
+	mi := &file_fair_posture_v1_scanner_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Observation.ProtoReflect.Descriptor instead.
+func (*Observation) Descriptor() ([]byte, []int) {
+	return file_fair_posture_v1_scanner_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *Observation) GetCheckId() string {
+	if x != nil {
+		return x.CheckId
+	}
+	return ""
+}
+
+func (x *Observation) GetSubject() string {
+	if x != nil {
+		return x.Subject
+	}
+	return ""
+}
+
+func (x *Observation) GetMethod() string {
+	if x != nil {
+		return x.Method
+	}
+	return ""
+}
+
+func (x *Observation) GetDetailJson() string {
+	if x != nil {
+		return x.DetailJson
+	}
+	return ""
+}
+
 type CheckError struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	CheckId       string                 `protobuf:"bytes,1,opt,name=check_id,json=checkId,proto3" json:"check_id,omitempty"`
@@ -204,7 +282,7 @@ type CheckError struct {
 
 func (x *CheckError) Reset() {
 	*x = CheckError{}
-	mi := &file_fair_posture_v1_scanner_proto_msgTypes[2]
+	mi := &file_fair_posture_v1_scanner_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -216,7 +294,7 @@ func (x *CheckError) String() string {
 func (*CheckError) ProtoMessage() {}
 
 func (x *CheckError) ProtoReflect() protoreflect.Message {
-	mi := &file_fair_posture_v1_scanner_proto_msgTypes[2]
+	mi := &file_fair_posture_v1_scanner_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -229,7 +307,7 @@ func (x *CheckError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckError.ProtoReflect.Descriptor instead.
 func (*CheckError) Descriptor() ([]byte, []int) {
-	return file_fair_posture_v1_scanner_proto_rawDescGZIP(), []int{2}
+	return file_fair_posture_v1_scanner_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *CheckError) GetCheckId() string {
@@ -256,7 +334,7 @@ type ReportAck struct {
 
 func (x *ReportAck) Reset() {
 	*x = ReportAck{}
-	mi := &file_fair_posture_v1_scanner_proto_msgTypes[3]
+	mi := &file_fair_posture_v1_scanner_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -268,7 +346,7 @@ func (x *ReportAck) String() string {
 func (*ReportAck) ProtoMessage() {}
 
 func (x *ReportAck) ProtoReflect() protoreflect.Message {
-	mi := &file_fair_posture_v1_scanner_proto_msgTypes[3]
+	mi := &file_fair_posture_v1_scanner_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -281,7 +359,7 @@ func (x *ReportAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportAck.ProtoReflect.Descriptor instead.
 func (*ReportAck) Descriptor() ([]byte, []int) {
-	return file_fair_posture_v1_scanner_proto_rawDescGZIP(), []int{3}
+	return file_fair_posture_v1_scanner_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ReportAck) GetOpened() int32 {
@@ -302,7 +380,7 @@ var File_fair_posture_v1_scanner_proto protoreflect.FileDescriptor
 
 const file_fair_posture_v1_scanner_proto_rawDesc = "" +
 	"\n" +
-	"\x1dfair/posture/v1/scanner.proto\x12\x0ffair.posture.v1\"\xa8\x02\n" +
+	"\x1dfair/posture/v1/scanner.proto\x12\x0ffair.posture.v1\"\xea\x02\n" +
 	"\n" +
 	"ScanReport\x12)\n" +
 	"\x10scanner_instance\x18\x01 \x01(\tR\x0fscannerInstance\x12&\n" +
@@ -311,7 +389,8 @@ const file_fair_posture_v1_scanner_proto_rawDesc = "" +
 	"\n" +
 	"checks_run\x18\x04 \x03(\tR\tchecksRun\x12>\n" +
 	"\bfindings\x18\x05 \x03(\v2\".fair.posture.v1.DeploymentFindingR\bfindings\x12>\n" +
-	"\fcheck_errors\x18\x06 \x03(\v2\x1b.fair.posture.v1.CheckErrorR\vcheckErrors\"\xc3\x01\n" +
+	"\fcheck_errors\x18\x06 \x03(\v2\x1b.fair.posture.v1.CheckErrorR\vcheckErrors\x12@\n" +
+	"\fobservations\x18\a \x03(\v2\x1c.fair.posture.v1.ObservationR\fobservations\"\xc3\x01\n" +
 	"\x11DeploymentFinding\x12\x19\n" +
 	"\bcheck_id\x18\x01 \x01(\tR\acheckId\x12\x1a\n" +
 	"\bseverity\x18\x02 \x01(\tR\bseverity\x12\x1a\n" +
@@ -319,7 +398,13 @@ const file_fair_posture_v1_scanner_proto_rawDesc = "" +
 	"\asubject\x18\x04 \x01(\tR\asubject\x12\x1f\n" +
 	"\vdetail_json\x18\x05 \x01(\tR\n" +
 	"detailJson\x12 \n" +
-	"\vremediation\x18\x06 \x01(\tR\vremediation\"=\n" +
+	"\vremediation\x18\x06 \x01(\tR\vremediation\"{\n" +
+	"\vObservation\x12\x19\n" +
+	"\bcheck_id\x18\x01 \x01(\tR\acheckId\x12\x18\n" +
+	"\asubject\x18\x02 \x01(\tR\asubject\x12\x16\n" +
+	"\x06method\x18\x03 \x01(\tR\x06method\x12\x1f\n" +
+	"\vdetail_json\x18\x04 \x01(\tR\n" +
+	"detailJson\"=\n" +
 	"\n" +
 	"CheckError\x12\x19\n" +
 	"\bcheck_id\x18\x01 \x01(\tR\acheckId\x12\x14\n" +
@@ -342,23 +427,25 @@ func file_fair_posture_v1_scanner_proto_rawDescGZIP() []byte {
 	return file_fair_posture_v1_scanner_proto_rawDescData
 }
 
-var file_fair_posture_v1_scanner_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_fair_posture_v1_scanner_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_fair_posture_v1_scanner_proto_goTypes = []any{
 	(*ScanReport)(nil),        // 0: fair.posture.v1.ScanReport
 	(*DeploymentFinding)(nil), // 1: fair.posture.v1.DeploymentFinding
-	(*CheckError)(nil),        // 2: fair.posture.v1.CheckError
-	(*ReportAck)(nil),         // 3: fair.posture.v1.ReportAck
+	(*Observation)(nil),       // 2: fair.posture.v1.Observation
+	(*CheckError)(nil),        // 3: fair.posture.v1.CheckError
+	(*ReportAck)(nil),         // 4: fair.posture.v1.ReportAck
 }
 var file_fair_posture_v1_scanner_proto_depIdxs = []int32{
 	1, // 0: fair.posture.v1.ScanReport.findings:type_name -> fair.posture.v1.DeploymentFinding
-	2, // 1: fair.posture.v1.ScanReport.check_errors:type_name -> fair.posture.v1.CheckError
-	0, // 2: fair.posture.v1.ScannerReports.Report:input_type -> fair.posture.v1.ScanReport
-	3, // 3: fair.posture.v1.ScannerReports.Report:output_type -> fair.posture.v1.ReportAck
-	3, // [3:4] is the sub-list for method output_type
-	2, // [2:3] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	3, // 1: fair.posture.v1.ScanReport.check_errors:type_name -> fair.posture.v1.CheckError
+	2, // 2: fair.posture.v1.ScanReport.observations:type_name -> fair.posture.v1.Observation
+	0, // 3: fair.posture.v1.ScannerReports.Report:input_type -> fair.posture.v1.ScanReport
+	4, // 4: fair.posture.v1.ScannerReports.Report:output_type -> fair.posture.v1.ReportAck
+	4, // [4:5] is the sub-list for method output_type
+	3, // [3:4] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_fair_posture_v1_scanner_proto_init() }
@@ -372,7 +459,7 @@ func file_fair_posture_v1_scanner_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_fair_posture_v1_scanner_proto_rawDesc), len(file_fair_posture_v1_scanner_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

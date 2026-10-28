@@ -35,15 +35,32 @@ type Finding struct {
 	Remediation string
 }
 
+// Observation records how a passing subject was assessed (T-29): Method
+// is "verified" (the platform checked it) or "attested" (the installer or
+// customer declared it); exports say "attested, not verified".
+type Observation struct {
+	CheckID    string
+	Subject    string
+	Method     string
+	DetailJSON string // a JSON object
+}
+
+// Result is one check's outcome.
+type Result struct {
+	Findings     []Finding
+	Observations []Observation
+}
+
 // Scope is what the scanner looks at.
 type Scope struct {
-	Namespaces []string // the platform namespaces
+	Namespaces     []string // the platform namespaces
+	ProbeNamespace string   // fips-probe's namespace (T-29); "" when not deployed
 }
 
 // Check is one deployment check (T-28 adds the catalog).
 type Check interface {
 	ID() string
-	Run(ctx context.Context, k Reader, s Scope) ([]Finding, error)
+	Run(ctx context.Context, k Reader, s Scope) (Result, error)
 }
 
 // Reader is the read-only API the scanner needs (kube.Client).
@@ -55,8 +72,9 @@ type Reader interface {
 // Access lists what the scanner reads (design §6.8 permissions table): the
 // access probe tries each once per scan and reports reads RBAC refuses.
 var Access = struct {
-	Namespaced, Cluster []kube.Resource
+	Namespaced, Cluster, ProbeNamespaced []kube.Resource
 }{
+	ProbeNamespaced: []kube.Resource{kube.Pods, kube.Roles, kube.RoleBindings},
 	Namespaced: []kube.Resource{kube.Pods, kube.Deployments, kube.StatefulSets, kube.DaemonSets, kube.Services, kube.PersistentVolumeClaims,
 		kube.NetworkPolicies, kube.ServiceAccounts, kube.Roles, kube.RoleBindings, kube.ExternalSecrets},
 	Cluster: []kube.Resource{kube.Namespaces, kube.Nodes, kube.StorageClasses, kube.ClusterRoles, kube.ClusterRoleBindings,
@@ -94,16 +112,20 @@ func (s *Scanner) ScanOnce(ctx context.Context) (*posturev1.ScanReport, error) {
 	r.CheckErrors = append(r.CheckErrors, s.probe(ctx)...)
 	for _, c := range s.Checks {
 		cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-		fs, err := c.Run(cctx, s.reader(), s.Scope)
+		res, err := c.Run(cctx, s.reader(), s.Scope)
 		cancel()
 		if err != nil {
 			r.CheckErrors = append(r.CheckErrors, &posturev1.CheckError{CheckId: c.ID(), Error: err.Error()})
 			continue
 		}
 		r.ChecksRun = append(r.ChecksRun, c.ID())
-		for _, f := range fs {
+		for _, f := range res.Findings {
 			r.Findings = append(r.Findings, &posturev1.DeploymentFinding{CheckId: c.ID(), Severity: f.Severity, Controls: f.Controls,
 				Subject: f.Subject, DetailJson: f.DetailJSON, Remediation: f.Remediation})
+		}
+		for _, o := range res.Observations {
+			r.Observations = append(r.Observations, &posturev1.Observation{CheckId: c.ID(), Subject: o.Subject, Method: o.Method,
+				DetailJson: o.DetailJSON})
 		}
 	}
 	r.FinishedUnixMs = time.Now().UnixMilli()
@@ -130,6 +152,11 @@ func (s *Scanner) probe(ctx context.Context) []*posturev1.CheckError {
 	for _, ns := range s.Scope.Namespaces {
 		for _, r := range Access.Namespaced {
 			try(r, ns)
+		}
+	}
+	if s.Scope.ProbeNamespace != "" {
+		for _, r := range Access.ProbeNamespaced {
+			try(r, s.Scope.ProbeNamespace)
 		}
 	}
 	return out

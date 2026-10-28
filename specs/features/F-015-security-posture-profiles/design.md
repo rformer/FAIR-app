@@ -26,7 +26,7 @@ Two pieces are reused rather than rebuilt:
 | `posture` service | In-cluster | Registry, profile catalog, change evaluator, exception lifecycle, switch state machine, app drift engine, Posture API, OSCAL Assessment Results / POA&M export |
 | `settings` library | Embedded in every Go service | `Register()`, `Get(key, buID)`, `Set()` client; versioned cache; invalidation on `posture.setting.changed` |
 | `posture-scanner` | Separate Deployment, own ServiceAccount | Read-only Kubernetes and TLS checks; reports findings to `posture` over mTLS gRPC |
-| `fips-probe` (optional) | DaemonSet | Reads the node's FIPS kernel flag and reports it to the scanner (see D-OQ2) |
+| `fips-probe` (optional) | DaemonSet | Reads the node's FIPS kernel flag; reports through its readiness, which the scanner reads (see D-OQ2, T-29) |
 | River jobs (in `posture`) | In-cluster | Expiry notices, automatic revert, scheduled drift scans, revert retries |
 
 **Why the scanner is separate:** the scanner holds the only Kubernetes API permissions. Isolating it keeps those permissions off the main service. It also means declining Kubernetes access simply removes one Deployment.
@@ -865,3 +865,28 @@ The install selects FedRAMP Moderate. The overlay is on. Drift scans run on chan
       - The expected findings appeared: a plaintext platform endpoint, the unlabelled node, no signature verifier, kind's unencrypted local-path class, an unhardened workload, an inline password, and tag-referenced images.
       - The T-27 RBAC and egress checks still pass, plus "platform TLS port reachable".
     - **Mutations:** PSA accepting baseline, root UID 0 under `runAsNonRoot`, URL credentials ignored, the legacy-TLS probe disabled, the running digest ignored, extra RBAC ignored, and a fail-open webhook accepted each fail the tests. The root-UID mutation needed a stricter OpenShift fixture, which was added.
+- 2026-10-28: T-29 implementation notes. Robert Former approved three choices: a hostPath read as designed, reporting through pod readiness, and per-node evidence for the export.
+  - **fips-probe** (`cmd/fips-probe`, image target `fips-probe`, `deploy/k8s/fips-probe.yaml`):
+    - A DaemonSet on every node, tolerating all taints. It mounts exactly one host file, `/proc/sys/crypto/fips_enabled` (hostPath type File), read-only.
+    - Its readiness probe runs `fips-probe check`, which succeeds only when the flag reads exactly `1`; a missing file (a kernel without FIPS support) or any other content means not Ready.
+    - It has no ServiceAccount token, no RBAC, no listener, and no network (deny-all policy); it does no cryptography.
+    - hostPath is forbidden under restricted and baseline pod security, so it has its own namespace, `fair-fips-probe` (enforce privileged; warn and audit restricted), which holds nothing else.
+  - **OpenShift** (`deploy/k8s/openshift/fips-probe-scc.yaml`): the SCC `fair-fips-probe` adds only hostPath volumes to restricted-v2 (non-root, no escalation, drop ALL, read-only root, no host namespaces), and a Role grants `use` of it to the fips-probe ServiceAccount only. Two items await a live OpenShift run (T-37), since none was available: whether SELinux lets the default container type read the host's `/proc/sys/crypto` file (if not, adjust the SCC's `seLinuxContext`, never to a privileged type), and the SCC itself.
+  - **Reporting:** posture-scanner reads the probe pods in `fair-fips-probe` (its new Role there: pods, plus roles and rolebindings for the RBAC drift check). For each node:
+    - a Ready probe pod means **verified**;
+    - otherwise the label `fair-platform.io/fips=attested` (set at install when the probe is declined) means **attested**;
+    - otherwise it is a finding, whose detail says whether the probe is absent or not Ready.
+    A `verified` label is no longer accepted (it was in T-28): only the probe verifies.
+  - **Evidence:**
+    - Scan reports carry observations (`Observation{check_id, subject, method: verified|attested, detail}`), and checks return `scanner.Result{Findings, Observations}`.
+    - Posture validates them like findings and replaces each check's observations whenever the check runs (`posture.deployment_observation`, migration 0031; `posture.Observations`), so T-33's export can mark attested nodes "attested, not verified".
+  - **Release manifests:** `releasegen manifest -deploy` takes several directories; OpenShift releases add `deploy/k8s/openshift`, so the SCC's Role and binding are expected there and only there.
+  - Verification:
+    - **Unit tests:** the flag parsing; the static audits of the probe manifest (one read-only file, no token, no listener, exec readiness, every node, a namespace with nothing else, deny-all) and of the SCC (only hostPath added; `use` only by the probe's ServiceAccount); the RKE2 fixtures (one node verified by a Ready probe, one attested, a "verified" label without a Ready probe failing); and observation assertions per distribution.
+    - **DB test** `TestScannerObservations`: stored, replaced per scan, kept when the check fails, and invalid ones refused.
+    - **Live kind run** (62 checks, PASS):
+      - On this kernel, which lacks the flag, the probe is not Ready and the node is a finding.
+      - Labelled attested, it gets an "attested" observation and no finding.
+      - With the hostPath pointed at a node file reading `1` (a simulated FIPS kernel), the probe becomes Ready and the node is "verified" without the label.
+      - With the flag back at `0`, the probe leaves Ready and the finding returns.
+    - **Mutations:** any probe pod counting as verified, labels recorded as verified, `0` accepted, and observations never replaced each fail the tests.
