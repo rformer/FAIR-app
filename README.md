@@ -168,6 +168,9 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_DB_PASSWORD_FILE=<app_posture passwor
 # production), and home-realm discovery at /api/v1/auth/discover. Metadata is
 # uploaded as a file or fetched from a URL (not in air-gapped installs); a change of
 # trust anchors must be confirmed by fingerprint.
+# Logins must show MFA evidence (F-001 T-18) while auth.mfa_required_all is on (the
+# default), and always for privileged users; each IdP's rule is set with
+# PATCH /api/v1/idps/{id} (mfa_evidence_rule), with standards defaults otherwise.
 # SAML login (F-001 T-15; ADR-009): the iam service serves /api/v1/auth/saml/ when
 # FAIR_PUBLIC_ORIGIN is set (with FAIR_DB_PASSWORD_FILE and FAIR_LOGIN_TICKET_KEYS_DIR,
 # its ES256 ticket key); the gateway forwards it given an iam upstream and

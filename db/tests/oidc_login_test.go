@@ -21,6 +21,7 @@ import (
 
 type oidcEnv struct {
 	*gwEnv
+	mfa    *mfaSettings
 	p      *oidctest.Provider
 	idpID  string
 	client *http.Client
@@ -42,13 +43,13 @@ func oidcFixture(t *testing.T) *oidcEnv {
 	}
 	md, _ := json.Marshal(map[string]any{"issuer": p.Issuer, "authorization_endpoint": p.AuthURL(), "token_endpoint": p.TokenURL(),
 		"jwks_uri": p.JWKSURL(), "client_id": "fair-platform", "client_secret_file": secretFile, "scopes": []string{"email"}})
-	oe := &oidcEnv{gwEnv: ge, p: p}
+	oe := &oidcEnv{gwEnv: ge, p: p, mfa: &mfaSettings{all: true, privileged: true}}
 	oe.idpID = e.adminQuery("INSERT INTO iam.idp (kind, name, metadata) VALUES ('oidc', 'Test OIDC', '" +
 		strings.ReplaceAll(string(md), "'", "''") + "') RETURNING id")
 	e.mustOwner("UPDATE iam.app_user SET idp_id = '" + oe.idpID + "', external_id = email WHERE email IN ('user@example.test', 'other@example.test')")
 
 	keys := newJWTKeys(t)
-	rp := &authn.OIDC{Logins: authn.Logins{DB: e.appPool(), Origin: ge.url, Tickets: keys}, HTTP: p.Server.Client()}
+	rp := &authn.OIDC{Logins: authn.Logins{DB: e.appPool(), Origin: ge.url, Tickets: keys, Settings: oe.mfa}, HTTP: p.Server.Client()}
 	iam := httptest.NewServer(rp.Handler())
 	t.Cleanup(iam.Close)
 	u, _ := url.Parse(iam.URL)

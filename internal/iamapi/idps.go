@@ -147,11 +147,12 @@ var required = map[string][]string{
 
 func (a *API) updateIDP(w http.ResponseWriter, r *http.Request, p authz.Principal) {
 	var body struct {
-		Name         *string        `json:"name"`
-		EmailDomains []string       `json:"email_domains"`
-		Enabled      *bool          `json:"enabled"`
-		Settings     map[string]any `json:"settings"`
-		Reason       string         `json:"reason"`
+		Name         *string         `json:"name"`
+		EmailDomains []string        `json:"email_domains"`
+		Enabled      *bool           `json:"enabled"`
+		Settings     map[string]any  `json:"settings"`
+		MFARule      json.RawMessage `json:"mfa_evidence_rule"`
+		Reason       string          `json:"reason"`
 	}
 	if !a.view(w, r, p) || !decode(w, r, &body) {
 		return
@@ -182,6 +183,20 @@ func (a *API) updateIDP(w http.ResponseWriter, r *http.Request, p authz.Principa
 			}
 			b, _ := json.Marshal(md)
 			if _, err := tx.Exec(r.Context(), "SELECT iam.idp_admin_set_metadata($1, $2, $3, $4, $5)", id, b, i.Source, i.Fingerprints, body.Reason); err != nil {
+				return err
+			}
+		}
+		if len(body.MFARule) > 0 { // null or {}: the standards defaults (T-18)
+			rule := body.MFARule
+			if string(rule) == "null" {
+				rule = json.RawMessage("{}")
+			}
+			parsed, err := authn.ParseMFARule(i.Kind, rule)
+			if err != nil {
+				return badRequest(err.Error())
+			}
+			norm, _ := json.Marshal(parsed)
+			if _, err := tx.Exec(r.Context(), "SELECT iam.idp_admin_set_mfa_rule($1, $2, $3)", id, norm, body.Reason); err != nil {
 				return err
 			}
 		}

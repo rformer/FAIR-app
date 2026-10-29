@@ -107,8 +107,9 @@ type SP struct {
 type Login struct {
 	NameID               string
 	NameIDFormat         string
-	AuthnContextClassRef string     // for the MFA evidence rule (T-18)
-	AuthnInstant         *time.Time // the IdP's authentication time
+	AuthnContextClassRef string              // for the MFA evidence rule (T-18)
+	Attributes           map[string][]string // the assertion's attributes by name (MFA evidence, T-18)
+	AuthnInstant         *time.Time          // the IdP's authentication time
 	AssertionID          string
 	ReturnTo             string // the path the user asked for ("/" when IdP-initiated)
 	IDPInitiated         bool
@@ -221,6 +222,12 @@ func (s SP) Validate(ctx context.Context, idp IDP, encoded string) (Login, error
 	login := Login{NameID: info.NameID, NameIDFormat: info.NameIDFormat, AuthnInstant: info.AuthnInstant, AssertionID: a.ID, ReturnTo: "/"}
 	if as := a.AuthnStatement; as != nil && as.AuthnContext != nil && as.AuthnContext.AuthnContextClassRef != nil {
 		login.AuthnContextClassRef = strings.TrimSpace(as.AuthnContext.AuthnContextClassRef.Value)
+	}
+	for name := range info.Values {
+		if login.Attributes == nil {
+			login.Attributes = map[string][]string{}
+		}
+		login.Attributes[name] = info.Values.GetAll(name)
 	}
 	// SP- or IdP-initiated: the response and its subject confirmation must
 	// agree on InResponseTo, which must name a pending request of this IdP.

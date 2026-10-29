@@ -134,7 +134,8 @@ func (h *OIDC) callback(w http.ResponseWriter, r *http.Request) {
 	if login.AuthTime != nil {
 		authTime = *login.AuthTime
 	}
-	h.complete(w, r, idp.ID, login.ExternalID, Ticket{AuthMethod: "oidc", MFA: mfa, AuthTime: authTime.Unix(), ReturnTo: login.ReturnTo}, attrs)
+	ev := Evidence{AMR: login.AMR, ACR: login.ACR}
+	h.complete(w, r, idp.ID, login.ExternalID, ev, Ticket{AuthMethod: "oidc", MFA: mfa, AuthTime: authTime.Unix(), ReturnTo: login.ReturnTo}, attrs)
 }
 
 // oidcStore is oidc.Store in the database (shared by every iam replica).

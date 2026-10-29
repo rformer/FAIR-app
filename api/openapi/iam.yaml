@@ -171,6 +171,25 @@ paths:
                 email_domains: { type: array, items: { type: string } }
                 enabled: { type: boolean }
                 settings: { type: object }
+                mfa_evidence_rule:
+                  description: |
+                    The IdP's MFA evidence rule (T-18, AC-05); null or {} restores the standards
+                    defaults. Any one satisfied condition is MFA. SAML: `authn_contexts` (class
+                    refs), `attribute` ({name, values}). OIDC: `amr`, `amr_two_categories`
+                    (factors of two RFC 8176 categories), `acr`.
+                  type: [object, "null"]
+                  additionalProperties: false
+                  properties:
+                    authn_contexts: { type: array, items: { type: string } }
+                    attribute:
+                      type: object
+                      required: [name, values]
+                      properties:
+                        name: { type: string }
+                        values: { type: array, items: { type: string } }
+                    amr: { type: array, items: { type: string } }
+                    amr_two_categories: { type: boolean }
+                    acr: { type: array, items: { type: string } }
                 reason: { type: string }
       responses:
         "204": { description: Changed }

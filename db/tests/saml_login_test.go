@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -28,13 +29,29 @@ import (
 	"github.com/rformer/fair-app/internal/authn/saml/samltest"
 	"github.com/rformer/fair-app/internal/gateway"
 	"github.com/rformer/fair-app/pkg/authz"
+	"github.com/rformer/fair-app/pkg/settings"
 )
 
 // F-001 T-15 (AC-01, AC-04): SAML login end to end: the browser, the
 // gateway, the iam service's SP, the test IdP, and the session.
 
+// mfaSettings stands in for the settings client: auth.mfa_required_all
+// and auth.mfa_required_privileged (T-18).
+type mfaSettings struct{ all, privileged bool }
+
+func (m *mfaSettings) Bool(key, _ string) (bool, error) {
+	switch key {
+	case settings.KeyAuthMFAAll:
+		return m.all, nil
+	case settings.KeyAuthMFAPrivileged:
+		return m.privileged, nil
+	}
+	return false, fmt.Errorf("unexpected setting %s", key)
+}
+
 type samlEnv struct {
 	*gwEnv
+	mfa    *mfaSettings
 	iam    *authn.SAML
 	idpKey samltest.Key
 	idpID  string
@@ -59,7 +76,8 @@ func samlFixture(t *testing.T, allowIDPInitiated bool) *samlEnv {
 
 	// iam's ticket key; the gateway verifies with the same key set.
 	ticketKeys := newJWTKeys(t)
-	se.iam = &authn.SAML{Logins: authn.Logins{DB: e.appPool(), Origin: ge.url, Tickets: ticketKeys}}
+	se.mfa = &mfaSettings{all: true, privileged: true}
+	se.iam = &authn.SAML{Logins: authn.Logins{DB: e.appPool(), Origin: ge.url, Tickets: ticketKeys, Settings: se.mfa}}
 	iam := httptest.NewServer(se.iam.Handler())
 	t.Cleanup(iam.Close)
 	u, _ := url.Parse(iam.URL)

@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/rformer/fair-app/pkg/authz"
+	"github.com/rformer/fair-app/pkg/settings"
 )
 
 // Logins is what every login flow of the iam service shares (SAML, T-15;
@@ -28,6 +29,28 @@ type Logins struct {
 	Tickets authz.KeyProvider // signs login tickets
 	Logger  *slog.Logger
 	Now     func() time.Time
+	// Settings gives auth.mfa_required_all and auth.mfa_required_privileged
+	// (a settings.Client). Nil, or a setting that cannot be read, means MFA
+	// is required (fail closed).
+	Settings interface {
+		Bool(key, buID string) (bool, error)
+	}
+}
+
+// mfaRequired: must this user show MFA evidence?
+func (h *Logins) mfaRequired(ctx context.Context, userID string) (bool, error) {
+	if h.Settings == nil {
+		return true, nil
+	}
+	if all, err := h.Settings.Bool(settings.KeyAuthMFAAll, ""); err != nil || all {
+		return true, nil
+	}
+	if priv, err := h.Settings.Bool(settings.KeyAuthMFAPrivileged, ""); err == nil && !priv {
+		return false, nil
+	}
+	var privileged bool
+	err := h.DB.QueryRow(ctx, "SELECT iam.login_user_privileged($1)", userID).Scan(&privileged)
+	return privileged, err
 }
 
 func (h *Logins) now() time.Time {
@@ -44,9 +67,10 @@ var errUnknownIDP = errors.New("authn: unknown identity provider")
 
 // complete finishes a verified login: the user the IdP's subject (external
 // id) identifies must exist and be active (JIT provisioning is T-23); then
-// the login is audited and answered with a ticket. t carries the method,
-// MFA evidence, authentication time and return path.
-func (h *Logins) complete(w http.ResponseWriter, r *http.Request, idpID, externalID string, t Ticket, attrs map[string]any) {
+// the MFA evidence must meet the IdP's rule when MFA is required (T-18);
+// then the login is audited and answered with a ticket. t carries the
+// method, MFA evidence, authentication time and return path.
+func (h *Logins) complete(w http.ResponseWriter, r *http.Request, idpID, externalID string, ev Evidence, t Ticket, attrs map[string]any) {
 	var userID, status string
 	err := h.DB.QueryRow(r.Context(), "SELECT user_id::text, status FROM iam.login_user($1, $2)", idpID, externalID).Scan(&userID, &status)
 	switch {
@@ -59,6 +83,36 @@ func (h *Logins) complete(w http.ResponseWriter, r *http.Request, idpID, externa
 	case status != "active":
 		attrs["user_id"] = userID
 		h.deny(w, r, idpID, attrs, "user "+status)
+		return
+	}
+	var kind string
+	var raw []byte
+	if err := h.DB.QueryRow(r.Context(), "SELECT kind, mfa_evidence_rule FROM iam.idp_for_login($1)", idpID).Scan(&kind, &raw); err != nil {
+		h.fail(w, r, idpID, err)
+		return
+	}
+	rule, err := ParseMFARule(kind, raw)
+	if err != nil {
+		h.fail(w, r, idpID, err) // a rule the API would not have stored: fail closed
+		return
+	}
+	required, err := h.mfaRequired(r.Context(), userID)
+	if err != nil {
+		h.fail(w, r, idpID, err)
+		return
+	}
+	satisfied := rule.Satisfied(kind, ev)
+	if t.MFA == nil {
+		t.MFA = map[string]any{}
+	}
+	t.MFA["satisfied"] = satisfied
+	attrs["mfa_satisfied"] = satisfied
+	if required && !satisfied {
+		attrs["user_id"] = userID
+		if err := h.event(r.Context(), "authn.mfa_missing", "high", "anonymous", idpID, attrs, "no MFA evidence"); err != nil && h.Logger != nil {
+			h.Logger.Error("auditing a login without MFA", "error", err.Error())
+		}
+		writeFailure(w, http.StatusUnauthorized)
 		return
 	}
 	t.UserID, t.IDPID = userID, idpID

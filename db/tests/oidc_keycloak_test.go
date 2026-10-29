@@ -55,7 +55,31 @@ func TestOIDCKeycloakInterop(t *testing.T) {
 		"client_secret_file": secretFile, "scopes": []string{"email"}, "subject_claim": "email"})
 	e.mustOwner("UPDATE iam.idp SET kind = 'keycloak', metadata = '" + strings.ReplaceAll(string(md), "'", "''") + "' WHERE id = '" + oe.idpID + "'")
 
-	// The browser: the platform, Keycloak's form, back to the callback.
+	// T-18 (AC-05): a password-only login is not MFA, so while MFA is
+	// required (the default) it is denied and audited; with MFA required of
+	// privileged users only, this user signs in.
+	if code, cookie, _ := oe.keycloakLogin(t, redirect); code != http.StatusUnauthorized || cookie != "" {
+		t.Fatalf("a login without MFA: %d", code)
+	}
+	if got := e.adminQuery("SELECT count(*) FROM iam.event_outbox WHERE payload->>'type' = 'authn.mfa_missing'"); got != "1" {
+		t.Fatalf("%s logins without MFA audited", got)
+	}
+	oe.mfa.all = false
+	code, cookie, body := oe.keycloakLogin(t, redirect)
+	if code != 200 || cookie == "" || !strings.Contains(body, "url=/posture") {
+		t.Fatalf("callback: %d cookie=%t %s", code, cookie != "", body)
+	}
+	me := oe.do(t, "GET", "/api/v1/me", cookie, nil, nil)
+	if me.code != 200 || me.body["auth_method"] != "oidc" {
+		t.Fatalf("/me: %d %s", me.code, me.raw)
+	}
+}
+
+// keycloakLogin signs in through Keycloak's form in a fresh browser and
+// returns the platform's answer to the callback: status, session cookie
+// and body.
+func (oe *oidcEnv) keycloakLogin(t *testing.T, redirect string) (int, string, string) {
+	t.Helper()
 	jar, _ := cookiejar.New(nil)
 	browser := &http.Client{Jar: jar, CheckRedirect: func(req *http.Request, _ []*http.Request) error {
 		if strings.HasPrefix(req.URL.String(), oe.url) {
@@ -88,12 +112,5 @@ func TestOIDCKeycloakInterop(t *testing.T) {
 	}
 	body, _ := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
-	cookie := sessionCookie(resp)
-	if resp.StatusCode != 200 || cookie == "" || !strings.Contains(string(body), "url=/posture") {
-		t.Fatalf("callback: %d cookie=%t %s", resp.StatusCode, cookie != "", body)
-	}
-	me := oe.do(t, "GET", "/api/v1/me", cookie, nil, nil)
-	if me.code != 200 || me.body["auth_method"] != "oidc" {
-		t.Fatalf("/me: %d %s", me.code, me.raw)
-	}
+	return resp.StatusCode, sessionCookie(resp), string(body)
 }

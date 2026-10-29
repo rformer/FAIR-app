@@ -73,16 +73,29 @@ func TestSAMLKeycloakInterop(t *testing.T) {
 		}
 		return nil
 	}}
-	start, err := httpGet(se.client, se.url+"/api/v1/auth/saml/"+se.idpID+"/login?return=%2Fposture")
-	if err != nil {
-		t.Fatal(err)
+	startLogin := func() string {
+		start, err := httpGet(se.client, se.url+"/api/v1/auth/saml/"+se.idpID+"/login?return=%2Fposture")
+		if err != nil {
+			t.Fatal(err)
+		}
+		loc := start.Header.Get("Location")
+		_ = start.Body.Close()
+		if start.StatusCode != http.StatusFound || !strings.HasPrefix(loc, kc) {
+			t.Fatalf("login redirect: %d %q", start.StatusCode, loc)
+		}
+		return loc
 	}
-	loc := start.Header.Get("Location")
-	_ = start.Body.Close()
-	if start.StatusCode != http.StatusFound || !strings.HasPrefix(loc, kc) {
-		t.Fatalf("login redirect: %d %q", start.StatusCode, loc)
+	// T-18 (AC-05): a password-only login is not MFA, so while MFA is
+	// required (the default) it is denied and audited.
+	se.keycloakLogin(t, browser, startLogin(), "")
+	if got := e.adminQuery("SELECT payload->'attributes'->>'authn_context' FROM iam.event_outbox WHERE payload->>'type' = 'authn.mfa_missing'"); got == "" {
+		t.Fatal("the login without MFA was not audited")
 	}
-	cookie := se.keycloakLogin(t, browser, loc, "/posture")
+	// With MFA required of privileged users only, this user signs in.
+	se.mfa.all = false
+	jar1, _ := cookiejar.New(nil)
+	browser.Jar = jar1
+	cookie := se.keycloakLogin(t, browser, startLogin(), "/posture")
 	me := se.do(t, "GET", "/api/v1/me", cookie, nil, nil)
 	if me.code != 200 || me.body["auth_method"] != "saml" {
 		t.Fatalf("/me after Keycloak login: %d %s", me.code, me.raw)
@@ -101,7 +114,8 @@ func TestSAMLKeycloakInterop(t *testing.T) {
 }
 
 // keycloakLogin fills Keycloak's login form at u and posts the SAML
-// response to the ACS; it returns the platform's session cookie.
+// response to the ACS; it returns the platform's session cookie. With
+// wantReturn "" the login must be refused.
 func (se *samlEnv) keycloakLogin(t *testing.T, browser *http.Client, u, wantReturn string) string {
 	t.Helper()
 	page := getPage(t, browser, u)
@@ -127,6 +141,12 @@ func (se *samlEnv) keycloakLogin(t *testing.T, browser *http.Client, u, wantRetu
 	page2, _ := io.ReadAll(acsResp.Body)
 	_ = acsResp.Body.Close()
 	c := sessionCookie(acsResp)
+	if wantReturn == "" {
+		if acsResp.StatusCode != http.StatusUnauthorized || c != "" {
+			t.Fatalf("ACS accepted a login it must refuse: %d %s", acsResp.StatusCode, page2)
+		}
+		return ""
+	}
 	if acsResp.StatusCode != 200 || c == "" || !strings.Contains(string(page2), "url="+wantReturn+`"`) {
 		t.Fatalf("ACS: %d cookie=%t %s", acsResp.StatusCode, c != "", page2)
 	}

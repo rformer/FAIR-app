@@ -137,7 +137,8 @@ func (h *SAML) acs(w http.ResponseWriter, r *http.Request) {
 	if login.AuthnContextClassRef != "" {
 		mfa["saml_authn_context"] = login.AuthnContextClassRef
 	}
-	h.complete(w, r, idp.ID, login.NameID, Ticket{AuthMethod: "saml", MFA: mfa, AuthTime: authTime.Unix(), ReturnTo: login.ReturnTo}, attrs)
+	ev := Evidence{AuthnContext: login.AuthnContextClassRef, Attributes: login.Attributes}
+	h.complete(w, r, idp.ID, login.NameID, ev, Ticket{AuthMethod: "saml", MFA: mfa, AuthTime: authTime.Unix(), ReturnTo: login.ReturnTo}, attrs)
 }
 
 // metadata is this SP's SAML metadata for an IdP: entity ID and ACS.

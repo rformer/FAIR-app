@@ -32,6 +32,7 @@ import (
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
+	"github.com/rformer/fair-app/pkg/settings"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -112,7 +113,23 @@ func run() error {
 			return fmt.Errorf("database: %w", err)
 		}
 		defer pool.Close()
-		logins := authn.Logins{DB: pool, Origin: strings.TrimSuffix(origin, "/"), Tickets: keys, Logger: logger}
+		// Whether a login must show MFA evidence (T-18), read as every service
+		// reads settings; a stale snapshot requires MFA (fail closed).
+		sc := settings.NewClient(settings.ClientOptions{Source: settings.DBSource{DB: pool}, Service: "iam", Instance: os.Getenv("POD_NAME")})
+		var defs []settings.Def
+		for _, d := range settings.F001Defs() {
+			if d.Key == settings.KeyAuthMFAAll || d.Key == settings.KeyAuthMFAPrivileged {
+				defs = append(defs, d)
+			}
+		}
+		if err := sc.Register(defs...); err != nil {
+			return err
+		}
+		if err := sc.Refresh(ctx); err != nil {
+			return fmt.Errorf("settings: %w", err)
+		}
+		go sc.Run(ctx, func(err error) { logger.Error("settings refresh", "error", err.Error()) })
+		logins := authn.Logins{DB: pool, Origin: strings.TrimSuffix(origin, "/"), Tickets: keys, Logger: logger, Settings: sc}
 		sp := &authn.SAML{Logins: logins}
 		srv.Mux().Handle(authn.Prefix, server.SecurityHeaders(sp.Handler()))
 		rp := &authn.OIDC{Logins: logins}

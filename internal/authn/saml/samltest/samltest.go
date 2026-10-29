@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"math/big"
+	"sort"
 	"time"
 
 	"github.com/beevik/etree"
@@ -68,6 +69,7 @@ type Response struct {
 	Method                      string // signature method; default RSA-SHA256
 	AssertionID                 string
 	AuthnContextClassRef        string
+	Attributes                  map[string][]string // an AttributeStatement when set
 	// Dialect writes the XML as an IdP does: "" or "ping" (samlp/saml
 	// prefixes), "entra" (the assertion in the default namespace), "okta"
 	// (saml2p/saml2 prefixes).
@@ -150,6 +152,21 @@ func Assertion(r Response) *etree.Element {
 	as.CreateAttr("SessionIndex", "_s1")
 	if r.AuthnContextClassRef != "" {
 		as.CreateElement(q(pa, "AuthnContext")).CreateElement(q(pa, "AuthnContextClassRef")).SetText(r.AuthnContextClassRef)
+	}
+	if len(r.Attributes) > 0 {
+		st := a.CreateElement(q(pa, "AttributeStatement"))
+		names := make([]string, 0, len(r.Attributes))
+		for n := range r.Attributes {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		for _, n := range names {
+			at := st.CreateElement(q(pa, "Attribute"))
+			at.CreateAttr("Name", n)
+			for _, v := range r.Attributes[n] {
+				at.CreateElement(q(pa, "AttributeValue")).SetText(v)
+			}
+		}
 	}
 	return a
 }

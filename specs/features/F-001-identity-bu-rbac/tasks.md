@@ -39,7 +39,7 @@ Status: **Approved** (Robert Former, 2026-10-24) | Design: Approved 2026-10-24
 | T-15 | SAML SP: library selection memo (D-OQ1), SP- and IdP-initiated flows, replay cache, XSW negative corpus | AC-01, AC-04 | Selection ADR; corpus passes; interop with Entra/Okta/Ping | L | Done (2026-10-28; ADR-009; live interop with Keycloak; Entra/Okta/Ping live runs are an open item, design §12) |
 | T-16 | OIDC RP: code + PKCE, nonce/state, JWKS validation | AC-01, AC-04 | Conformance tests against test IdPs | M | Done (2026-10-28; live interop with Keycloak; Entra/Okta/Ping live runs are an open item, design §12) |
 | T-17 | Home-realm discovery, multiple IdPs, metadata/JWKS file upload | AC-02, AC-03 | Routing tests; air-gapped metadata test | S | Done (2026-10-29; the iam API `/api/v1/idps` with pinned trust anchors; no background metadata refresh) |
-| T-18 | MFA evidence rules (SAML AuthnContext, OIDC amr/acr) | AC-05 | Non-MFA assertion denied and audited | S | Todo |
+| T-18 | MFA evidence rules (SAML AuthnContext, OIDC amr/acr) | AC-05 | Non-MFA assertion denied and audited | S | Done (2026-10-29; standards defaults when an IdP has no rule; required per `auth.mfa_required_all`, privileged users always) |
 | T-19 | System-use banner with acknowledgment, on by default | AC-34 | E2E test: no access before acknowledgment | S | Todo |
 | T-20 | Session network binding (`off`/`flag`/`reauthenticate`), trusted proxy header, prefix + ASN, air-gap fallback | §5.8 | Tests per mode and per profile default; spoofed-header test | M | Todo |
 
