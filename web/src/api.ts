@@ -1,7 +1,7 @@
 // The API client. Requests go to the same origin: the gateway (F-001 T-13)
 // authenticates the session and forwards them to the services. Every
-// mutation carries a fresh Idempotency-Key (F-015 T-31), so a retried
-// request never applies twice.
+// mutation carries the session's CSRF token (from /api/v1/me) and a fresh
+// Idempotency-Key (F-015 T-31), so a retried request never applies twice.
 
 export class ApiError extends Error {
   constructor(
@@ -33,7 +33,27 @@ export async function getJSON<T>(path: string, signal?: AbortSignal): Promise<T>
   return handle<T>(resp);
 }
 
+/** The session as the gateway describes it (F-001 T-13, T-19). */
+export interface Me {
+  user_id: string;
+  auth_method: string;
+  csrf_token: string;
+  banner: { required: boolean; version?: number; text?: string; acknowledged_at?: string | null };
+}
+
+let csrfToken: string | undefined;
+
+/** The session; remembers its CSRF token for later mutations. */
+export async function getMe(): Promise<Me> {
+  const me = await getJSON<Me>("/api/v1/me");
+  csrfToken = me.csrf_token;
+  return me;
+}
+
 export async function send<T>(method: "POST" | "PATCH", path: string, body: unknown): Promise<T> {
+  if (csrfToken === undefined) {
+    await getMe();
+  }
   const resp = await fetch(path, {
     method,
     credentials: "same-origin",
@@ -41,6 +61,7 @@ export async function send<T>(method: "POST" | "PATCH", path: string, body: unkn
       Accept: "application/json",
       "Content-Type": "application/json",
       "Idempotency-Key": crypto.randomUUID(),
+      "X-CSRF-Token": csrfToken ?? "",
     },
     body: JSON.stringify(body),
   });

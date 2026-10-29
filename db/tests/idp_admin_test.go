@@ -49,8 +49,10 @@ func idpFixture(t *testing.T) *idpEnv {
 	mux := http.NewServeMux()
 	mux.Handle(authn.DiscoverPath, &authn.Discovery{Logins: authn.Logins{DB: pool}, PerMinute: 1000})
 	h := api.Handler(ge.keys, nil)
-	mux.Handle("/api/v1/idps", h)
-	mux.Handle("/api/v1/idps/", h)
+	for _, p := range iamapi.Prefixes {
+		mux.Handle(p, h)
+		mux.Handle(p+"/", h)
+	}
 	iam := httptest.NewServer(mux)
 	t.Cleanup(iam.Close)
 	u, _ := url.Parse(iam.URL)
@@ -71,9 +73,9 @@ func idpFixture(t *testing.T) *idpEnv {
 }
 
 // raw sends body as is (metadata documents).
-func (ie *idpEnv) raw(t *testing.T, method, path, cookie string, body []byte, hdr map[string]string) gwResp {
+func (ge *gwEnv) raw(t *testing.T, method, path, cookie string, body []byte, hdr map[string]string) gwResp {
 	t.Helper()
-	req, _ := http.NewRequestWithContext(context.Background(), method, ie.url+path, strings.NewReader(string(body)))
+	req, _ := http.NewRequestWithContext(context.Background(), method, ge.url+path, strings.NewReader(string(body)))
 	req.Header.Set("Cookie", gateway.CookieName+"="+cookie)
 	for k, v := range hdr {
 		req.Header.Set(k, v)

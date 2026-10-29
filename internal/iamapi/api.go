@@ -14,7 +14,10 @@
 // changes need idp.manage, checked by the database from the signed context
 // (403). A change of trust anchors (signing certificates, keys, issuer) is
 // applied only with ?confirm= naming exactly the new fingerprints (409
-// otherwise, listing them).
+// otherwise, listing them). T-19 adds the system-use banner:
+//
+//	GET    /api/v1/banner                      read            any session
+//	PUT    /api/v1/banner                      change          banner.manage
 package iamapi
 
 import (
@@ -60,6 +63,8 @@ var routes = []route{
 	{"PATCH", "/api/v1/idps/{id}", (*API).updateIDP},
 	{"PUT", "/api/v1/idps/{id}/metadata", (*API).uploadMetadata},
 	{"POST", "/api/v1/idps/{id}/metadata/fetch", (*API).fetchMetadata},
+	{"GET", "/api/v1/banner", (*API).getBanner},
+	{"PUT", "/api/v1/banner", (*API).setBanner},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).
@@ -73,7 +78,7 @@ func Routes() []string {
 }
 
 // Prefixes are the path prefixes the API owns (for the service's mux).
-var Prefixes = []string{"/api/v1/idps"}
+var Prefixes = []string{"/api/v1/idps", "/api/v1/banner"}
 
 // Handler returns the API with authentication and idempotency in front.
 func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {

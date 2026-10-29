@@ -38,8 +38,11 @@ type Gateway struct {
 	Upstreams  map[string]*url.URL // service name -> base URL (/api/v1/<name>/ is routed there)
 	Transport  http.RoundTripper   // to the services (mTLS); default http.DefaultTransport
 	UI         http.Handler        // optional: the web UI at /
-	Logger     *slog.Logger
-	Now        func() time.Time
+	// BannerEnabled reports banner.enabled (T-19, AC-34). Nil, or an error,
+	// means the banner is required (the secure default; fail closed).
+	BannerEnabled func() (bool, error)
+	Logger        *slog.Logger
+	Now           func() time.Time
 }
 
 func (g *Gateway) now() time.Time {
@@ -57,6 +60,7 @@ var routes = []struct {
 }{
 	{"GET /api/v1/me", func(g *Gateway) http.HandlerFunc { return g.me }},
 	{"POST /api/v1/auth/logout", func(g *Gateway) http.HandlerFunc { return g.logout }},
+	{"POST /api/v1/auth/banner/ack", func(g *Gateway) http.HandlerFunc { return g.ackBanner }},
 	{"GET /api/v1/me/sessions", func(g *Gateway) http.HandlerFunc { return g.listSessions(true) }},
 	{"DELETE /api/v1/me/sessions", func(g *Gateway) http.HandlerFunc { return g.revokeAll(true) }},
 	{"DELETE /api/v1/me/sessions/{handle}", func(g *Gateway) http.HandlerFunc { return g.revoke }},
@@ -82,7 +86,7 @@ var Segments = map[string]string{
 	"idps": "iam", "users": "iam", "groups": "iam", "service-accounts": "iam", "bus": "iam",
 	"roles": "iam", "permissions": "iam", "assignments": "iam", "group-mappings": "iam",
 	"sod-rules": "iam", "sod-exceptions": "iam", "approvals": "iam", "access-reviews": "iam",
-	"entitlements": "iam",
+	"entitlements": "iam", "banner": "iam",
 }
 
 type ctxKey struct{}
@@ -156,8 +160,31 @@ func (g *Gateway) authenticated(next http.HandlerFunc) http.HandlerFunc {
 				return
 			}
 		}
+		if sess.BannerAckAt == nil && !bannerExempt(r) && g.bannerRequired() {
+			writeError(w, http.StatusForbidden, "banner_required", "acknowledge the system-use notification first")
+			return
+		}
 		next(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, sess)))
 	}
+}
+
+// bannerRequired: banner.enabled, or unknown (fail closed).
+func (g *Gateway) bannerRequired() bool {
+	if g.BannerEnabled == nil {
+		return true
+	}
+	on, err := g.BannerEnabled()
+	return err != nil || on
+}
+
+// bannerExempt: what a session may do before acknowledging the banner
+// (AC-34): read /me (which carries the banner), acknowledge, sign out.
+func bannerExempt(r *http.Request) bool {
+	switch r.Method + " " + r.URL.Path {
+	case "GET /api/v1/me", "POST /api/v1/auth/banner/ack", "POST /api/v1/auth/logout":
+		return true
+	}
+	return false
 }
 
 func safeMethod(m string) bool {
@@ -252,8 +279,45 @@ func (g *Gateway) proxy(base *url.URL) *httputil.ReverseProxy {
 
 func (g *Gateway) me(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFrom(r.Context())
+	banner := map[string]any{"required": false, "acknowledged_at": sess.BannerAckAt}
+	if sess.BannerAckAt == nil && g.bannerRequired() {
+		b, err := g.Sessions.CurrentBanner(r.Context())
+		if err != nil {
+			g.log(r, "banner", err)
+			writeError(w, http.StatusServiceUnavailable, "unavailable", "")
+			return
+		}
+		banner = map[string]any{"required": true, "version": b.Version, "text": b.Text}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"user_id": sess.UserID, "session": sess.Handle, "auth_method": sess.AuthMethod,
-		"created_at": sess.CreatedAt, "expires_at": sess.ExpiresAt, "csrf_token": g.Sessions.CSRFToken(sess)})
+		"created_at": sess.CreatedAt, "expires_at": sess.ExpiresAt, "csrf_token": g.Sessions.CSRFToken(sess), "banner": banner})
+}
+
+// ackBanner records the session's acknowledgment of the banner version it
+// was shown; a version that is no longer current is refused (409) so the
+// user reads the current text.
+func (g *Gateway) ackBanner(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Version int `json:"version"`
+	}
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&body); err != nil || body.Version <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid_request", "the body is {\"version\": n}")
+		return
+	}
+	out, err := g.Sessions.AckBanner(r.Context(), sessionFrom(r.Context()), body.Version)
+	switch {
+	case err != nil:
+		g.log(r, "banner acknowledgment", err)
+		writeError(w, http.StatusServiceUnavailable, "unavailable", "")
+	case out == "stale":
+		writeError(w, http.StatusConflict, "banner_changed", "the notification changed; read it again")
+	case out != "ok":
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "")
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 func (g *Gateway) logout(w http.ResponseWriter, r *http.Request) {

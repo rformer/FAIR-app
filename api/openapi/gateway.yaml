@@ -91,7 +91,35 @@ paths:
                   created_at: { type: string, format: date-time }
                   expires_at: { type: string, format: date-time, description: The earlier of the idle and absolute deadlines }
                   csrf_token: { type: string }
+                  banner:
+                    type: object
+                    description: |
+                      The system-use banner (T-19, AC-34). While `required`, every other route except
+                      the acknowledgment and logout answers 403 `banner_required`.
+                    properties:
+                      required: { type: boolean }
+                      version: { type: integer, description: Present while required }
+                      text: { type: string, description: Present while required }
+                      acknowledged_at: { type: [string, "null"], format: date-time }
         "401": { description: No live session, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+  /auth/banner/ack:
+    post:
+      summary: Acknowledge the system-use banner for this session
+      x-permission: none (own session)
+      parameters: [{ $ref: "#/components/parameters/CSRF" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version]
+              additionalProperties: false
+              properties:
+                version: { type: integer, description: The version shown (from /me) }
+      responses:
+        "204": { description: Acknowledged }
+        "409": { description: The banner changed; read /me again, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
   /auth/logout:
     post:
       summary: End this session and clear the cookie

@@ -257,6 +257,46 @@ paths:
                   - $ref: "#/components/schemas/Error"
                   - $ref: "#/components/schemas/Pinning"
         "422": { $ref: "#/components/responses/Error" }
+  /banner:
+    get:
+      summary: The system-use banner in force (T-19, AC-34)
+      x-permission: none (any session)
+      responses:
+        "200":
+          description: The banner
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version, text, updated_at]
+                properties:
+                  version: { type: integer }
+                  text: { type: string }
+                  updated_at: { type: string, format: date-time }
+    put:
+      summary: Change the banner text (a new version; sessions acknowledge at their next sign-in)
+      x-permission: banner.manage
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text, reason]
+              additionalProperties: false
+              properties:
+                text: { type: string, minLength: 1, maxLength: 10000 }
+                reason: { type: string }
+      responses:
+        "200":
+          description: Changed
+          content:
+            application/json:
+              schema: { type: object, properties: { version: { type: integer } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
   /auth/discover:
     post:
       summary: Home-realm discovery

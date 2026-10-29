@@ -964,7 +964,7 @@ The configured mode is `saas`, `self-hosted` or `air-gapped` (ADR-005, amended 2
     - The one inline stylesheet allowed is the fixed rule React Aria injects, by its SHA-256. The E2E tests fail on any CSP violation or script error, so a library update that changes it is caught.
   - **E2E harness:** `scripts/ui-e2e.sh`, and the CI job `ui-e2e`.
     - `db/tests` `TestPostureUIHarness` (`FAIR_UI_HARNESS=1`) seeds a scenario through the real services: an in-bounds loosening, an approved exception expiring in 10 days, a reverted exception, overrides in a restricted BU, a pending switch to FedRAMP Moderate with conflicts, drift findings from a direct database edit, and undecided Kubernetes access.
-    - It then serves `web/dist` and the real Posture API as a dev gateway, minting the internal JWT and DB context token for the user chosen with `/dev/as/{user}`.
+    - It then serves `web/dist` and the real Posture API as a dev gateway, minting the internal JWT and DB context token for the user chosen with `/dev/as/{user}`. (Since F-001 T-19 the harness runs the real gateway instead: `/dev/as/{user}` creates a real session, and the specs acknowledge the system-use banner.)
     - Playwright runs `web/e2e/posture.spec.ts`.
   - Verification (4 E2E tests, PASS; axe with the wcag2a, wcag2aa, wcag21a and wcag21aa tags):
     - An auditor sees every AC-43 part with the seeded data, the AC-40 banner, and audit links with the right targets; no axe violations.

@@ -19,8 +19,11 @@ test.afterEach(() => {
   expect(problems, "CSP violations and script errors").toEqual([]);
 });
 
+// Signs in as user (a new session) and acknowledges the system-use banner
+// (F-001 T-19).
 async function as(page: Page, user: string) {
   await page.goto(`/dev/as/${user}`);
+  await page.getByRole("button", { name: "Acknowledge and continue" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Security posture" })).toBeVisible();
 }
 
@@ -127,6 +130,7 @@ test("an action the user may not take reports the refusal", async ({ page }) => 
 
 test("without posture.view the page says so, accessibly", async ({ page }) => {
   await page.goto("/dev/as/nobody");
+  await page.getByRole("button", { name: "Acknowledge and continue" }).click();
   await expect(page.getByRole("alert")).toContainText("You do not have access to the security posture");
   await expectAccessible(page, "the no-access page");
 });

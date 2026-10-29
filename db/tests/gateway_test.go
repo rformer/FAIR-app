@@ -119,8 +119,18 @@ func gatewayFixture(t *testing.T) *gwEnv {
 	return ge
 }
 
-// login creates a session for user and returns the cookie value.
+// login creates a session for user that has acknowledged the system-use
+// banner (T-19) and returns the cookie value.
 func (ge *gwEnv) login(t *testing.T, user string) string {
+	t.Helper()
+	tok := ge.loginUnacknowledged(t, user)
+	ge.e.mustOwner("UPDATE iam.session SET banner_ack_at = now(), banner_version = 1 WHERE id_hmac = '\\x" + hmacSID(ge.g.Sessions.Pepper, tok) + "'")
+	return tok
+}
+
+// loginUnacknowledged creates a session as a login does: the banner not
+// yet acknowledged.
+func (ge *gwEnv) loginUnacknowledged(t *testing.T, user string) string {
 	t.Helper()
 	id := ge.e.adminQuery("SELECT id FROM iam.app_user WHERE email = '" + user + "@example.test'")
 	_, tok, err := ge.g.Sessions.Create(context.Background(), gateway.Login{UserID: id, AuthMethod: "oidc",

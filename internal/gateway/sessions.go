@@ -41,7 +41,8 @@ type Session struct {
 	AuthMethod   string
 	CreatedAt    time.Time
 	LastSeenAt   time.Time
-	ExpiresAt    time.Time // the earlier of the idle and absolute deadlines
+	ExpiresAt    time.Time  // the earlier of the idle and absolute deadlines
+	BannerAckAt  *time.Time // when the system-use banner was acknowledged (T-19)
 	token        string
 }
 
@@ -152,10 +153,10 @@ func (s Sessions) Lookup(ctx context.Context, token string) (Session, error) {
 	var status string
 	var handle, user, method *string
 	var version *int64
-	var created, seen, expires *time.Time
-	err = s.DB.QueryRow(ctx, `SELECT status, handle::text, user_id::text, scope_version, auth_method, created_at, last_seen_at, expires_at
-		FROM iam.session_lookup($1, $2, $3)`, s.idHMAC(token), idle, absolute).
-		Scan(&status, &handle, &user, &version, &method, &created, &seen, &expires)
+	var created, seen, expires, ack *time.Time
+	err = s.DB.QueryRow(ctx, `SELECT status, handle::text, user_id::text, scope_version, auth_method, created_at, last_seen_at, expires_at,
+		banner_ack_at FROM iam.session_lookup($1, $2, $3)`, s.idHMAC(token), idle, absolute).
+		Scan(&status, &handle, &user, &version, &method, &created, &seen, &expires, &ack)
 	if err != nil {
 		return Session{}, err
 	}
@@ -163,7 +164,28 @@ func (s Sessions) Lookup(ctx context.Context, token string) (Session, error) {
 		return Session{}, &SessionError{Status: status}
 	}
 	return Session{Handle: *handle, UserID: *user, ScopeVersion: *version, AuthMethod: *method,
-		CreatedAt: *created, LastSeenAt: *seen, ExpiresAt: *expires, token: token}, nil
+		CreatedAt: *created, LastSeenAt: *seen, ExpiresAt: *expires, BannerAckAt: ack, token: token}, nil
+}
+
+// Banner is the system-use banner in force (T-19).
+type Banner struct {
+	Version int    `json:"version"`
+	Text    string `json:"text"`
+}
+
+// CurrentBanner reads the banner in force.
+func (s Sessions) CurrentBanner(ctx context.Context) (Banner, error) {
+	var b Banner
+	err := s.DB.QueryRow(ctx, "SELECT version, text FROM iam.banner_current()").Scan(&b.Version, &b.Text)
+	return b, err
+}
+
+// AckBanner records that the session acknowledged banner version v:
+// "ok", "stale" (not the current version) or "inactive".
+func (s Sessions) AckBanner(ctx context.Context, sess Session, v int) (string, error) {
+	var out string
+	err := s.DB.QueryRow(ctx, "SELECT iam.session_banner_ack($1, $2)", s.idHMAC(sess.token), v).Scan(&out)
+	return out, err
 }
 
 // Logout ends the session of a cookie value.

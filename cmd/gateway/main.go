@@ -118,7 +118,7 @@ func run() error {
 	sc := settings.NewClient(settings.ClientOptions{Source: settings.DBSource{DB: pool}, Service: "gateway", Instance: os.Getenv("POD_NAME")})
 	var defs []settings.Def
 	for _, d := range settings.F001Defs() {
-		if d.Key == settings.KeySessionIdleTimeout || d.Key == settings.KeySessionAbsoluteTimeout {
+		if d.Key == settings.KeySessionIdleTimeout || d.Key == settings.KeySessionAbsoluteTimeout || d.Key == settings.KeyBannerEnabled {
 			defs = append(defs, d)
 		}
 	}
@@ -146,6 +146,9 @@ func run() error {
 		Upstreams:  upstreams,
 		Transport:  transport,
 		Logger:     logger,
+		// The system-use banner (T-19): required while banner.enabled is on,
+		// and whenever the setting cannot be read.
+		BannerEnabled: func() (bool, error) { return sc.Bool(settings.KeyBannerEnabled, "") },
 	}
 	if _, ok := upstreams["iam"]; ok {
 		if g.Tickets, err = authz.LoadLocalKeys(os.Getenv("FAIR_LOGIN_TICKET_KEYS_DIR")); err != nil {

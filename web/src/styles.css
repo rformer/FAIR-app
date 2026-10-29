@@ -104,7 +104,13 @@ table.data th, .react-aria-Table th { background: var(--surface-2); font-weight:
 }
 .react-aria-Button[data-pressed] { background: var(--surface-2); }
 .react-aria-Button[data-disabled] { opacity: 0.6; cursor: not-allowed; }
-.react-aria-Button.primary { background: var(--link); color: var(--bg); border-color: var(--link); }
+.react-aria-Button.primary, button.btn.primary { background: var(--link); color: var(--bg); border-color: var(--link); }
+button.btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* The system-use notification (F-001 T-19). */
+.banner-page { max-width: 46rem; margin: 3rem auto; padding: 0 var(--space); }
+.banner-page h1:focus { outline: none; }
+.banner-text { white-space: pre-wrap; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 1rem 1.25rem; margin: 1rem 0 1.5rem; line-height: 1.5; }
 
 .react-aria-ModalOverlay { position: fixed; inset: 0; background: rgb(0 0 0 / 0.45); display: flex; align-items: center; justify-content: center; z-index: 20; }
 .react-aria-Modal { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; max-width: 32rem; width: calc(100% - 2rem); }

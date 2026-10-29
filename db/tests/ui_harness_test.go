@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,9 +16,9 @@ import (
 	"time"
 
 	"github.com/rformer/fair-app/internal/approvals"
+	"github.com/rformer/fair-app/internal/gateway"
 	"github.com/rformer/fair-app/internal/posture"
 	"github.com/rformer/fair-app/internal/postureapi"
-	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
 	"github.com/rformer/fair-app/pkg/settings"
@@ -24,11 +26,11 @@ import (
 
 // F-015 T-32: the UI end-to-end harness (scripts/ui-e2e.sh). It seeds a
 // posture scenario through the real services, then serves the built web UI
-// (web/dist) and the real Posture API behind a test-only dev gateway that
-// authenticates every request as the user chosen with /dev/as/{user} (a
-// cookie), minting the internal JWT and DB context token as the gateway
-// (F-001 T-13) will. It runs until web/.harness-stop appears. Not a test of
-// its own: set FAIR_UI_HARNESS=1.
+// (web/dist) and the real Posture API behind the real gateway (F-001 T-13:
+// sessions, CSRF, the system-use banner of T-19). /dev/as/{user} stands in
+// for a federated login: it creates the user's session, unacknowledged, as
+// a redeemed login ticket does, and sets the cookie. It runs until
+// web/.harness-stop appears. Not a test of its own: set FAIR_UI_HARNESS=1.
 func TestPostureUIHarness(t *testing.T) {
 	if os.Getenv("FAIR_UI_HARNESS") != "1" {
 		t.Skip("set FAIR_UI_HARNESS=1 (scripts/ui-e2e.sh) to run the UI harness")
@@ -43,46 +45,48 @@ func TestPostureUIHarness(t *testing.T) {
 	apiHandler := api.Handler(ae.keys, nil)
 	dist := filepath.Join("..", "..", "web", "dist")
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /dev/ready", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
-	mux.HandleFunc("GET /dev/as/{user}", func(w http.ResponseWriter, r *http.Request) {
-		// #nosec G124 -- test harness over plain HTTP on localhost; the real gateway's __Host- cookie is F-001 T-13
-		http.SetCookie(w, &http.Cookie{Name: "fair-dev-user", Value: r.PathValue("user"), Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
-		http.Redirect(w, r, "/posture", http.StatusSeeOther)
-	})
-	// The dev gateway: the chosen user's credentials on every API request.
-	mux.Handle("/api/v1/posture/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		c, err := r.Cookie("fair-dev-user")
-		if err != nil {
-			http.Error(w, "no dev user (visit /dev/as/{user})", http.StatusUnauthorized)
-			return
-		}
-		p := e.principal(c.Value)
-		tok, err := authz.MintJWT(ae.keys, authz.Claims{Subject: p.UserID, ScopeVersion: p.ScopeVersion, AuthTime: time.Now().Unix(),
-			DBContext: authz.DBContextHash(p.DBToken)}, "posture", 5*time.Minute, time.Now())
-		if err != nil {
-			http.Error(w, "mint", http.StatusInternalServerError)
-			return
-		}
-		r.Header.Set("Authorization", "Bearer "+tok)
-		r.Header.Set(server.DBContextHeader, p.DBToken)
-		apiHandler.ServeHTTP(w, r)
-	}))
+	posture := httptest.NewServer(apiHandler)
+	defer posture.Close()
+	up, _ := url.Parse(posture.URL)
 	// The UI: built assets, and index.html for the app's routes.
 	files := http.FileServer(http.Dir(dist))
-	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ui := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/assets/") {
 			files.ServeHTTP(w, r)
 			return
 		}
 		http.ServeFile(w, r, filepath.Join(dist, "index.html"))
-	}))
+	})
+	g := &gateway.Gateway{
+		Sessions: gateway.Sessions{DB: e.gatewayPool(), Pepper: []byte("harness-pepper-0123456789abcdef-0123"),
+			Timeouts: func() (time.Duration, time.Duration, error) { return 30 * time.Minute, 12 * time.Hour, nil }},
+		ContextKey: ctxKey1,
+		JWT:        ae.keys,
+		Origin:     "http://localhost:8099",
+		Upstreams:  map[string]*url.URL{"posture": up},
+		UI:         ui,
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /dev/ready", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
+	mux.HandleFunc("GET /dev/as/{user}", func(w http.ResponseWriter, r *http.Request) {
+		id := e.adminQuery("SELECT id FROM iam.app_user WHERE email = '" + r.PathValue("user") + "@example.test'")
+		_, tok, err := g.Sessions.Create(r.Context(), gateway.Login{UserID: id, AuthMethod: "oidc",
+			MFA: map[string]any{"amr": []string{"mfa"}, "satisfied": true}, UserAgent: r.UserAgent()})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		gateway.SetCookie(w, tok) // Secure: Chromium accepts it from http://localhost
+		http.Redirect(w, r, "/posture", http.StatusSeeOther)
+	})
+	mux.Handle("/", g.Handler())
 
 	lis, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "0.0.0.0:8099")
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := &http.Server{Handler: server.UISecurityHeaders(mux), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = srv.Serve(lis) }()
 	defer func() { _ = srv.Close() }()
 	t.Log("HARNESS READY on :8099")
