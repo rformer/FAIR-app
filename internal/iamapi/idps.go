@@ -133,9 +133,9 @@ func (a *API) createIDP(w http.ResponseWriter, r *http.Request, p authz.Principa
 // settingKeys are the configuration fields an administrator sets per kind
 // (the rest of the metadata comes from documents).
 var settingKeys = map[string][]string{
-	"saml":     {"allow_idp_initiated"},
-	"oidc":     {"client_id", "client_secret_file", "scopes", "subject_claim"},
-	"keycloak": {"client_id", "client_secret_file", "scopes", "subject_claim"},
+	"saml":     {"allow_idp_initiated", "scim_subject_attribute"},
+	"oidc":     {"client_id", "client_secret_file", "scopes", "subject_claim", "scim_subject_attribute"},
+	"keycloak": {"client_id", "client_secret_file", "scopes", "subject_claim", "scim_subject_attribute"},
 }
 
 // required are the metadata fields an IdP needs before it can be enabled.
@@ -174,6 +174,9 @@ func (a *API) updateIDP(w http.ResponseWriter, r *http.Request, p authz.Principa
 			for k, v := range body.Settings {
 				if !slices.Contains(settingKeys[i.Kind], k) {
 					return badRequest("setting " + k + " does not apply to a " + i.Kind + " IdP")
+				}
+				if k == "scim_subject_attribute" && v != nil && v != "userName" && v != "externalId" {
+					return badRequest("scim_subject_attribute is userName or externalId")
 				}
 				if v == nil {
 					delete(md, k)

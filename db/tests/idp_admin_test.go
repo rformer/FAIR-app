@@ -23,6 +23,7 @@ import (
 	"github.com/rformer/fair-app/internal/config"
 	"github.com/rformer/fair-app/internal/gateway"
 	"github.com/rformer/fair-app/internal/iamapi"
+	"github.com/rformer/fair-app/internal/scim"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/authz"
 )
@@ -35,6 +36,7 @@ import (
 type idpEnv struct {
 	*gwEnv
 	api   *iamapi.API
+	scim  *scim.Server
 	admin string // session cookie
 	hdr   func() map[string]string
 }
@@ -53,12 +55,14 @@ func idpFixture(t *testing.T) *idpEnv {
 		mux.Handle(p, h)
 		mux.Handle(p+"/", h)
 	}
+	sp := &scim.Server{Store: scim.Store{DB: pool}, Origin: ge.url}
+	mux.Handle(scim.Prefix+"/", sp.Handler())
 	iam := httptest.NewServer(mux)
 	t.Cleanup(iam.Close)
 	u, _ := url.Parse(iam.URL)
 	ge.g.Upstreams["iam"] = u
 	ge.resetHandler(t)
-	ie := &idpEnv{gwEnv: ge, api: api, admin: ge.login(t, "admin")}
+	ie := &idpEnv{gwEnv: ge, api: api, scim: sp, admin: ge.login(t, "admin")}
 	csrf := ge.csrf(t, ie.admin)
 	n := 0
 	ie.hdr = func() map[string]string {

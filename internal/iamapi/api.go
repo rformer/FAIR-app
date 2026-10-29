@@ -65,6 +65,9 @@ var routes = []route{
 	{"POST", "/api/v1/idps/{id}/metadata/fetch", (*API).fetchMetadata},
 	{"GET", "/api/v1/banner", (*API).getBanner},
 	{"PUT", "/api/v1/banner", (*API).setBanner},
+	{"GET", "/api/v1/idps/{id}/scim-tokens", (*API).listSCIMTokens},
+	{"POST", "/api/v1/idps/{id}/scim-tokens", (*API).createSCIMToken},
+	{"DELETE", "/api/v1/idps/{id}/scim-tokens/{token}", (*API).revokeSCIMToken},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).

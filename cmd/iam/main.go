@@ -29,6 +29,7 @@ import (
 	"github.com/rformer/fair-app/internal/config"
 	"github.com/rformer/fair-app/internal/dbconn"
 	"github.com/rformer/fair-app/internal/iamapi"
+	"github.com/rformer/fair-app/internal/scim"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
@@ -134,6 +135,9 @@ func run() error {
 		srv.Mux().Handle(authn.Prefix, server.SecurityHeaders(sp.Handler()))
 		rp := &authn.OIDC{Logins: logins}
 		srv.Mux().Handle(authn.OIDCPrefix, server.SecurityHeaders(rp.Handler()))
+		// The SCIM 2.0 service provider (T-21): bearer tokens per IdP.
+		sp2 := &scim.Server{Store: scim.Store{DB: pool}, Origin: strings.TrimSuffix(origin, "/"), Logger: logger}
+		srv.Mux().Handle(scim.Prefix+"/", server.SecurityHeaders(sp2.Handler()))
 		// Home-realm discovery (T-17), unauthenticated and rate-limited.
 		srv.Mux().Handle(authn.DiscoverPath, server.SecurityHeaders(&authn.Discovery{Logins: logins}))
 		// The IdP administration API (T-17): internal JWTs verified with the

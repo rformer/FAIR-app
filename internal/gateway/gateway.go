@@ -122,6 +122,7 @@ func (g *Gateway) Handler() http.Handler {
 		mux.Handle("/api/v1/auth/saml/", login)
 		mux.Handle("/api/v1/auth/oidc/", login)
 		mux.Handle(authn.DiscoverPath, login)
+		mux.Handle(SCIMPrefix, g.scimRoute(iam)) // the SCIM token is the credential (T-21)
 	}
 	mux.Handle("/api/", server.SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "")

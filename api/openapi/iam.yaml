@@ -26,6 +26,9 @@ info:
     `confirm_fingerprints` with the current and proposed sets. There is no background
     refresh: rotation is an administrator's confirmed change.
 
+    SCIM 2.0 (T-21) is served at `/scim/v2` as RFC 7644 defines it (its discovery endpoints
+    describe it); its bearer tokens are issued here (`/idps/{id}/scim-tokens`).
+
     Home-realm discovery (`POST /auth/discover`, AC-02) needs no session. It answers
     every email with the same shape: the login URL of the enabled IdP serving the
     email's domain, or `null` and a generic message. It is rate-limited per client (429).
@@ -68,7 +71,7 @@ components:
         kind: { enum: [saml, oidc, keycloak] }
         name: { type: string }
         email_domains: { type: array, items: { type: string }, description: Lower-case; a domain is served by at most one enabled IdP }
-        metadata: { type: object, description: "SAML: entity_id, sso_url, certificates, allow_idp_initiated. OIDC: issuer, authorization_endpoint, token_endpoint, jwks_uri or jwks, client_id, client_secret_file, scopes, subject_claim" }
+        metadata: { type: object, description: "scim_subject_attribute (userName or externalId: which SCIM attribute is the login subject). SAML: entity_id, sso_url, certificates, allow_idp_initiated. OIDC: issuer, authorization_endpoint, token_endpoint, jwks_uri or jwks, client_id, client_secret_file, scopes, subject_claim" }
         metadata_source: { enum: [file, url] }
         mfa_evidence_rule: { type: object }
         enabled: { type: boolean }
@@ -257,6 +260,87 @@ paths:
                   - $ref: "#/components/schemas/Error"
                   - $ref: "#/components/schemas/Pinning"
         "422": { $ref: "#/components/responses/Error" }
+  /idps/{id}/scim-tokens:
+    parameters:
+      - $ref: "#/components/parameters/IdpID"
+    get:
+      summary: The IdP's SCIM tokens (never the secrets)
+      x-permission: scim.manage
+      responses:
+        "200":
+          description: Tokens, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tokens:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        name: { type: string }
+                        prefix: { type: string, description: The token's first 12 characters, to recognise it }
+                        created_at: { type: string, format: date-time }
+                        created_by: { type: [string, "null"], format: uuid }
+                        expires_at: { type: string, format: date-time }
+                        last_used_at: { type: [string, "null"], format: date-time }
+                        revoked_at: { type: [string, "null"], format: date-time }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Issue a SCIM bearer token for the IdP (T-21, AC-08)
+      description: |
+        The token (`fscim_...`, 256 random bits) is returned once and only its SHA-256 is
+        kept. It is valid only at `/scim/v2` and only for this IdP's users and groups. It
+        expires after `expires_in_days` (default 90, at most 365); rotate by issuing another
+        and revoking the old one. A replay of this request (same Idempotency-Key) answers 409
+        `secret_not_replayed` and never returns the token again.
+      x-permission: scim.manage
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, reason]
+              additionalProperties: false
+              properties:
+                name: { type: string, maxLength: 200 }
+                expires_in_days: { type: integer, minimum: 1, maximum: 365, default: 90 }
+                reason: { type: string }
+      responses:
+        "201":
+          description: Issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string, format: uuid }
+                  token: { type: string }
+                  prefix: { type: string }
+                  expires_at: { type: string, format: date-time }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /idps/{id}/scim-tokens/{token}:
+    parameters:
+      - $ref: "#/components/parameters/IdpID"
+      - { name: token, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      summary: Revoke a SCIM token
+      x-permission: scim.manage
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - { name: reason, in: query, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Revoked }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /banner:
     get:
       summary: The system-use banner in force (T-19, AC-34)

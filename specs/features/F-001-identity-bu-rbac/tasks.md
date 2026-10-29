@@ -46,7 +46,7 @@ Status: **Approved** (Robert Former, 2026-10-24) | Design: Approved 2026-10-24
 ## Phase 3 — Provisioning
 | # | Task | Traces to | Verification | Size | Status |
 |---|---|---|---|---|---|
-| T-21 | SCIM 2.0 Users/Groups: filter, PATCH, Bulk (size caps), discovery endpoints; SCIM-only tokens | AC-07, AC-08 | Unit + RFC 7644 compliance tests | L | Todo |
+| T-21 | SCIM 2.0 Users/Groups: filter, PATCH, Bulk (size caps), discovery endpoints; SCIM-only tokens | AC-07, AC-08 | Unit + RFC 7644 compliance tests | L | Done (2026-10-29; own implementation `internal/scim`; tokens per IdP via the iam API; vendor validator runs are T-25) |
 | T-22 | Deactivation propagation (sessions revoked ≤ 60 s) | AC-10 | Timed E2E test | S | Todo |
 | T-23 | JIT provisioning (off by default, no roles) + inactivity sweep | AC-09, AC-11 | Default-off test; sweep test | S | Todo |
 | T-24 | Group-to-role mappings with recompute on membership change | AC-12, AC-13, AC-14 | Add/remove membership → assignment change ≤ 60 s | M | Todo |

@@ -56,6 +56,37 @@ func (g *Gateway) loginRoutes(iam *url.URL) http.Handler {
 	}))
 }
 
+// SCIMPrefix is the SCIM service provider (F-001 T-21), served by iam.
+const SCIMPrefix = "/scim/v2/"
+
+// scimRoute forwards SCIM to iam without a session: the IdP's SCIM client
+// authenticates with its bearer token, which iam checks (AC-08). Browser
+// credentials and internal headers never pass.
+func (g *Gateway) scimRoute(iam *url.URL) http.Handler {
+	p := &httputil.ReverseProxy{
+		Transport: g.Transport,
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(iam)
+			pr.Out.URL.Path, pr.Out.URL.RawPath = pr.In.URL.Path, pr.In.URL.RawPath
+			pr.SetXForwarded()
+			g.forwardedFor(pr)
+			for _, h := range []string{"Cookie", server.DBContextHeader, CSRFHeader, authn.TicketHeader} {
+				pr.Out.Header.Del(h)
+			}
+		},
+		ModifyResponse: func(resp *http.Response) error {
+			resp.Header.Del("Set-Cookie")
+			resp.Header.Del(authn.TicketHeader)
+			return nil
+		},
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			g.log(r, "SCIM proxy", err)
+			writeError(w, http.StatusBadGateway, "unavailable", "")
+		},
+	}
+	return server.SecurityHeaders(p)
+}
+
 // forwardedFor tells a service the client's address as the trusted proxy
 // header gives it (T-20), not the ingress's.
 func (g *Gateway) forwardedFor(pr *httputil.ProxyRequest) {

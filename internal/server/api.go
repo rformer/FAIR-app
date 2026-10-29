@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -98,6 +99,28 @@ type recorder struct {
 	http.ResponseWriter
 	status int
 	buf    bytes.Buffer
+	// stored replaces the response for replays when it carries a secret
+	// (SecretResponse).
+	stored *StoredResponse
+}
+
+// SecretResponse marks the response being written as carrying a secret
+// that must not be kept (an issued token): a replay of the request gets
+// status and the redacted body instead, and the secret is never stored.
+// Outside Idempotent it does nothing.
+func SecretResponse(w http.ResponseWriter, status int, redacted any) {
+	for {
+		if rec, ok := w.(*recorder); ok {
+			b, _ := json.Marshal(redacted)
+			rec.stored = &StoredResponse{Status: status, ContentType: "application/json", Body: append(b, '\n')}
+			return
+		}
+		u, ok := w.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			return
+		}
+		w = u.Unwrap()
+	}
 }
 
 func (r *recorder) WriteHeader(s int) { r.status = s; r.ResponseWriter.WriteHeader(s) }
@@ -170,8 +193,11 @@ func Idempotent(store IdempotencyStore) func(http.Handler) http.Handler {
 				_ = store.Abandon(context.WithoutCancel(r.Context()), p.UserID, key)
 				return
 			}
-			_ = store.Complete(context.WithoutCancel(r.Context()), p.UserID, key,
-				StoredResponse{Status: rec.status, ContentType: w.Header().Get("Content-Type"), Body: rec.buf.Bytes()})
+			resp := StoredResponse{Status: rec.status, ContentType: w.Header().Get("Content-Type"), Body: rec.buf.Bytes()}
+			if rec.stored != nil {
+				resp = *rec.stored
+			}
+			_ = store.Complete(context.WithoutCancel(r.Context()), p.UserID, key, resp)
 		})
 	}
 }
