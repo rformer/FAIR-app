@@ -119,7 +119,8 @@ func run() error {
 		sc := settings.NewClient(settings.ClientOptions{Source: settings.DBSource{DB: pool}, Service: "iam", Instance: os.Getenv("POD_NAME")})
 		var defs []settings.Def
 		for _, d := range settings.F001Defs() {
-			if d.Key == settings.KeyAuthMFAAll || d.Key == settings.KeyAuthMFAPrivileged || d.Key == settings.KeySessionNetworkBinding {
+			if d.Key == settings.KeyAuthMFAAll || d.Key == settings.KeyAuthMFAPrivileged || d.Key == settings.KeySessionNetworkBinding ||
+				d.Key == settings.KeyAuthJIT {
 				defs = append(defs, d)
 			}
 		}

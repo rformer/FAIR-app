@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -138,7 +139,7 @@ func (h *SAML) acs(w http.ResponseWriter, r *http.Request) {
 		mfa["saml_authn_context"] = login.AuthnContextClassRef
 	}
 	ev := Evidence{AuthnContext: login.AuthnContextClassRef, Attributes: login.Attributes}
-	h.complete(w, r, idp.ID, login.NameID, ev, Ticket{AuthMethod: "saml", MFA: mfa, AuthTime: authTime.Unix(), ReturnTo: login.ReturnTo}, attrs)
+	h.complete(w, r, idp.ID, login.NameID, samlProfile(login), ev, Ticket{AuthMethod: "saml", MFA: mfa, AuthTime: authTime.Unix(), ReturnTo: login.ReturnTo}, attrs)
 }
 
 // metadata is this SP's SAML metadata for an IdP: entity ID and ACS.
@@ -201,4 +202,39 @@ func (s dbStore) RecordAssertion(ctx context.Context, idp, id string, until time
 		return saml.ErrReplay
 	}
 	return nil
+}
+
+// Attribute names IdPs use for the email and the display name (Entra ID,
+// AD FS, Okta, Ping, Keycloak, and the eduPerson OIDs).
+var (
+	emailAttrs = []string{"email", "mail", "emailaddress", "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
+		"urn:oid:0.9.2342.19200300.100.1.3"}
+	nameAttrs = []string{"displayName", "displayname", "name", "http://schemas.microsoft.com/identity/claims/displayname",
+		"urn:oid:2.16.840.1.113730.3.1.241"}
+	givenAttrs  = []string{"givenName", "firstName", "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/givenname", "urn:oid:2.5.4.42"}
+	familyAttrs = []string{"sn", "surname", "lastName", "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/surname", "urn:oid:2.5.4.4"}
+)
+
+func firstAttr(attrs map[string][]string, names []string) string {
+	for _, n := range names {
+		for k, v := range attrs {
+			if strings.EqualFold(k, n) && len(v) > 0 && strings.TrimSpace(v[0]) != "" {
+				return strings.TrimSpace(v[0])
+			}
+		}
+	}
+	return ""
+}
+
+// samlProfile is the user's email and name from the assertion: email
+// attributes, else a NameID that is an address.
+func samlProfile(l saml.Login) Profile {
+	p := Profile{Email: firstAttr(l.Attributes, emailAttrs), Name: firstAttr(l.Attributes, nameAttrs)}
+	if p.Email == "" && strings.Contains(l.NameID, "@") {
+		p.Email = l.NameID
+	}
+	if p.Name == "" {
+		p.Name = strings.TrimSpace(firstAttr(l.Attributes, givenAttrs) + " " + firstAttr(l.Attributes, familyAttrs))
+	}
+	return p
 }

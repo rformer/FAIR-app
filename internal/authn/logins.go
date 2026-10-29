@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/rformer/fair-app/pkg/authz"
@@ -35,6 +36,39 @@ type Logins struct {
 	Settings interface {
 		Bool(key, buID string) (bool, error)
 	}
+}
+
+// Profile is what the IdP says about a user, for just-in-time
+// provisioning (T-23).
+type Profile struct {
+	Email         string
+	Name          string
+	EmailVerified *bool // OIDC email_verified; nil when not sent
+}
+
+// jitEnabled: auth.jit_provisioning (off by default; the database checks
+// it again).
+func (h *Logins) jitEnabled() bool {
+	if h.Settings == nil {
+		return false
+	}
+	on, err := h.Settings.Bool(settings.KeyAuthJIT, "")
+	return err == nil && on
+}
+
+// jit provisions an unknown subject (AC-09: no roles). A refusal returns
+// the audit reason.
+func (h *Logins) jit(ctx context.Context, idpID, externalID string, pr Profile) (string, string, error) {
+	if pr.EmailVerified != nil && !*pr.EmailVerified {
+		return "", "just-in-time provisioning refused: the IdP has not verified the email", nil
+	}
+	var id string
+	err := h.DB.QueryRow(ctx, "SELECT iam.jit_provision($1, $2, $3, $4)::text", idpID, externalID, pr.Email, pr.Name).Scan(&id)
+	var pg *pgconn.PgError
+	if errors.As(err, &pg) && (pg.Code == "PF003" || pg.Code == "PF004") {
+		return "", "just-in-time provisioning refused: " + pg.Message, nil
+	}
+	return id, "", err
 }
 
 // mfaRequired: must this user show MFA evidence?
@@ -70,9 +104,17 @@ var errUnknownIDP = errors.New("authn: unknown identity provider")
 // the MFA evidence must meet the IdP's rule when MFA is required (T-18);
 // then the login is audited and answered with a ticket. t carries the
 // method, MFA evidence, authentication time and return path.
-func (h *Logins) complete(w http.ResponseWriter, r *http.Request, idpID, externalID string, ev Evidence, t Ticket, attrs map[string]any) {
+func (h *Logins) complete(w http.ResponseWriter, r *http.Request, idpID, externalID string, pr Profile, ev Evidence, t Ticket, attrs map[string]any) {
 	var userID, status string
 	err := h.DB.QueryRow(r.Context(), "SELECT user_id::text, status FROM iam.login_user($1, $2)", idpID, externalID).Scan(&userID, &status)
+	if errors.Is(err, pgx.ErrNoRows) && h.jitEnabled() {
+		var reason string
+		if userID, reason, err = h.jit(r.Context(), idpID, externalID, pr); reason != "" {
+			h.deny(w, r, idpID, attrs, reason)
+			return
+		}
+		status = "active"
+	}
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		h.deny(w, r, idpID, attrs, "unknown user")

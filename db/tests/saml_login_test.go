@@ -37,7 +37,7 @@ import (
 
 // mfaSettings stands in for the settings client: auth.mfa_required_all
 // and auth.mfa_required_privileged (T-18).
-type mfaSettings struct{ all, privileged bool }
+type mfaSettings struct{ all, privileged, jit bool }
 
 func (m *mfaSettings) Bool(key, _ string) (bool, error) {
 	switch key {
@@ -45,6 +45,8 @@ func (m *mfaSettings) Bool(key, _ string) (bool, error) {
 		return m.all, nil
 	case settings.KeyAuthMFAPrivileged:
 		return m.privileged, nil
+	case settings.KeyAuthJIT:
+		return m.jit, nil
 	}
 	return false, fmt.Errorf("unexpected setting %s", key)
 }

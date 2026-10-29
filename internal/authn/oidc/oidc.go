@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
@@ -89,10 +90,14 @@ type Login struct {
 	ExternalID string // the subject claim's value
 	Subject    string
 	Email      string
-	AMR        []string
-	ACR        string
-	AuthTime   *time.Time
-	ReturnTo   string
+	// EmailVerified is the email_verified claim (nil when absent; some IdPs
+	// send it as a string).
+	EmailVerified *bool
+	Name          string // the name claim
+	AMR           []string
+	ACR           string
+	AuthTime      *time.Time
+	ReturnTo      string
 }
 
 func (rp *RP) now() time.Time {
@@ -191,6 +196,8 @@ func (rp *RP) Callback(ctx context.Context, idp IDP, state, code, idpError strin
 	var c struct {
 		AZP      string   `json:"azp"`
 		Email    string   `json:"email"`
+		Verified any      `json:"email_verified"`
+		Name     string   `json:"name"`
 		AMR      []string `json:"amr"`
 		ACR      string   `json:"acr"`
 		AuthTime *int64   `json:"auth_time"`
@@ -207,7 +214,14 @@ func (rp *RP) Callback(ctx context.Context, idp IDP, state, code, idpError strin
 	if idt.IssuedAt.After(now.Add(Skew)) {
 		return Login{}, invalid("issued in the future")
 	}
-	login := Login{Subject: idt.Subject, Email: c.Email, AMR: c.AMR, ACR: c.ACR, ReturnTo: started.ReturnTo}
+	login := Login{Subject: idt.Subject, Email: c.Email, Name: c.Name, AMR: c.AMR, ACR: c.ACR, ReturnTo: started.ReturnTo}
+	switch v := c.Verified.(type) {
+	case bool:
+		login.EmailVerified = &v
+	case string:
+		b := strings.EqualFold(v, "true")
+		login.EmailVerified = &b
+	}
 	if c.AuthTime != nil {
 		at := time.Unix(*c.AuthTime, 0)
 		if at.After(now.Add(Skew)) {

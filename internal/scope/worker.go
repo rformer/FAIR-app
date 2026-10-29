@@ -199,6 +199,35 @@ type DrainArgs struct{}
 // Kind implements river.JobArgs.
 func (DrainArgs) Kind() string { return "scope.drain" }
 
+// InactivityArgs is the hourly inactivity sweep (F-001 T-23, AC-11).
+type InactivityArgs struct{}
+
+// Kind implements river.JobArgs.
+func (InactivityArgs) Kind() string { return "iam.inactivity_sweep" }
+
+// SweepInactive disables users inactive longer than
+// auth.inactive_disable_after (iam.inactivity_sweep) and returns how many.
+func (w *Worker) SweepInactive(ctx context.Context) (int, error) {
+	var n int
+	if err := w.o.Pool.QueryRow(ctx, "SELECT iam.inactivity_sweep()").Scan(&n); err != nil {
+		return 0, fmt.Errorf("scope: inactivity sweep: %w", err)
+	}
+	if n > 0 {
+		w.o.Logger.Info("inactive accounts disabled", "count", n)
+	}
+	return n, nil
+}
+
+type inactivityWorker struct {
+	river.WorkerDefaults[InactivityArgs]
+	w *Worker
+}
+
+func (r *inactivityWorker) Work(ctx context.Context, _ *river.Job[InactivityArgs]) error {
+	_, err := r.w.SweepInactive(ctx)
+	return err
+}
+
 // ReconcileArgs is the nightly reconciliation job.
 type ReconcileArgs struct{}
 
@@ -245,6 +274,7 @@ func (w *Worker) RiverClient() (*river.Client[pgx.Tx], error) {
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &drainWorker{w: w})
 	river.AddWorker(workers, &reconcileWorker{w: w})
+	river.AddWorker(workers, &inactivityWorker{w: w})
 	every := w.o.DrainEvery
 	periodic := []*river.PeriodicJob{
 		// A failed drain is not retried: the next tick drains again.
@@ -254,6 +284,11 @@ func (w *Worker) RiverClient() (*river.Client[pgx.Tx], error) {
 		river.NewPeriodicJob(dailyAt(w.o.ReconcileAtUTC), func() (river.JobArgs, *river.InsertOpts) {
 			return ReconcileArgs{}, &river.InsertOpts{MaxAttempts: 5, UniqueOpts: river.UniqueOpts{ByPeriod: 24 * time.Hour}}
 		}, nil),
+		// Inactive accounts (T-23): hourly, so an account is disabled within
+		// an hour of crossing auth.inactive_disable_after.
+		river.NewPeriodicJob(river.PeriodicInterval(time.Hour), func() (river.JobArgs, *river.InsertOpts) {
+			return InactivityArgs{}, &river.InsertOpts{MaxAttempts: 3, UniqueOpts: river.UniqueOpts{ByPeriod: time.Hour}}
+		}, &river.PeriodicJobOpts{RunOnStart: true}),
 	}
 	return river.NewClient(riverpgxv5.New(w.o.Pool), &river.Config{
 		Queues:       map[string]river.QueueConfig{river.QueueDefault: {MaxWorkers: 2}},
