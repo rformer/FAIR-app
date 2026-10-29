@@ -18,6 +18,12 @@
 //
 //	GET    /api/v1/banner                      read            any session
 //	PUT    /api/v1/banner                      change          banner.manage
+//
+// T-23b adds user administration:
+//
+//	GET    /api/v1/users, /api/v1/users/{id}   read            user.view (BU-scoped)
+//	POST   /api/v1/users/{id}/{action}         disable, enable, unlock   user.manage
+//	GET    /api/v1/groups, /api/v1/groups/{id} read            user.view (BU-scoped)
 package iamapi
 
 import (
@@ -68,6 +74,11 @@ var routes = []route{
 	{"GET", "/api/v1/idps/{id}/scim-tokens", (*API).listSCIMTokens},
 	{"POST", "/api/v1/idps/{id}/scim-tokens", (*API).createSCIMToken},
 	{"DELETE", "/api/v1/idps/{id}/scim-tokens/{token}", (*API).revokeSCIMToken},
+	{"GET", "/api/v1/users", (*API).listUsers},
+	{"GET", "/api/v1/users/{id}", (*API).getUser},
+	{"POST", "/api/v1/users/{id}/{action}", (*API).userAction},
+	{"GET", "/api/v1/groups", (*API).listGroups},
+	{"GET", "/api/v1/groups/{id}", (*API).getGroup},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).
@@ -81,7 +92,7 @@ func Routes() []string {
 }
 
 // Prefixes are the path prefixes the API owns (for the service's mux).
-var Prefixes = []string{"/api/v1/idps", "/api/v1/banner"}
+var Prefixes = []string{"/api/v1/idps", "/api/v1/banner", "/api/v1/users", "/api/v1/groups"}
 
 // Handler returns the API with authentication and idempotency in front.
 func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {
@@ -161,7 +172,7 @@ func fail(w http.ResponseWriter, err error) {
 		problem(w, http.StatusBadRequest, "invalid_value", pg.Message, nil)
 	case errors.As(err, &pg) && pg.Code == "23505":
 		problem(w, http.StatusConflict, "duplicate", "an IdP with that name exists", nil)
-	case errors.Is(err, errNotFound):
+	case errors.As(err, &pg) && pg.Code == "P0002", errors.Is(err, errNotFound):
 		problem(w, http.StatusNotFound, "not_found", "", nil)
 	default:
 		problem(w, http.StatusInternalServerError, "internal", "", nil)

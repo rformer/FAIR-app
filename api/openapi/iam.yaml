@@ -77,6 +77,44 @@ components:
         enabled: { type: boolean }
         created_at: { type: string, format: date-time }
         fingerprints: { $ref: "#/components/schemas/Fingerprints" }
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        display_name: { type: string }
+        status: { enum: [active, disabled, locked] }
+        disabled_reason: { type: [string, "null"], description: "scim, scim_deleted, inactive or admin" }
+        source: { enum: [scim, jit, breakglass] }
+        idp_id: { type: [string, "null"], format: uuid }
+        external_id: { type: [string, "null"], description: The login subject at the IdP }
+        user_name: { type: [string, "null"], description: SCIM userName }
+        last_login_at: { type: [string, "null"], format: date-time }
+        created_at: { type: string, format: date-time }
+        reactivated_at: { type: [string, "null"], format: date-time }
+        live_sessions: { type: integer }
+        groups: { type: array, items: { type: object, properties: { id: { type: string }, display_name: { type: string } } } }
+        assignments:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              role: { type: string }
+              bu: { type: string }
+              bu_id: { type: string }
+              via_group: { type: [string, "null"] }
+              expires_at: { type: [string, "null"], format: date-time }
+    Group:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        display_name: { type: string }
+        external_id: { type: [string, "null"] }
+        idp_id: { type: [string, "null"], format: uuid }
+        created_at: { type: string, format: date-time }
+        members: { type: integer }
+        assignments: { type: array, items: { type: object } }
     Pinning:
       type: object
       required: [error, current, fingerprints]
@@ -340,6 +378,108 @@ paths:
       responses:
         "204": { description: Revoked }
         "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /users:
+    get:
+      summary: Users the caller may see (T-23b)
+      description: |
+        With `user.view` at the root, every user; with `user.view` at a BU, the users holding an
+        assignment in that BU's subtree (directly or through a group; restricted BUs as usual).
+        Assignments shown are those the caller may see. Without `user.view` anywhere, 404.
+      x-permission: user.view
+      parameters:
+        - { name: status, in: query, schema: { enum: [active, disabled, locked] } }
+        - { name: source, in: query, schema: { enum: [scim, jit, breakglass] } }
+        - { name: idp, in: query, schema: { type: string, format: uuid } }
+        - { name: q, in: query, description: Email or display-name prefix, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 1000, default: 100 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+      responses:
+        "200":
+          description: A page of users
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users: { type: array, items: { $ref: "#/components/schemas/User" } }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        "404": { $ref: "#/components/responses/Error" }
+  /users/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      summary: A user the caller may see
+      x-permission: user.view
+      responses:
+        "200":
+          description: The user
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "404": { $ref: "#/components/responses/Error" }
+  /users/{id}/{action}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: action, in: path, required: true, schema: { enum: [disable, enable, unlock] } }
+    post:
+      summary: Disable, re-enable or unlock a user (T-23b)
+      description: |
+        `disable` ends the user's sessions at once. `enable` re-enables a user disabled for inactivity
+        or by an administrator and counts as activity for the inactivity sweep; it refuses a user
+        disabled by SCIM (re-enable it at the IdP) and a locked user (`unlock`). Never on one's own
+        account; never the last active root administrator (409). Audited at high severity.
+      x-permission: user.manage
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                reason: { type: string, minLength: 1 }
+      responses:
+        "200":
+          description: The new status
+          content:
+            application/json:
+              schema: { type: object, properties: { id: { type: string }, status: { type: string } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /groups:
+    get:
+      summary: Groups the caller may see (read-only; SCIM manages them)
+      x-permission: user.view
+      responses:
+        "200":
+          description: Groups
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  groups: { type: array, items: { $ref: "#/components/schemas/Group" } }
+        "404": { $ref: "#/components/responses/Error" }
+  /groups/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      summary: A group the caller may see
+      x-permission: user.view
+      responses:
+        "200":
+          description: The group
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Group" }
         "404": { $ref: "#/components/responses/Error" }
   /banner:
     get:

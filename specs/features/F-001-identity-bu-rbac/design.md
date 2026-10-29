@@ -237,7 +237,7 @@ Until F-015 exists, F-001 ships a minimal settings module that holds the three p
 - **D-OQ4. Contents of the v1 permission catalog:** resolved, see Resolved.
 - **SAML and OIDC interop with Entra ID, Okta and Ping (T-15, T-16):** covered by the dialect fixtures (their namespace and signing conventions) and the live Keycloak run; live runs against those three need test tenants. Open until tenants are available.
 - **ASN database in the release images (T-20):** the gateway reads the iptoasn files from `FAIR_ASN_DB_DIR` and checks prefixes only without them; shipping the files with each release (§10) belongs with the release tooling (F-012). Open until then.
-- **Re-enabling accounts (T-23):** a user disabled for inactivity (or locked) can only be re-enabled by an administrator holding `user.manage`, but no task delivers user administration (`/users` in §6) yet. Open: needs a task.
+- **Re-enabling accounts (T-23):** a user disabled for inactivity (or locked) can only be re-enabled by an administrator holding `user.manage`, but no task delivers user administration (`/users` in §6) yet. Resolved by T-23b (2026-10-29).
 - **D-OQ5. Removed or reclassified permissions on upgrade.** T-03 reports them in the catalog diff but does not reject them. T-29 must decide whether a release may remove a key that custom roles reference, and whether reclassifying a permission as non-privileged is allowed.
 
 ## Resolved
@@ -440,3 +440,31 @@ Until F-015 exists, F-001 ships a minimal settings module that holds the three p
     - Unit: the profile from SAML attributes (Entra ID, Okta, eduPerson, NameID only, blank).
     - DB (`TestJITProvisioning`, `TestJITProvisioningOIDC`, `TestInactivitySweep`, with the Enterprise Baseline seeded): JIT off by default refuses and creates nothing; the service believing it on does not suffice, nor does a direct call; on, a SAML login creates the user with the IdP's name, no assignment and no scope, audited, and the next login finds it; the email attribute when the NameID is opaque; refusals for another domain, a taken email (no linking) and no email; turned off again it refuses; OIDC refuses `email_verified: false` and accepts `"true"`. The sweep refuses without settings; it disables the stale and never-signed-in users, keeps recent ones, break-glass, a user with a recent session request and an already disabled user; their sessions end; audited; idempotent; a 30-day setting catches more.
     - Mutations (the database ignoring the setting, any email domain, break-glass swept, session activity ignored, unverified emails accepted, never-signed-in users exempt) each fail the tests.
+- 2026-10-29: T-23b, user administration, proposed and approved by Robert Former (do before T-24). Found in T-23: the permission catalog defines `user.view` ("view users, groups and their status") and `user.manage` (privileged: "enable, disable and unlock users") and §6 lists `/users` and `/groups`, but no task delivers them, so an account disabled for inactivity (AC-11) or locked (AC-47) cannot be brought back short of a database change. No new requirement or permission is needed.
+  - **API** (iam, behind the gateway like `/api/v1/idps`; `GET` needs `user.view`, otherwise 404 per AC-25):
+    - `GET /api/v1/users` (filter by status, source, IdP, email or name prefix; paginated) and `GET /api/v1/users/{id}`: status, `disabled_reason`, source, IdP, last sign-in, live session count, groups, and assignments (ids and BUs; the full entitlement report stays T-38's).
+    - `GET /api/v1/groups` and `GET /api/v1/groups/{id}`: read-only (groups come from SCIM; mappings are T-24's).
+    - `POST /api/v1/users/{id}/disable`, `/enable`, `/unlock`, each with a required `reason` and an `Idempotency-Key`, needing `user.manage` (checked by the database from the signed context; 403).
+  - **Rules:**
+    - `disable` sets `disabled_reason` admin; the T-22 trigger ends the user's sessions in the same transaction.
+    - `enable` re-enables users disabled for inactivity or by an administrator. It refuses a user disabled by SCIM, or deleted through it, because the IdP is authoritative: re-enable at the IdP. It also refuses a locked user (use `unlock`).
+    - `enable` records `reactivated_at`, which the inactivity sweep counts as activity, so the user is not disabled again by the next hourly sweep before signing in.
+    - `unlock` clears the AC-47 lockout state for local and break-glass accounts (T-34 adds the lockout itself).
+    - Nobody can act on their own account, and nobody can disable the last active holder of `access.assign` at the root, the root grantor (T-07), so the instance cannot lock itself out.
+    - Every action is audited at high severity with actor, target, reason, and before and after status (`user.disabled`, `user.enabled`, `user.unlocked`).
+  - **Out of scope:** creating or editing users (SCIM and JIT provision them), the admin UI (with the other administration screens), and deleting users (never; history is kept).
+  - **Decided at approval:**
+    - Visibility is BU-scoped. `user.view` at the root sees every user. `user.view` at a BU sees the users holding an assignment in that BU's subtree, so a BU Admin can find the people it assigns roles to; restricted BUs follow the usual rule. Anyone else is 404. `user.manage` is checked at the root.
+    - Enabling needs one `user.manage` holder and a reason, audited high; no dual approval (re-enabling restores a known account and is not a loosening).
+  - **Implementation** (migration 0047, `internal/iamapi/users.go`, contract `api/openapi/iam.yaml`):
+    - Visibility lives in the database (`iam.user_admin_list`, `iam.group_admin_list`): the caller's `user.view` BUs (`iam.user_has_permission`, so restricted BUs need a grant inside them) select the users and groups holding a live assignment there, directly or through a group. A user's assignments are shown only within those BUs. The API answers 404 unless the caller holds `user.view` somewhere (`authz.Cache.BUsWith`).
+    - `iam.user_admin_action` checks `user.manage` at the root, the reason, the caller's own account and the last active root grantor (`iam.is_root_grantor`). It sets `disabled_reason` admin, or clears it and records `reactivated_at`, and emits `user.disabled`, `user.enabled` or `user.unlocked` (high, with the reason and the status before and after).
+    - The inactivity sweep (T-23, recreated) counts `reactivated_at` as activity. A missing user is `no_data_found` (404).
+  - Verification:
+    - DB through the gateway (`TestUserAdminVisibility`, `TestUserAdminActions`):
+      - The root sees everyone. A BU Admin at A sees its subtree's users, including one assigned through a group (shown as such), but not B's, not the restricted R's, and not the unassigned. Groups follow the same rule. Without `user.view`, every route is 404.
+      - Filters, pages and malformed parameters (400).
+      - Disable ends the user's sessions at once and is audited. Refused: disabling twice, no reason, no `user.manage` (403), one's own account, enabling an active user, unlocking an unlocked one. An unknown user or action is 404.
+      - Enable after an administrator's or the sweep's disable; a re-enabled user survives the next sweep despite an old sign-in and old sessions. A SCIM-disabled user is refused (re-enable at the IdP); a locked user needs `unlock`, which works and is audited.
+      - The last active root administrator cannot be disabled; Idempotency-Key is required and replayed; `app_rw` without a signed context is refused.
+    - Mutations (everyone visible, restricted BUs ignored, enabling not counted as activity, the last root administrator unprotected, SCIM-disabled users re-enabled here, self-service allowed) each fail the tests. The activity mutation first survived because the test user's old session still counted as recent; the test now ages it.

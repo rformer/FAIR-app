@@ -179,6 +179,8 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_DB_PASSWORD_FILE=<app_posture passwor
 # FAIR_ASN_DB_DIR to iptoasn.com's ip2asn-v4.tsv / ip2asn-v6.tsv (prefix-only without).
 # SCIM 2.0 (F-001 T-21, RFC 7644) is served at <origin>/scim/v2 for IdP provisioning;
 # issue each IdP's bearer token with POST /api/v1/idps/{id}/scim-tokens (shown once).
+# Users and groups (F-001 T-23b): GET /api/v1/users, /api/v1/groups; disable, enable
+# and unlock with POST /api/v1/users/{id}/{action} (user.manage, a reason).
 # SAML login (F-001 T-15; ADR-009): the iam service serves /api/v1/auth/saml/ when
 # FAIR_PUBLIC_ORIGIN is set (with FAIR_DB_PASSWORD_FILE and FAIR_LOGIN_TICKET_KEYS_DIR,
 # its ES256 ticket key); the gateway forwards it given an iam upstream and
