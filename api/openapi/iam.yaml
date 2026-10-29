@@ -1,0 +1,266 @@
+openapi: 3.1.0
+info:
+  title: FAIR IAM API
+  version: "1"
+  description: |
+    F-001 design §6. Requests reach the iam service through the gateway, which
+    authenticates the session and forwards an internal JWT (ES256, audience `iam`, at
+    most 5 minutes) and the DB context token it was minted with (design §4, §5.2). The
+    gateway routes each resource's first path segment to the service that owns it
+    (`/api/v1/idps` → iam).
+
+    Every IdP route requires `idp.view` at the root BU; without it the answer is 404
+    (AC-25). Mutations additionally need `idp.manage`, checked by the database (403
+    without it), and an `Idempotency-Key` header: a repeated key with the same request
+    returns the stored response; with a different request it is 422. Every change is
+    audited at high severity with its `reason`.
+
+    Metadata (T-17, AC-03): SAML metadata XML, an OIDC discovery document or a JWKS file
+    is uploaded as the body of `PUT /idps/{id}/metadata`, or fetched with
+    `POST /idps/{id}/metadata/fetch` (https only, TLS 1.2+, 1 MiB, no redirects; refused
+    in air-gapped installs, which take files only). Documents are validated: signing
+    keys are RSA ≥ 2048 or ECDSA, a JWKS holds public keys only, endpoints are https.
+    The trust anchors (SAML signing certificates, OIDC issuer and JWKS URI, inline JWKS
+    keys) are pinned: once an IdP has anchors, a document that changes them is applied
+    only when `confirm` lists exactly the new fingerprints; otherwise the answer is 409
+    `confirm_fingerprints` with the current and proposed sets. There is no background
+    refresh: rotation is an administrator's confirmed change.
+
+    Home-realm discovery (`POST /auth/discover`, AC-02) needs no session. It answers
+    every email with the same shape: the login URL of the enabled IdP serving the
+    email's domain, or `null` and a generic message. It is rate-limited per client (429).
+servers:
+  - url: /api/v1
+security:
+  - internalJWT: []
+    dbContext: []
+components:
+  securitySchemes:
+    internalJWT: { type: http, scheme: bearer, bearerFormat: JWT }
+    dbContext: { type: apiKey, in: header, name: X-Fair-DB-Context }
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 8, maxLength: 128 }
+    IdpID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        detail: { type: string }
+    Fingerprints:
+      type: array
+      description: Sorted trust-anchor fingerprints, `cert:sha256:<hex>`, `jwk:sha256:<RFC 7638 thumbprint>`, `issuer:<url>`, `jwks_uri:<url>`
+      items: { type: string }
+    IdP:
+      type: object
+      required: [id, kind, name, email_domains, metadata, enabled, created_at, fingerprints]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { enum: [saml, oidc, keycloak] }
+        name: { type: string }
+        email_domains: { type: array, items: { type: string }, description: Lower-case; a domain is served by at most one enabled IdP }
+        metadata: { type: object, description: "SAML: entity_id, sso_url, certificates, allow_idp_initiated. OIDC: issuer, authorization_endpoint, token_endpoint, jwks_uri or jwks, client_id, client_secret_file, scopes, subject_claim" }
+        metadata_source: { enum: [file, url] }
+        mfa_evidence_rule: { type: object }
+        enabled: { type: boolean }
+        created_at: { type: string, format: date-time }
+        fingerprints: { $ref: "#/components/schemas/Fingerprints" }
+    Pinning:
+      type: object
+      required: [error, current, fingerprints]
+      properties:
+        error: { const: confirm_fingerprints }
+        detail: { type: string }
+        current: { $ref: "#/components/schemas/Fingerprints" }
+        fingerprints: { $ref: "#/components/schemas/Fingerprints" }
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+paths:
+  /idps:
+    get:
+      summary: List identity providers
+      x-permission: idp.view
+      responses:
+        "200":
+          description: The IdPs
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [idps]
+                properties:
+                  idps: { type: array, items: { $ref: "#/components/schemas/IdP" } }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Create an identity provider (disabled until it has metadata)
+      x-permission: idp.manage
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, name, reason]
+              additionalProperties: false
+              properties:
+                kind: { enum: [saml, oidc, keycloak] }
+                name: { type: string }
+                email_domains: { type: array, items: { type: string } }
+                reason: { type: string }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string, format: uuid }
+                  enabled: { const: false }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /idps/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdpID"
+    get:
+      summary: Read an identity provider
+      x-permission: idp.view
+      responses:
+        "200":
+          description: The IdP
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IdP" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      summary: Change name, email domains, settings or enabled
+      description: |
+        `settings` sets configuration fields (null removes one): `allow_idp_initiated` for
+        SAML; `client_id`, `client_secret_file`, `scopes`, `subject_claim` for OIDC. An IdP
+        is enabled only with complete metadata. Enabling, or changing domains, is refused
+        with 409 when a domain is already served by another enabled IdP.
+      x-permission: idp.manage
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                name: { type: string }
+                email_domains: { type: array, items: { type: string } }
+                enabled: { type: boolean }
+                settings: { type: object }
+                reason: { type: string }
+      responses:
+        "204": { description: Changed }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /idps/{id}/metadata:
+    parameters:
+      - $ref: "#/components/parameters/IdpID"
+    put:
+      summary: Upload SAML metadata, an OIDC discovery document or a JWKS file
+      x-permission: idp.manage
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - { name: reason, in: query, required: true, schema: { type: string } }
+        - { name: confirm, in: query, description: Comma-separated new fingerprints, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/samlmetadata+xml: { schema: { type: string } }
+          application/xml: { schema: { type: string } }
+          application/json: { schema: { type: object } }
+      responses:
+        "204": { description: Applied }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409":
+          description: The trust anchors change and were not confirmed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Pinning" }
+        "413": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /idps/{id}/metadata/fetch:
+    parameters:
+      - $ref: "#/components/parameters/IdpID"
+    post:
+      summary: Fetch metadata from a URL (SAML metadata URL or OIDC issuer)
+      x-permission: idp.manage
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, reason]
+              additionalProperties: false
+              properties:
+                url: { type: string, format: uri }
+                confirm: { $ref: "#/components/schemas/Fingerprints" }
+                reason: { type: string }
+      responses:
+        "204": { description: Applied }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409":
+          description: Air-gapped install (`air_gapped`), or unconfirmed trust anchors (`confirm_fingerprints`)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/Error"
+                  - $ref: "#/components/schemas/Pinning"
+        "422": { $ref: "#/components/responses/Error" }
+  /auth/discover:
+    post:
+      summary: Home-realm discovery
+      security: []
+      x-unauthenticated: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string }
+                return: { type: string, description: A local path to land on after sign-in }
+      responses:
+        "200":
+          description: The same shape for every email
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [login_url, message]
+                properties:
+                  login_url: { type: [string, "null"] }
+                  message: { type: string }
+        "429": { $ref: "#/components/responses/Error" }

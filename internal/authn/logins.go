@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"regexp"
 	"strings"
@@ -79,6 +80,9 @@ func (h *Logins) complete(w http.ResponseWriter, r *http.Request, idpID, externa
 func clientIP(r *http.Request) string {
 	if f := r.Header.Get("X-Forwarded-For"); f != "" { // set by the gateway
 		return strings.TrimSpace(strings.Split(f, ",")[0])
+	}
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
 	}
 	return r.RemoteAddr
 }

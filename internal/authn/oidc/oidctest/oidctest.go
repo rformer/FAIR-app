@@ -62,6 +62,11 @@ func New(clientID, secret string) (*Provider, error) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(p.JWKS())
 	})
+	mux.HandleFunc("GET /.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"issuer": p.Issuer, "authorization_endpoint": p.AuthURL(),
+			"token_endpoint": p.TokenURL(), "jwks_uri": p.JWKSURL(), "response_types_supported": []string{"code"}})
+	})
 	p.Server = httptest.NewServer(mux)
 	p.Issuer = p.Server.URL
 	return p, nil

@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/rformer/fair-app/internal/authn"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/authz"
 )
@@ -74,6 +75,16 @@ func Routes() []string {
 	return out
 }
 
+// Segments routes the first path segment of the design §6 resources to the
+// service that owns them (T-17): /api/v1/idps/... goes to iam with an "iam"
+// token. A service also gets /api/v1/<name>/ (Upstreams).
+var Segments = map[string]string{
+	"idps": "iam", "users": "iam", "groups": "iam", "service-accounts": "iam", "bus": "iam",
+	"roles": "iam", "permissions": "iam", "assignments": "iam", "group-mappings": "iam",
+	"sod-rules": "iam", "sod-exceptions": "iam", "approvals": "iam", "access-reviews": "iam",
+	"entitlements": "iam",
+}
+
 type ctxKey struct{}
 
 type tokensKey struct{}
@@ -91,10 +102,18 @@ func (g *Gateway) Handler() http.Handler {
 	for name, base := range g.Upstreams {
 		mux.Handle("/api/v1/"+name+"/", g.authenticated(g.forward(name, g.proxy(base))))
 	}
+	for seg, name := range Segments {
+		if base, ok := g.Upstreams[name]; ok && g.Upstreams[seg] == nil {
+			h := g.authenticated(g.forward(name, g.proxy(base)))
+			mux.Handle("/api/v1/"+seg, h)
+			mux.Handle("/api/v1/"+seg+"/", h)
+		}
+	}
 	if iam, ok := g.Upstreams["iam"]; ok {
-		login := g.loginRoutes(iam) // no session yet (SAML T-15, OIDC T-16)
+		login := g.loginRoutes(iam) // no session yet (SAML T-15, OIDC T-16, discovery T-17)
 		mux.Handle("/api/v1/auth/saml/", login)
 		mux.Handle("/api/v1/auth/oidc/", login)
+		mux.Handle(authn.DiscoverPath, login)
 	}
 	mux.Handle("/api/", server.SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "")

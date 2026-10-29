@@ -163,6 +163,11 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_DB_PASSWORD_FILE=<app_posture passwor
 # posture=https://posture.fair-platform:8443) and FAIR_UPSTREAM_CA_FILE.
 # OIDC login (F-001 T-16) is served alongside it under /api/v1/auth/oidc/ (an OIDC
 # IdP's client secret is a mounted file named by its configuration).
+# IdP administration (F-001 T-17; contract api/openapi/iam.yaml): iam serves
+# /api/v1/idps when FAIR_JWT_KEYS_DIR holds the gateway's public keys (required in
+# production), and home-realm discovery at /api/v1/auth/discover. Metadata is
+# uploaded as a file or fetched from a URL (not in air-gapped installs); a change of
+# trust anchors must be confirmed by fingerprint.
 # SAML login (F-001 T-15; ADR-009): the iam service serves /api/v1/auth/saml/ when
 # FAIR_PUBLIC_ORIGIN is set (with FAIR_DB_PASSWORD_FILE and FAIR_LOGIN_TICKET_KEYS_DIR,
 # its ES256 ticket key); the gateway forwards it given an iam upstream and

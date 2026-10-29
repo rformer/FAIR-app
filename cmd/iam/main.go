@@ -4,7 +4,8 @@
 // structured logging, and audit emission of lifecycle events. T-15: the SAML
 // service provider under /api/v1/auth/saml/ (behind the gateway), when
 // FAIR_PUBLIC_ORIGIN is set (required in production), and OIDC (T-16) under
-// /api/v1/auth/oidc/, with
+// /api/v1/auth/oidc/; T-17 adds home-realm discovery and the IdP API
+// (/api/v1/idps, FAIR_JWT_KEYS_DIR), with
 // FAIR_DB_PASSWORD_FILE (app_rw) and FAIR_LOGIN_TICKET_KEYS_DIR (the ES256
 // key that signs login tickets for the gateway). `iam migrate`
 // applies the embedded schema migrations and release catalog (T-02b);
@@ -27,6 +28,7 @@ import (
 	"github.com/rformer/fair-app/internal/authn"
 	"github.com/rformer/fair-app/internal/config"
 	"github.com/rformer/fair-app/internal/dbconn"
+	"github.com/rformer/fair-app/internal/iamapi"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
@@ -115,6 +117,25 @@ func run() error {
 		srv.Mux().Handle(authn.Prefix, server.SecurityHeaders(sp.Handler()))
 		rp := &authn.OIDC{Logins: logins}
 		srv.Mux().Handle(authn.OIDCPrefix, server.SecurityHeaders(rp.Handler()))
+		// Home-realm discovery (T-17), unauthenticated and rate-limited.
+		srv.Mux().Handle(authn.DiscoverPath, server.SecurityHeaders(&authn.Discovery{Logins: logins}))
+		// The IdP administration API (T-17): internal JWTs verified with the
+		// gateway's public keys (FAIR_JWT_KEYS_DIR, required in production).
+		if dir := os.Getenv("FAIR_JWT_KEYS_DIR"); dir != "" {
+			jwtKeys, err := authz.LoadLocalKeys(dir)
+			if err != nil {
+				return fmt.Errorf("FAIR_JWT_KEYS_DIR: %w", err)
+			}
+			grants := authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool)})
+			api := &iamapi.API{DB: pool, Authz: grants, DeploymentMode: cfg.DeploymentMode, Dev: cfg.Env == "development"}
+			h := server.SecurityHeaders(api.Handler(jwtKeys, nil))
+			for _, p := range iamapi.Prefixes {
+				srv.Mux().Handle(p, h)
+				srv.Mux().Handle(p+"/", h)
+			}
+		} else if cfg.Env == "production" {
+			return fmt.Errorf("FAIR_JWT_KEYS_DIR is required in production (the iam API verifies the gateway's internal JWTs)")
+		}
 		srv.AddReadinessCheck(server.ReadinessCheck{Name: "database", Check: func(ctx context.Context) error { return pool.Ping(ctx) }})
 	} else if cfg.Env == "production" {
 		return fmt.Errorf("FAIR_PUBLIC_ORIGIN is required in production (the SAML service provider, F-001 T-15)")
