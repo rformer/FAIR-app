@@ -59,7 +59,7 @@ func samlFixture(t *testing.T, allowIDPInitiated bool) *samlEnv {
 
 	// iam's ticket key; the gateway verifies with the same key set.
 	ticketKeys := newJWTKeys(t)
-	se.iam = &authn.SAML{DB: e.appPool(), Origin: ge.url, Tickets: ticketKeys}
+	se.iam = &authn.SAML{Logins: authn.Logins{DB: e.appPool(), Origin: ge.url, Tickets: ticketKeys}}
 	iam := httptest.NewServer(se.iam.Handler())
 	t.Cleanup(iam.Close)
 	u, _ := url.Parse(iam.URL)

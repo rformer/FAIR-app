@@ -92,7 +92,9 @@ func (g *Gateway) Handler() http.Handler {
 		mux.Handle("/api/v1/"+name+"/", g.authenticated(g.forward(name, g.proxy(base))))
 	}
 	if iam, ok := g.Upstreams["iam"]; ok {
-		mux.Handle("/api/v1/auth/saml/", g.loginRoutes(iam)) // no session yet (T-15)
+		login := g.loginRoutes(iam) // no session yet (SAML T-15, OIDC T-16)
+		mux.Handle("/api/v1/auth/saml/", login)
+		mux.Handle("/api/v1/auth/oidc/", login)
 	}
 	mux.Handle("/api/", server.SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "")

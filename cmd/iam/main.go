@@ -3,7 +3,8 @@
 // Phase 0: hardened server skeleton with health/readiness, FIPS enforcement,
 // structured logging, and audit emission of lifecycle events. T-15: the SAML
 // service provider under /api/v1/auth/saml/ (behind the gateway), when
-// FAIR_PUBLIC_ORIGIN is set (required in production) with
+// FAIR_PUBLIC_ORIGIN is set (required in production), and OIDC (T-16) under
+// /api/v1/auth/oidc/, with
 // FAIR_DB_PASSWORD_FILE (app_rw) and FAIR_LOGIN_TICKET_KEYS_DIR (the ES256
 // key that signs login tickets for the gateway). `iam migrate`
 // applies the embedded schema migrations and release catalog (T-02b);
@@ -109,8 +110,11 @@ func run() error {
 			return fmt.Errorf("database: %w", err)
 		}
 		defer pool.Close()
-		sp := &authn.SAML{DB: pool, Origin: strings.TrimSuffix(origin, "/"), Tickets: keys, Logger: logger}
+		logins := authn.Logins{DB: pool, Origin: strings.TrimSuffix(origin, "/"), Tickets: keys, Logger: logger}
+		sp := &authn.SAML{Logins: logins}
 		srv.Mux().Handle(authn.Prefix, server.SecurityHeaders(sp.Handler()))
+		rp := &authn.OIDC{Logins: logins}
+		srv.Mux().Handle(authn.OIDCPrefix, server.SecurityHeaders(rp.Handler()))
 		srv.AddReadinessCheck(server.ReadinessCheck{Name: "database", Check: func(ctx context.Context) error { return pool.Ping(ctx) }})
 	} else if cfg.Env == "production" {
 		return fmt.Errorf("FAIR_PUBLIC_ORIGIN is required in production (the SAML service provider, F-001 T-15)")

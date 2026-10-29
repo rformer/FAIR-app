@@ -9,17 +9,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/rformer/fair-app/internal/authn/saml"
-	"github.com/rformer/fair-app/pkg/authz"
 )
 
 // SAML serves the SAML SP routes of the iam service, behind the gateway
@@ -32,23 +28,10 @@ import (
 // A valid response for an active user is answered with a login ticket in
 // TicketHeader, which the gateway turns into a session. Users see a
 // generic failure; the audit trail has the reason.
-type SAML struct {
-	DB      *pgxpool.Pool     // app_rw
-	Origin  string            // the platform's public origin, e.g. https://fair.example.com
-	Tickets authz.KeyProvider // signs login tickets
-	Logger  *slog.Logger
-	Now     func() time.Time
-}
+type SAML struct{ Logins }
 
 // Prefix is where the SAML routes live.
 const Prefix = "/api/v1/auth/saml/"
-
-func (h *SAML) now() time.Time {
-	if h.Now != nil {
-		return h.Now()
-	}
-	return time.Now()
-}
 
 // EntityID is this SP's entity ID (the audience IdPs assert to).
 func (h *SAML) EntityID() string { return h.Origin + "/api/v1/auth/saml" }
@@ -68,11 +51,6 @@ func (h *SAML) Handler() http.Handler {
 	mux.HandleFunc("GET "+Prefix+"{idp}/metadata", h.metadata)
 	return mux
 }
-
-var uuidRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-
-// errUnknownIdP: no enabled SAML IdP with that id.
-var errUnknownIDP = errors.New("authn: unknown identity provider")
 
 // idp loads an enabled SAML IdP.
 func (h *SAML) idp(ctx context.Context, id string) (saml.IDP, error) {
@@ -151,20 +129,6 @@ func (h *SAML) acs(w http.ResponseWriter, r *http.Request) {
 	}
 	attrs := map[string]any{"idp": idp.ID, "name_id": login.NameID, "assertion_id": login.AssertionID, "idp_initiated": login.IDPInitiated,
 		"authn_context": login.AuthnContextClassRef, "client": clientIP(r)}
-	var userID, status string
-	err = h.DB.QueryRow(r.Context(), "SELECT user_id::text, status FROM iam.login_user($1, $2)", idp.ID, login.NameID).Scan(&userID, &status)
-	switch {
-	case errors.Is(err, pgx.ErrNoRows):
-		h.deny(w, r, idp.ID, attrs, "unknown user") // JIT provisioning is T-23
-		return
-	case err != nil:
-		h.fail(w, r, idp.ID, err)
-		return
-	case status != "active":
-		attrs["user_id"] = userID
-		h.deny(w, r, idp.ID, attrs, "user "+status)
-		return
-	}
 	authTime := h.now()
 	if login.AuthnInstant != nil {
 		authTime = *login.AuthnInstant
@@ -173,20 +137,7 @@ func (h *SAML) acs(w http.ResponseWriter, r *http.Request) {
 	if login.AuthnContextClassRef != "" {
 		mfa["saml_authn_context"] = login.AuthnContextClassRef
 	}
-	tok, err := IssueTicket(h.Tickets, Ticket{UserID: userID, AuthMethod: "saml", IDPID: idp.ID, MFA: mfa,
-		AuthTime: authTime.Unix(), ReturnTo: login.ReturnTo}, h.now())
-	if err != nil {
-		h.fail(w, r, idp.ID, err)
-		return
-	}
-	attrs["user_id"] = userID
-	if err := h.event(r.Context(), "authn.login.success", "info", userID, idp.ID, attrs, ""); err != nil {
-		h.fail(w, r, idp.ID, err) // audit failures fail closed (ADR-006)
-		return
-	}
-	w.Header().Set(TicketHeader, tok)
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(http.StatusNoContent)
+	h.complete(w, r, idp.ID, login.NameID, Ticket{AuthMethod: "saml", MFA: mfa, AuthTime: authTime.Unix(), ReturnTo: login.ReturnTo}, attrs)
 }
 
 // metadata is this SP's SAML metadata for an IdP: entity ID and ACS.
@@ -219,55 +170,6 @@ func (h *SAML) metadata(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/samlmetadata+xml")
 	_, _ = io.WriteString(w, xml.Header)
 	_ = xml.NewEncoder(w).Encode(md)
-}
-
-func clientIP(r *http.Request) string {
-	if f := r.Header.Get("X-Forwarded-For"); f != "" { // set by the gateway
-		return strings.TrimSpace(strings.Split(f, ",")[0])
-	}
-	return r.RemoteAddr
-}
-
-func (h *SAML) event(ctx context.Context, typ, severity, actor, idp string, attrs map[string]any, reason string) error {
-	b, err := json.Marshal(attrs)
-	if err != nil {
-		return err
-	}
-	var idpArg any
-	if idp != "" {
-		idpArg = idp
-	}
-	_, err = h.DB.Exec(ctx, "SELECT iam.authn_event($1, $2, $3, $4, $5, $6)", typ, severity, actor, idpArg, b, reason)
-	return err
-}
-
-// deny refuses a login: audited with the reason, generic to the user.
-func (h *SAML) deny(w http.ResponseWriter, r *http.Request, idp string, attrs map[string]any, reason string) {
-	if attrs == nil {
-		attrs = map[string]any{"idp": idp, "client": clientIP(r)}
-	}
-	if err := h.event(r.Context(), "authn.login.denied", "low", "anonymous", idp, attrs, reason); err != nil && h.Logger != nil {
-		h.Logger.Error("auditing a denied login", "error", err.Error())
-	}
-	writeFailure(w, http.StatusUnauthorized)
-}
-
-func (h *SAML) fail(w http.ResponseWriter, r *http.Request, idp string, err error) {
-	if errors.Is(err, errUnknownIDP) {
-		writeFailure(w, http.StatusNotFound)
-		return
-	}
-	if h.Logger != nil {
-		h.Logger.Error("SAML login", "idp", idp, "path", r.URL.Path, "error", err.Error())
-	}
-	writeFailure(w, http.StatusServiceUnavailable)
-}
-
-func writeFailure(w http.ResponseWriter, status int) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(status)
-	_, _ = io.WriteString(w, `{"error":"sign_in_failed","detail":"Sign-in did not succeed. Try again, or contact your administrator."}`+"\n")
 }
 
 // dbStore is saml.Store in the database (shared by every iam replica).

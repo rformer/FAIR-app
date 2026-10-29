@@ -37,7 +37,7 @@ Status: **Approved** (Robert Former, 2026-10-24) | Design: Approved 2026-10-24
 | T-13 | Gateway sessions: `__Host-` cookie, HMAC storage, idle/absolute timeouts, revocation, CSRF | AC-31, AC-33, AC-35 | Timeout and revocation tests; CSRF negative tests | M | Done (2026-10-28; login handoff with T-15/T-16, network binding T-20, banner T-19) |
 | T-14 | Internal JWT minting/verification (ES256) behind a KMS / Vault / local key-provider interface | Design §4 | Tests with each provider; tampered and expired tokens rejected | S | Done (2026-10-28, pulled forward with F-015 T-31; local-file provider; the KMS and Vault providers come with T-41) |
 | T-15 | SAML SP: library selection memo (D-OQ1), SP- and IdP-initiated flows, replay cache, XSW negative corpus | AC-01, AC-04 | Selection ADR; corpus passes; interop with Entra/Okta/Ping | L | Done (2026-10-28; ADR-009; live interop with Keycloak; Entra/Okta/Ping live runs are an open item, design §12) |
-| T-16 | OIDC RP: code + PKCE, nonce/state, JWKS validation | AC-01, AC-04 | Conformance tests against test IdPs | M | Todo |
+| T-16 | OIDC RP: code + PKCE, nonce/state, JWKS validation | AC-01, AC-04 | Conformance tests against test IdPs | M | Done (2026-10-28; live interop with Keycloak; Entra/Okta/Ping live runs are an open item, design §12) |
 | T-17 | Home-realm discovery, multiple IdPs, metadata/JWKS file upload | AC-02, AC-03 | Routing tests; air-gapped metadata test | S | Todo |
 | T-18 | MFA evidence rules (SAML AuthnContext, OIDC amr/acr) | AC-05 | Non-MFA assertion denied and audited | S | Todo |
 | T-19 | System-use banner with acknowledgment, on by default | AC-34 | E2E test: no access before acknowledgment | S | Todo |

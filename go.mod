@@ -8,7 +8,9 @@ godebug fips140=on
 
 require (
 	github.com/beevik/etree v1.7.0
+	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/defenseunicorns/go-oscal v0.7.2
+	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/nats-io/nats.go v1.47.0
 	github.com/riverqueue/river v0.30.0
@@ -17,6 +19,7 @@ require (
 	github.com/russellhaering/goxmldsig v1.6.1
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	go.yaml.in/yaml/v3 v3.0.5
+	golang.org/x/oauth2 v0.37.0
 	google.golang.org/grpc v1.74.2
 	google.golang.org/protobuf v1.36.6
 )

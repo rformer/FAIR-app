@@ -19,14 +19,14 @@ import (
 )
 
 // F-001 T-15 (AC-01): live interop with Keycloak, the IdP the platform
-// bundles for self-hosted installs. scripts/saml-e2e-keycloak.sh starts
+// bundles for self-hosted installs. scripts/sso-e2e-keycloak.sh starts
 // Keycloak and sets FAIR_TEST_KEYCLOAK; the test configures a realm, a SAML
 // client and a user through Keycloak's admin API, then signs in as a browser
 // would, SP- and IdP-initiated, through the gateway and the iam service.
 func TestSAMLKeycloakInterop(t *testing.T) {
 	kc := os.Getenv("FAIR_TEST_KEYCLOAK") // e.g. http://keycloak:8080
 	if kc == "" {
-		t.Skip("FAIR_TEST_KEYCLOAK not set (scripts/saml-e2e-keycloak.sh)")
+		t.Skip("FAIR_TEST_KEYCLOAK not set (scripts/sso-e2e-keycloak.sh)")
 	}
 	se := samlFixture(t, true)
 	e := se.e
