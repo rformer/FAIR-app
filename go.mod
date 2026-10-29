@@ -7,7 +7,7 @@ go 1.26.0
 godebug fips140=on
 
 require (
-	github.com/beevik/etree v1.7.0
+	github.com/beevik/etree v1.8.1
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/defenseunicorns/go-oscal v0.7.2
 	github.com/go-jose/go-jose/v4 v4.1.4
