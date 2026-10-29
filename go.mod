@@ -11,7 +11,7 @@ require (
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/defenseunicorns/go-oscal v0.7.2
 	github.com/go-jose/go-jose/v4 v4.1.4
-	github.com/jackc/pgx/v5 v5.8.0
+	github.com/jackc/pgx/v5 v5.9.2
 	github.com/nats-io/nats.go v1.47.0
 	github.com/riverqueue/river v0.30.0
 	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.30.0
@@ -20,8 +20,8 @@ require (
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/oauth2 v0.37.0
-	google.golang.org/grpc v1.74.2
-	google.golang.org/protobuf v1.36.6
+	google.golang.org/grpc v1.83.2
+	google.golang.org/protobuf v1.36.11
 )
 
 require (
@@ -44,11 +44,11 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	go.uber.org/goleak v1.3.0 // indirect
-	golang.org/x/crypto v0.38.0 // indirect
-	golang.org/x/net v0.40.0 // indirect
-	golang.org/x/sync v0.19.0 // indirect
-	golang.org/x/sys v0.33.0 // indirect
-	golang.org/x/text v0.33.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20250528174236-200df99c418a // indirect
+	golang.org/x/crypto v0.57.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
+	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
