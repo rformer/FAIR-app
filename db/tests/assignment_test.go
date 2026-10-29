@@ -112,8 +112,8 @@ func TestAssignmentEscalationSuite(t *testing.T) {
 
 		{"duplicate live assignment", grant("platform", "user:mallory", "Executive Viewer", "B"), "assignment_live"},
 		{"unknown principal", strings.Replace(grant("platform", "user:nobody", "Auditor", "B"), uid("nobody"), "gen_random_uuid()", 1), "unknown user"},
-		{"mapped assignments wait for T-24", `INSERT INTO iam.assignment (principal_kind, principal_id, role_id, bu_id, granted_by, source, mapping_id)
-			VALUES ('user', ` + uid("erin") + `, ` + roleID("Auditor") + `, ` + buID("B") + `, ` + uid("platform") + `, 'mapped', gen_random_uuid())`, "T-24"},
+		{"mapped assignments are the group mappings' (T-24)", `INSERT INTO iam.assignment (principal_kind, principal_id, role_id, bu_id, granted_by, source, mapping_id)
+			VALUES ('user', ` + uid("erin") + `, ` + roleID("Auditor") + `, ` + buID("B") + `, ` + uid("platform") + `, 'mapped', gen_random_uuid())`, "written by group mappings only"},
 
 		{"revoke by someone without authority", revoke("mallory", "analyst", "Risk Analyst", "A1"), "lacks access.assign"},
 		{"self-revoke", revoke("buadmin", "buadmin", "BU Admin", "A"), "AC-28"},

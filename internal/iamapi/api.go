@@ -24,6 +24,12 @@
 //	GET    /api/v1/users, /api/v1/users/{id}   read            user.view (BU-scoped)
 //	POST   /api/v1/users/{id}/{action}         disable, enable, unlock   user.manage
 //	GET    /api/v1/groups, /api/v1/groups/{id} read            user.view (BU-scoped)
+//
+// T-24 adds group-to-role mappings:
+//
+//	GET    /api/v1/group-mappings[/{id}]       read            access.view (BU-scoped)
+//	POST   /api/v1/group-mappings              create          access.map_groups at the BU
+//	DELETE /api/v1/group-mappings/{id}         remove          access.map_groups at the BU
 package iamapi
 
 import (
@@ -79,6 +85,10 @@ var routes = []route{
 	{"POST", "/api/v1/users/{id}/{action}", (*API).userAction},
 	{"GET", "/api/v1/groups", (*API).listGroups},
 	{"GET", "/api/v1/groups/{id}", (*API).getGroup},
+	{"GET", "/api/v1/group-mappings", (*API).listMappings},
+	{"POST", "/api/v1/group-mappings", (*API).createMapping},
+	{"GET", "/api/v1/group-mappings/{id}", (*API).getMapping},
+	{"DELETE", "/api/v1/group-mappings/{id}", (*API).removeMapping},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).
@@ -92,7 +102,7 @@ func Routes() []string {
 }
 
 // Prefixes are the path prefixes the API owns (for the service's mux).
-var Prefixes = []string{"/api/v1/idps", "/api/v1/banner", "/api/v1/users", "/api/v1/groups"}
+var Prefixes = []string{"/api/v1/idps", "/api/v1/banner", "/api/v1/users", "/api/v1/groups", "/api/v1/group-mappings"}
 
 // Handler returns the API with authentication and idempotency in front.
 func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {
@@ -171,7 +181,7 @@ func fail(w http.ResponseWriter, err error) {
 	case errors.As(err, &pg) && (pg.Code == "PF004" || pg.Code == "23514" || pg.Code == "22023"):
 		problem(w, http.StatusBadRequest, "invalid_value", pg.Message, nil)
 	case errors.As(err, &pg) && pg.Code == "23505":
-		problem(w, http.StatusConflict, "duplicate", "an IdP with that name exists", nil)
+		problem(w, http.StatusConflict, "duplicate", "it exists already", nil)
 	case errors.As(err, &pg) && pg.Code == "P0002", errors.Is(err, errNotFound):
 		problem(w, http.StatusNotFound, "not_found", "", nil)
 	default:

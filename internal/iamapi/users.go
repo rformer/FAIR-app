@@ -19,29 +19,28 @@ import (
 // disable, enable and unlock need user.manage at the root (403), a reason,
 // and are audited.
 
-// userView requires user.view in some BU; it answers and returns false
-// otherwise.
-func (a *API) userView(w http.ResponseWriter, r *http.Request, p authz.Principal) bool {
+// somewhere requires perm in some BU; it answers 404 and returns false
+// otherwise (the API does not exist for the caller, AC-25).
+func (a *API) somewhere(w http.ResponseWriter, r *http.Request, p authz.Principal, perm authz.Permission) bool {
 	if bw, ok := a.Authz.(interface {
 		BUsWith(context.Context, authz.Principal, authz.Permission) (map[string]struct{}, error)
 	}); ok {
-		bus, err := bw.BUsWith(r.Context(), p, "user.view")
-		if err != nil || len(bus) == 0 {
-			problem(w, http.StatusNotFound, "not_found", "", nil)
-			return false
+		if bus, err := bw.BUsWith(r.Context(), p, perm); err == nil && len(bus) > 0 {
+			return true
 		}
-		return true
-	}
-	root, err := a.rootBU(r.Context())
-	if err != nil {
-		problem(w, http.StatusServiceUnavailable, "unavailable", "", nil)
-		return false
-	}
-	if err := a.Authz.Check(r.Context(), p, "user.view", root); err != nil {
 		problem(w, http.StatusNotFound, "not_found", "", nil)
 		return false
 	}
-	return true
+	root, err := a.rootBU(r.Context())
+	if err == nil && a.Authz.Check(r.Context(), p, perm, root) == nil {
+		return true
+	}
+	problem(w, http.StatusNotFound, "not_found", "", nil)
+	return false
+}
+
+func (a *API) userView(w http.ResponseWriter, r *http.Request, p authz.Principal) bool {
+	return a.somewhere(w, r, p, "user.view")
 }
 
 type userItem struct {

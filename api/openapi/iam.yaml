@@ -115,6 +115,23 @@ components:
         created_at: { type: string, format: date-time }
         members: { type: integer }
         assignments: { type: array, items: { type: object } }
+    GroupMapping:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        group_id: { type: string, format: uuid }
+        group_name: { type: string }
+        role_id: { type: string, format: uuid }
+        role_name: { type: string }
+        bu_id: { type: string, format: uuid }
+        bu_code: { type: string }
+        reason: { type: string }
+        created_by: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        assigned: { type: integer, description: Members holding the mapped assignment }
+        skipped:
+          type: array
+          items: { type: object, properties: { user_id: { type: string }, reason: { type: string }, at: { type: string, format: date-time } } }
     Pinning:
       type: object
       required: [error, current, fingerprints]
@@ -480,6 +497,82 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Group" }
+        "404": { $ref: "#/components/responses/Error" }
+  /group-mappings:
+    get:
+      summary: Group-to-role mappings at BUs where the caller holds access.view (T-24)
+      x-permission: access.view
+      responses:
+        "200":
+          description: Live mappings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mappings: { type: array, items: { $ref: "#/components/schemas/GroupMapping" } }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Map a group to a role at a BU (AC-12)
+      description: |
+        Every active member of the group gets an assignment with source `mapped` and this
+        mapping's id (AC-14); joining or leaving the group, deactivation and reactivation keep them
+        in line in the same transaction (AC-13). A member for whom the grant would break a rule
+        (AC-28 the mapping's creator, AC-30 admin with risk-data permissions, inactive) is skipped
+        and listed under `skipped`, audited. Needs `access.map_groups` at the BU, and at the root
+        for roles with admin permissions (AC-22).
+      x-permission: access.map_groups
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [group_id, role_id, bu_id, reason]
+              additionalProperties: false
+              properties:
+                group_id: { type: string, format: uuid }
+                role_id: { type: string, format: uuid }
+                bu_id: { type: string, format: uuid }
+                reason: { type: string, minLength: 1 }
+      responses:
+        "201":
+          description: Created, with the members assigned and skipped
+          content:
+            application/json:
+              schema: { type: object, properties: { id: { type: string }, assigned: { type: integer }, skipped: { type: integer } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /group-mappings/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      summary: A mapping, with its skipped members and why
+      x-permission: access.view
+      responses:
+        "200":
+          description: The mapping
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GroupMapping" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: Remove a mapping; its mapped assignments end
+      x-permission: access.map_groups
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - { name: reason, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Removed, with the number of assignments revoked
+          content:
+            application/json:
+              schema: { type: object, properties: { id: { type: string }, revoked: { type: integer } } }
+        "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
   /banner:
     get:
