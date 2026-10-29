@@ -50,6 +50,12 @@
 //
 //	GET    /api/v1/permissions/notices, /api/v1/roles/export                            role.view
 //	POST   /api/v1/permissions/notices/acknowledge, /api/v1/roles/import[?dry_run]      role.manage
+//
+// T-30 adds restricted BU administration:
+//
+//	GET    /api/v1/bus[/{id}]                                          bu.view
+//	POST   /api/v1/bus/{id}/restriction, PUT /api/v1/bus/{id}/rollup-mode, POST /api/v1/bus/apply
+//	                                                                   bu.restrict at the parent
 package iamapi
 
 import (
@@ -132,6 +138,11 @@ var routes = []route{
 	{"POST", "/api/v1/permissions/notices/acknowledge", (*API).acknowledgeCatalogNotices},
 	{"GET", "/api/v1/roles/export", (*API).exportRoles},
 	{"POST", "/api/v1/roles/import", (*API).importRoles},
+	{"GET", "/api/v1/bus", (*API).listBUs},
+	{"GET", "/api/v1/bus/{id}", (*API).getBU},
+	{"POST", "/api/v1/bus/{id}/restriction", (*API).setRestriction},
+	{"PUT", "/api/v1/bus/{id}/rollup-mode", (*API).setRollupMode},
+	{"POST", "/api/v1/bus/apply", (*API).applyBUApproval},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).
@@ -145,7 +156,7 @@ func Routes() []string {
 }
 
 // Prefixes are the path prefixes the API owns (for the service's mux).
-var Prefixes = []string{"/api/v1/idps", "/api/v1/banner", "/api/v1/users", "/api/v1/groups", "/api/v1/group-mappings", "/api/v1/sod-rules", "/api/v1/sod-exceptions", "/api/v1/approvals", "/api/v1/permissions", "/api/v1/roles"}
+var Prefixes = []string{"/api/v1/idps", "/api/v1/banner", "/api/v1/users", "/api/v1/groups", "/api/v1/group-mappings", "/api/v1/sod-rules", "/api/v1/sod-exceptions", "/api/v1/approvals", "/api/v1/permissions", "/api/v1/roles", "/api/v1/bus"}
 
 // Handler returns the API with authentication and idempotency in front.
 func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {

@@ -12,6 +12,8 @@
 --   app_engine     LOGIN    Python simulation engine; NOBYPASSRLS; narrower grants
 --   posture_definer NOLOGIN owns the SECURITY DEFINER posture functions (F-015)
 --   app_posture    LOGIN    the posture service (F-015); NOBYPASSRLS; owns nothing
+--   rollup_definer NOLOGIN  owns the features' roll-up functions (F-001 T-30): the
+--                           only role that reads aggregate-only restricted BU rows
 --   app_gateway    LOGIN    the gateway (F-001 T-13): sessions and DB contexts
 --                           only, through SECURITY DEFINER functions; NOBYPASSRLS
 --
@@ -24,7 +26,7 @@ DO $$
 DECLARE
   r text;
 BEGIN
-  FOREACH r IN ARRAY ARRAY['fair_owner', 'authz_definer', 'posture_definer'] LOOP
+  FOREACH r IN ARRAY ARRAY['fair_owner', 'authz_definer', 'posture_definer', 'rollup_definer'] LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
       EXECUTE format('CREATE ROLE %I NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS', r);
     END IF;
@@ -61,6 +63,8 @@ GRANT fair_owner TO app_migrator WITH INHERIT FALSE, SET TRUE;
 GRANT authz_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
 -- Likewise for the posture functions (F-015 T-08; design §5 access model).
 GRANT posture_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
+-- Likewise for roll-up functions (F-001 T-30).
+GRANT rollup_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
 
 -- Lock down the database: nobody connects unless granted.
 REVOKE ALL ON DATABASE :"dbname" FROM PUBLIC;

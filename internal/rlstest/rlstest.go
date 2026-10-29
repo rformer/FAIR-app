@@ -7,9 +7,11 @@
 // the Fixture inserts one row in each. Check then reports a Finding for every
 // way the table's protection falls short:
 //
-//   - structure: RLS enabled and forced, exactly the four apply_bu_rls
-//     policies bound to the table's registered resource type, owned by
-//     fair_owner, nothing granted to PUBLIC;
+//   - structure: RLS enabled and forced, exactly the apply_bu_rls policies
+//     bound to the table's registered resource type (the four command
+//     policies, and bu_rollup: SELECT, for rollup_definer alone, aggregate
+//     BUs only; F-001 T-30), owned by fair_owner, nothing granted to PUBLIC
+//     and nothing but SELECT to rollup_definer;
 //   - context: missing, malformed, forged, wrong-key, expired, overlong and
 //     stale tokens see and change nothing;
 //   - writes: write scope, not read scope, governs inserts, updates and
@@ -210,9 +212,10 @@ func (r *run) structure() {
 	if owner != "fair_owner" {
 		r.fail("structure", "owned by %s; BU-owned tables must be owned by fair_owner", owner)
 	}
-	want := map[string]string{"bu_select": "r", "bu_insert": "a", "bu_update": "w", "bu_delete": "d"}
+	want := map[string]string{"bu_select": "r", "bu_insert": "a", "bu_update": "w", "bu_delete": "d", "bu_rollup": "r"}
 	rows, err := r.env.Admin.Query(r.ctx, `SELECT polname, polcmd::text,
-		coalesce(pg_get_expr(polqual, polrelid), ''), coalesce(pg_get_expr(polwithcheck, polrelid), '')
+		coalesce(pg_get_expr(polqual, polrelid), ''), coalesce(pg_get_expr(polwithcheck, polrelid), ''),
+		(SELECT string_agg(CASE WHEN o = 0 THEN 'PUBLIC' ELSE o::regrole::text END, ',' ORDER BY o) FROM unnest(polroles) o)
 		FROM pg_policy WHERE polrelid = $1::regclass`, r.fx.Table)
 	if err != nil {
 		r.fail("structure", "cannot read policies: %v", err)
@@ -220,8 +223,8 @@ func (r *run) structure() {
 	}
 	seen := map[string]bool{}
 	for rows.Next() {
-		var name, cmd, qual, check string
-		if err := rows.Scan(&name, &cmd, &qual, &check); err != nil {
+		var name, cmd, qual, check, roles string
+		if err := rows.Scan(&name, &cmd, &qual, &check, &roles); err != nil {
 			r.fail("structure", "policy scan: %v", err)
 			continue
 		}
@@ -233,6 +236,17 @@ func (r *run) structure() {
 		}
 		if cmd != wantCmd {
 			r.fail("structure", "policy %s applies to command %s, want %s", name, cmd, wantCmd)
+		}
+		if name == "bu_rollup" {
+			// Aggregate-only rows, for roll-up functions alone (AC-62).
+			ref := fmt.Sprintf("rollup_bus('%s'::text)", r.rt)
+			if roles != "rollup_definer" || check != "" || !strings.Contains(qual, ref) || !strings.Contains(qual, "'aggregate'::text") {
+				r.fail("structure", "policy bu_rollup (roles %s, %q) must be for rollup_definer alone and admit only %s's aggregate BUs", roles, qual, ref)
+			}
+			continue
+		}
+		if roles != "PUBLIC" {
+			r.fail("structure", "policy %s applies to %s, want every role", name, roles)
 		}
 		mode := "write"
 		if name == "bu_select" {
@@ -255,6 +269,11 @@ func (r *run) structure() {
 	if err := r.env.Admin.QueryRow(r.ctx, `SELECT EXISTS (SELECT 1 FROM pg_class c, aclexplode(c.relacl) a
 		WHERE c.oid = $1::regclass AND a.grantee = 0)`, r.fx.Table).Scan(&public); err == nil && public {
 		r.fail("structure", "privileges granted to PUBLIC")
+	}
+	var extra bool
+	if err := r.env.Admin.QueryRow(r.ctx, `SELECT EXISTS (SELECT 1 FROM pg_class c, aclexplode(c.relacl) a
+		WHERE c.oid = $1::regclass AND a.grantee = 'rollup_definer'::regrole AND a.privilege_type <> 'SELECT')`, r.fx.Table).Scan(&extra); err == nil && extra {
+		r.fail("structure", "rollup_definer holds more than SELECT")
 	}
 }
 

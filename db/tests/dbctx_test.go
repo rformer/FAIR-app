@@ -251,7 +251,7 @@ func TestApplyBuRLSGuards(t *testing.T) {
 	e.ownerFails("SELECT authz.apply_bu_rls('iam.sample_doc', 'nonsense')", "unknown resource type")
 	// Re-applying is idempotent.
 	e.mustOwner("SELECT authz.apply_bu_rls('iam.sample_doc', 'register')")
-	if out := e.mustOwner("SELECT count(*) FROM pg_policy WHERE polrelid = 'iam.sample_doc'::regclass"); out != "4" {
+	if out := e.mustOwner("SELECT count(*) FROM pg_policy WHERE polrelid = 'iam.sample_doc'::regclass"); out != "5" { // four commands and bu_rollup (T-30)
 		t.Fatalf("policies after re-apply = %s", out)
 	}
 }

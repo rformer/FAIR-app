@@ -174,6 +174,18 @@ components:
         assignments: { type: integer }
         users: { type: integer }
         group_mappings: { type: integer }
+    BU:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        parent_id: { type: [string, "null"], format: uuid }
+        code: { type: string }
+        name: { type: string }
+        depth: { type: integer }
+        restricted: { type: boolean }
+        rollup_mode: { enum: [excluded, aggregate, full] }
+        archived_at: { type: [string, "null"], format: date-time }
+        manageable: { type: boolean, description: The caller holds bu.restrict at the parent }
     Pinning:
       type: object
       required: [error, current, fingerprints]
@@ -1135,6 +1147,116 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "409": { description: A role failed; nothing was applied (the report says why) }
+  /bus:
+    get:
+      summary: The BUs the caller may see (T-30)
+      description: |
+        BUs where the caller holds bu.view, and the BUs whose restriction the caller manages
+        (bu.restrict at the parent; metadata only). Restricted BUs appear to others only with an
+        explicit assignment inside them (AC-60, AC-64).
+      x-permission: bu.view
+      responses:
+        "200":
+          description: BUs, by depth
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bus: { type: array, items: { $ref: "#/components/schemas/BU" } }
+        "404": { $ref: "#/components/responses/Error" }
+  /bus/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      summary: A BU the caller may see
+      x-permission: bu.view
+      responses:
+        "200":
+          description: The BU
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BU" }
+        "404": { $ref: "#/components/responses/Error" }
+  /bus/{id}/restriction:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      summary: Restrict a BU (at once) or ask to un-restrict it (AC-59, AC-63)
+      description: |
+        Needs bu.restrict at the BU's parent. Restricting applies at once (200), audited high.
+        Un-restricting answers 202 with a `bu.unrestrict` approval request; a second holder of
+        bu.restrict at the parent approves it, then `POST /bus/apply` applies it.
+      x-permission: bu.restrict (at the parent)
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [restricted, reason]
+              additionalProperties: false
+              properties:
+                restricted: { type: boolean }
+                reason: { type: string }
+      responses:
+        "200": { description: Restricted }
+        "202": { description: "Un-restricting: pending approval ({approval_id})" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /bus/{id}/rollup-mode:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      summary: Set how a restricted BU appears in ancestor roll-ups (AC-62, AC-63)
+      description: |
+        excluded (the default) < aggregate (totals only) < full. Tightening applies at once (200);
+        loosening answers 202 with a `bu.rollup_loosen` approval request, applied by `/bus/apply`.
+      x-permission: bu.restrict (at the parent)
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mode, reason]
+              additionalProperties: false
+              properties:
+                mode: { enum: [excluded, aggregate, full] }
+                reason: { type: string }
+      responses:
+        "200": { description: Tightened }
+        "202": { description: "Loosening: pending approval ({approval_id})" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /bus/apply:
+    post:
+      summary: Apply an approved un-restriction or roll-up loosening (once)
+      x-permission: bu.restrict (at the parent)
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approval_id]
+              additionalProperties: false
+              properties:
+                approval_id: { type: string, format: uuid }
+      responses:
+        "200": { description: Applied }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /banner:
     get:
       summary: The system-use banner in force (T-19, AC-34)
