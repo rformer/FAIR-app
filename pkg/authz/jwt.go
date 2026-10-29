@@ -47,6 +47,10 @@ type Claims struct {
 	Expiry       int64  `json:"exp"`
 	ID           string `json:"jti"`
 	DBContext    string `json:"dbc"` // hex SHA-256 of the DB context token
+	// NetworkChanged: the session's client left the network recorded at
+	// login (F-001 T-20, design §5.8); BUs requiring re-authentication on a
+	// network change refuse it.
+	NetworkChanged bool `json:"nch,omitempty"`
 }
 
 // Errors.

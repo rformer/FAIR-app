@@ -53,7 +53,7 @@ func Authenticate(kp authz.KeyProvider, audience string, now func() time.Time) f
 				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated"})
 				return
 			}
-			p := authz.Principal{UserID: c.Subject, ScopeVersion: c.ScopeVersion, DBToken: dbc}
+			p := authz.Principal{UserID: c.Subject, ScopeVersion: c.ScopeVersion, DBToken: dbc, NetworkChanged: c.NetworkChanged}
 			if c.AuthTime > 0 {
 				p.AuthTime = time.Unix(c.AuthTime, 0)
 			}

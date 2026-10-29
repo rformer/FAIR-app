@@ -41,8 +41,12 @@ type Gateway struct {
 	// BannerEnabled reports banner.enabled (T-19, AC-34). Nil, or an error,
 	// means the banner is required (the secure default; fail closed).
 	BannerEnabled func() (bool, error)
-	Logger        *slog.Logger
-	Now           func() time.Time
+	// NetworkBinding reports session.network_binding at the instance level
+	// (T-20, design §5.8): off, flag or reauthenticate. Nil means off; an
+	// error means reauthenticate (fail closed).
+	NetworkBinding func() (string, error)
+	Logger         *slog.Logger
+	Now            func() time.Time
 }
 
 func (g *Gateway) now() time.Time {
@@ -141,12 +145,19 @@ func (g *Gateway) authenticated(next http.HandlerFunc) http.HandlerFunc {
 		sess, err := g.Sessions.Lookup(r.Context(), c.Value)
 		var se *SessionError
 		if errors.As(err, &se) {
-			ClearCookie(w)
-			writeError(w, http.StatusUnauthorized, "unauthenticated", sessionEnded(se.Status))
+			g.ended(w, se)
 			return
 		}
 		if err != nil {
 			g.log(r, "session lookup", err)
+			writeError(w, http.StatusServiceUnavailable, "unavailable", "")
+			return
+		}
+		if sess, err = g.checkNetwork(r, sess); errors.As(err, &se) {
+			g.ended(w, se)
+			return
+		} else if err != nil {
+			g.log(r, "session network", err)
 			writeError(w, http.StatusServiceUnavailable, "unavailable", "")
 			return
 		}
@@ -166,6 +177,64 @@ func (g *Gateway) authenticated(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, sess)))
 	}
+}
+
+// ended answers a request whose session has ended, with the way back in
+// when the network binding ended it (design §5.8: sign in again at the
+// IdP; the UI adds the return path).
+func (g *Gateway) ended(w http.ResponseWriter, se *SessionError) {
+	ClearCookie(w)
+	if se.Status == "network_change" {
+		body := map[string]any{"error": "unauthenticated", "detail": sessionEnded(se.Status)}
+		if se.IDPID != "" && (se.AuthMethod == "saml" || se.AuthMethod == "oidc") {
+			body["login_url"] = "/api/v1/auth/" + se.AuthMethod + "/" + se.IDPID + "/login"
+		}
+		writeJSON(w, http.StatusUnauthorized, body)
+		return
+	}
+	writeError(w, http.StatusUnauthorized, "unauthenticated", sessionEnded(se.Status))
+}
+
+// networkMode is session.network_binding in force at the instance level.
+func (g *Gateway) networkMode() string {
+	if g.NetworkBinding == nil {
+		return "off"
+	}
+	m, err := g.NetworkBinding()
+	if err != nil || (m != "off" && m != "flag") {
+		return "reauthenticate"
+	}
+	return m
+}
+
+// checkNetwork applies the network binding (design §5.8) to a live
+// session: a client outside the network recorded at login revokes the
+// session (reauthenticate) or marks it (flag, audited; off, silently, so a
+// BU that requires re-authentication can still refuse it).
+func (g *Gateway) checkNetwork(r *http.Request, sess Session) (Session, error) {
+	if !sess.IP.IsValid() {
+		return sess, nil
+	}
+	client := g.Sessions.Network.ClientIP(r)
+	if !client.IsValid() || g.Sessions.Network.SameNetwork(sess.IP, client) {
+		return sess, nil
+	}
+	mode := g.networkMode()
+	if sess.NetworkChangedAt != nil && mode != "reauthenticate" {
+		return sess, nil // marked already
+	}
+	out, err := g.Sessions.NetworkChanged(r.Context(), sess, client, mode)
+	switch {
+	case err != nil:
+		return sess, err
+	case out == "revoked":
+		return sess, &SessionError{Status: "network_change", AuthMethod: sess.AuthMethod, IDPID: sess.IDPID}
+	case out != "marked":
+		return sess, &SessionError{Status: "revoked"}
+	}
+	now := g.now()
+	sess.NetworkChangedAt = &now
+	return sess, nil
 }
 
 // bannerRequired: banner.enabled, or unknown (fail closed).
@@ -210,6 +279,8 @@ func sessionEnded(status string) string {
 		return "the session was signed out or revoked"
 	case "user_disabled":
 		return "the account is disabled"
+	case "network_change":
+		return "the session's network changed; sign in again"
 	}
 	return ""
 }
@@ -223,7 +294,7 @@ func (g *Gateway) mint(sess Session, audience string) (dbToken, jwt string, err 
 	// auth_time is the session's start until the login flows record the
 	// IdP's authentication time (F-015 T-24b).
 	jwt, err = authz.MintJWT(g.JWT, authz.Claims{Subject: sess.UserID, ScopeVersion: sess.ScopeVersion, AuthTime: sess.CreatedAt.Unix(),
-		DBContext: authz.DBContextHash(dbToken)}, audience, TokenTTL, now)
+		DBContext: authz.DBContextHash(dbToken), NetworkChanged: sess.NetworkChangedAt != nil}, audience, TokenTTL, now)
 	return dbToken, jwt, err
 }
 
@@ -257,6 +328,7 @@ func (g *Gateway) proxy(base *url.URL) *httputil.ReverseProxy {
 			pr.SetURL(base)
 			pr.Out.URL.Path, pr.Out.URL.RawPath = pr.In.URL.Path, pr.In.URL.RawPath // services serve /api/v1/<name>/...
 			pr.SetXForwarded()
+			g.forwardedFor(pr)
 			// The browser's credentials never reach a service: only the
 			// gateway's own short-lived tokens do.
 			pr.Out.Header.Del("Cookie")
@@ -354,26 +426,27 @@ func (g *Gateway) listSessions(own bool) http.HandlerFunc {
 			return
 		}
 		type item struct {
-			Handle     string    `json:"session"`
-			UserID     string    `json:"user_id"`
-			AuthMethod string    `json:"auth_method"`
-			CreatedAt  time.Time `json:"created_at"`
-			LastSeenAt time.Time `json:"last_seen_at"`
-			Absolute   time.Time `json:"absolute_expiry_at"`
-			IP         *string   `json:"ip,omitempty"`
-			UserAgent  *string   `json:"user_agent,omitempty"`
-			Current    bool      `json:"current"`
+			Handle     string     `json:"session"`
+			UserID     string     `json:"user_id"`
+			AuthMethod string     `json:"auth_method"`
+			CreatedAt  time.Time  `json:"created_at"`
+			LastSeenAt time.Time  `json:"last_seen_at"`
+			Absolute   time.Time  `json:"absolute_expiry_at"`
+			IP         *string    `json:"ip,omitempty"`
+			UserAgent  *string    `json:"user_agent,omitempty"`
+			NetChanged *time.Time `json:"network_changed_at,omitempty"` // flagged (T-20)
+			Current    bool       `json:"current"`
 		}
 		out := []item{}
 		err := g.withContext(r.Context(), sess, func(tx pgx.Tx) error {
-			rows, err := tx.Query(r.Context(), `SELECT handle::text, user_id::text, auth_method, created_at, last_seen_at, absolute_expiry_at, ip, user_agent
-				FROM iam.session_list($1)`, t)
+			rows, err := tx.Query(r.Context(), `SELECT handle::text, user_id::text, auth_method, created_at, last_seen_at, absolute_expiry_at, ip, user_agent,
+				network_changed_at FROM iam.session_list($1)`, t)
 			if err != nil {
 				return err
 			}
 			out, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (item, error) {
 				var i item
-				err := row.Scan(&i.Handle, &i.UserID, &i.AuthMethod, &i.CreatedAt, &i.LastSeenAt, &i.Absolute, &i.IP, &i.UserAgent)
+				err := row.Scan(&i.Handle, &i.UserID, &i.AuthMethod, &i.CreatedAt, &i.LastSeenAt, &i.Absolute, &i.IP, &i.UserAgent, &i.NetChanged)
 				i.Current = i.Handle == sess.Handle
 				return i, err
 			})

@@ -19,6 +19,19 @@
 //	                             id); with an iam upstream, /api/v1/auth/saml/
 //	                             is forwarded and its tickets become sessions
 //	FAIR_UI_DIR                  optional: the built web UI (web/dist)
+//
+// Session network binding (F-001 T-20, design §5.8):
+//
+//	FAIR_CLIENT_IP_HEADER        the ingress's client address header:
+//	                             X-Forwarded-For or X-Real-IP (unset: the
+//	                             connection's address)
+//	FAIR_TRUSTED_PROXIES         the ingress's addresses (CIDRs, comma
+//	                             separated); a header from any other hop is
+//	                             ignored. Required with FAIR_CLIENT_IP_HEADER.
+//	FAIR_SESSION_PREFIX_V4/_V6   a network's prefix sizes (default 24 and 64)
+//	FAIR_ASN_DB_DIR              optional: iptoasn.com's ip2asn-v4.tsv and
+//	                             ip2asn-v6.tsv (or .gz); without it the check
+//	                             is prefix-only
 package main
 
 import (
@@ -30,10 +43,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/signal"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -97,6 +112,15 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	network, err := networkConfig(os.Getenv)
+	if err != nil {
+		return err
+	}
+	if network.ASN != nil {
+		logger.Info("ASN database loaded", "ranges", network.ASN.Len())
+	} else {
+		logger.Info("no ASN database: session network binding checks prefixes only")
+	}
 
 	cc, err := dbconn.Config(cfg.Env, "app_gateway", os.Getenv("FAIR_DB_PASSWORD_FILE"), "fair-gateway")
 	if err != nil {
@@ -118,7 +142,8 @@ func run() error {
 	sc := settings.NewClient(settings.ClientOptions{Source: settings.DBSource{DB: pool}, Service: "gateway", Instance: os.Getenv("POD_NAME")})
 	var defs []settings.Def
 	for _, d := range settings.F001Defs() {
-		if d.Key == settings.KeySessionIdleTimeout || d.Key == settings.KeySessionAbsoluteTimeout || d.Key == settings.KeyBannerEnabled {
+		switch d.Key {
+		case settings.KeySessionIdleTimeout, settings.KeySessionAbsoluteTimeout, settings.KeyBannerEnabled, settings.KeySessionNetworkBinding:
 			defs = append(defs, d)
 		}
 	}
@@ -139,7 +164,7 @@ func run() error {
 	}
 
 	g := &gateway.Gateway{
-		Sessions:   gateway.Sessions{DB: pool, Pepper: pepper, Timeouts: timeouts},
+		Sessions:   gateway.Sessions{DB: pool, Pepper: pepper, Timeouts: timeouts, Network: network},
 		ContextKey: authz.ContextKey{ID: os.Getenv("FAIR_DB_CONTEXT_KEY_ID"), Secret: ctxSecret},
 		JWT:        keys,
 		Origin:     origin,
@@ -149,6 +174,9 @@ func run() error {
 		// The system-use banner (T-19): required while banner.enabled is on,
 		// and whenever the setting cannot be read.
 		BannerEnabled: func() (bool, error) { return sc.Bool(settings.KeyBannerEnabled, "") },
+		// The instance's session.network_binding (T-20); BU overrides are
+		// applied by the services' permission checks.
+		NetworkBinding: func() (string, error) { return sc.Enum(settings.KeySessionNetworkBinding, "") },
 	}
 	if _, ok := upstreams["iam"]; ok {
 		if g.Tickets, err = authz.LoadLocalKeys(os.Getenv("FAIR_LOGIN_TICKET_KEYS_DIR")); err != nil {
@@ -222,4 +250,54 @@ func upstreamTransport(caFile string) (http.RoundTripper, error) {
 		t.TLSClientConfig.RootCAs = pool
 	}
 	return t, nil
+}
+
+// networkConfig reads the session network binding configuration (T-20).
+func networkConfig(getenv func(string) string) (gateway.Network, error) {
+	n := gateway.Network{Header: strings.TrimSpace(getenv("FAIR_CLIENT_IP_HEADER"))}
+	switch http.CanonicalHeaderKey(n.Header) {
+	case "", "X-Forwarded-For", "X-Real-Ip":
+	default:
+		return n, fmt.Errorf("FAIR_CLIENT_IP_HEADER must be X-Forwarded-For or X-Real-IP, not %q", n.Header)
+	}
+	for _, c := range strings.Split(getenv("FAIR_TRUSTED_PROXIES"), ",") {
+		if c = strings.TrimSpace(c); c == "" {
+			continue
+		}
+		p, err := netip.ParsePrefix(c)
+		if err != nil {
+			a, aerr := netip.ParseAddr(c)
+			if aerr != nil {
+				return n, fmt.Errorf("FAIR_TRUSTED_PROXIES: %q is not a CIDR or address", c)
+			}
+			p = netip.PrefixFrom(a, a.BitLen())
+		}
+		n.Trusted = append(n.Trusted, p.Masked())
+	}
+	if n.Header != "" && len(n.Trusted) == 0 {
+		return n, errors.New("FAIR_CLIENT_IP_HEADER needs FAIR_TRUSTED_PROXIES (the ingress's addresses): a header from any hop would be believed")
+	}
+	for _, b := range []struct {
+		name     string
+		dst      *int
+		min, max int
+	}{{"FAIR_SESSION_PREFIX_V4", &n.V4Bits, 8, 32}, {"FAIR_SESSION_PREFIX_V6", &n.V6Bits, 16, 128}} {
+		v := strings.TrimSpace(getenv(b.name))
+		if v == "" {
+			continue
+		}
+		i, err := strconv.Atoi(v)
+		if err != nil || i < b.min || i > b.max {
+			return n, fmt.Errorf("%s must be %d to %d, not %q", b.name, b.min, b.max, v)
+		}
+		*b.dst = i
+	}
+	if dir := getenv("FAIR_ASN_DB_DIR"); dir != "" {
+		db, err := gateway.LoadASNDB(dir)
+		if err != nil {
+			return n, fmt.Errorf("FAIR_ASN_DB_DIR: %w", err)
+		}
+		n.ASN = db
+	}
+	return n, nil
 }

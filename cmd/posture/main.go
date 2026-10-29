@@ -314,7 +314,25 @@ func run() error {
 	wake := make(chan struct{}, 1)
 	// The Posture API's permission checks (T-31): the caller's grants,
 	// refreshed on iam.scope.changed and at least every 60 s.
-	grants := authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool)})
+	// A BU requiring re-authentication on a network change refuses sessions
+	// whose network changed (F-001 T-20), read as every service reads
+	// settings.
+	sc := settings.NewClient(settings.ClientOptions{Source: settings.DBSource{DB: pool}, Service: "posture", Instance: os.Getenv("POD_NAME")})
+	for _, d := range settings.F001Defs() {
+		if d.Key == settings.KeySessionNetworkBinding {
+			if err := sc.Register(d); err != nil {
+				return err
+			}
+		}
+	}
+	// Before the install is seeded the read fails; Run retries, and until
+	// then the check denies (fail closed).
+	if err := sc.Refresh(ctx); err != nil {
+		logger.Warn("settings not readable yet", "error", err.Error())
+	}
+	go sc.Run(ctx, func(err error) { logger.Error("settings refresh", "error", err.Error()) })
+	grants := authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool),
+		NetworkBinding: func(bu string) (string, error) { return sc.Enum(settings.KeySessionNetworkBinding, bu) }})
 	if url := os.Getenv("FAIR_NATS_URL"); url != "" {
 		nc, err := natspub.Connect(ctx, natspub.Options{Env: cfg.Env, URL: url, CredsFile: os.Getenv("FAIR_NATS_CREDS_FILE"), Name: "fair-posture"})
 		if err != nil {

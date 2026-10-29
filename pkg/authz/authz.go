@@ -29,6 +29,9 @@ type Principal struct {
 	// auth_time, F-015 T-24b). Zero means unknown, which fails any step-up
 	// check.
 	AuthTime time.Time
+	// NetworkChanged: the session's network changed since login (F-001
+	// T-20); see CacheOptions.NetworkBinding.
+	NetworkChanged bool
 }
 
 var (

@@ -35,6 +35,12 @@ type CacheOptions struct {
 	// the principal's AuthTime to be at most that old. An error denies.
 	// Nil disables the step-up check.
 	ReauthMaxAge func(buID string) (time.Duration, error)
+	// NetworkBinding returns the effective session.network_binding for a
+	// BU (F-001 T-20, design §5.8). Where it is reauthenticate, Check
+	// refuses a principal whose session's network changed with a
+	// *StepUpError (MaxAge 0: sign in again). An error denies. Nil disables
+	// the check.
+	NetworkBinding func(buID string) (string, error)
 }
 
 type entry struct {
@@ -89,7 +95,27 @@ func (c *Cache) Check(ctx context.Context, p Principal, perm Permission, buID st
 	if snap.Version != p.ScopeVersion || !snap.allows(perm, buID) {
 		return ErrDenied
 	}
+	if err := c.networkBinding(p, buID); err != nil {
+		return err
+	}
 	return c.stepUp(p, buID)
+}
+
+// networkBinding: a BU that requires re-authentication on a network change
+// refuses a session whose network changed, though the instance only flags
+// such sessions.
+func (c *Cache) networkBinding(p Principal, buID string) error {
+	if c.o.NetworkBinding == nil || !p.NetworkChanged {
+		return nil
+	}
+	mode, err := c.o.NetworkBinding(buID)
+	if err != nil {
+		return fmt.Errorf("authz: network binding policy for BU %s: %w", buID, err)
+	}
+	if mode == "reauthenticate" {
+		return &StepUpError{}
+	}
+	return nil
 }
 
 // stepUp returns a *StepUpError when p authenticated longer ago than the

@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -109,6 +110,9 @@ func gatewayFixture(t *testing.T) *gwEnv {
 		JWT:        keys,
 		Upstreams:  map[string]*url.URL{"posture": up},
 	}
+	// The test client is the ingress: its X-Forwarded-For names the client
+	// (T-20); requests come from the login's address unless a test says otherwise.
+	ge.g.Sessions.Network = gateway.Network{Header: "X-Forwarded-For", Trusted: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8"), netip.MustParsePrefix("::1/128")}}
 	ge.handler.Store(ge.g.Handler())
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ge.handler.Load().(http.Handler).ServeHTTP(w, r)
@@ -118,6 +122,9 @@ func gatewayFixture(t *testing.T) *gwEnv {
 	ge.g.Origin = srv.URL
 	return ge
 }
+
+// loginIP is where test logins come from (gwEnv.login).
+const loginIP = "203.0.113.7"
 
 // login creates a session for user that has acknowledged the system-use
 // banner (T-19) and returns the cookie value.
@@ -134,7 +141,7 @@ func (ge *gwEnv) loginUnacknowledged(t *testing.T, user string) string {
 	t.Helper()
 	id := ge.e.adminQuery("SELECT id FROM iam.app_user WHERE email = '" + user + "@example.test'")
 	_, tok, err := ge.g.Sessions.Create(context.Background(), gateway.Login{UserID: id, AuthMethod: "oidc",
-		MFA: map[string]any{"amr": []string{"mfa"}}, IP: net.ParseIP("203.0.113.7"), UserAgent: "test"})
+		MFA: map[string]any{"amr": []string{"mfa"}}, IP: net.ParseIP(loginIP), UserAgent: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,6 +168,7 @@ func (ge *gwEnv) do(t *testing.T, method, path, cookie string, body any, hdr map
 	if cookie != "" {
 		req.Header.Set("Cookie", gateway.CookieName+"="+cookie)
 	}
+	req.Header.Set("X-Forwarded-For", loginIP)
 	for k, v := range hdr {
 		if v == "" {
 			req.Header.Del(k)

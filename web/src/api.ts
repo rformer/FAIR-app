@@ -22,7 +22,13 @@ async function handle<T>(resp: Response): Promise<T> {
     body = undefined;
   }
   if (!resp.ok) {
-    const b = (body ?? {}) as { error?: string; detail?: string };
+    const b = (body ?? {}) as { error?: string; detail?: string; login_url?: string };
+    // The session ended because its network changed (F-001 T-20): sign in
+    // again at the IdP, coming back to this page.
+    if (resp.status === 401 && b.login_url?.startsWith("/api/v1/auth/")) {
+      const back = window.location.pathname + window.location.search;
+      window.location.assign(`${b.login_url}?return=${encodeURIComponent(back)}`);
+    }
     throw new ApiError(resp.status, b.error ?? "", b.detail ?? "");
   }
   return body as T;

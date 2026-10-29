@@ -67,6 +67,7 @@ components:
         absolute_expiry_at: { type: string, format: date-time }
         ip: { type: string }
         user_agent: { type: string }
+        network_changed_at: { type: string, format: date-time, description: "Set when the session's client left the network recorded at login (F-001 T-20, design §5.8)" }
         current: { type: boolean }
     Reason:
       type: object

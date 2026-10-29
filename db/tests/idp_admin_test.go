@@ -77,6 +77,7 @@ func (ge *gwEnv) raw(t *testing.T, method, path, cookie string, body []byte, hdr
 	t.Helper()
 	req, _ := http.NewRequestWithContext(context.Background(), method, ge.url+path, strings.NewReader(string(body)))
 	req.Header.Set("Cookie", gateway.CookieName+"="+cookie)
+	req.Header.Set("X-Forwarded-For", loginIP)
 	for k, v := range hdr {
 		req.Header.Set(k, v)
 	}

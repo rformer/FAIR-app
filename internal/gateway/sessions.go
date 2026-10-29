@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -43,7 +44,13 @@ type Session struct {
 	LastSeenAt   time.Time
 	ExpiresAt    time.Time  // the earlier of the idle and absolute deadlines
 	BannerAckAt  *time.Time // when the system-use banner was acknowledged (T-19)
-	token        string
+	// The network recorded at login and whether the client has left it
+	// (T-20, design §5.8).
+	IP               netip.Addr
+	ASN              *int
+	IDPID            string
+	NetworkChangedAt *time.Time
+	token            string
 }
 
 // Timeouts returns the idle and absolute session timeouts in force
@@ -55,6 +62,7 @@ type Sessions struct {
 	DB       *pgxpool.Pool
 	Pepper   []byte
 	Timeouts Timeouts
+	Network  Network // client address, prefix sizes and ASNs (T-20)
 }
 
 // Login is an authenticated user handed over by the login flows (SAML and
@@ -62,6 +70,7 @@ type Sessions struct {
 type Login struct {
 	UserID     string
 	AuthMethod string // saml, oidc, breakglass
+	IDPID      string // the IdP of a federated login
 	MFA        map[string]any
 	IP         net.IP
 	UserAgent  string
@@ -77,7 +86,11 @@ var (
 )
 
 // SessionError is ErrNoSession with the reason.
-type SessionError struct{ Status string }
+type SessionError struct {
+	Status     string
+	AuthMethod string // of an ended session, for the sign-in link
+	IDPID      string
+}
 
 func (e *SessionError) Error() string { return "gateway: no valid session (" + e.Status + ")" }
 func (e *SessionError) Unwrap() error { return ErrNoSession }
@@ -121,14 +134,23 @@ func (s Sessions) Create(ctx context.Context, l Login) (Session, string, error) 
 	if l.MFA == nil {
 		mfa = []byte("{}")
 	}
-	var ip any
+	var ip, asn, idp any
 	if l.IP != nil {
 		ip = l.IP.String()
+		if a, ok := netip.AddrFromSlice(l.IP); ok && s.Network.ASN != nil {
+			if n, ok := s.Network.ASN.Lookup(a); ok {
+				asn = n
+			}
+		}
 	}
-	sess := Session{UserID: l.UserID, AuthMethod: l.AuthMethod, token: token}
+	if l.IDPID != "" {
+		idp = l.IDPID
+	}
+	v4, v6 := s.Network.bits()
+	sess := Session{UserID: l.UserID, AuthMethod: l.AuthMethod, IDPID: l.IDPID, token: token}
 	var expiry time.Time
-	err = s.DB.QueryRow(ctx, "SELECT handle::text, created_at, absolute_expiry_at FROM iam.session_create($1, $2, $3, $4, $5, $6, $7)",
-		s.idHMAC(token), l.UserID, l.AuthMethod, mfa, ip, l.UserAgent, absolute).Scan(&sess.Handle, &sess.CreatedAt, &expiry)
+	err = s.DB.QueryRow(ctx, "SELECT handle::text, created_at, absolute_expiry_at FROM iam.session_create($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+		s.idHMAC(token), l.UserID, l.AuthMethod, mfa, ip, l.UserAgent, absolute, idp, asn, v4, v6).Scan(&sess.Handle, &sess.CreatedAt, &expiry)
 	var pg *pgconn.PgError
 	if errors.As(err, &pg) && pg.Code == "28000" {
 		return Session{}, "", ErrUserInactive
@@ -153,18 +175,48 @@ func (s Sessions) Lookup(ctx context.Context, token string) (Session, error) {
 	var status string
 	var handle, user, method *string
 	var version *int64
-	var created, seen, expires, ack *time.Time
+	var created, seen, expires, ack, netChanged *time.Time
+	var ip, idp *string
+	var asn *int
 	err = s.DB.QueryRow(ctx, `SELECT status, handle::text, user_id::text, scope_version, auth_method, created_at, last_seen_at, expires_at,
-		banner_ack_at FROM iam.session_lookup($1, $2, $3)`, s.idHMAC(token), idle, absolute).
-		Scan(&status, &handle, &user, &version, &method, &created, &seen, &expires, &ack)
+		banner_ack_at, ip, asn, idp_id::text, network_changed_at FROM iam.session_lookup($1, $2, $3)`, s.idHMAC(token), idle, absolute).
+		Scan(&status, &handle, &user, &version, &method, &created, &seen, &expires, &ack, &ip, &asn, &idp, &netChanged)
 	if err != nil {
 		return Session{}, err
 	}
 	if status != "active" {
-		return Session{}, &SessionError{Status: status}
+		se := &SessionError{Status: status}
+		if method != nil {
+			se.AuthMethod = *method
+		}
+		if idp != nil {
+			se.IDPID = *idp
+		}
+		return Session{}, se
 	}
-	return Session{Handle: *handle, UserID: *user, ScopeVersion: *version, AuthMethod: *method,
-		CreatedAt: *created, LastSeenAt: *seen, ExpiresAt: *expires, BannerAckAt: ack, token: token}, nil
+	sess := Session{Handle: *handle, UserID: *user, ScopeVersion: *version, AuthMethod: *method, CreatedAt: *created,
+		LastSeenAt: *seen, ExpiresAt: *expires, BannerAckAt: ack, ASN: asn, NetworkChangedAt: netChanged, token: token}
+	if ip != nil {
+		sess.IP, _ = netip.ParseAddr(*ip)
+	}
+	if idp != nil {
+		sess.IDPID = *idp
+	}
+	return sess, nil
+}
+
+// NetworkChanged reports that the session's client left its network
+// (T-20): "revoked" (mode reauthenticate), "marked" or "inactive".
+func (s Sessions) NetworkChanged(ctx context.Context, sess Session, client netip.Addr, mode string) (string, error) {
+	var asn any
+	if s.Network.ASN != nil {
+		if n, ok := s.Network.ASN.Lookup(client); ok {
+			asn = n
+		}
+	}
+	var out string
+	err := s.DB.QueryRow(ctx, "SELECT iam.session_network_changed($1, $2, $3, $4)", s.idHMAC(sess.token), client.String(), asn, mode).Scan(&out)
+	return out, err
 }
 
 // Banner is the system-use banner in force (T-19).

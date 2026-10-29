@@ -232,3 +232,46 @@ func TestCheckStepUp(t *testing.T) {
 		t.Fatalf("step-up error %v, want max age 15m", err)
 	}
 }
+
+// F-001 T-20: a BU whose session.network_binding is reauthenticate refuses
+// a session whose network changed (step-up, sign in again); other BUs and
+// unchanged sessions pass; a policy error denies; a denial stays a denial.
+func TestCheckNetworkBinding(t *testing.T) {
+	f := &fakeLoader{snaps: map[string]Snapshot{}}
+	policyErr := errors.New("settings stale")
+	c := NewCache(CacheOptions{Loader: f.load, NetworkBinding: func(bu string) (string, error) {
+		switch bu {
+		case "strict":
+			return "reauthenticate", nil
+		case "broken":
+			return "", policyErr
+		}
+		return "flag", nil
+	}})
+	f.set("u1", 1, "risk.view", "strict", "open", "broken")
+	ctx := context.Background()
+	moved := Principal{UserID: "u1", ScopeVersion: 1, DBToken: "t", NetworkChanged: true}
+	home := Principal{UserID: "u1", ScopeVersion: 1, DBToken: "t"}
+	for _, tc := range []struct {
+		name string
+		p    Principal
+		bu   string
+		want error
+	}{
+		{"moved, strict BU", moved, "strict", ErrStepUpRequired},
+		{"moved, flagging BU", moved, "open", nil},
+		{"home network, strict BU", home, "strict", nil},
+		{"moved, policy unavailable", moved, "broken", policyErr},
+		{"home network, policy unavailable: not consulted", home, "broken", nil},
+		{"moved, no permission: denied", moved, "other", ErrDenied},
+	} {
+		err := c.Check(ctx, tc.p, "risk.view", tc.bu)
+		if tc.want == nil && err != nil || tc.want != nil && !errors.Is(err, tc.want) {
+			t.Errorf("%s: %v, want %v", tc.name, err, tc.want)
+		}
+	}
+	var su *StepUpError
+	if err := c.Check(ctx, moved, "risk.view", "strict"); !errors.As(err, &su) || su.MaxAge != 0 {
+		t.Fatalf("want a StepUpError with MaxAge 0 (sign in again), got %v", err)
+	}
+}

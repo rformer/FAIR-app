@@ -35,6 +35,7 @@ func (g *Gateway) loginRoutes(iam *url.URL) http.Handler {
 			pr.SetURL(iam)
 			pr.Out.URL.Path, pr.Out.URL.RawPath = pr.In.URL.Path, pr.In.URL.RawPath
 			pr.SetXForwarded()
+			g.forwardedFor(pr)
 			for _, h := range []string{"Cookie", "Authorization", server.DBContextHeader, CSRFHeader, authn.TicketHeader} {
 				pr.Out.Header.Del(h)
 			}
@@ -47,16 +48,20 @@ func (g *Gateway) loginRoutes(iam *url.URL) http.Handler {
 	}
 	return server.SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
-		p.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), clientKey{}, clientIP(r))))
+		var ip net.IP
+		if a := g.Sessions.Network.ClientIP(r); a.IsValid() {
+			ip = net.IP(a.AsSlice())
+		}
+		p.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), clientKey{}, ip)))
 	}))
 }
 
-func clientIP(r *http.Request) net.IP {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
+// forwardedFor tells a service the client's address as the trusted proxy
+// header gives it (T-20), not the ingress's.
+func (g *Gateway) forwardedFor(pr *httputil.ProxyRequest) {
+	if a := g.Sessions.Network.ClientIP(pr.In); a.IsValid() {
+		pr.Out.Header.Set("X-Forwarded-For", a.String())
 	}
-	return net.ParseIP(host) // the trusted proxy header comes with T-20
 }
 
 var landing = template.Must(template.New("landing").Parse(`<!doctype html>
@@ -97,7 +102,7 @@ func (g *Gateway) redeem(resp *http.Response) error {
 		return fail(http.StatusUnauthorized)
 	}
 	ip, _ := ctx.Value(clientKey{}).(net.IP)
-	_, cookie, err := g.Sessions.Create(ctx, Login{UserID: t.UserID, AuthMethod: t.AuthMethod, MFA: t.MFA, IP: ip,
+	_, cookie, err := g.Sessions.Create(ctx, Login{UserID: t.UserID, AuthMethod: t.AuthMethod, IDPID: t.IDPID, MFA: t.MFA, IP: ip,
 		UserAgent: resp.Request.Header.Get("User-Agent")})
 	if err != nil {
 		g.log(resp.Request, "creating a session", err)

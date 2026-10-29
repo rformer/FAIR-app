@@ -118,7 +118,7 @@ func run() error {
 		sc := settings.NewClient(settings.ClientOptions{Source: settings.DBSource{DB: pool}, Service: "iam", Instance: os.Getenv("POD_NAME")})
 		var defs []settings.Def
 		for _, d := range settings.F001Defs() {
-			if d.Key == settings.KeyAuthMFAAll || d.Key == settings.KeyAuthMFAPrivileged {
+			if d.Key == settings.KeyAuthMFAAll || d.Key == settings.KeyAuthMFAPrivileged || d.Key == settings.KeySessionNetworkBinding {
 				defs = append(defs, d)
 			}
 		}
@@ -143,7 +143,8 @@ func run() error {
 			if err != nil {
 				return fmt.Errorf("FAIR_JWT_KEYS_DIR: %w", err)
 			}
-			grants := authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool)})
+			grants := authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool),
+				NetworkBinding: func(bu string) (string, error) { return sc.Enum(settings.KeySessionNetworkBinding, bu) }})
 			api := &iamapi.API{DB: pool, Authz: grants, DeploymentMode: cfg.DeploymentMode, Dev: cfg.Env == "development"}
 			h := server.SecurityHeaders(api.Handler(jwtKeys, nil))
 			for _, p := range iamapi.Prefixes {
