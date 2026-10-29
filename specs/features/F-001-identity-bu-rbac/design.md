@@ -239,9 +239,10 @@ Until F-015 exists, F-001 ships a minimal settings module that holds the three p
 - **ASN database in the release images (T-20):** the gateway reads the iptoasn files from `FAIR_ASN_DB_DIR` and checks prefixes only without them; shipping the files with each release (§10) belongs with the release tooling (F-012). Open until then.
 - **Re-enabling accounts (T-23):** a user disabled for inactivity (or locked) can only be re-enabled by an administrator holding `user.manage`, but no task delivers user administration (`/users` in §6) yet. Resolved by T-23b (2026-10-29).
 - **SCIM interop with Entra ID, Okta and Ping (T-25):** the vendors' provisioning and validators must reach `/scim/v2` from their clouds. This needs tenants for the three and a publicly reachable deployment. Deferred 2026-10-29; open until available.
-- **D-OQ5. Removed or reclassified permissions on upgrade.** T-03 reports them in the catalog diff but does not reject them. T-29 must decide whether a release may remove a key that custom roles reference, and whether reclassifying a permission as non-privileged is allowed.
+- **D-OQ5. Removed or reclassified permissions on upgrade:** resolved, see Resolved.
 
 ## Resolved
+- **D-OQ5 removed or reclassified permissions** (T-29, decided by Robert Former 2026-10-29): a permission missing from a release is retired, never deleted. It grants nothing and can't be added to roles, and custom roles holding it get a version without it. A later release naming it again restores it, without giving it back to custom roles. A release may reclassify a permission's action, privileged or risk-data flags (the loader still requires approve, admin and export to be privileged), audited at high severity and noticed with the number of users the change puts in AC-30 conflict. Resource type and introduction version stay fixed.
 - **D-OQ1 SAML library:** `russellhaering/gosaml2` with `goxmldsig`, wrapped in `internal/authn/saml`, with F-001's own algorithm, structure, time and replay checks around it and the XSW corpus (ADR-009, accepted by Robert Former, 2026-10-28). The module moves to Go 1.26 (gosaml2 needs 1.25; 1.24 is out of support).
 - D-OQ3 `visible_bus` performance: meets the NFR at target scale (T-11, `db/bench/REPORT.md`, 2026-10-26). The context check plus query has p95 0.4 ms for small and medium scopes and 1.2–1.7 ms for the largest (1,952 BUs).
 - Assignment authority (T-07, approved by Robert Former, 2026-10-26):
@@ -537,3 +538,24 @@ Until F-015 exists, F-001 ships a minimal settings module that holds the three p
       - Retirement refused while assigned and while mapped, then allowed and audited; a retired role can't be edited or assigned.
       - 404 without `role.view`; 403 without `role.manage`.
     - Mutations (stale versions accepted, privileged additions unflagged, held roles retirable, no AC-30 on edit, retired roles editable, built-in roles editable through the API) each fail the tests.
+- 2026-10-29: T-29 implementation notes (migration 0052, `internal/iamapi/catalog.go`, `cmd/iam/migrate.go`). Robert Former decided D-OQ5 (retire removed permissions; allow reclassification, audited and noticed) and that imports update existing roles, with a dry run.
+  - **Upgrades** (AC-57): `iam.sync_release` (recreated) still gives new permissions only to the built-in roles that define them. It now also:
+    - retires permissions the release no longer has: `retired_at` and `retired_in_version`, no deletion; permission rows change only during a release sync and are never deleted;
+    - strips retired permissions from custom roles with a new version;
+    - restores permissions a later release names again;
+    - reclassifies permissions.
+    Each change leaves an `iam.catalog_notice` (added, retired, restored, reclassified, role_changed) and a high-severity audit event. `iam migrate`'s `db.migrated` event lists them, at high severity whenever the catalog changed. A role version may not use a retired permission (0004's trigger, extended); the API answers 400.
+  - **Notices:** `GET /api/v1/permissions/notices[?pending=true]` (`role.view`) and `POST /api/v1/permissions/notices/acknowledge` (`role.manage`, audited). They are the in-platform notice; notification channels (email, webhooks) arrive with their feature. `GET /api/v1/permissions` shows `retired`.
+  - **Export/import** (AC-58): `GET /api/v1/roles/export[?ids=]` returns a `fair.roles.v1` document: the custom roles' names and permissions, with the catalog version.
+    - `POST /api/v1/roles/import` takes `{document, reason}`: it creates missing roles, saves a new version of existing custom roles that differ (`role.imported`), and leaves equal ones unchanged.
+    - Every rule applies: built-in and retired names refused, unknown or retired permissions, separation of duties, and AC-30.
+    - `?dry_run=true` reports each role's outcome and diff without saving. Otherwise the import is all or nothing: one failing role means a 409 with the report and nothing applied. At most 500 roles.
+  - Verification:
+    - DB (`TestCatalogRetirementAndReclassification`, `TestRoleExportImport`, and the updated `TestReleaseUpgrade` and `TestBuiltinRolesImmutable`):
+      - A release retiring, reclassifying and adding permissions: the result lists them; the retired row stays and is stamped.
+      - The custom role loses the permission in a new version, and its holder loses it after recompute while keeping the rest.
+      - Reclassified flags are stored. The notices appear through the API, including the AC-30 conflict count when a permission becomes risk data, and acknowledging clears them. High-severity audit.
+      - A role with a retired permission is refused; the catalog shows `retired`. A later release restores it without giving it back to the custom role.
+      - A changed resource type or introduction version is refused; permissions are never deleted.
+      - Export (all, by id) and the dry run (outcomes, diff, nothing saved), then the import applied and audited. A document with a built-in name, an unknown permission and an SoD pair is refused as a whole, with the reasons, and its valid role isn't created either. Malformed input and no reason are 400; export without `role.view` is 404.
+    - Mutations (custom roles keeping retired permissions, retired permissions usable in roles, no notice for new permissions, built-in roles re-versioned on every sync, a failing import applying the rest, a dry run saving) each fail the tests.

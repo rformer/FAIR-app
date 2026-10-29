@@ -65,21 +65,26 @@ func runMigrate() int {
 	// evidence cannot be recorded.
 	emitter := audit.NewJSONLines(os.Stdout) // replaced by the F-002 pipeline; see pkg/audit
 	sev := audit.SeverityInfo
-	if res.Sync.PreviousVersion > 0 && len(res.Sync.AddedPermissions) > 0 {
-		sev = audit.SeverityHigh // an upgrade added permissions: admins are notified (AC-57)
+	s := res.Sync
+	if s.PreviousVersion > 0 && len(s.AddedPermissions)+len(s.RetiredPermissions)+len(s.ReclassifiedPermissions)+len(s.CustomRolesChanged) > 0 {
+		sev = audit.SeverityHigh // the catalog changed: admins are notified (AC-57, T-29 notices)
 	}
 	if err := emitter.Emit(ctx, audit.Event{
 		Type:     "db.migrated",
 		Severity: sev,
 		Actor:    "system:migrate",
 		Attributes: map[string]string{
-			"applied":           strings.Join(res.Applied, ","),
-			"catalog_version":   fmt.Sprint(res.Sync.Version),
-			"catalog_previous":  fmt.Sprint(res.Sync.PreviousVersion),
-			"added_permissions": strings.Join(res.Sync.AddedPermissions, ","),
-			"created_roles":     strings.Join(res.Sync.CreatedRoles, ","),
-			"versioned_roles":   strings.Join(res.Sync.VersionedRoles, ","),
-			"profiles_imported": strings.Join(res.Packages.Imported, ","),
+			"applied":                  strings.Join(res.Applied, ","),
+			"catalog_version":          fmt.Sprint(res.Sync.Version),
+			"catalog_previous":         fmt.Sprint(res.Sync.PreviousVersion),
+			"added_permissions":        strings.Join(res.Sync.AddedPermissions, ","),
+			"created_roles":            strings.Join(res.Sync.CreatedRoles, ","),
+			"versioned_roles":          strings.Join(res.Sync.VersionedRoles, ","),
+			"retired_permissions":      strings.Join(s.RetiredPermissions, ","),
+			"restored_permissions":     strings.Join(s.RestoredPermissions, ","),
+			"reclassified_permissions": strings.Join(s.ReclassifiedPermissions, ","),
+			"custom_roles_changed":     strings.Join(s.CustomRolesChanged, ","),
+			"profiles_imported":        strings.Join(res.Packages.Imported, ","),
 		},
 	}); err != nil {
 		logger.Error("audit emit failed", "error", err.Error())

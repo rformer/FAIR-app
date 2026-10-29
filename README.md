@@ -186,6 +186,8 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_DB_PASSWORD_FILE=<app_posture passwor
 # Separation of duties (F-001 T-27): /api/v1/sod-rules; exceptions through
 # /api/v1/sod-exceptions and a second administrator's /api/v1/approvals decision.
 # Custom roles (F-001 T-28): /api/v1/roles (create, clone, edit after GET .../diff, retire).
+# Promote custom roles between instances (T-29): GET /api/v1/roles/export, then
+# POST /api/v1/roles/import?dry_run=true to preview and without it to apply.
 # SAML login (F-001 T-15; ADR-009): the iam service serves /api/v1/auth/saml/ when
 # FAIR_PUBLIC_ORIGIN is set (with FAIR_DB_PASSWORD_FILE and FAIR_LOGIN_TICKET_KEYS_DIR,
 # its ES256 ticket key); the gateway forwards it given an iam upstream and

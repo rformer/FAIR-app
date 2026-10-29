@@ -45,6 +45,11 @@
 //
 //	GET    /api/v1/permissions, /roles[/{id}], /roles/{id}/versions, /roles/{id}/diff   role.view
 //	POST   /api/v1/roles, /roles/{id}/clone, /roles/{id}/retire; PUT /roles/{id}         role.manage
+//
+// T-29 adds catalog notices and role export/import:
+//
+//	GET    /api/v1/permissions/notices, /api/v1/roles/export                            role.view
+//	POST   /api/v1/permissions/notices/acknowledge, /api/v1/roles/import[?dry_run]      role.manage
 package iamapi
 
 import (
@@ -123,6 +128,10 @@ var routes = []route{
 	{"GET", "/api/v1/roles/{id}/diff", (*API).roleDiff},
 	{"POST", "/api/v1/roles/{id}/clone", (*API).cloneRole},
 	{"POST", "/api/v1/roles/{id}/retire", (*API).retireRole},
+	{"GET", "/api/v1/permissions/notices", (*API).listCatalogNotices},
+	{"POST", "/api/v1/permissions/notices/acknowledge", (*API).acknowledgeCatalogNotices},
+	{"GET", "/api/v1/roles/export", (*API).exportRoles},
+	{"POST", "/api/v1/roles/import", (*API).importRoles},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).
@@ -213,6 +222,8 @@ func fail(w http.ResponseWriter, err error) {
 	case errors.As(err, &pg) && pg.Code == "PF003":
 		problem(w, http.StatusConflict, "not_applicable", pg.Message, nil)
 	case errors.As(err, &pg) && (pg.Code == "PF004" || pg.Code == "23514" || pg.Code == "22023"):
+		problem(w, http.StatusBadRequest, "invalid_value", pg.Message, nil)
+	case errors.As(err, &pg) && pg.Code == "23503":
 		problem(w, http.StatusBadRequest, "invalid_value", pg.Message, nil)
 	case errors.As(err, &pg) && pg.Code == "PF010":
 		problem(w, http.StatusConflict, "stale_version", pg.Message, nil)

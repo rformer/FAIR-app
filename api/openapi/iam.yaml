@@ -843,6 +843,7 @@ paths:
                         action: { enum: [read, write, approve, admin, export] }
                         privileged: { type: boolean }
                         risk_data: { type: boolean }
+                        retired: { type: boolean, description: "Retired by a release (D-OQ5): grants nothing" }
         "404": { $ref: "#/components/responses/Error" }
   /roles:
     get:
@@ -1010,6 +1011,130 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
+  /permissions/notices:
+    get:
+      summary: Catalog upgrade notices (T-29, AC-57)
+      description: |
+        Left by each upgrade: permissions added (never given to custom roles), retired (no longer
+        granting; custom roles holding them got a version without them), restored, reclassified
+        (with the number of users put in admin + risk-data conflict), and custom roles changed.
+      x-permission: role.view
+      parameters:
+        - { name: pending, in: query, description: Only unacknowledged notices, schema: { type: boolean } }
+      responses:
+        "200":
+          description: Notices, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  notices:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        catalog_version: { type: integer }
+                        kind: { enum: [added, retired, restored, reclassified, role_changed] }
+                        subject: { type: string }
+                        detail: { type: object }
+                        created_at: { type: string, format: date-time }
+                        acknowledged_at: { type: [string, "null"], format: date-time }
+                        acknowledged_by: { type: [string, "null"], format: uuid }
+        "404": { $ref: "#/components/responses/Error" }
+  /permissions/notices/acknowledge:
+    post:
+      summary: Acknowledge catalog notices
+      x-permission: role.manage
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              additionalProperties: false
+              properties:
+                ids: { type: array, items: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: How many were acknowledged
+          content:
+            application/json:
+              schema: { type: object, properties: { acknowledged: { type: integer } } }
+        "403": { $ref: "#/components/responses/Error" }
+  /roles/export:
+    get:
+      summary: Export custom roles as a fair.roles.v1 document (AC-58)
+      x-permission: role.view
+      parameters:
+        - { name: ids, in: query, description: Comma-separated role ids (all custom roles when absent), schema: { type: string } }
+      responses:
+        "200":
+          description: The document
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  format: { const: fair.roles.v1 }
+                  catalog_version: { type: integer }
+                  exported_at: { type: string, format: date-time }
+                  roles:
+                    type: array
+                    items: { type: object, properties: { name: { type: string }, permissions: { type: array, items: { type: string } } } }
+        "404": { $ref: "#/components/responses/Error" }
+  /roles/import:
+    post:
+      summary: Import custom roles from a fair.roles.v1 document (AC-58)
+      description: |
+        Creates missing roles and saves a new version of existing custom roles that differ, under
+        every rule (separation of duties, AC-30, retired or unknown permissions; built-in and
+        retired names refused). `dry_run=true` reports each role's outcome and diff without saving.
+        Otherwise all roles are applied, or none (409 with the report) when one fails.
+      x-permission: role.manage
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - { name: dry_run, in: query, schema: { type: boolean } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [document, reason]
+              additionalProperties: false
+              properties:
+                document: { type: object }
+                reason: { type: string }
+      responses:
+        "200":
+          description: The report (applied unless a dry run)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  roles:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                        outcome: { enum: [created, updated, unchanged, error] }
+                        error: { type: string }
+                        diff: { type: object }
+                  errors: { type: integer }
+                  applied: { type: boolean }
+                  dry_run: { type: boolean }
+                  source_catalog_version: { type: [integer, "null"] }
+                  catalog_version: { type: integer }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { description: A role failed; nothing was applied (the report says why) }
   /banner:
     get:
       summary: The system-use banner in force (T-19, AC-34)

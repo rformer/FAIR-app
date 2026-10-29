@@ -39,6 +39,11 @@ type syncResult struct {
 	AddedPermissions []string `json:"added_permissions"`
 	CreatedRoles     []string `json:"created_roles"`
 	VersionedRoles   []string `json:"versioned_roles"`
+	// T-29 (D-OQ5).
+	RetiredPermissions      []string `json:"retired_permissions"`
+	RestoredPermissions     []string `json:"restored_permissions"`
+	ReclassifiedPermissions []string `json:"reclassified_permissions"`
+	CustomRolesChanged      []string `json:"custom_roles_changed"`
 }
 
 func (e *env) sync(t *testing.T, c *catalog.Catalog, br *catalog.BuiltinRoles) syncResult {
@@ -117,7 +122,7 @@ func TestBuiltinRolesImmutable(t *testing.T) {
 	e.ownerFails("DELETE FROM iam.role_version", "never changed or deleted")
 	e.ownerFails("INSERT INTO iam.role (name, builtin) VALUES ('Fake Admin', true)", "release catalog")
 	e.ownerFails("INSERT INTO iam.permission VALUES ('evil.grant', 'evil', 'read', false, false, 1)", "sync_release")
-	e.ownerFails("UPDATE iam.permission SET privileged = false WHERE key = 'audit.view'", "never changed")
+	e.ownerFails("UPDATE iam.permission SET privileged = false WHERE key = 'audit.view'", "written only by iam.sync_release") // T-29: releases may reclassify
 	e.ownerFails("UPDATE iam.permission_catalog SET version = 99", "sync_release")
 	// Setting the sync flag by hand does not help a non-owner session.
 	e.mustFail("app_rw", "SELECT set_config('iam.release_sync', 'on', false); SELECT * FROM iam.role", "permission denied")
@@ -163,7 +168,7 @@ func TestRoleVersionsIncrement(t *testing.T) {
 }
 
 // AC-57: an upgrade adds new permissions to the built-in roles that define
-// them and to no custom role. Unsupported changes are refused (D-OQ5).
+// them and to no custom role. Older catalogs and badly stamped keys are refused.
 func TestReleaseUpgrade(t *testing.T) {
 	e := setup(t)
 	c1, br1 := release(t)
@@ -195,22 +200,8 @@ func TestReleaseUpgrade(t *testing.T) {
 
 	e.ownerFails(syncSQL(t, c1, br1), "older than installed")
 
-	removed, brR := cloneRelease(c2, br2)
-	removed.Version, brR.CatalogVersion = 3, 3
-	removed.Permissions = slices.DeleteFunc(removed.Permissions, func(p catalog.Permission) bool { return p.Key == "drift.acknowledge" })
-	for i := range brR.Roles {
-		brR.Roles[i].Permissions = slices.DeleteFunc(brR.Roles[i].Permissions, func(k string) bool { return k == "drift.acknowledge" })
-	}
-	e.ownerFails(syncSQL(t, removed, brR), "removal is not supported")
-
-	reclass, brC := cloneRelease(c2, br2)
-	reclass.Version, brC.CatalogVersion = 3, 3
-	for i := range reclass.Permissions {
-		if reclass.Permissions[i].Key == "entitlement.view" {
-			reclass.Permissions[i].Privileged = false
-		}
-	}
-	e.ownerFails(syncSQL(t, reclass, brC), "reclassification is not supported")
+	// Removal and reclassification (D-OQ5) are decided in T-29:
+	// TestCatalogRetirementAndReclassification.
 
 	// A new key at the installed version (catalog changed, version not bumped),
 	// stamped with an old version, or stamped ahead of the release is refused.

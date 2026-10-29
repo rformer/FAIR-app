@@ -20,7 +20,7 @@ func TestCustomRoleLifecycle(t *testing.T) {
 
 	// The catalog, privileged permissions flagged (AC-54).
 	perms := se.do(t, "GET", "/api/v1/permissions", admin, nil, nil)
-	if perms.code != 200 || !strings.Contains(perms.raw, `{"key":"audit.view","resource_type":"audit","action":"read","privileged":true,"risk_data":false}`) {
+	if perms.code != 200 || !strings.Contains(perms.raw, `{"key":"audit.view","resource_type":"audit","action":"read","privileged":true,"risk_data":false,"retired":false}`) {
 		t.Fatalf("permissions: %d %.300s", perms.code, perms.raw)
 	}
 

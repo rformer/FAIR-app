@@ -24,6 +24,7 @@ type permissionItem struct {
 	Action       string `json:"action"`
 	Privileged   bool   `json:"privileged"`
 	RiskData     bool   `json:"risk_data"`
+	Retired      bool   `json:"retired"` // D-OQ5: grants nothing, cannot be added to roles
 }
 
 type roleItem struct {
@@ -46,7 +47,7 @@ func (a *API) listPermissions(w http.ResponseWriter, r *http.Request, p authz.Pr
 	}
 	out := []permissionItem{}
 	err := authz.WithDBContext(r.Context(), a.DB, p.DBToken, func(tx pgx.Tx) error {
-		rows, err := tx.Query(r.Context(), "SELECT key, resource_type, action, privileged, risk_data FROM iam.permission_list()")
+		rows, err := tx.Query(r.Context(), "SELECT key, resource_type, action, privileged, risk_data, retired FROM iam.permission_list()")
 		if err != nil {
 			return err
 		}

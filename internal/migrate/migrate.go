@@ -48,6 +48,12 @@ type SyncResult struct {
 	AddedPermissions []string `json:"added_permissions"`
 	CreatedRoles     []string `json:"created_roles"`
 	VersionedRoles   []string `json:"versioned_roles"`
+	// D-OQ5 (T-29): permissions a release retired, restored or
+	// reclassified, and custom roles that lost retired permissions.
+	RetiredPermissions      []string `json:"retired_permissions"`
+	RestoredPermissions     []string `json:"restored_permissions"`
+	ReclassifiedPermissions []string `json:"reclassified_permissions"`
+	CustomRolesChanged      []string `json:"custom_roles_changed"`
 }
 
 // PackageSync is what posture.sync_packages reports, as "id@version".
