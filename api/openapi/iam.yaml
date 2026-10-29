@@ -132,6 +132,34 @@ components:
         skipped:
           type: array
           items: { type: object, properties: { user_id: { type: string }, reason: { type: string }, at: { type: string, format: date-time } } }
+    SoDRule:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        permission_a: { type: string }
+        permission_b: { type: string }
+        description: { type: string }
+        enabled: { type: boolean }
+        builtin: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    Approval:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string }
+        target_ref: { type: string }
+        reason: { type: string }
+        payload: { type: object }
+        bu_id: { type: string }
+        requested_by: { type: string, format: uuid }
+        status: { enum: [pending, approved, rejected, expired] }
+        decided_by: { type: string }
+        decision_reason: { type: string }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        decided_at: { type: [string, "null"], format: date-time }
+        consumed_at: { type: [string, "null"], format: date-time }
     Pinning:
       type: object
       required: [error, current, fingerprints]
@@ -574,6 +602,211 @@ paths:
               schema: { type: object, properties: { id: { type: string }, revoked: { type: integer } } }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+  /sod-rules:
+    get:
+      summary: The separation-of-duties rule set (T-27, AC-29)
+      x-permission: role.view
+      responses:
+        "200":
+          description: Rules (conflicting permission pairs)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rules: { type: array, items: { $ref: "#/components/schemas/SoDRule" } }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Add a rule
+      description: Refused (409) while custom roles already combine the pair without an exception; they are listed.
+      x-permission: sod.manage
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [permission_a, permission_b, description, reason]
+              additionalProperties: false
+              properties:
+                permission_a: { type: string }
+                permission_b: { type: string }
+                description: { type: string }
+                reason: { type: string }
+      responses:
+        "201": { description: Added }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /sod-rules/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      summary: Enable or disable a rule
+      description: |
+        The built-in rule cannot be disabled. Enabling is refused (409) while custom roles break the
+        rule without an exception. Disabling reactivates roles suspended only for this rule.
+      x-permission: sod.manage
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled, reason]
+              additionalProperties: false
+              properties:
+                enabled: { type: boolean }
+                reason: { type: string }
+      responses:
+        "204": { description: Changed }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /sod-exceptions:
+    get:
+      summary: Separation-of-duties exceptions, live first
+      x-permission: role.view
+      responses:
+        "200":
+          description: Exceptions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exceptions: { type: array, items: { type: object } }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Request an exception for a custom role (AC-53)
+      description: |
+        Creates a `sod.exception` approval request (T-26). A holder of `sod.manage` other than the
+        requester decides it (`/approvals/{id}/decision`); the requester then applies it
+        (`/sod-exceptions/apply`). Expiry within a year.
+      x-permission: role.manage
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role_id, rule_id, expires_at, reason]
+              additionalProperties: false
+              properties:
+                role_id: { type: string, format: uuid }
+                rule_id: { type: string, format: uuid }
+                expires_at: { type: string, format: date-time }
+                reason: { type: string }
+      responses:
+        "202":
+          description: Pending approval
+          content:
+            application/json:
+              schema: { type: object, properties: { approval_id: { type: string }, status: { const: pending } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /sod-exceptions/apply:
+    post:
+      summary: Apply an approved exception request (once)
+      x-permission: role.manage
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approval_id]
+              additionalProperties: false
+              properties:
+                approval_id: { type: string, format: uuid }
+      responses:
+        "201": { description: The exception; a role suspended for this conflict is active again }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /sod-exceptions/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      summary: Revoke an exception; the role is suspended if it still breaks the rule
+      x-permission: sod.manage
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - { name: reason, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Revoked, with the role's status
+          content:
+            application/json:
+              schema: { type: object, properties: { id: { type: string }, role_status: { type: string } } }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /approvals:
+    get:
+      summary: Approval requests the caller made or may decide (T-26 engine)
+      x-permission: none (requester or eligible approver)
+      parameters:
+        - { name: pending, in: query, schema: { type: boolean } }
+      responses:
+        "200":
+          description: Requests, newest first (at most 500)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  approvals: { type: array, items: { $ref: "#/components/schemas/Approval" } }
+  /approvals/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      summary: An approval request (its requester or an eligible approver; 404 otherwise)
+      x-permission: none (requester or eligible approver)
+      responses:
+        "200":
+          description: The request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Approval" }
+        "404": { $ref: "#/components/responses/Error" }
+  /approvals/{id}/decision:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      summary: Approve or reject (never one's own request; a rejection needs a reason)
+      x-permission: the kind's approve permission (sod.manage for sod.exception)
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approve]
+              additionalProperties: false
+              properties:
+                approve: { type: boolean }
+                reason: { type: string }
+      responses:
+        "200":
+          description: Decided
+          content:
+            application/json:
+              schema: { type: object, properties: { id: { type: string }, status: { enum: [approved, rejected] } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /banner:
     get:
       summary: The system-use banner in force (T-19, AC-34)

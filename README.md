@@ -183,6 +183,8 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_DB_PASSWORD_FILE=<app_posture passwor
 # and unlock with POST /api/v1/users/{id}/{action} (user.manage, a reason).
 # Group-to-role mappings (F-001 T-24): POST /api/v1/group-mappings maps a SCIM group to
 # a role at a BU; members get and lose mapped assignments as they join and leave.
+# Separation of duties (F-001 T-27): /api/v1/sod-rules; exceptions through
+# /api/v1/sod-exceptions and a second administrator's /api/v1/approvals decision.
 # SAML login (F-001 T-15; ADR-009): the iam service serves /api/v1/auth/saml/ when
 # FAIR_PUBLIC_ORIGIN is set (with FAIR_DB_PASSWORD_FILE and FAIR_LOGIN_TICKET_KEYS_DIR,
 # its ES256 ticket key); the gateway forwards it given an iam upstream and

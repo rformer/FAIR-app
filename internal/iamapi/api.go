@@ -30,6 +30,16 @@
 //	GET    /api/v1/group-mappings[/{id}]       read            access.view (BU-scoped)
 //	POST   /api/v1/group-mappings              create          access.map_groups at the BU
 //	DELETE /api/v1/group-mappings/{id}         remove          access.map_groups at the BU
+//
+// T-27 adds separation of duties and the approvals engine over HTTP:
+//
+//	GET    /api/v1/sod-rules, sod-exceptions   read            role.view
+//	POST   /api/v1/sod-rules, PATCH .../{id}   add, enable, disable   sod.manage
+//	POST   /api/v1/sod-exceptions              request (202)   role.manage
+//	POST   /api/v1/sod-exceptions/apply        apply approved  role.manage
+//	DELETE /api/v1/sod-exceptions/{id}         revoke          sod.manage
+//	GET    /api/v1/approvals[/{id}]            requests made or decidable
+//	POST   /api/v1/approvals/{id}/decision     approve, reject (T-26 rules)
 package iamapi
 
 import (
@@ -89,6 +99,16 @@ var routes = []route{
 	{"POST", "/api/v1/group-mappings", (*API).createMapping},
 	{"GET", "/api/v1/group-mappings/{id}", (*API).getMapping},
 	{"DELETE", "/api/v1/group-mappings/{id}", (*API).removeMapping},
+	{"GET", "/api/v1/sod-rules", (*API).listSoDRules},
+	{"POST", "/api/v1/sod-rules", (*API).createSoDRule},
+	{"PATCH", "/api/v1/sod-rules/{id}", (*API).updateSoDRule},
+	{"GET", "/api/v1/sod-exceptions", (*API).listSoDExceptions},
+	{"POST", "/api/v1/sod-exceptions", (*API).requestSoDException},
+	{"POST", "/api/v1/sod-exceptions/apply", (*API).applySoDException},
+	{"DELETE", "/api/v1/sod-exceptions/{id}", (*API).revokeSoDException},
+	{"GET", "/api/v1/approvals", (*API).listApprovals},
+	{"GET", "/api/v1/approvals/{id}", (*API).getApproval},
+	{"POST", "/api/v1/approvals/{id}/decision", (*API).decideApproval},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).
@@ -102,7 +122,7 @@ func Routes() []string {
 }
 
 // Prefixes are the path prefixes the API owns (for the service's mux).
-var Prefixes = []string{"/api/v1/idps", "/api/v1/banner", "/api/v1/users", "/api/v1/groups", "/api/v1/group-mappings"}
+var Prefixes = []string{"/api/v1/idps", "/api/v1/banner", "/api/v1/users", "/api/v1/groups", "/api/v1/group-mappings", "/api/v1/sod-rules", "/api/v1/sod-exceptions", "/api/v1/approvals"}
 
 // Handler returns the API with authentication and idempotency in front.
 func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {
@@ -182,6 +202,12 @@ func fail(w http.ResponseWriter, err error) {
 		problem(w, http.StatusBadRequest, "invalid_value", pg.Message, nil)
 	case errors.As(err, &pg) && pg.Code == "23505":
 		problem(w, http.StatusConflict, "duplicate", "it exists already", nil)
+	case errors.As(err, &pg) && (pg.Code == "AP002" || pg.Code == "AP003"):
+		problem(w, http.StatusForbidden, "forbidden", pg.Message, nil)
+	case errors.As(err, &pg) && pg.Code == "AP004":
+		problem(w, http.StatusConflict, "not_applicable", pg.Message, nil)
+	case errors.As(err, &pg) && pg.Code == "AP005":
+		problem(w, http.StatusBadRequest, "invalid_value", pg.Message, nil)
 	case errors.As(err, &pg) && pg.Code == "P0002", errors.Is(err, errNotFound):
 		problem(w, http.StatusNotFound, "not_found", "", nil)
 	default:

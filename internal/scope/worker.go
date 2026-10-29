@@ -228,6 +228,40 @@ func (r *inactivityWorker) Work(ctx context.Context, _ *river.Job[InactivityArgs
 	return err
 }
 
+// SoDArgs is the hourly separation-of-duties exception sweep (F-001 T-27,
+// AC-53), with the expiry of pending approval requests (T-26).
+type SoDArgs struct{}
+
+// Kind implements river.JobArgs.
+func (SoDArgs) Kind() string { return "iam.sod_sweep" }
+
+// SweepSoD ends expired SoD exceptions, suspending custom roles that still
+// break a rule (iam.sod_exception_sweep), and expires overdue approval
+// requests. It returns how many roles were suspended.
+func (w *Worker) SweepSoD(ctx context.Context) (int, error) {
+	var n, expired int
+	if err := w.o.Pool.QueryRow(ctx, "SELECT iam.sod_exception_sweep()").Scan(&n); err != nil {
+		return 0, fmt.Errorf("scope: SoD sweep: %w", err)
+	}
+	if err := w.o.Pool.QueryRow(ctx, "SELECT iam.expire_approvals()").Scan(&expired); err != nil {
+		return n, fmt.Errorf("scope: approval expiry: %w", err)
+	}
+	if n > 0 || expired > 0 {
+		w.o.Logger.Info("SoD sweep", "roles_suspended", n, "approvals_expired", expired)
+	}
+	return n, nil
+}
+
+type sodWorker struct {
+	river.WorkerDefaults[SoDArgs]
+	w *Worker
+}
+
+func (r *sodWorker) Work(ctx context.Context, _ *river.Job[SoDArgs]) error {
+	_, err := r.w.SweepSoD(ctx)
+	return err
+}
+
 // ReconcileArgs is the nightly reconciliation job.
 type ReconcileArgs struct{}
 
@@ -275,6 +309,7 @@ func (w *Worker) RiverClient() (*river.Client[pgx.Tx], error) {
 	river.AddWorker(workers, &drainWorker{w: w})
 	river.AddWorker(workers, &reconcileWorker{w: w})
 	river.AddWorker(workers, &inactivityWorker{w: w})
+	river.AddWorker(workers, &sodWorker{w: w})
 	every := w.o.DrainEvery
 	periodic := []*river.PeriodicJob{
 		// A failed drain is not retried: the next tick drains again.
@@ -288,6 +323,10 @@ func (w *Worker) RiverClient() (*river.Client[pgx.Tx], error) {
 		// an hour of crossing auth.inactive_disable_after.
 		river.NewPeriodicJob(river.PeriodicInterval(time.Hour), func() (river.JobArgs, *river.InsertOpts) {
 			return InactivityArgs{}, &river.InsertOpts{MaxAttempts: 3, UniqueOpts: river.UniqueOpts{ByPeriod: time.Hour}}
+		}, &river.PeriodicJobOpts{RunOnStart: true}),
+		// SoD exceptions and approval requests (T-27, T-26): hourly.
+		river.NewPeriodicJob(river.PeriodicInterval(time.Hour), func() (river.JobArgs, *river.InsertOpts) {
+			return SoDArgs{}, &river.InsertOpts{MaxAttempts: 3, UniqueOpts: river.UniqueOpts{ByPeriod: time.Hour}}
 		}, &river.PeriodicJobOpts{RunOnStart: true}),
 	}
 	return river.NewClient(riverpgxv5.New(w.o.Pool), &river.Config{

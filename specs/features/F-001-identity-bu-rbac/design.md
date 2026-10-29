@@ -238,6 +238,7 @@ Until F-015 exists, F-001 ships a minimal settings module that holds the three p
 - **SAML and OIDC interop with Entra ID, Okta and Ping (T-15, T-16):** covered by the dialect fixtures (their namespace and signing conventions) and the live Keycloak run; live runs against those three need test tenants. Open until tenants are available.
 - **ASN database in the release images (T-20):** the gateway reads the iptoasn files from `FAIR_ASN_DB_DIR` and checks prefixes only without them; shipping the files with each release (§10) belongs with the release tooling (F-012). Open until then.
 - **Re-enabling accounts (T-23):** a user disabled for inactivity (or locked) can only be re-enabled by an administrator holding `user.manage`, but no task delivers user administration (`/users` in §6) yet. Resolved by T-23b (2026-10-29).
+- **SCIM interop with Entra ID, Okta and Ping (T-25):** the vendors' provisioning and validators must reach `/scim/v2` from their clouds. This needs tenants for the three and a publicly reachable deployment. Deferred 2026-10-29; open until available.
 - **D-OQ5. Removed or reclassified permissions on upgrade.** T-03 reports them in the catalog diff but does not reject them. T-29 must decide whether a release may remove a key that custom roles reference, and whether reclassifying a permission as non-privileged is allowed.
 
 ## Resolved
@@ -488,3 +489,26 @@ Until F-015 exists, F-001 ships a minimal settings module that holds the three p
     - The T-07 escalation suite now expects a direct mapped insert to be refused as the mappings' alone.
     - Mutations (leaving keeps the assignment, no AC-30 or AC-28 for mapped grants, admin roles mappable below the root, anyone writing mapped assignments, no reactivation) each fail the tests.
 - 2026-10-29: **Proposed:** T-24b, group membership from login claims (not yet approved). With SCIM as the only membership source, IdPs without SCIM and just-in-time users cannot use mappings. T-24b would read a configurable groups attribute (SAML) or claim (OIDC) per IdP at each login and set the user's membership in that IdP's claim-sourced groups (never SCIM-managed ones), which T-24's triggers then turn into mapped assignments.
+- 2026-10-29: T-25 deferred (Robert Former): the vendor SCIM runs need Entra ID, Okta and Ping tenants and a publicly reachable deployment (see §12).
+- 2026-10-29: T-27 implementation notes (migrations 0049, 0050; `internal/iamapi/sod.go`; the scope worker's hourly SoD job). Robert Former approved suspending a custom role when its exception expires, refusing to add or enable a rule that custom roles already break, and checking roles only (AC-53), not users who hold both sides through different roles.
+  - **Rules** (AC-29, `iam.sod_rule`): conflicting permission pairs in a canonical order.
+    - The built-in rule pairs `analysis.edit` with `acceptance.approve` (F-008 enforces it per record) and cannot be disabled.
+    - `sod.manage` adds rules and enables or disables them, with a reason, audited high. Adding or enabling is refused (409, naming the roles) while a custom role already breaks the rule without an exception.
+    - Disabling reactivates roles suspended only for that rule.
+    - Rules hold catalog keys without a foreign key: the catalog is loaded after the migrations (`iam.sync_release`), so keys are checked when a rule is added.
+  - **Enforcement** (AC-53): a trigger on `iam.role_version` refuses a custom role version containing both permissions of an enabled rule unless the role holds a live exception for it (409). Built-in roles are exempt. T-28's editor inherits this check.
+  - **Exceptions:**
+    - Requested with `POST /api/v1/sod-exceptions` (`role.manage`; expiry within a year): this creates a T-26 `sod.exception` request.
+    - Decided at `/api/v1/approvals/{id}/decision` by a holder of `sod.manage` other than the requester.
+    - Applied once with `POST /api/v1/sod-exceptions/apply`, which consumes the approval. The requester and approver recorded are the ones the engine returns.
+    - Revoked by `sod.manage` (`DELETE`). Every step is audited.
+  - **Expiry:** the worker's hourly job ends expired exceptions and suspends a custom role whose current version still breaks an enabled rule without one (new role status `suspended`, migration 0049, audited high). A suspended role grants nothing and takes no new assignments, because every check requires `active`. A clean version or a new exception makes it active again. Revocation re-checks at once.
+  - **Approvals over HTTP** (design §6 `/approvals`, never built): `GET /api/v1/approvals` (made by or decidable by the caller; `?pending=true`), `GET /api/v1/approvals/{id}` and `POST /api/v1/approvals/{id}/decision`, over T-26's engine (`approvals.Service`). The same hourly job now also runs `iam.expire_approvals`, which nothing scheduled before.
+  - **Correction to the T-26 notes:** since migration 0018 (F-015), `iam.consume_approval` returns `{payload, requested_by, decided_by}`, not the bare payload. The exception function guards against a missing payload, which is how this was found.
+  - Verification:
+    - DB through the gateway (`TestSoDBlocksCustomRolesUnlessExcepted`, `TestSoDExpiryRevocationSuspend`, `TestSoDRuleManagement`):
+      - The built-in rule is present over catalog permissions. A conflicting custom role or version is refused; one side alone is fine.
+      - The exception flow: applying before approval is refused; self-approval is 403; a non-approver gets 404; the approver sees the request as pending and an unrelated user doesn't; approval by the second admin; applying once only; afterwards the conflicting version saves. The audit names the approver. Bounds are enforced.
+      - Expiry through the worker suspends the role: it grants nothing, takes no new assignments, and is audited. A clean version reactivates it; revocation suspends at once; a new exception restores it. Overdue approval requests expire.
+      - Rules: refused while a custom role breaks them (naming it), canonical order, same or unknown permission, a duplicate pair, the built-in rule can't be disabled, enabling re-checks, 404 without `role.view`, 403 without `sod.manage`, audit.
+    - Mutations (no check on saving, expiry not suspending, the built-in rule disableable, enabling ignoring breakers, an exception without approval, expired exceptions still counting) each fail the tests.
