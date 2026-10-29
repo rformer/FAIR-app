@@ -63,7 +63,7 @@ func worker(logger *slog.Logger) error {
 
 	pub, err := natspub.Connect(ctx, natspub.Options{
 		Env: env, URL: os.Getenv("FAIR_NATS_URL"), CredsFile: os.Getenv("FAIR_NATS_CREDS_FILE"),
-		Name: "fair-scope-worker", Subjects: []string{scope.SubjectScopeChanged},
+		Name: "fair-scope-worker", Subjects: scope.Subjects,
 	})
 	if err != nil {
 		return err

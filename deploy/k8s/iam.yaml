@@ -167,7 +167,8 @@ spec:
     - ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]
 ---
 # F-001 T-08: scope worker. Keeps authz.user_scope current and publishes
-# iam.scope.changed. Connects as app_rw, which may only call the worker
+# iam.scope.changed, iam.session.revoked and iam.user.deactivated (T-22; the
+# JetStream streams capturing them are the installer's). Connects as app_rw, which may only call the worker
 # functions; it cannot write scope tables directly.
 apiVersion: apps/v1
 kind: Deployment

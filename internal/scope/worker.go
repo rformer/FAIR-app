@@ -31,6 +31,16 @@ import (
 // SubjectScopeChanged is published for every user whose scope changed.
 const SubjectScopeChanged = "iam.scope.changed"
 
+// Subjects the worker publishes events to (every non-audit topic of
+// iam.event_outbox); the installer provisions JetStream streams capturing
+// them all, and the worker refuses to start otherwise: an event it cannot
+// publish would hold back every later one, audit events included.
+var Subjects = []string{
+	SubjectScopeChanged,
+	"iam.session.revoked",  // F-001 T-13: a session ended early
+	"iam.user.deactivated", // F-001 T-22: a user stopped being active
+}
+
 // RiverSchema holds River's tables (migrations 0007, 0008).
 const RiverSchema = "river"
 

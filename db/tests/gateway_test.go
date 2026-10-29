@@ -312,9 +312,18 @@ func TestGatewayTimeouts(t *testing.T) {
 		t.Fatal("last_seen not refreshed after a minute")
 	}
 
-	// A user disabled (e.g. by SCIM) loses every session at the next request.
+	// A user disabled (e.g. by SCIM) loses every session at once (T-22:
+	// revoked with the deactivation, not at the next request).
 	e.mustOwner("UPDATE iam.app_user SET status = 'disabled' WHERE email = 'user@example.test'")
-	ended(d, "disabled", "user_disabled")
+	if got := ge.sessionRow(t, d, "revoked_reason"); got != "user_disabled" {
+		t.Fatalf("revoked_reason %q before any request", got)
+	}
+	if r := ge.do(t, "GET", "/api/v1/me", d, nil, nil); r.code != 401 || !strings.Contains(r.raw, "disabled") {
+		t.Fatalf("disabled user's session: %d %s", r.code, r.raw)
+	}
+	if got := e.adminQuery("SELECT count(*) FROM iam.event_outbox WHERE topic = 'audit' AND payload->>'type' = 'session.revoked' AND payload->>'reason' = 'user_disabled'"); got != "1" {
+		t.Fatalf("user_disabled audit events: %s", got)
+	}
 }
 
 // AC-33: users see and revoke their own sessions; admins with session.view
