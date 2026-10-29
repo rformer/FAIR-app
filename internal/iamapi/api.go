@@ -40,6 +40,11 @@
 //	DELETE /api/v1/sod-exceptions/{id}         revoke          sod.manage
 //	GET    /api/v1/approvals[/{id}]            requests made or decidable
 //	POST   /api/v1/approvals/{id}/decision     approve, reject (T-26 rules)
+//
+// T-28 adds custom roles:
+//
+//	GET    /api/v1/permissions, /roles[/{id}], /roles/{id}/versions, /roles/{id}/diff   role.view
+//	POST   /api/v1/roles, /roles/{id}/clone, /roles/{id}/retire; PUT /roles/{id}         role.manage
 package iamapi
 
 import (
@@ -109,6 +114,15 @@ var routes = []route{
 	{"GET", "/api/v1/approvals", (*API).listApprovals},
 	{"GET", "/api/v1/approvals/{id}", (*API).getApproval},
 	{"POST", "/api/v1/approvals/{id}/decision", (*API).decideApproval},
+	{"GET", "/api/v1/permissions", (*API).listPermissions},
+	{"GET", "/api/v1/roles", (*API).listRoles},
+	{"POST", "/api/v1/roles", (*API).createRole},
+	{"GET", "/api/v1/roles/{id}", (*API).getRole},
+	{"PUT", "/api/v1/roles/{id}", (*API).updateRole},
+	{"GET", "/api/v1/roles/{id}/versions", (*API).roleVersions},
+	{"GET", "/api/v1/roles/{id}/diff", (*API).roleDiff},
+	{"POST", "/api/v1/roles/{id}/clone", (*API).cloneRole},
+	{"POST", "/api/v1/roles/{id}/retire", (*API).retireRole},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).
@@ -122,7 +136,7 @@ func Routes() []string {
 }
 
 // Prefixes are the path prefixes the API owns (for the service's mux).
-var Prefixes = []string{"/api/v1/idps", "/api/v1/banner", "/api/v1/users", "/api/v1/groups", "/api/v1/group-mappings", "/api/v1/sod-rules", "/api/v1/sod-exceptions", "/api/v1/approvals"}
+var Prefixes = []string{"/api/v1/idps", "/api/v1/banner", "/api/v1/users", "/api/v1/groups", "/api/v1/group-mappings", "/api/v1/sod-rules", "/api/v1/sod-exceptions", "/api/v1/approvals", "/api/v1/permissions", "/api/v1/roles"}
 
 // Handler returns the API with authentication and idempotency in front.
 func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {
@@ -200,6 +214,8 @@ func fail(w http.ResponseWriter, err error) {
 		problem(w, http.StatusConflict, "not_applicable", pg.Message, nil)
 	case errors.As(err, &pg) && (pg.Code == "PF004" || pg.Code == "23514" || pg.Code == "22023"):
 		problem(w, http.StatusBadRequest, "invalid_value", pg.Message, nil)
+	case errors.As(err, &pg) && pg.Code == "PF010":
+		problem(w, http.StatusConflict, "stale_version", pg.Message, nil)
 	case errors.As(err, &pg) && pg.Code == "23505":
 		problem(w, http.StatusConflict, "duplicate", "it exists already", nil)
 	case errors.As(err, &pg) && (pg.Code == "AP002" || pg.Code == "AP003"):

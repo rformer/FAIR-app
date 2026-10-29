@@ -512,3 +512,28 @@ Until F-015 exists, F-001 ships a minimal settings module that holds the three p
       - Expiry through the worker suspends the role: it grants nothing, takes no new assignments, and is audited. A clean version reactivates it; revocation suspends at once; a new exception restores it. Overdue approval requests expire.
       - Rules: refused while a custom role breaks them (naming it), canonical order, same or unknown permission, a duplicate pair, the built-in rule can't be disabled, enabling re-checks, 404 without `role.view`, 403 without `sod.manage`, audit.
     - Mutations (no check on saving, expiry not suspending, the built-in rule disableable, enabling ignoring breakers, an exception without approval, expired exceptions still counting) each fail the tests.
+- 2026-10-29: T-28 implementation notes (migration 0051, `internal/iamapi/roles.go`).
+  - **API** (design §6 `/roles`, `/permissions`): role.view somewhere reads (404 otherwise); role.manage at the root changes (403), with a reason:
+    - `GET /api/v1/permissions`: the catalog with `privileged` and `risk_data` flags (AC-54).
+    - `GET /api/v1/roles[/{id}]`: each role's current permissions, its privileged ones listed apart, and its assignments, users and group mappings.
+    - `GET /api/v1/roles/{id}/versions`.
+    - `POST /api/v1/roles`; `POST /api/v1/roles/{id}/clone`, from built-in or custom roles (AC-51, AC-52).
+    - `PUT /api/v1/roles/{id}`: a new version (AC-55).
+    - `POST /api/v1/roles/{id}/retire`.
+  - **Before saving** (AC-55, §5.6): `GET /api/v1/roles/{id}/diff?permissions=...` returns the permissions added and removed, the privileged ones added, the number of active users holding the role (directly, through groups or mapped), any separation-of-duties conflicts, and how many holders would combine admin with risk-data permissions. A `PUT` names the version it was reviewed against (`expected_version`); another version landing in between is a 409 (`stale_version`), and so is saving no change.
+  - **Rules on save:**
+    - Built-in roles stay read-only (AC-52; 409 here, and 0004's trigger below).
+    - The T-27 trigger blocks SoD pairs (AC-53).
+    - A version that would give any holder both admin and risk-data permissions is refused (AC-30), closing T-07's open point that the check must run when roles change. As for assignments, this is a refusal until AC-30's approval route exists.
+    - A retired role takes no versions. At least one permission is required.
+    - Adding privileged permissions, at creation, clone or edit, emits `role.privileged_added` at high severity (AC-54). Every change is audited (`role.created`, `role.cloned`, `role.updated`, `role.retired`).
+  - **Retiring** (AC-56): refused while the role has live assignments (direct, group or mapped) or live group mappings, with the counts. A retired role takes no assignments.
+  - Verification:
+    - DB through the gateway (`TestCustomRoleLifecycle`, `TestCustomRoleAccess`):
+      - The catalog's flags. Create, then the refusals: duplicate, unknown permission, empty, no reason.
+      - Clone a built-in role (identical permissions, privileged flagged); built-in roles can't be edited or retired.
+      - The diff (added, removed, privileged, affected users); a save, its audit and versions, and the holder gaining the new permission.
+      - Refusals: a stale version, no change, a missing version, an SoD pair, and an edit combining admin and risk data for a holder (with the diff showing it first).
+      - Retirement refused while assigned and while mapped, then allowed and audited; a retired role can't be edited or assigned.
+      - 404 without `role.view`; 403 without `role.manage`.
+    - Mutations (stale versions accepted, privileged additions unflagged, held roles retirable, no AC-30 on edit, retired roles editable, built-in roles editable through the API) each fail the tests.

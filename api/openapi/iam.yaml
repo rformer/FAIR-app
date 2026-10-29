@@ -160,6 +160,20 @@ components:
         expires_at: { type: string, format: date-time }
         decided_at: { type: [string, "null"], format: date-time }
         consumed_at: { type: [string, "null"], format: date-time }
+    Role:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        builtin: { type: boolean }
+        status: { enum: [active, suspended, retired] }
+        current_version: { type: integer }
+        permissions: { type: array, items: { type: string } }
+        privileged: { type: array, items: { type: string }, description: The role's privileged permissions (AC-54) }
+        created_at: { type: string, format: date-time }
+        assignments: { type: integer }
+        users: { type: integer }
+        group_mappings: { type: integer }
     Pinning:
       type: object
       required: [error, current, fingerprints]
@@ -804,6 +818,195 @@ paths:
             application/json:
               schema: { type: object, properties: { id: { type: string }, status: { enum: [approved, rejected] } } }
         "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /permissions:
+    get:
+      summary: The permission catalog, privileged and risk-data flags included (AC-54)
+      x-permission: role.view
+      responses:
+        "200":
+          description: Permissions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  permissions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key: { type: string }
+                        resource_type: { type: string }
+                        action: { enum: [read, write, approve, admin, export] }
+                        privileged: { type: boolean }
+                        risk_data: { type: boolean }
+        "404": { $ref: "#/components/responses/Error" }
+  /roles:
+    get:
+      summary: Built-in and custom roles (T-28)
+      x-permission: role.view
+      responses:
+        "200":
+          description: Roles
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  roles: { type: array, items: { $ref: "#/components/schemas/Role" } }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Create a custom role from catalog permissions (AC-51)
+      description: |
+        Refused (409) when it combines a separation-of-duties pair without an exception (AC-53).
+        Privileged permissions are audited at high severity (AC-54).
+      x-permission: role.manage
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, permissions, reason]
+              additionalProperties: false
+              properties:
+                name: { type: string, maxLength: 100 }
+                permissions: { type: array, items: { type: string }, minItems: 1 }
+                reason: { type: string }
+      responses:
+        "201": { description: Created (version 1) }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /roles/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      summary: A role with its current permissions, privileged ones flagged, and its holders
+      x-permission: role.view
+      responses:
+        "200":
+          description: The role
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Role" }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      summary: Save a new version of a custom role (AC-55)
+      description: |
+        `expected_version` is the version the change was reviewed against (see `/diff`); if another
+        version landed since, 409 `stale_version`. Built-in roles are refused (AC-52). Refused (409) when
+        a holder would combine admin and risk-data permissions (AC-30) or a separation-of-duties pair
+        appears without an exception (AC-53). A retired role takes no versions.
+      x-permission: role.manage
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [permissions, expected_version, reason]
+              additionalProperties: false
+              properties:
+                permissions: { type: array, items: { type: string }, minItems: 1 }
+                expected_version: { type: integer }
+                reason: { type: string }
+      responses:
+        "200":
+          description: The new version
+          content:
+            application/json:
+              schema: { type: object, properties: { id: { type: string }, version: { type: integer } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /roles/{id}/versions:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      summary: A role's versions, newest first
+      x-permission: role.view
+      responses:
+        "200": { description: Versions }
+        "404": { $ref: "#/components/responses/Error" }
+  /roles/{id}/diff:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      summary: Preview saving these permissions as the next version (AC-55)
+      x-permission: role.view
+      parameters:
+        - { name: permissions, in: query, required: true, description: Comma-separated catalog keys, schema: { type: string } }
+      responses:
+        "200":
+          description: The change
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  current_version: { type: integer }
+                  added: { type: array, items: { type: string } }
+                  removed: { type: array, items: { type: string } }
+                  privileged_added: { type: array, items: { type: string } }
+                  affected_users: { type: integer, description: Active users holding the role (directly, through groups or mapped) }
+                  sod_conflicts: { type: array, items: { type: object } }
+                  admin_risk_users: { type: integer, description: Holders who would combine admin and risk-data permissions (AC-30) }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /roles/{id}/clone:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      summary: Clone a built-in or custom role under a new name (AC-51, AC-52)
+      x-permission: role.manage
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, reason]
+              additionalProperties: false
+              properties:
+                name: { type: string }
+                reason: { type: string }
+      responses:
+        "201": { description: The clone (version 1) }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /roles/{id}/retire:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      summary: Retire a custom role nobody holds (AC-56)
+      description: Refused (409, with the counts) while it has live assignments or group mappings.
+      x-permission: role.manage
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                reason: { type: string }
+      responses:
+        "200": { description: Retired }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
