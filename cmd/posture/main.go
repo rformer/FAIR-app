@@ -172,7 +172,11 @@ func seed(profile, version, actor string) error {
 		return err
 	}
 	defer pool.Close()
-	s, err := posture.Seed(ctx, pool, audit.NewJSONLines(os.Stdout), actor, profile, version)
+	sink, err := auditSink()
+	if err != nil {
+		return err
+	}
+	s, err := posture.Seed(ctx, pool, sink, actor, profile, version)
 	if err != nil {
 		return err
 	}
@@ -188,7 +192,11 @@ func k8sAccess(cmd, reason, actor string) error {
 		return err
 	}
 	defer pool.Close()
-	k := posture.K8sAccess{DB: pool, Audit: audit.NewJSONLines(os.Stdout)}
+	sink, err := auditSink()
+	if err != nil {
+		return err
+	}
+	k := posture.K8sAccess{DB: pool, Audit: sink}
 	state := map[string]string{"grant": posture.AccessGranted, "decline": posture.AccessDeclined,
 		"request": posture.AccessRequested, "revoke": posture.AccessRevoked}[cmd]
 	if cmd != "status" {
@@ -245,7 +253,11 @@ func importDir(pubFile, dir, actor string) error {
 		return err
 	}
 	defer pool.Close()
-	res, err := posture.Import(ctx, pool, audit.NewJSONLines(os.Stdout), pub, actor, files)
+	sink, err := auditSink()
+	if err != nil {
+		return err
+	}
+	res, err := posture.Import(ctx, pool, sink, pub, actor, files)
 	if err != nil {
 		return err
 	}
@@ -298,7 +310,10 @@ func run() error {
 		})
 	}
 
-	emitter := audit.NewJSONLines(os.Stdout) // replaced by the F-002 pipeline; see pkg/audit
+	emitter, err := auditSink()
+	if err != nil {
+		return err
+	}
 	// AC-25: 14-, 7- and 1-day exception expiry notices.
 	go posture.RunNotices(ctx, pool, emitter, time.Minute, func(err error) {
 		logger.Error("exception expiry notices", "error", err.Error())
@@ -544,4 +559,16 @@ func verifyExport(pubFile, docFile, stFile, sigFile string) error {
 	}
 	fmt.Println("export verified")
 	return nil
+}
+
+// auditSink is the service's security event emitter (F-001 T-37, AC-50):
+// JSON lines on stdout and, when FAIR_AUDIT_SYSLOG_ADDR is set, syslog over
+// TLS; every event checked against the catalog. The F-002 audit trail
+// replaces it.
+func auditSink() (audit.Emitter, error) {
+	env := os.Getenv("FAIR_ENV")
+	if env == "" {
+		env = "production"
+	}
+	return audit.FromEnv(env, "fair-posture", os.Getenv)
 }

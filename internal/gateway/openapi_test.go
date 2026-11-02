@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	yaml "go.yaml.in/yaml/v3"
+
+	"github.com/rformer/fair-app/pkg/audit"
 )
 
 // The published OpenAPI document and the gateway's own routes are the same
@@ -19,9 +21,11 @@ func TestOpenAPIMatchesRoutes(t *testing.T) {
 	}
 	var doc struct {
 		Paths map[string]map[string]struct {
-			Permission string            `yaml:"x-permission"`
-			Parameters []map[string]any  `yaml:"parameters"`
-			Security   *[]map[string]any `yaml:"security"`
+			Permission  string            `yaml:"x-permission"`
+			Parameters  []map[string]any  `yaml:"parameters"`
+			Security    *[]map[string]any `yaml:"security"`
+			AuditEvents *[]string         `yaml:"x-audit-events"`
+			AuditNote   string            `yaml:"x-audit-note"`
 		} `yaml:"paths"`
 	}
 	if err := yaml.Unmarshal(b, &doc); err != nil {
@@ -34,6 +38,11 @@ func TestOpenAPIMatchesRoutes(t *testing.T) {
 			documented = append(documented, m+" /api/v1"+path)
 			if op.Permission == "" {
 				t.Errorf("%s %s: no x-permission", m, path)
+			}
+			if m != "GET" {
+				if err := audit.CheckDeclaredEvents(op.AuditEvents, op.AuditNote); err != nil { // T-37, AC-50
+					t.Errorf("%s %s: %v", m, path, err)
+				}
 			}
 			sessionless := op.Security != nil && len(*op.Security) == 0 // the token endpoint
 			if m != "GET" && !sessionless && !slices.ContainsFunc(op.Parameters, func(p map[string]any) bool {

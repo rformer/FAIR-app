@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fair.example/schemas/audit-event.json",
+  "title": "FAIR security event",
+  "description": "F-001 AC-50 (T-37): the envelope of every security event, as the JSON-lines and syslog sinks carry it (the syslog message body). The event types are listed in catalog.yaml.",
+  "type": "object",
+  "required": ["id", "time", "type", "severity", "actor"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "time": { "type": "string", "format": "date-time" },
+    "type": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$" },
+    "severity": { "enum": ["info", "low", "high", "critical"] },
+    "actor": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A user or service account id, system:<component>, operator:<name>, scim:<token id> or anonymous"
+    },
+    "target": { "type": "string" },
+    "reason": { "type": "string" },
+    "before": {},
+    "after": {},
+    "request_id": { "type": "string" },
+    "source_ip": { "type": "string" },
+    "attributes": { "type": "object", "additionalProperties": { "type": "string" } }
+  }
+}

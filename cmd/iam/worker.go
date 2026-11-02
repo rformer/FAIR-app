@@ -15,7 +15,6 @@ import (
 	"github.com/rformer/fair-app/internal/dbconn"
 	"github.com/rformer/fair-app/internal/natspub"
 	"github.com/rformer/fair-app/internal/scope"
-	"github.com/rformer/fair-app/pkg/audit"
 )
 
 // runWorker implements `iam worker` (F-001 T-08): the scope worker that keeps
@@ -70,9 +69,13 @@ func worker(logger *slog.Logger) error {
 	}
 	defer pub.Close()
 
+	sink, err := auditSink()
+	if err != nil {
+		return err
+	}
 	w := scope.New(scope.Options{
 		Pool: pool, Publisher: pub, Logger: logger,
-		Audit: audit.NewJSONLines(os.Stdout), // replaced by the F-002 pipeline; see pkg/audit
+		Audit: sink,
 	})
 	client, err := w.RiverClient()
 	if err != nil {

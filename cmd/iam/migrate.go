@@ -63,7 +63,11 @@ func runMigrate() int {
 
 	// Audit failures fail closed (ADR-006): the run reports failure if its
 	// evidence cannot be recorded.
-	emitter := audit.NewJSONLines(os.Stdout) // replaced by the F-002 pipeline; see pkg/audit
+	emitter, err := auditSink()
+	if err != nil {
+		logger.Error("audit sink", "error", err.Error())
+		return 1
+	}
 	sev := audit.SeverityInfo
 	s := res.Sync
 	if s.PreviousVersion > 0 && len(s.AddedPermissions)+len(s.RetiredPermissions)+len(s.ReclassifiedPermissions)+len(s.CustomRolesChanged) > 0 {

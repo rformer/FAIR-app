@@ -114,11 +114,21 @@ type Memory struct {
 // NewMemory returns an empty in-memory sink.
 func NewMemory() *Memory { return &Memory{now: time.Now} }
 
-// Emit implements Emitter.
+// Emit implements Emitter. With SetStrict on it refuses events the
+// catalog does not describe, as Validating does.
 func (m *Memory) Emit(_ context.Context, e Event) error {
 	e, err := Normalize(e, m.now())
 	if err != nil {
 		return err
+	}
+	if strict.Load() {
+		c, err := DefaultCatalog()
+		if err != nil {
+			return err
+		}
+		if err := c.Validate(e); err != nil {
+			return err
+		}
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()

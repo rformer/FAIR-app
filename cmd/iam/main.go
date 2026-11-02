@@ -74,7 +74,10 @@ func run() error {
 		return fmt.Errorf("FIPS 140 mode is required but not enabled (build with GOFIPS140 and run with GODEBUG=fips140=on)")
 	}
 
-	emitter := audit.NewJSONLines(os.Stdout) // replaced by the F-002 pipeline; see pkg/audit
+	emitter, err := auditSink()
+	if err != nil {
+		return err
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -215,4 +218,16 @@ func registerF001(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) 
 		case <-time.After(30 * time.Second):
 		}
 	}
+}
+
+// auditSink is the service's security event emitter (F-001 T-37, AC-50):
+// JSON lines on stdout and, when FAIR_AUDIT_SYSLOG_ADDR is set, syslog over
+// TLS; every event checked against the catalog. The F-002 audit trail
+// replaces it.
+func auditSink() (audit.Emitter, error) {
+	env := os.Getenv("FAIR_ENV")
+	if env == "" {
+		env = "production"
+	}
+	return audit.FromEnv(env, "fair-iam", os.Getenv)
 }

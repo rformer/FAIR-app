@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	yaml "go.yaml.in/yaml/v3"
+
+	"github.com/rformer/fair-app/pkg/audit"
 )
 
 // The published OpenAPI document and the routes served are the same set,
@@ -34,9 +36,16 @@ func TestOpenAPIMatchesRoutes(t *testing.T) {
 				Permission      string           `yaml:"x-permission"`
 				Unauthenticated bool             `yaml:"x-unauthenticated"`
 				Parameters      []map[string]any `yaml:"parameters"`
+				AuditEvents     *[]string        `yaml:"x-audit-events"`
+				AuditNote       string           `yaml:"x-audit-note"`
 			}
 			if err := node.Decode(&op); err != nil {
 				t.Fatal(err)
+			}
+			if method != "get" {
+				if err := audit.CheckDeclaredEvents(op.AuditEvents, op.AuditNote); err != nil { // T-37, AC-50
+					t.Errorf("%s %s: %v", strings.ToUpper(method), path, err)
+				}
 			}
 			if op.Unauthenticated {
 				continue

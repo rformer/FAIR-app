@@ -81,6 +81,7 @@ func setup(t *testing.T) *env {
 		t.Fatalf("migrate: %v", err)
 	}
 	e.install = res
+	t.Cleanup(e.checkAuditCatalog) // runs before the database is dropped
 	return e
 }
 

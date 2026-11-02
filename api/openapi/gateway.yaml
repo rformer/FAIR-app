@@ -113,6 +113,7 @@ paths:
         "401": { description: No live session, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
   /auth/banner/ack:
     post:
+      x-audit-events: [session.banner_acknowledged]
       summary: Acknowledge the system-use banner for this session
       x-permission: none (own session)
       parameters: [{ $ref: "#/components/parameters/CSRF" }]
@@ -131,6 +132,7 @@ paths:
         "409": { description: The banner changed; read /me again, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
   /auth/logout:
     post:
+      x-audit-events: [session.revoked]
       summary: End this session and clear the cookie
       x-permission: none (own session)
       parameters: [{ $ref: "#/components/parameters/CSRF" }]
@@ -141,12 +143,14 @@ paths:
       x-permission: none (own sessions)
       responses: { "200": { description: Sessions, content: { application/json: { schema: { type: object, properties: { sessions: { type: array, items: { $ref: "#/components/schemas/Session" } } } } } } } }
     delete:
+      x-audit-events: [session.revoked]
       summary: Revoke the user's other sessions (sign out everywhere else)
       x-permission: none (own sessions)
       parameters: [{ $ref: "#/components/parameters/CSRF" }]
       responses: { "200": { description: How many were revoked } }
   /me/sessions/{handle}:
     delete:
+      x-audit-events: [session.revoked]
       summary: Revoke one of the user's sessions
       x-permission: none (own sessions); session.revoke for another user's
       parameters: [{ $ref: "#/components/parameters/Handle" }, { $ref: "#/components/parameters/CSRF" }]
@@ -158,6 +162,7 @@ paths:
       parameters: [{ $ref: "#/components/parameters/User" }]
       responses: { "200": { description: Sessions }, "403": { description: Forbidden } }
     delete:
+      x-audit-events: [session.revoked]
       summary: Revoke every session of a user
       x-permission: session.revoke (for another user; with a reason)
       parameters: [{ $ref: "#/components/parameters/User" }, { $ref: "#/components/parameters/CSRF" }]
@@ -165,6 +170,7 @@ paths:
       responses: { "200": { description: How many were revoked }, "403": { description: Forbidden }, "422": { description: A reason is required } }
   /sessions/{handle}:
     delete:
+      x-audit-events: [session.revoked]
       summary: Revoke a session
       x-permission: session.revoke (for another user's; with a reason)
       parameters: [{ $ref: "#/components/parameters/Handle" }, { $ref: "#/components/parameters/CSRF" }]
@@ -172,6 +178,7 @@ paths:
       responses: { "204": { description: Revoked }, "403": { description: Forbidden }, "404": { description: Not found }, "422": { description: A reason is required } }
   /oauth/token:
     post:
+      x-audit-events: [authn.client_credentials, authn.client_credentials_failed]
       summary: Issue a service account's access token (client credentials)
       description: |
         `grant_type=client_credentials`. The client authenticates with its client secret

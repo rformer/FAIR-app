@@ -1,0 +1,637 @@
+# F-001 T-37 (AC-50, AC-54): the security event catalog. Every event type the
+# platform emits, with its AC-50 category, the severities it may carry and the
+# fields it must have (beyond the envelope in event.schema.json). The catalog test
+# checks that the code emits exactly these types; audit.Validating refuses others.
+events:
+  - type: access.assignment_expired
+    category: access
+    severities: [low]
+    requires: [target]
+    description: "An expired role assignment was revoked by the system (T-32)"
+  - type: approval.approved
+    category: approval
+    severities: [high]
+    requires: [target]
+    description: "A dual-approval request was approved by a second administrator (T-26)"
+  - type: approval.consumed
+    category: approval
+    severities: [info]
+    requires: [target]
+    description: "An approved request was applied"
+  - type: approval.expired
+    category: approval
+    severities: [info]
+    requires: [target]
+    description: "A pending approval request expired"
+  - type: approval.rejected
+    category: approval
+    severities: [info]
+    requires: [target]
+    description: "A dual-approval request was rejected"
+  - type: approval.requested
+    category: approval
+    severities: [info]
+    requires: [target]
+    description: "A dual-approval request was created"
+  - type: assignment.mapped_granted
+    category: access
+    severities: [info]
+    requires: [target]
+    description: "A group mapping gave a member its role (T-24)"
+  - type: assignment.mapped_revoked
+    category: access
+    severities: [info]
+    requires: [target]
+    description: "A group mapping's role was taken from a former member"
+  - type: assignment.mapped_skipped
+    category: access
+    severities: [info, high]
+    requires: [target]
+    description: "A group mapping could not give a member its role (inactive, or a rule conflict)"
+  - type: audit.invalid_event
+    category: system
+    severities: [critical]
+    description: "An event that did not match this catalog, recorded instead of it (a defect; the original is attached)"
+  - type: authn.client_credentials
+    category: token
+    severities: [info]
+    requires: [target]
+    description: "A service account obtained an access token (T-33)"
+  - type: authn.client_credentials_failed
+    category: token
+    severities: [low, high]
+    requires: [target]
+    description: "A service account's token request failed authentication"
+  - type: authn.login.denied
+    category: authentication
+    severities: [low, high]
+    description: "A sign-in was refused (unknown or inactive user, failed check)"
+  - type: authn.login.success
+    category: authentication
+    severities: [info]
+    requires: [target]
+    description: "A user signed in through an IdP"
+  - type: authn.mfa_missing
+    category: authentication
+    severities: [high]
+    requires: [target]
+    description: "A sign-in was refused for lacking the required MFA (T-18), or a phishing-resistant method for a privileged user (T-36)"
+  - type: authz.scope.drift
+    category: access
+    severities: [high]
+    description: "The nightly reconciliation found a user's stored scope out of date and repaired it"
+  - type: banner.changed
+    category: configuration
+    severities: [high]
+    requires: [target]
+    description: "The system-use notification text changed (T-19)"
+  - type: breakglass.accounts_disabled
+    category: breakglass
+    severities: [high]
+    requires: [target]
+    description: "Break-glass accounts were disabled because break-glass turned off (disabling, expiry, profile switch)"
+  - type: breakglass.disabled
+    category: breakglass
+    severities: [high]
+    requires: [target]
+    description: "Break-glass was disabled (AC-45)"
+  - type: breakglass.emergency_enabled
+    category: breakglass
+    severities: [critical]
+    requires: [target]
+    description: "An operator enabled break-glass during an IdP outage (T-35)"
+  - type: breakglass.enabled
+    category: breakglass
+    severities: [high]
+    requires: [target]
+    description: "Break-glass was enabled, at install or after a second approval (AC-40, AC-41)"
+  - type: breakglass.enrolled
+    category: breakglass
+    severities: [high]
+    requires: [target]
+    description: "A break-glass holder registered a security key"
+  - type: breakglass.enrollment_reset
+    category: breakglass
+    severities: [high]
+    requires: [target]
+    description: "A break-glass account got a new enrollment code; its keys were removed"
+  - type: breakglass.login
+    category: breakglass
+    severities: [high]
+    requires: [target]
+    description: "A break-glass account signed in (AC-43)"
+  - type: breakglass.login_failed
+    category: breakglass
+    severities: [high]
+    requires: [target]
+    description: "A break-glass sign-in of a known account failed (counts towards lockout)"
+  - type: bu.created
+    category: bu_restriction
+    severities: [high]
+    requires: [target]
+    description: "A BU was created (T-31 import)"
+  - type: bu.moved
+    category: bu_restriction
+    severities: [info]
+    description: "A BU was moved in the tree"
+  - type: bu.renamed
+    category: bu_restriction
+    severities: [high]
+    requires: [target]
+    description: "A BU was renamed"
+  - type: bu.restricted
+    category: bu_restriction
+    severities: [high]
+    requires: [target]
+    description: "A BU was restricted (AC-59)"
+  - type: bu.rollup_loosened
+    category: bu_restriction
+    severities: [high]
+    requires: [target]
+    description: "A restricted BU's roll-up visibility was loosened after approval (AC-63)"
+  - type: bu.rollup_tightened
+    category: bu_restriction
+    severities: [high]
+    requires: [target]
+    description: "A restricted BU's roll-up visibility was tightened"
+  - type: bu.unrestricted
+    category: bu_restriction
+    severities: [high]
+    requires: [target]
+    description: "A BU was un-restricted after approval (AC-63)"
+  - type: catalog.notices_acknowledged
+    category: role_permission
+    severities: [info]
+    requires: [target]
+    description: "Administrators acknowledged permission-catalog notices (T-29)"
+  - type: catalog.permission_reclassified
+    category: role_permission
+    severities: [high]
+    requires: [target]
+    description: "A release reclassified a permission (action, privileged or risk-data flag)"
+  - type: catalog.permission_restored
+    category: role_permission
+    severities: [high]
+    requires: [target]
+    description: "A release restored a retired permission"
+  - type: catalog.permission_retired
+    category: role_permission
+    severities: [high]
+    requires: [target]
+    description: "A release retired a permission"
+  - type: db.migrated
+    category: system
+    severities: [info, high]
+    description: "Database migrations and the release catalog were applied"
+  - type: group_mapping.created
+    category: access
+    severities: [high]
+    requires: [target]
+    description: "A group-to-role mapping was created (T-24)"
+  - type: group_mapping.removed
+    category: access
+    severities: [high]
+    requires: [target]
+    description: "A group-to-role mapping was removed"
+  - type: idp.created
+    category: configuration
+    severities: [high]
+    description: "An identity provider was configured (T-17)"
+  - type: idp.disabled
+    category: configuration
+    severities: [high]
+    requires: [target]
+    description: "An identity provider was disabled"
+  - type: idp.enabled
+    category: configuration
+    severities: [high]
+    requires: [target]
+    description: "An identity provider was enabled"
+  - type: idp.metadata_changed
+    category: configuration
+    severities: [high]
+    requires: [target]
+    description: "An identity provider's metadata or trust anchors changed"
+  - type: idp.mfa_rule_changed
+    category: configuration
+    severities: [high]
+    requires: [target]
+    description: "An identity provider's MFA evidence rule changed (T-18)"
+  - type: idp.updated
+    category: configuration
+    severities: [high]
+    description: "An identity provider's settings changed"
+  - type: overlay.change_requested
+    category: configuration
+    severities: [high]
+    requires: [target]
+    description: "A Restricted BU overlay change was requested (F-015 T-23)"
+  - type: overlay.changed
+    category: configuration
+    severities: [info]
+    requires: [target]
+    description: "A Restricted BU overlay value changed"
+  - type: overlay.exception_created
+    category: configuration
+    severities: [high]
+    requires: [target]
+    description: "A Restricted BU overlay exception was approved"
+  - type: overlay.weakened
+    category: configuration
+    severities: [high]
+    description: "SecOps notification (SaaS): the Restricted BU overlay was weakened"
+  - type: posture.drift_acknowledged
+    category: configuration
+    severities: [low]
+    requires: [target]
+    description: "A drift finding was acknowledged (F-015 T-26)"
+  - type: posture.drift_detected
+    category: configuration
+    severities: [high, critical]
+    requires: [target]
+    description: "The drift engine opened a finding (F-015 T-25)"
+  - type: posture.drift_resolved
+    category: configuration
+    severities: [info]
+    requires: [target]
+    description: "A drift finding was resolved"
+  - type: posture.export_fetched
+    category: configuration
+    severities: [low]
+    requires: [target]
+    description: "A signed posture export was fetched (F-015 T-35)"
+  - type: posture.export_mismatch
+    category: configuration
+    severities: [critical]
+    requires: [target]
+    description: "A posture export no longer reproduces from its snapshot"
+  - type: posture.exported
+    category: configuration
+    severities: [high]
+    requires: [target]
+    description: "A signed OSCAL posture export was created"
+  - type: posture.k8s_access_declined
+    category: configuration
+    severities: [high]
+    requires: [target]
+    description: "Kubernetes-access consent was declined (F-015 T-30)"
+  - type: posture.k8s_access_granted
+    category: configuration
+    severities: [info]
+    requires: [target]
+    description: "Kubernetes-access consent was granted or acknowledged"
+  - type: posture.k8s_access_requested
+    category: configuration
+    severities: [low]
+    requires: [target]
+    description: "A change of the Kubernetes permissions awaits acknowledgement"
+  - type: posture.k8s_access_revoked
+    category: configuration
+    severities: [high]
+    requires: [target]
+    description: "Kubernetes-access consent was revoked"
+  - type: posture.package_imported
+    category: configuration
+    severities: [high]
+    requires: [target]
+    description: "A signed profile package was imported (F-015 T-10)"
+  - type: posture.seeded
+    category: configuration
+    severities: [high]
+    requires: [target]
+    description: "The installation's posture was seeded from a profile"
+  - type: profile.activated
+    category: configuration
+    severities: [high]
+    requires: [target]
+    description: "A profile switch was activated (F-015 T-21)"
+  - type: profile.approved
+    category: configuration
+    severities: [high]
+    requires: [target]
+    description: "A custom profile was approved (F-015 T-19)"
+  - type: profile.conflict_resolved
+    category: configuration
+    severities: [info]
+    requires: [target]
+    description: "A profile-switch conflict was resolved"
+  - type: profile.created
+    category: configuration
+    severities: [info]
+    requires: [target]
+    description: "A custom profile was created"
+  - type: profile.imported
+    category: configuration
+    severities: [high]
+    requires: [target]
+    description: "A custom profile was imported (F-015 T-20)"
+  - type: profile.rebased
+    category: configuration
+    severities: [info]
+    requires: [target]
+    description: "A custom profile was rebased on its updated base"
+  - type: profile.reopened
+    category: configuration
+    severities: [info]
+    requires: [target]
+    description: "An approved custom profile was reopened for edits"
+  - type: profile.submitted
+    category: configuration
+    severities: [high]
+    requires: [target]
+    description: "A custom profile was submitted for approval"
+  - type: profile.switch_cancelled
+    category: configuration
+    severities: [info]
+    requires: [target]
+    description: "A pending profile switch was cancelled"
+  - type: profile.switch_requested
+    category: configuration
+    severities: [info, high]
+    requires: [target]
+    description: "A profile switch was requested"
+  - type: profile.switched
+    category: configuration
+    severities: [high]
+    description: "SecOps notification (SaaS): a loosening profile switch was activated"
+  - type: profile.value_changed
+    category: configuration
+    severities: [info, low]
+    requires: [target]
+    description: "A custom profile value was edited"
+  - type: profile.versioned
+    category: configuration
+    severities: [info]
+    requires: [target]
+    description: "A custom profile got a new version"
+  - type: role.cloned
+    category: role_permission
+    severities: [info]
+    requires: [target]
+    description: "A role was created by cloning another (T-28)"
+  - type: role.cloned_from
+    category: role_permission
+    severities: [info]
+    requires: [target]
+    description: "The source of a cloned role"
+  - type: role.created
+    category: role_permission
+    severities: [info]
+    requires: [target]
+    description: "A custom role was created"
+  - type: role.imported
+    category: role_permission
+    severities: [info]
+    requires: [target]
+    description: "A role was created or changed by import (T-29)"
+  - type: role.privileged_added
+    category: role_permission
+    severities: [high]
+    requires: [target]
+    description: "A privileged permission was added to a role (AC-54)"
+  - type: role.reactivated
+    category: role_permission
+    severities: [high]
+    requires: [target]
+    description: "A role suspended for a SoD conflict was reactivated"
+  - type: role.retired
+    category: role_permission
+    severities: [high]
+    requires: [target]
+    description: "A custom role was retired"
+  - type: role.suspended
+    category: role_permission
+    severities: [high]
+    requires: [target]
+    description: "A role was suspended for a SoD conflict (T-27)"
+  - type: role.updated
+    category: role_permission
+    severities: [info, high]
+    requires: [target]
+    description: "A role got a new version"
+  - type: scim.group.created
+    category: scim
+    severities: [info]
+    requires: [target]
+    description: "SCIM created a group (T-21)"
+  - type: scim.group.deleted
+    category: scim
+    severities: [high]
+    requires: [target]
+    description: "SCIM deleted a group"
+  - type: scim.group.updated
+    category: scim
+    severities: [info]
+    requires: [target]
+    description: "SCIM changed a group or its members"
+  - type: scim.user.created
+    category: scim
+    severities: [info]
+    description: "SCIM created a user"
+  - type: scim.user.deactivated
+    category: scim
+    severities: [high]
+    description: "SCIM deactivated a user"
+  - type: scim.user.deleted
+    category: scim
+    severities: [high]
+    requires: [target]
+    description: "SCIM deleted a user"
+  - type: scim.user.reactivated
+    category: scim
+    severities: [high]
+    requires: [target]
+    description: "SCIM reactivated a user"
+  - type: scim.user.updated
+    category: scim
+    severities: [info]
+    requires: [target]
+    description: "SCIM changed a user"
+  - type: service.started
+    category: system
+    severities: [info]
+    description: "A platform service started"
+  - type: service.stopped
+    category: system
+    severities: [info]
+    description: "A platform service stopped"
+  - type: service_account.certificate_added
+    category: service_account
+    severities: [high]
+    requires: [target]
+    description: "An mTLS certificate was registered for a service account (T-33)"
+  - type: service_account.certificate_revoked
+    category: service_account
+    severities: [high]
+    requires: [target]
+    description: "A service account's certificate was revoked"
+  - type: service_account.created
+    category: service_account
+    severities: [high]
+    requires: [target]
+    description: "A service account was created"
+  - type: service_account.disabled
+    category: service_account
+    severities: [high]
+    requires: [target]
+    description: "A service account was disabled"
+  - type: service_account.enabled
+    category: service_account
+    severities: [high]
+    requires: [target]
+    description: "A service account was enabled"
+  - type: service_account.renamed
+    category: service_account
+    severities: [info]
+    requires: [target]
+    description: "A service account was renamed"
+  - type: service_account.scopes_changed
+    category: service_account
+    severities: [high]
+    requires: [target]
+    description: "A service account's API scopes changed"
+  - type: session.banner_acknowledged
+    category: session
+    severities: [info]
+    requires: [target]
+    description: "A session acknowledged the system-use notification (T-19)"
+  - type: session.created
+    category: session
+    severities: [info]
+    description: "A session started (T-13)"
+  - type: session.expired
+    category: session
+    severities: [info]
+    requires: [target]
+    description: "A session ended by timeout"
+  - type: session.network_changed
+    category: session
+    severities: [high]
+    requires: [target]
+    description: "A session's client left the network it signed in from (T-20)"
+  - type: session.revoked
+    category: session
+    severities: [info, high]
+    description: "A session was revoked (logout, administrator, deactivation, network binding)"
+  - type: setting.change_requested
+    category: configuration
+    severities: [high]
+    requires: [target]
+    description: "A posture setting change awaits approval (F-015)"
+  - type: setting.changed
+    category: configuration
+    severities: [info, low]
+    requires: [target]
+    description: "A posture setting changed"
+  - type: setting.exception_created
+    category: configuration
+    severities: [high]
+    requires: [target]
+    description: "A posture exception was approved"
+  - type: setting.exception_expiring
+    category: configuration
+    severities: [info, low, high]
+    requires: [target]
+    description: "A posture exception expires soon (14, 7 or 1 days)"
+  - type: setting.exception_renewal_requested
+    category: configuration
+    severities: [high]
+    requires: [target]
+    description: "A posture exception renewal was requested"
+  - type: setting.exception_renewed
+    category: configuration
+    severities: [high]
+    requires: [target]
+    description: "A posture exception was renewed"
+  - type: setting.exception_reverted
+    category: configuration
+    severities: [high]
+    requires: [target]
+    description: "An expired posture exception was reverted"
+  - type: setting.hard_floor_refused
+    category: configuration
+    severities: [high]
+    requires: [target]
+    description: "A setting change below the hard floor was refused"
+  - type: setting.revert_failed
+    category: configuration
+    severities: [critical]
+    requires: [target]
+    description: "Reverting an expired exception failed"
+  - type: setting.revert_failed_escalation
+    category: configuration
+    severities: [critical]
+    requires: [target]
+    description: "Reverting an expired exception keeps failing (escalated)"
+  - type: setting.weakened
+    category: configuration
+    severities: [high]
+    description: "SecOps notification (SaaS): a posture setting was weakened"
+  - type: sod.exception_expired
+    category: role_permission
+    severities: [high]
+    requires: [target]
+    description: "A separation-of-duties exception expired (T-27)"
+  - type: sod.exception_granted
+    category: role_permission
+    severities: [high]
+    requires: [target]
+    description: "A separation-of-duties exception was granted after approval"
+  - type: sod.exception_revoked
+    category: role_permission
+    severities: [high]
+    requires: [target]
+    description: "A separation-of-duties exception was revoked"
+  - type: sod.rule_created
+    category: role_permission
+    severities: [high]
+    requires: [target]
+    description: "A separation-of-duties rule was created"
+  - type: sod.rule_disabled
+    category: role_permission
+    severities: [high]
+    requires: [target]
+    description: "A separation-of-duties rule was disabled"
+  - type: sod.rule_enabled
+    category: role_permission
+    severities: [high]
+    description: "A separation-of-duties rule was enabled"
+  - type: token.created
+    category: token
+    severities: [high]
+    description: "A SCIM token or service-account client secret was issued (T-21, T-33)"
+  - type: token.revoked
+    category: token
+    severities: [high]
+    requires: [target]
+    description: "A SCIM token or service-account client secret was revoked"
+  - type: user.disabled
+    category: access
+    severities: [high]
+    requires: [target]
+    description: "An administrator disabled a user (T-23b)"
+  - type: user.disabled_inactive
+    category: access
+    severities: [low]
+    requires: [target]
+    description: "The inactivity sweep disabled a user (T-23)"
+  - type: user.enabled
+    category: access
+    severities: [high]
+    requires: [target]
+    description: "An administrator enabled a user"
+  - type: user.jit_provisioned
+    category: access
+    severities: [low]
+    requires: [target]
+    description: "A user was created at first sign-in (T-23)"
+  - type: user.locked
+    category: access
+    severities: [high]
+    requires: [target]
+    description: "An account was locked after failed sign-ins (AC-47)"
+  - type: user.unlocked
+    category: access
+    severities: [high]
+    requires: [target]
+    description: "An administrator unlocked an account"

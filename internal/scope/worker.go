@@ -15,7 +15,7 @@ package scope
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -170,25 +170,24 @@ func (w *Worker) send(ctx context.Context, e event) error {
 		}
 		return nil
 	}
-	var p struct {
-		Type       string         `json:"type"`
-		Severity   string         `json:"severity"`
-		Actor      string         `json:"actor"`
-		Attributes map[string]any `json:"attributes"`
-	}
-	if err := json.Unmarshal(e.payload, &p); err != nil {
+	ev, err := audit.FromOutbox(e.id, e.payload) // target, reason, before/after kept (T-37)
+	if err != nil {
 		return fmt.Errorf("scope: audit event %d: %w", e.id, err)
 	}
-	attrs := make(map[string]string, len(p.Attributes)+1)
-	for k, v := range p.Attributes {
-		if v != nil {
-			attrs[k] = fmt.Sprint(v)
+	err = w.o.Audit.Emit(ctx, ev)
+	if errors.Is(err, audit.ErrUncatalogued) {
+		// An event the catalog does not describe is a defect (the catalog
+		// test and the database tests catch them). It is recorded, not
+		// lost, and it does not hold back the outbox: a critical event
+		// carries the original (T-37).
+		raw := string(e.payload)
+		if len(raw) > 8192 {
+			raw = raw[:8192]
 		}
+		err = w.o.Audit.Emit(ctx, audit.Event{Type: "audit.invalid_event", Severity: audit.SeverityCritical, Actor: "system:iam",
+			Target: "event:" + fmt.Sprint(e.id), Reason: err.Error(), Attributes: map[string]string{"event_id": fmt.Sprint(e.id), "payload": raw}})
 	}
-	attrs["event_id"] = fmt.Sprint(e.id)
-	if err := w.o.Audit.Emit(ctx, audit.Event{
-		Type: p.Type, Severity: audit.Severity(p.Severity), Actor: p.Actor, Attributes: attrs,
-	}); err != nil {
+	if err != nil {
 		return fmt.Errorf("scope: audit event %d: %w", e.id, err)
 	}
 	return nil

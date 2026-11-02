@@ -84,6 +84,7 @@ paths:
       responses: { "200": { description: Effective settings }, "404": { $ref: "#/components/responses/Error" } }
   /settings/{key}:
     post:
+      x-audit-events: [setting.changed, setting.change_requested, setting.hard_floor_refused, approval.requested]
       summary: Change a setting (tightening applies; out of bounds needs explanation and dual approval)
       x-permission: settings.change
       parameters:
@@ -118,6 +119,7 @@ paths:
       responses: { "200": { description: Exceptions } }
   /exceptions/{id}/renew:
     post:
+      x-audit-events: [setting.exception_renewal_requested, approval.requested]
       summary: Request renewal of an active exception (dual approval)
       x-permission: settings.change
       parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { $ref: "#/components/parameters/IdempotencyKey" }]
@@ -129,6 +131,7 @@ paths:
       x-permission: posture.view
       responses: { "200": { description: Profiles } }
     post:
+      x-audit-events: [profile.created]
       summary: Create a custom profile from a built-in one
       x-permission: profile.manage
       parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
@@ -136,6 +139,7 @@ paths:
       responses: { "201": { description: Created } }
   /profiles/{id}:
     patch:
+      x-audit-events: [profile.value_changed]
       summary: Edit one key of a draft custom profile
       x-permission: profile.manage
       parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { $ref: "#/components/parameters/IdempotencyKey" }]
@@ -143,6 +147,7 @@ paths:
       responses: { "200": { description: Edited } }
   /profiles/{id}/submit:
     post:
+      x-audit-events: [profile.submitted, approval.requested]
       summary: Submit a draft custom profile for approval
       x-permission: profile.manage
       parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { $ref: "#/components/parameters/IdempotencyKey" }]
@@ -159,6 +164,7 @@ paths:
       responses: { "200": { description: Differences } }
   /profiles/import:
     post:
+      x-audit-events: [profile.imported]
       summary: Import a custom profile (JSON or OSCAL)
       x-permission: profile.manage
       parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
@@ -179,6 +185,7 @@ paths:
       x-permission: posture.view
       responses: { "200": { description: The pending switch } }
     post:
+      x-audit-events: [profile.switch_requested]
       summary: Request a profile switch (conflicts computed at once)
       x-permission: profile.manage
       parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
@@ -192,6 +199,7 @@ paths:
       responses: { "200": { description: Switch }, "404": { $ref: "#/components/responses/Error" } }
   /switches/{id}/conflicts/{cid}/resolve:
     post:
+      x-audit-events: [profile.conflict_resolved, approval.requested]
       summary: Resolve a conflict (conform, or exception with a reason)
       x-permission: profile.manage
       parameters:
@@ -202,12 +210,14 @@ paths:
       responses: { "200": { description: Resolved } }
   /switches/{id}/activate:
     post:
+      x-audit-events: [profile.activated]
       summary: Activate a switch in one transaction
       x-permission: profile.manage
       parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { $ref: "#/components/parameters/IdempotencyKey" }]
       responses: { "200": { description: Activated } }
   /switches/{id}/cancel:
     post:
+      x-audit-events: [profile.switch_cancelled]
       summary: Cancel a pending switch
       x-permission: profile.manage
       parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { $ref: "#/components/parameters/IdempotencyKey" }]
@@ -218,6 +228,7 @@ paths:
       x-permission: posture.view
       responses: { "200": { description: Overlay } }
     patch:
+      x-audit-events: [overlay.changed, overlay.change_requested, setting.hard_floor_refused, approval.requested]
       summary: Change an overlay value (weaker than the default needs dual approval)
       x-permission: settings.change
       parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
@@ -233,6 +244,7 @@ paths:
       responses: { "200": { description: Findings } }
   /drift/{id}/acknowledge:
     post:
+      x-audit-events: [posture.drift_acknowledged]
       summary: Acknowledge an open finding (it stays until its check resolves it)
       x-permission: drift.acknowledge
       parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { $ref: "#/components/parameters/IdempotencyKey" }]
@@ -245,6 +257,7 @@ paths:
       responses: { "200": { description: Status } }
   /k8s-access/acknowledge-grant:
     post:
+      x-audit-events: [posture.k8s_access_granted]
       summary: Acknowledge a requested grant for the permissions shown
       x-permission: settings.change
       parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
@@ -256,6 +269,7 @@ paths:
       x-permission: posture.view
       responses: { "200": { description: Exports } }
     post:
+      x-audit-events: [posture.exported, posture.export_mismatch]
       summary: Export the posture now (no as_of; 201), or reproduce the export of that kind recorded at as_of (200)
       x-permission: posture.export
       parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]

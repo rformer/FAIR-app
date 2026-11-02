@@ -56,7 +56,11 @@ func Command(ctx context.Context, conn *pgx.Conn, args []string, out io.Writer) 
 	if strings.TrimSpace(*reason) == "" {
 		return errors.New("-reason is required")
 	}
-	emitter := audit.NewJSONLines(out) // the install log
+	c, err := audit.DefaultCatalog()
+	if err != nil {
+		return err
+	}
+	emitter := audit.Validating{Next: audit.NewJSONLines(out), Catalog: c} // the install log
 	tx, err := conn.Begin(ctx)
 	if err != nil {
 		return err
@@ -70,7 +74,7 @@ func Command(ctx context.Context, conn *pgx.Conn, args []string, out io.Writer) 
 		if err := tx.QueryRow(ctx, "SELECT iam.breakglass_install_disable($1)", *reason).Scan(&n); err != nil {
 			return err
 		}
-		if err := emitter.Emit(ctx, audit.Event{Type: "breakglass.disabled", Severity: audit.SeverityHigh, Actor: "system:installer",
+		if err := emitter.Emit(ctx, audit.Event{Type: "breakglass.disabled", Severity: audit.SeverityHigh, Actor: "system:installer", Target: "breakglass",
 			Attributes: map[string]string{"reason": *reason, "accounts_disabled": fmt.Sprint(n)}}); err != nil {
 			return err // audit failures fail closed
 		}
@@ -122,10 +126,10 @@ func Command(ctx context.Context, conn *pgx.Conn, args []string, out io.Writer) 
 	for _, c := range created {
 		emails = append(emails, c.Email)
 	}
-	ev := audit.Event{Type: "breakglass.enabled", Severity: audit.SeverityHigh, Actor: "system:installer",
+	ev := audit.Event{Type: "breakglass.enabled", Severity: audit.SeverityHigh, Actor: "system:installer", Target: "breakglass",
 		Attributes: map[string]string{"reason": *reason, "holders": strings.Join(emails, ","), "at_install": "true"}}
 	if *emergency {
-		ev = audit.Event{Type: "breakglass.emergency_enabled", Severity: audit.SeverityCritical, Actor: "operator:" + strings.TrimSpace(*operator),
+		ev = audit.Event{Type: "breakglass.emergency_enabled", Severity: audit.SeverityCritical, Actor: "operator:" + strings.TrimSpace(*operator), Target: "breakglass",
 			Attributes: map[string]string{"reason": *reason, "holders": strings.Join(emails, ","), "expires_at": until.UTC().Format(time.RFC3339)}}
 	}
 	if err := emitter.Emit(ctx, ev); err != nil {

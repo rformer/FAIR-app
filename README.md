@@ -186,6 +186,10 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_DB_PASSWORD_FILE=<app_posture passwor
 # docs/operations/idp-outage-recovery.md (an operator's emergency enablement, audited).
 # The bundled Keycloak (F-001 T-36): import deploy/keycloak/fair-realm.json and connect
 # it as an IdP of kind keycloak (docs/install/keycloak.md).
+# Security events (F-001 T-37): every service writes them as JSON lines to stdout (for an
+# OpenTelemetry collector or log shipper) and, with FAIR_AUDIT_SYSLOG_ADDR=host:port
+# (and FAIR_AUDIT_SYSLOG_CA_FILE for a private CA), as RFC 5424 syslog over TLS. The
+# event types are pkg/audit/catalog.yaml; the envelope is pkg/audit/event.schema.json.
 # Logins must show MFA evidence (F-001 T-18) while auth.mfa_required_all is on (the
 # default), and always for privileged users; each IdP's rule is set with
 # PATCH /api/v1/idps/{id} (mfa_evidence_rule), with standards defaults otherwise.
