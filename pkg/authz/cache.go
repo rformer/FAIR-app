@@ -85,8 +85,8 @@ func NewCache(o CacheOptions) *Cache {
 // a denial. The step-up check runs only once the permission is granted, so
 // a stale sign-in never reveals that an out-of-scope BU exists (AC-25).
 func (c *Cache) Check(ctx context.Context, p Principal, perm Permission, buID string) error {
-	if p.UserID == "" || p.ServiceAcct {
-		return ErrDenied // service accounts arrive with T-33
+	if p.UserID == "" {
+		return ErrDenied
 	}
 	snap, err := c.snapshot(ctx, p)
 	if err != nil {
@@ -138,7 +138,7 @@ func (c *Cache) stepUp(p Principal, buID string) error {
 // BUsWith returns the BUs where p holds perm, from the same snapshot Check
 // uses (for filtering lists, such as BU overrides, to what p may see).
 func (c *Cache) BUsWith(ctx context.Context, p Principal, perm Permission) (map[string]struct{}, error) {
-	if p.UserID == "" || p.ServiceAcct {
+	if p.UserID == "" {
 		return nil, ErrDenied
 	}
 	snap, err := c.snapshot(ctx, p)

@@ -174,6 +174,30 @@ components:
         assignments: { type: integer }
         users: { type: integer }
         group_mappings: { type: integer }
+    ServiceAccount:
+      type: object
+      description: A service account (F-001 T-33, AC-36); its scopes are live, non-privileged permissions at its BU
+      properties:
+        id: { type: string, format: uuid, description: Also the OAuth client_id }
+        name: { type: string }
+        bu_id: { type: string, format: uuid }
+        bu_code: { type: string }
+        auth_method: { type: string, enum: [client_credentials, mtls] }
+        status: { type: string, enum: [active, disabled, locked] }
+        disabled_reason: { type: [string, "null"] }
+        scopes: { type: array, items: { type: string } }
+        created_by: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        last_used_at: { type: [string, "null"], format: date-time, description: When it last obtained an access token }
+        live_secrets: { type: integer }
+        live_certificates: { type: integer }
+    ScopesPending:
+      type: object
+      description: Scopes the caller does not hold at the BU wait for a service_account.scopes approval (T-26)
+      properties:
+        approval_id: { type: string, format: uuid }
+        status: { type: string, enum: [pending] }
+        unheld_scopes: { type: array, items: { type: string } }
     BU:
       type: object
       properties:
@@ -218,6 +242,246 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
 paths:
+  /service-accounts:
+    get:
+      summary: Service accounts at BUs where the caller holds service_account.manage (T-33)
+      x-permission: service_account.manage
+      responses:
+        "200":
+          description: Service accounts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service_accounts: { type: array, items: { $ref: "#/components/schemas/ServiceAccount" } }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Create a service account (AC-36)
+      description: |
+        Needs service_account.manage at the BU. Scopes are live, non-privileged catalog
+        permissions (no admin rights). If the caller holds every scope at the BU the account is
+        created (201, audited high); otherwise the request answers 202 with a
+        `service_account.scopes` approval, which another holder of service_account.manage at the
+        BU approves (`/approvals/{id}/decision`) before `POST /service-accounts/apply` creates it.
+      x-permission: service_account.manage (at the BU)
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, bu_id, scopes, auth_method, reason]
+              additionalProperties: false
+              properties:
+                name: { type: string }
+                bu_id: { type: string, format: uuid }
+                scopes: { type: array, items: { type: string } }
+                auth_method: { type: string, enum: [client_credentials, mtls] }
+                reason: { type: string }
+      responses:
+        "201":
+          description: Created
+          content: { application/json: { schema: { $ref: "#/components/schemas/ServiceAccount" } } }
+        "202":
+          description: Pending approval of scopes the caller does not hold
+          content: { application/json: { schema: { $ref: "#/components/schemas/ScopesPending" } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /service-accounts/apply:
+    post:
+      summary: Apply an approved service_account.scopes request (create, or change scopes)
+      x-permission: service_account.manage (at the BU)
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approval_id]
+              additionalProperties: false
+              properties:
+                approval_id: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The account as it is now
+          content: { application/json: { schema: { $ref: "#/components/schemas/ServiceAccount" } } }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /service-accounts/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      summary: A service account
+      x-permission: service_account.manage (at its BU)
+      responses:
+        "200":
+          description: The account
+          content: { application/json: { schema: { $ref: "#/components/schemas/ServiceAccount" } } }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      summary: Rename it or change its scopes
+      description: |
+        A rename, removed scopes and added scopes the caller holds at the BU apply at once (200,
+        audited high). Other added scopes answer 202 with an approval, as at creation; the scopes
+        stay as they are until it is applied, and applying fails if they changed meanwhile.
+      x-permission: service_account.manage (at its BU)
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                name: { type: string }
+                scopes: { type: array, items: { type: string } }
+                reason: { type: string }
+      responses:
+        "200":
+          description: The account as it is now
+          content: { application/json: { schema: { $ref: "#/components/schemas/ServiceAccount" } } }
+        "202":
+          description: Pending approval of scopes the caller does not hold
+          content: { application/json: { schema: { $ref: "#/components/schemas/ScopesPending" } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /service-accounts/{id}/{action}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: action, in: path, required: true, schema: { type: string, enum: [disable, enable] } }
+    post:
+      summary: Disable (ending its access tokens at once) or enable a service account
+      x-permission: service_account.manage (at its BU)
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                reason: { type: string }
+      responses:
+        "200":
+          description: The account as it is now
+          content: { application/json: { schema: { $ref: "#/components/schemas/ServiceAccount" } } }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /service-accounts/{id}/tokens:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      summary: The account's client secrets (never the secrets themselves)
+      x-permission: service_account.manage (at its BU)
+      responses:
+        "200": { description: "{tokens: [{id, name, prefix, created_at, created_by, expires_at, last_used_at, revoked_at}]}" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Issue a client secret (client_credentials accounts; AC-37)
+      description: |
+        Shown once: `client_secret` is in this answer only, stored as an HMAC under the token
+        pepper, and a replay of the request (same Idempotency-Key) answers 409
+        `secret_not_replayed`. It expires within `token.max_lifetime` (90 days in every profile;
+        the longest allowed when `expires_in_days` is omitted). Audited high (`token.created`).
+      x-permission: service_account.manage (at its BU)
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                name: { type: string }
+                expires_in_days: { type: integer, minimum: 1 }
+                reason: { type: string }
+      responses:
+        "201": { description: "{id, client_id, client_secret, prefix, expires_at}" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { description: The token pepper is not configured }
+  /service-accounts/{id}/tokens/{credential}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: credential, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: reason, in: query, required: true, schema: { type: string } }
+    delete:
+      summary: Revoke a client secret and the access tokens issued for it
+      x-permission: service_account.manage (at its BU)
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "204": { description: Revoked }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /service-accounts/{id}/certificates:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      summary: The account's mTLS certificates
+      x-permission: service_account.manage (at its BU)
+      responses:
+        "200": { description: "{certificates: [{id, name, thumbprint_sha256, subject, not_before, not_after, created_at, created_by, expires_at, last_used_at, revoked_at}]}" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Register a client certificate (mtls accounts; AC-38)
+      description: |
+        One PEM certificate, the client's own (not a CA), RSA of at least 2048 bits or ECDSA
+        P-256/P-384/P-521, usable for client authentication. It is pinned by the SHA-256 of its
+        DER encoding (RFC 8705, self-signed or CA-issued) and expires at the earlier of its
+        notAfter and `token.max_lifetime`. Audited high.
+      x-permission: service_account.manage (at its BU)
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [certificate, reason]
+              additionalProperties: false
+              properties:
+                name: { type: string }
+                certificate: { type: string, description: PEM }
+                reason: { type: string }
+      responses:
+        "201": { description: "{id, client_id, thumbprint_sha256, subject, expires_at}" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /service-accounts/{id}/certificates/{credential}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: credential, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: reason, in: query, required: true, schema: { type: string } }
+    delete:
+      summary: Revoke a certificate and the access tokens issued for it
+      x-permission: service_account.manage (at its BU)
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "204": { description: Revoked }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /idps:
     get:
       summary: List identity providers

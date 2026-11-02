@@ -51,6 +51,9 @@ type Claims struct {
 	// login (F-001 T-20, design §5.8); BUs requiring re-authentication on a
 	// network change refuse it.
 	NetworkChanged bool `json:"nch,omitempty"`
+	// ServiceAccount: the subject is a service account (F-001 T-33), whose
+	// auth_time is when its access token was issued.
+	ServiceAccount bool `json:"sa,omitempty"`
 }
 
 // Errors.

@@ -27,6 +27,9 @@ type Options struct {
 	TLSCertFile string
 	TLSKeyFile  string
 	Plaintext   bool // development only; callers must have validated config
+	// ClientAuth asks TLS clients for a certificate (the gateway's mTLS
+	// listener, F-001 T-33: tls.RequestClientCert). Zero asks for none.
+	ClientAuth tls.ClientAuthType
 	Logger      *slog.Logger
 }
 
@@ -56,7 +59,7 @@ func New(opts Options) *Server {
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    64 << 10,
-		TLSConfig:         TLSConfig(),
+		TLSConfig:         tlsConfig(opts.ClientAuth),
 		ErrorLog:          slog.NewLogLogger(opts.Logger.Handler(), slog.LevelWarn),
 	}
 	return s
@@ -73,6 +76,12 @@ func (s *Server) AddReadinessCheck(c ReadinessCheck) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.checks = append(s.checks, c)
+}
+
+func tlsConfig(ca tls.ClientAuthType) *tls.Config {
+	c := TLSConfig()
+	c.ClientAuth = ca
+	return c
 }
 
 // TLSConfig returns the platform TLS configuration. TLS 1.2 is the hard floor

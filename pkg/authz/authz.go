@@ -20,7 +20,9 @@ type Permission string
 type Principal struct {
 	UserID       string
 	ScopeVersion int64
-	ServiceAcct  bool
+	// ServiceAcct: a service account (F-001 T-33). Its grants are its API
+	// scopes at its BU, checked like a user's.
+	ServiceAcct bool
 	// DBToken is the signed database context the gateway minted for this
 	// request (MintDBContext). Snapshots are loaded through it, and services
 	// pass it to WithDBContext.

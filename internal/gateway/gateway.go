@@ -45,7 +45,10 @@ type Gateway struct {
 	// (T-20, design §5.8): off, flag or reauthenticate. Nil means off; an
 	// error means reauthenticate (fail closed).
 	NetworkBinding func() (string, error)
-	Logger         *slog.Logger
+	// ServiceAccounts, when set, serves the token endpoint and accepts
+	// service accounts' access tokens on proxied routes (T-33).
+	ServiceAccounts *ServiceAccounts
+	Logger          *slog.Logger
 	Now            func() time.Time
 }
 
@@ -80,7 +83,7 @@ func Routes() []string {
 	for _, rt := range routes {
 		out = append(out, rt.pattern)
 	}
-	return out
+	return append(out, "POST "+TokenPath)
 }
 
 // Segments routes the first path segment of the design §6 resources to the
@@ -108,14 +111,17 @@ func (g *Gateway) Handler() http.Handler {
 		mux.Handle(rt.pattern, server.SecurityHeaders(g.authenticated(rt.h(g))))
 	}
 	for name, base := range g.Upstreams {
-		mux.Handle("/api/v1/"+name+"/", g.authenticated(g.forward(name, g.proxy(base))))
+		mux.Handle("/api/v1/"+name+"/", g.sessionOrBearer(g.forward(name, g.proxy(base))))
 	}
 	for seg, name := range Segments {
 		if base, ok := g.Upstreams[name]; ok && g.Upstreams[seg] == nil {
-			h := g.authenticated(g.forward(name, g.proxy(base)))
+			h := g.sessionOrBearer(g.forward(name, g.proxy(base)))
 			mux.Handle("/api/v1/"+seg, h)
 			mux.Handle("/api/v1/"+seg+"/", h)
 		}
+	}
+	if g.ServiceAccounts != nil {
+		mux.Handle("POST "+TokenPath, server.SecurityHeaders(http.HandlerFunc(g.token)))
 	}
 	if iam, ok := g.Upstreams["iam"]; ok {
 		login := g.loginRoutes(iam) // no session yet (SAML T-15, OIDC T-16, discovery T-17)
@@ -295,7 +301,8 @@ func (g *Gateway) mint(sess Session, audience string) (dbToken, jwt string, err 
 	// auth_time is the session's start until the login flows record the
 	// IdP's authentication time (F-015 T-24b).
 	jwt, err = authz.MintJWT(g.JWT, authz.Claims{Subject: sess.UserID, ScopeVersion: sess.ScopeVersion, AuthTime: sess.CreatedAt.Unix(),
-		DBContext: authz.DBContextHash(dbToken), NetworkChanged: sess.NetworkChangedAt != nil}, audience, TokenTTL, now)
+		DBContext: authz.DBContextHash(dbToken), NetworkChanged: sess.NetworkChangedAt != nil, ServiceAccount: sess.ServiceAccount},
+		audience, TokenTTL, now)
 	return dbToken, jwt, err
 }
 
@@ -336,6 +343,9 @@ func (g *Gateway) proxy(base *url.URL) *httputil.ReverseProxy {
 			pr.Out.Header.Del("Authorization")
 			pr.Out.Header.Del(server.DBContextHeader)
 			pr.Out.Header.Del(CSRFHeader)
+			if g.ServiceAccounts != nil && g.ServiceAccounts.CertHeader != "" {
+				pr.Out.Header.Del(g.ServiceAccounts.CertHeader)
+			}
 			t, _ := pr.In.Context().Value(tokensKey{}).(tokens)
 			pr.Out.Header.Set("Authorization", "Bearer "+t.jwt)
 			pr.Out.Header.Set(server.DBContextHeader, t.db)

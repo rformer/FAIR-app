@@ -168,6 +168,13 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_DB_PASSWORD_FILE=<app_posture passwor
 # production), and home-realm discovery at /api/v1/auth/discover. Metadata is
 # uploaded as a file or fetched from a URL (not in air-gapped installs); a change of
 # trust anchors must be confirmed by fingerprint.
+# Service accounts (F-001 T-33): give iam and the gateway the same
+# FAIR_TOKEN_PEPPER_FILE (at least 32 random bytes). Create accounts with
+# POST /api/v1/service-accounts, issue a client secret (shown once) or register a
+# certificate, then get access tokens from the gateway:
+#   curl -u "$CLIENT_ID:$CLIENT_SECRET" -d grant_type=client_credentials https://fair.example.com/api/v1/oauth/token
+# mTLS clients use the gateway's FAIR_MTLS_LISTEN_ADDR listener, or an ingress
+# passing the certificate in FAIR_CLIENT_CERT_HEADER (from FAIR_TRUSTED_PROXIES).
 # Logins must show MFA evidence (F-001 T-18) while auth.mfa_required_all is on (the
 # default), and always for privileged users; each IdP's rule is set with
 # PATCH /api/v1/idps/{id} (mfa_evidence_rule), with standards defaults otherwise.

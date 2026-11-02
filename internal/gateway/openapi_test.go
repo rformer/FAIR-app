@@ -10,7 +10,8 @@ import (
 )
 
 // The published OpenAPI document and the gateway's own routes are the same
-// set, and every state-changing operation documents the CSRF header.
+// set, and every state-changing operation behind a session documents the
+// CSRF header.
 func TestOpenAPIMatchesRoutes(t *testing.T) {
 	b, err := os.ReadFile("../../api/openapi/gateway.yaml")
 	if err != nil {
@@ -18,8 +19,9 @@ func TestOpenAPIMatchesRoutes(t *testing.T) {
 	}
 	var doc struct {
 		Paths map[string]map[string]struct {
-			Permission string           `yaml:"x-permission"`
-			Parameters []map[string]any `yaml:"parameters"`
+			Permission string            `yaml:"x-permission"`
+			Parameters []map[string]any  `yaml:"parameters"`
+			Security   *[]map[string]any `yaml:"security"`
 		} `yaml:"paths"`
 	}
 	if err := yaml.Unmarshal(b, &doc); err != nil {
@@ -33,7 +35,8 @@ func TestOpenAPIMatchesRoutes(t *testing.T) {
 			if op.Permission == "" {
 				t.Errorf("%s %s: no x-permission", m, path)
 			}
-			if m != "GET" && !slices.ContainsFunc(op.Parameters, func(p map[string]any) bool {
+			sessionless := op.Security != nil && len(*op.Security) == 0 // the token endpoint
+			if m != "GET" && !sessionless && !slices.ContainsFunc(op.Parameters, func(p map[string]any) bool {
 				return p["$ref"] == "#/components/parameters/CSRF"
 			}) {
 				t.Errorf("%s %s: state change without the CSRF header", m, path)

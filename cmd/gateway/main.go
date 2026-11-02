@@ -32,6 +32,19 @@
 //	FAIR_ASN_DB_DIR              optional: iptoasn.com's ip2asn-v4.tsv and
 //	                             ip2asn-v6.tsv (or .gz); without it the check
 //	                             is prefix-only
+//
+// Service accounts (F-001 T-33):
+//
+//	FAIR_TOKEN_PEPPER_FILE       at least 32 random bytes, the same file as
+//	                             iam's; enables the token endpoint and access
+//	                             tokens (service accounts are off without it)
+//	FAIR_MTLS_LISTEN_ADDR        optional: a second TLS listener that asks for
+//	                             client certificates (mTLS service accounts),
+//	                             so browsers on the main one are never asked
+//	FAIR_CLIENT_CERT_HEADER      optional: the header in which a TLS-terminating
+//	                             ingress passes the client certificate
+//	                             (URL-encoded PEM, e.g. ssl-client-cert);
+//	                             believed only from FAIR_TRUSTED_PROXIES
 package main
 
 import (
@@ -55,6 +68,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/rformer/fair-app/internal/authn"
 	"github.com/rformer/fair-app/internal/config"
 	"github.com/rformer/fair-app/internal/dbconn"
 	"github.com/rformer/fair-app/internal/gateway"
@@ -187,12 +201,44 @@ func run() error {
 		g.UI = http.FileServer(http.Dir(dir))
 	}
 
+	mtlsAddr := os.Getenv("FAIR_MTLS_LISTEN_ADDR")
+	if f := os.Getenv("FAIR_TOKEN_PEPPER_FILE"); f != "" {
+		tokenPepper, err := readSecret("FAIR_TOKEN_PEPPER_FILE", authn.MinTokenPepperLen)
+		if err != nil {
+			return err
+		}
+		g.ServiceAccounts = &gateway.ServiceAccounts{DB: pool, Pepper: tokenPepper, CertHeader: os.Getenv("FAIR_CLIENT_CERT_HEADER")}
+		if g.ServiceAccounts.CertHeader != "" && len(network.Trusted) == 0 {
+			return errors.New("FAIR_CLIENT_CERT_HEADER needs FAIR_TRUSTED_PROXIES (the ingress's addresses): a header from any hop would be believed")
+		}
+	} else if mtlsAddr != "" || os.Getenv("FAIR_CLIENT_CERT_HEADER") != "" {
+		return errors.New("FAIR_MTLS_LISTEN_ADDR and FAIR_CLIENT_CERT_HEADER need FAIR_TOKEN_PEPPER_FILE (service accounts)")
+	}
+
 	srv := server.New(server.Options{Addr: cfg.ListenAddr, TLSCertFile: cfg.TLSCertFile, TLSKeyFile: cfg.TLSKeyFile,
 		Plaintext: cfg.AllowPlaintext, Logger: logger})
 	srv.Mux().Handle("/", g.Handler())
 	srv.AddReadinessCheck(server.ReadinessCheck{Name: "database", Check: func(ctx context.Context) error { return pool.Ping(ctx) }})
-	logger.Info("gateway started", "origin", origin, "upstreams", len(upstreams), "fips140", fips140.Enabled())
-	return srv.Run(ctx, cfg.ShutdownTimeout)
+	logger.Info("gateway started", "origin", origin, "upstreams", len(upstreams), "service_accounts", g.ServiceAccounts != nil,
+		"fips140", fips140.Enabled())
+	if mtlsAddr == "" {
+		return srv.Run(ctx, cfg.ShutdownTimeout)
+	}
+	if cfg.AllowPlaintext {
+		return errors.New("FAIR_MTLS_LISTEN_ADDR needs TLS")
+	}
+	mtls := server.New(server.Options{Addr: mtlsAddr, TLSCertFile: cfg.TLSCertFile, TLSKeyFile: cfg.TLSKeyFile,
+		ClientAuth: tls.RequestClientCert, Logger: logger})
+	mtls.Mux().Handle("/", g.Handler())
+	errs := make(chan error, 2)
+	go func() { errs <- srv.Run(ctx, cfg.ShutdownTimeout) }()
+	go func() { errs <- mtls.Run(ctx, cfg.ShutdownTimeout) }()
+	err = <-errs
+	stop() // one listener ended: end the other
+	if err2 := <-errs; err == nil {
+		err = err2
+	}
+	return err
 }
 
 func readSecret(env string, minLen int) ([]byte, error) {

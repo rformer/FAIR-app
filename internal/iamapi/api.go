@@ -57,6 +57,15 @@
 //	POST   /api/v1/bus/{id}/restriction, PUT /api/v1/bus/{id}/rollup-mode, POST /api/v1/bus/apply
 //	GET    /api/v1/bus/export[?format=csv], POST /api/v1/bus/import[?dry_run=true]  bu.manage
 //	                                                                   bu.restrict at the parent
+//
+// T-33 adds service accounts (service_account.manage at the account's BU):
+//
+//	GET    /api/v1/service-accounts[/{id}]                             list, read
+//	POST   /api/v1/service-accounts, PATCH /api/v1/service-accounts/{id}   create, rename, scopes (202 when approval is needed)
+//	POST   /api/v1/service-accounts/apply                              apply an approved scope request
+//	POST   /api/v1/service-accounts/{id}/{disable|enable}
+//	GET|POST /api/v1/service-accounts/{id}/tokens, DELETE .../tokens/{id}              client secrets (shown once)
+//	GET|POST /api/v1/service-accounts/{id}/certificates, DELETE .../certificates/{id}  mTLS certificates
 package iamapi
 
 import (
@@ -83,6 +92,9 @@ type API struct {
 	DB             *pgxpool.Pool // app_rw
 	Authz          authz.Checker
 	DeploymentMode string // air-gapped refuses metadata URLs (design §10)
+	// TokenPepper keys the HMAC of service-account client secrets (T-33;
+	// FAIR_TOKEN_PEPPER_FILE, shared with the gateway).
+	TokenPepper []byte
 	Dev            bool   // development: http endpoints accepted
 
 	rootOnce sync.Once
@@ -146,6 +158,18 @@ var routes = []route{
 	{"POST", "/api/v1/bus/apply", (*API).applyBUApproval},
 	{"GET", "/api/v1/bus/export", (*API).exportBUs},
 	{"POST", "/api/v1/bus/import", (*API).importBUs},
+	{"GET", "/api/v1/service-accounts", (*API).listServiceAccounts},
+	{"POST", "/api/v1/service-accounts", (*API).createServiceAccount},
+	{"POST", "/api/v1/service-accounts/apply", (*API).applyServiceAccount},
+	{"GET", "/api/v1/service-accounts/{id}", (*API).getServiceAccount},
+	{"PATCH", "/api/v1/service-accounts/{id}", (*API).updateServiceAccount},
+	{"POST", "/api/v1/service-accounts/{id}/{action}", (*API).serviceAccountAction},
+	{"GET", "/api/v1/service-accounts/{id}/tokens", (*API).listSASecrets},
+	{"POST", "/api/v1/service-accounts/{id}/tokens", (*API).createSASecret},
+	{"DELETE", "/api/v1/service-accounts/{id}/tokens/{credential}", (*API).revokeSACredential},
+	{"GET", "/api/v1/service-accounts/{id}/certificates", (*API).listSACertificates},
+	{"POST", "/api/v1/service-accounts/{id}/certificates", (*API).addSACertificate},
+	{"DELETE", "/api/v1/service-accounts/{id}/certificates/{credential}", (*API).revokeSACredential},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).
@@ -159,7 +183,7 @@ func Routes() []string {
 }
 
 // Prefixes are the path prefixes the API owns (for the service's mux).
-var Prefixes = []string{"/api/v1/idps", "/api/v1/banner", "/api/v1/users", "/api/v1/groups", "/api/v1/group-mappings", "/api/v1/sod-rules", "/api/v1/sod-exceptions", "/api/v1/approvals", "/api/v1/permissions", "/api/v1/roles", "/api/v1/bus"}
+var Prefixes = []string{"/api/v1/idps", "/api/v1/banner", "/api/v1/users", "/api/v1/groups", "/api/v1/group-mappings", "/api/v1/sod-rules", "/api/v1/sod-exceptions", "/api/v1/approvals", "/api/v1/permissions", "/api/v1/roles", "/api/v1/bus", "/api/v1/service-accounts"}
 
 // Handler returns the API with authentication and idempotency in front.
 func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {

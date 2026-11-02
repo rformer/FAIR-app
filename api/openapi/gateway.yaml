@@ -26,6 +26,13 @@ info:
 
     Other users' sessions need `session.view` / `session.revoke` (403 otherwise), checked
     by the database from the signed context, and revoking them needs a `reason` (422).
+
+    Service accounts (T-33; AC-37, AC-38) take an access token from `POST /oauth/token`
+    (OAuth 2.0 client credentials, RFC 6749 §4.4) and call the services with
+    `Authorization: Bearer <access_token>` instead of a session: no CSRF token, no
+    system-use banner. The gateway checks the token in the database on each request, so
+    disabling the account or revoking its credential ends it at once. Tokens issued over
+    mTLS (RFC 8705) are bound to the client certificate and must be presented with it.
 servers:
   - url: /api/v1
 security:
@@ -33,6 +40,7 @@ security:
 components:
   securitySchemes:
     session: { type: apiKey, in: cookie, name: __Host-sid }
+    serviceAccount: { type: oauth2, flows: { clientCredentials: { tokenUrl: /api/v1/oauth/token, scopes: {} } } }
   parameters:
     CSRF:
       name: X-CSRF-Token
@@ -162,3 +170,44 @@ paths:
       parameters: [{ $ref: "#/components/parameters/Handle" }, { $ref: "#/components/parameters/CSRF" }]
       requestBody: { content: { application/json: { schema: { $ref: "#/components/schemas/Reason" } } } }
       responses: { "204": { description: Revoked }, "403": { description: Forbidden }, "404": { description: Not found }, "422": { description: A reason is required } }
+  /oauth/token:
+    post:
+      summary: Issue a service account's access token (client credentials)
+      description: |
+        `grant_type=client_credentials`. The client authenticates with its client secret
+        (`client_id` = the service account's id; HTTP Basic or `client_id` and
+        `client_secret` in the body, not both) or, for mTLS accounts, with its registered
+        certificate: on the gateway's TLS listener for client certificates, or passed by a
+        trusted ingress. An optional `scope` must be a subset of the account's scopes; the
+        token always carries all of them, listed in the answer. Access tokens live 10
+        minutes; those issued over mTLS are bound to the certificate. Requests are
+        rate-limited per client address (429). Every issuance and failure is audited.
+      x-permission: none (client authentication)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [grant_type]
+              properties:
+                grant_type: { type: string, enum: [client_credentials] }
+                client_id: { type: string, format: uuid }
+                client_secret: { type: string }
+                scope: { type: string }
+      responses:
+        "200":
+          description: The access token (Cache-Control no-store)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token: { type: string }
+                  token_type: { type: string, enum: [Bearer] }
+                  expires_in: { type: integer }
+                  scope: { type: string }
+        "400": { description: "invalid_request, unsupported_grant_type or invalid_scope (RFC 6749 §5.2)" }
+        "401": { description: invalid_client }
+        "429": { description: Too many requests from this address }

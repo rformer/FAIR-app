@@ -5,7 +5,8 @@
 // service provider under /api/v1/auth/saml/ (behind the gateway), when
 // FAIR_PUBLIC_ORIGIN is set (required in production), and OIDC (T-16) under
 // /api/v1/auth/oidc/; T-17 adds home-realm discovery and the IdP API
-// (/api/v1/idps, FAIR_JWT_KEYS_DIR), with
+// (/api/v1/idps, FAIR_JWT_KEYS_DIR); T-33 service-account client secrets
+// need FAIR_TOKEN_PEPPER_FILE (the gateway's too); with
 // FAIR_DB_PASSWORD_FILE (app_rw) and FAIR_LOGIN_TICKET_KEYS_DIR (the ES256
 // key that signs login tickets for the gateway). `iam migrate`
 // applies the embedded schema migrations and release catalog (T-02b);
@@ -151,6 +152,17 @@ func run() error {
 			grants := authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool),
 				NetworkBinding: func(bu string) (string, error) { return sc.Enum(settings.KeySessionNetworkBinding, bu) }})
 			api := &iamapi.API{DB: pool, Authz: grants, DeploymentMode: cfg.DeploymentMode, Dev: cfg.Env == "development"}
+			// Service-account client secrets (T-33) are stored as HMACs under
+			// the token pepper the gateway holds too.
+			if f := os.Getenv("FAIR_TOKEN_PEPPER_FILE"); f != "" {
+				b, err := os.ReadFile(f) // #nosec G304 G703 -- operator-supplied secret file
+				if err != nil {
+					return fmt.Errorf("FAIR_TOKEN_PEPPER_FILE: %w", err)
+				}
+				if api.TokenPepper = []byte(strings.TrimSpace(string(b))); len(api.TokenPepper) < authn.MinTokenPepperLen {
+					return fmt.Errorf("FAIR_TOKEN_PEPPER_FILE must hold at least %d bytes", authn.MinTokenPepperLen)
+				}
+			}
 			h := server.SecurityHeaders(api.Handler(jwtKeys, nil))
 			for _, p := range iamapi.Prefixes {
 				srv.Mux().Handle(p, h)

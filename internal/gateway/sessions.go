@@ -50,7 +50,10 @@ type Session struct {
 	ASN              *int
 	IDPID            string
 	NetworkChangedAt *time.Time
-	token            string
+	// ServiceAccount: a service account's access token, not a browser
+	// session (T-33); CreatedAt is when the token was issued.
+	ServiceAccount bool
+	token          string
 }
 
 // Timeouts returns the idle and absolute session timeouts in force

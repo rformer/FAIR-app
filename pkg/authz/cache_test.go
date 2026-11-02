@@ -70,13 +70,20 @@ func TestCheckAllowsAndDenies(t *testing.T) {
 		t.Fatalf("loads = %d, want 1 (snapshot cached)", n)
 	}
 	for name, q := range map[string]Principal{
-		"no user":         {ScopeVersion: 5},
-		"service account": {UserID: "u1", ScopeVersion: 5, ServiceAcct: true},
-		"wrong version":   {UserID: "u1", ScopeVersion: 6},
+		"no user":       {ScopeVersion: 5},
+		"wrong version": {UserID: "u1", ScopeVersion: 6},
 	} {
 		if err := c.Check(ctx, q, "analysis.edit", "bu-a"); !errors.Is(err, ErrDenied) {
 			t.Errorf("%s: %v, want ErrDenied", name, err)
 		}
+	}
+	// A service account's grants are its scopes, checked the same way (T-33).
+	sa := Principal{UserID: "u1", ScopeVersion: 5, ServiceAcct: true, DBToken: "t"}
+	if err := c.Check(ctx, sa, "analysis.edit", "bu-a"); err != nil {
+		t.Errorf("service account in scope: %v", err)
+	}
+	if err := c.Check(ctx, sa, "analysis.edit", "bu-z"); !errors.Is(err, ErrDenied) {
+		t.Errorf("service account out of scope: %v, want ErrDenied", err)
 	}
 }
 
