@@ -228,6 +228,37 @@ func (r *inactivityWorker) Work(ctx context.Context, _ *river.Job[InactivityArgs
 	return err
 }
 
+// ExpiryArgs is the assignment expiry sweep (F-001 T-32, AC-23), every
+// minute.
+type ExpiryArgs struct{}
+
+// Kind implements river.JobArgs.
+func (ExpiryArgs) Kind() string { return "iam.assignment_expiry" }
+
+// SweepExpired revokes expired assignments as the system
+// (iam.assignment_expiry_sweep), which queues the scope recompute, and
+// returns how many.
+func (w *Worker) SweepExpired(ctx context.Context) (int, error) {
+	var n int
+	if err := w.o.Pool.QueryRow(ctx, "SELECT iam.assignment_expiry_sweep()").Scan(&n); err != nil {
+		return 0, fmt.Errorf("scope: assignment expiry: %w", err)
+	}
+	if n > 0 {
+		w.o.Logger.Info("expired assignments revoked", "count", n)
+	}
+	return n, nil
+}
+
+type expiryWorker struct {
+	river.WorkerDefaults[ExpiryArgs]
+	w *Worker
+}
+
+func (r *expiryWorker) Work(ctx context.Context, _ *river.Job[ExpiryArgs]) error {
+	_, err := r.w.SweepExpired(ctx)
+	return err
+}
+
 // SoDArgs is the hourly separation-of-duties exception sweep (F-001 T-27,
 // AC-53), with the expiry of pending approval requests (T-26).
 type SoDArgs struct{}
@@ -310,6 +341,7 @@ func (w *Worker) RiverClient() (*river.Client[pgx.Tx], error) {
 	river.AddWorker(workers, &reconcileWorker{w: w})
 	river.AddWorker(workers, &inactivityWorker{w: w})
 	river.AddWorker(workers, &sodWorker{w: w})
+	river.AddWorker(workers, &expiryWorker{w: w})
 	every := w.o.DrainEvery
 	periodic := []*river.PeriodicJob{
 		// A failed drain is not retried: the next tick drains again.
@@ -323,6 +355,11 @@ func (w *Worker) RiverClient() (*river.Client[pgx.Tx], error) {
 		// an hour of crossing auth.inactive_disable_after.
 		river.NewPeriodicJob(river.PeriodicInterval(time.Hour), func() (river.JobArgs, *river.InsertOpts) {
 			return InactivityArgs{}, &river.InsertOpts{MaxAttempts: 3, UniqueOpts: river.UniqueOpts{ByPeriod: time.Hour}}
+		}, &river.PeriodicJobOpts{RunOnStart: true}),
+		// Expired assignments (T-32): every minute, so an expired grant's
+		// scope is recomputed within a minute or so (the drain follows).
+		river.NewPeriodicJob(river.PeriodicInterval(time.Minute), func() (river.JobArgs, *river.InsertOpts) {
+			return ExpiryArgs{}, &river.InsertOpts{MaxAttempts: 1, UniqueOpts: river.UniqueOpts{ByPeriod: time.Minute}}
 		}, &river.PeriodicJobOpts{RunOnStart: true}),
 		// SoD exceptions and approval requests (T-27, T-26): hourly.
 		river.NewPeriodicJob(river.PeriodicInterval(time.Hour), func() (river.JobArgs, *river.InsertOpts) {
