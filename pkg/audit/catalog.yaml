@@ -8,6 +8,21 @@ events:
     severities: [low]
     requires: [target]
     description: "An expired role assignment was revoked by the system (T-32)"
+  - type: access_review.campaign_closed
+    category: access
+    severities: [high]
+    requires: [target]
+    description: "An access review campaign closed, by its manager or at its due date; undecided items followed its policy (T-39)"
+  - type: access_review.campaign_opened
+    category: access
+    severities: [high]
+    requires: [target]
+    description: "An access review campaign opened over a BU subtree (T-39, AC-49)"
+  - type: access_review.decided
+    category: access
+    severities: [info, high]
+    requires: [target]
+    description: "An access review item was certified or revoked, by a reviewer or by the campaign's revoke policy (AC-49)"
   - type: approval.approved
     category: approval
     severities: [high]

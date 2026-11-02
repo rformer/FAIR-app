@@ -242,6 +242,113 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
 paths:
+  /access-reviews:
+    get:
+      summary: Access review campaigns the caller manages or reviews in (T-39, AC-49)
+      x-permission: access_review.manage or access_review.decide
+      responses:
+        "200": { description: "{campaigns: [{id, name, bu_id, bu_code, role_ids, reviewers, due_at, on_expiry, reason, state, created_by, created_at, closed_at, closed_by, manages, items, decided, revoked, open_for_me}]}" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Open a campaign over a BU subtree
+      description: |
+        Snapshots the live access in the BU's subtree (optionally only `role_ids`): one item per
+        user assignment, group assignment, group mapping and service account, and the break-glass
+        accounts. `reviewers` optionally names who may decide (each must hold
+        access_review.decide at the BU). `due_at` is an hour to a year away; `on_expiry` (keep, the
+        default, or revoke) says what happens to undecided items then. Audited high.
+      x-permission: access_review.manage (at the BU)
+      x-audit-events: [access_review.campaign_opened]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, bu_id, due_at, reason]
+              additionalProperties: false
+              properties:
+                name: { type: string }
+                bu_id: { type: string, format: uuid }
+                role_ids: { type: array, items: { type: string, format: uuid } }
+                reviewers: { type: array, items: { type: string, format: uuid } }
+                due_at: { type: string, format: date-time }
+                on_expiry: { type: string, enum: [keep, revoke] }
+                reason: { type: string }
+      responses:
+        "201": { description: "The campaign and its items" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /access-reviews/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      summary: A campaign and the items the caller may see
+      description: All items for its managers; otherwise the items at BUs where the caller holds access_review.decide, each with `can_decide`.
+      x-permission: access_review.manage (at the BU) or access_review.decide
+      responses:
+        "200": { description: "{campaign, items: [{id, kind, assignment_id, mapping_id, role_id, bu_id, snapshot, decision, decided_by, decided_at, comment, outcome, can_decide}]}" }
+        "404": { $ref: "#/components/responses/Error" }
+  /access-reviews/{id}/close:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      summary: Close a campaign now; undecided items follow its policy (keep or revoke)
+      x-permission: access_review.manage (at the BU)
+      x-audit-events: [access_review.campaign_closed, access_review.decided, group_mapping.removed, session.revoked]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                reason: { type: string }
+      responses:
+        "200": { description: "The closed campaign and its items" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /access-reviews/{id}/items/{item}/decision:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: item, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      summary: Certify or revoke an item (AC-49)
+      description: |
+        Needs access_review.decide at the item's BU (and to be a named reviewer when the campaign
+        names them); never for one's own access or access one granted. A revocation needs a
+        comment and applies at once: the assignment ends (a group's for every member), the
+        mapping is removed (fix the IdP group too), or the service account is disabled; the
+        scope worker removes the access within 60 seconds. Break-glass accounts are certified
+        only. Audited (high for a revocation).
+      x-permission: access_review.decide (at the item's BU)
+      x-audit-events: [access_review.decided, group_mapping.removed, session.revoked]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              additionalProperties: false
+              properties:
+                decision: { type: string, enum: [certify, revoke] }
+                comment: { type: string }
+      responses:
+        "200": { description: "{item, decision, outcome: kept, revoked, mapping_removed, account_disabled or already_ended}" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /entitlements/report:
     get:
       summary: The entitlement report (T-38, AC-48, AC-64)

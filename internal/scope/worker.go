@@ -259,6 +259,37 @@ func (r *expiryWorker) Work(ctx context.Context, _ *river.Job[ExpiryArgs]) error
 	return err
 }
 
+// ReviewArgs is the access review due-date sweep (F-001 T-39, AC-49), every
+// minute.
+type ReviewArgs struct{}
+
+// Kind implements river.JobArgs.
+func (ReviewArgs) Kind() string { return "iam.access_review_sweep" }
+
+// SweepReviews closes access review campaigns past their due date
+// (iam.access_review_sweep): undecided items are kept or revoked by each
+// campaign's policy. Returns how many campaigns closed.
+func (w *Worker) SweepReviews(ctx context.Context) (int, error) {
+	var n int
+	if err := w.o.Pool.QueryRow(ctx, "SELECT iam.access_review_sweep()").Scan(&n); err != nil {
+		return 0, fmt.Errorf("scope: access review sweep: %w", err)
+	}
+	if n > 0 {
+		w.o.Logger.Info("access review campaigns closed", "count", n)
+	}
+	return n, nil
+}
+
+type reviewWorker struct {
+	river.WorkerDefaults[ReviewArgs]
+	w *Worker
+}
+
+func (r *reviewWorker) Work(ctx context.Context, _ *river.Job[ReviewArgs]) error {
+	_, err := r.w.SweepReviews(ctx)
+	return err
+}
+
 // SoDArgs is the hourly separation-of-duties exception sweep (F-001 T-27,
 // AC-53), with the expiry of pending approval requests (T-26).
 type SoDArgs struct{}
@@ -342,6 +373,7 @@ func (w *Worker) RiverClient() (*river.Client[pgx.Tx], error) {
 	river.AddWorker(workers, &inactivityWorker{w: w})
 	river.AddWorker(workers, &sodWorker{w: w})
 	river.AddWorker(workers, &expiryWorker{w: w})
+	river.AddWorker(workers, &reviewWorker{w: w})
 	every := w.o.DrainEvery
 	periodic := []*river.PeriodicJob{
 		// A failed drain is not retried: the next tick drains again.
@@ -360,6 +392,10 @@ func (w *Worker) RiverClient() (*river.Client[pgx.Tx], error) {
 		// scope is recomputed within a minute or so (the drain follows).
 		river.NewPeriodicJob(river.PeriodicInterval(time.Minute), func() (river.JobArgs, *river.InsertOpts) {
 			return ExpiryArgs{}, &river.InsertOpts{MaxAttempts: 1, UniqueOpts: river.UniqueOpts{ByPeriod: time.Minute}}
+		}, &river.PeriodicJobOpts{RunOnStart: true}),
+		// Access review campaigns past their due date (T-39): every minute.
+		river.NewPeriodicJob(river.PeriodicInterval(time.Minute), func() (river.JobArgs, *river.InsertOpts) {
+			return ReviewArgs{}, &river.InsertOpts{MaxAttempts: 1, UniqueOpts: river.UniqueOpts{ByPeriod: time.Minute}}
 		}, &river.PeriodicJobOpts{RunOnStart: true}),
 		// SoD exceptions and approval requests (T-27, T-26): hourly.
 		river.NewPeriodicJob(river.PeriodicInterval(time.Hour), func() (river.JobArgs, *river.InsertOpts) {

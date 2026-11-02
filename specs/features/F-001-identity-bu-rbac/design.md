@@ -677,3 +677,29 @@ Until F-015 exists, F-001 ships a minimal settings module that holds the three p
       - the restriction owner sees the BU in the listing but no rows inside it;
       - a viewer without entitlement.export gets JSON but 403 for files; a caller who may export at one BU exports only that BU's rows; CSV and PDF are correct and audited with row counts; 404 without entitlement.view; the report function needs the signed context.
     - Mutations (rows ignoring entitlement.view, files without entitlement.export in Go or in SQL, every restricted BU listed, the export unaudited, the source or inactive filters ignored, PDF headers without scope, the CSV formula guard off) are all caught.
+- 2026-11-02: T-39 implementation notes (migration 0060, `internal/iamapi/reviews.go`, `scope.Worker.SweepReviews`). Robert Former decided: direct and group assignments, mappings flagged, service accounts and break-glass included; any holder of access_review.decide at the item's BU decides, with no self-review; each campaign chooses keep or revoke for undecided items.
+  - **Campaigns** (§3 `access_review_campaign`, `access_review_item`): opened with access_review.manage at a BU (a name, a reason, a due date an hour to a year away, `on_expiry` keep or revoke, optionally roles and named reviewers who must hold access_review.decide there). Opening snapshots the live access in the BU's subtree:
+    - one item per manual user assignment and per group assignment (with its members);
+    - one per group mapping (not per mapped assignment), with the IdP group;
+    - one per service account (its private role);
+    - break-glass accounts.
+    Each item keeps a snapshot of who, the role and permissions, the BU and restricted flag, and who granted it when. Audited high.
+  - **Decisions** (AC-49; `POST /api/v1/access-reviews/{id}/items/{item}/decision`):
+    - Who: a holder of access_review.decide at the item's BU, by the usual rule (restricted BUs only by an explicit assignment), and a named reviewer when the campaign names them.
+    - Never for one's own access (directly or through the group), and never for access one granted.
+    - certify, or revoke with a comment. A revocation applies in the decision's transaction: the assignment ends (a group's for every member), the mapping is removed (its assignments end; the decision tells the reviewer to fix the IdP group too), or the service account is disabled.
+    - Break-glass accounts are certified only; break-glass has its own disable.
+    - The scope worker removes the access within its 60-second SLA.
+    - Every decision is audited (`access_review.decided`: info for certify, high for revoke).
+  - **The assignment trigger** (0055, recreated) accepts two more revocations: a reviewer's, when the item records that reviewer's revoke decision (reviewers need not hold access.assign; AC-28 still applies), and the system's under a campaign's revoke policy. Items are written only by the review functions.
+  - **Closing:** at the due date the `iam worker` sweep (River job `iam.access_review_sweep`, every minute) closes the campaign; a manager may close it early (`/close`). With `keep`, undecided items become `expired_unreviewed`. With `revoke`, they are revoked as the system (`revoked_by_policy`, audited high per item), except break-glass. Closing is audited high with the counts per decision.
+  - **Visibility:** campaigns appear to their managers and to reviewers with items to decide (`open_for_me`). Managers see every item; reviewers see the items at their BUs, each with `can_decide`. Without either permission the routes are 404.
+  - Verification:
+    - DB (`TestAccessReviews`, through the gateway):
+      - The snapshot holds the user, group, mapping, service-account and reviewer items of the subtree, not access outside it or mapped assignments one by one.
+      - Certify; revoke refused without a comment. The group's revocation removes both members' access after the drain (well inside 60 s). Deciding twice is 409. The mapping's revocation removes it and its member's access; the service account's disables it.
+      - Self-review refused while a peer's review passes. Reviewing access one granted is refused, while a reviewer without access.assign revokes it (named as the revoker). A manager without access_review.decide cannot decide.
+      - Decisions audited by severity. 404 without the review permissions; the reviewer's list.
+      - Named reviewers enforced, and only holders of the permission may be named. Break-glass certified but not revoked.
+      - Past the due date, before the sweep, no decisions are taken. The due-date sweep: revoke ends undecided access as the system; keep marks it unreviewed; both closes audited. A closed campaign takes no decisions; a manager closes early and a reviewer cannot. The tables are closed to app_rw.
+    - Mutations (self-review, reviewing one's own grants, revocation without a comment, named reviewers ignored, break-glass revocable, the trigger's reviewer or policy path removed, decisions after the due date, deciding without access_review.decide, the keep policy revoking, decisions unaudited, mapped assignments listed one by one) are all caught.

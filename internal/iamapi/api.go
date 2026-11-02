@@ -79,6 +79,12 @@
 //
 //	GET    /api/v1/entitlements/report[?format=csv|pdf]     entitlement.view (+ entitlement.export for files)
 //	GET    /api/v1/entitlements/restricted[?format=csv|pdf]
+//
+// T-39 adds access review campaigns (access_review.manage to open and close,
+// access_review.decide to certify or revoke):
+//
+//	GET|POST /api/v1/access-reviews, GET /api/v1/access-reviews/{id}, POST .../{id}/close
+//	POST   /api/v1/access-reviews/{id}/items/{item}/decision
 package iamapi
 
 import (
@@ -190,6 +196,11 @@ var routes = []route{
 	{"POST", "/api/v1/breakglass/accounts/{id}/enrollment", (*API).newBreakglassCode},
 	{"GET", "/api/v1/entitlements/report", (*API).entitlementReport},
 	{"GET", "/api/v1/entitlements/restricted", (*API).restrictedListing},
+	{"GET", "/api/v1/access-reviews", (*API).listReviews},
+	{"POST", "/api/v1/access-reviews", (*API).openReview},
+	{"GET", "/api/v1/access-reviews/{id}", (*API).getReview},
+	{"POST", "/api/v1/access-reviews/{id}/close", (*API).closeReview},
+	{"POST", "/api/v1/access-reviews/{id}/items/{item}/decision", (*API).decideReviewItem},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).
@@ -203,7 +214,7 @@ func Routes() []string {
 }
 
 // Prefixes are the path prefixes the API owns (for the service's mux).
-var Prefixes = []string{"/api/v1/idps", "/api/v1/banner", "/api/v1/users", "/api/v1/groups", "/api/v1/group-mappings", "/api/v1/sod-rules", "/api/v1/sod-exceptions", "/api/v1/approvals", "/api/v1/permissions", "/api/v1/roles", "/api/v1/bus", "/api/v1/service-accounts", "/api/v1/breakglass", "/api/v1/entitlements"}
+var Prefixes = []string{"/api/v1/idps", "/api/v1/banner", "/api/v1/users", "/api/v1/groups", "/api/v1/group-mappings", "/api/v1/sod-rules", "/api/v1/sod-exceptions", "/api/v1/approvals", "/api/v1/permissions", "/api/v1/roles", "/api/v1/bus", "/api/v1/service-accounts", "/api/v1/breakglass", "/api/v1/entitlements", "/api/v1/access-reviews"}
 
 // Handler returns the API with authentication and idempotency in front.
 func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {
