@@ -1,0 +1,60 @@
+# F-001 T-35 (AC-46): emergency break-glass enablement, the IdP-outage
+# recovery (docs/operations/idp-outage-recovery.md). NOT applied with the
+# platform: an operator with cluster-level access fills in the placeholders
+# and runs it once, during an incident. It uses the migrator's credentials
+# (like iam-migrate, whose network policy it shares through its label),
+# enables break-glass for at most 24 hours, is audited critical with the
+# operator's name, and notifies every channel. The Kubernetes API audit log
+# records who created it.
+#
+#   kubectl -n fair-platform create -f breakglass-emergency.yaml
+#   kubectl -n fair-platform logs -f job/iam-breakglass-emergency   # the enrollment code, once
+#   kubectl -n fair-platform delete job iam-breakglass-emergency    # after the holder enrolled
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iam-breakglass-emergency
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: iam-migrate, app.kubernetes.io/part-of: fair-platform, fair.io/purpose: breakglass-emergency }
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: iam-migrate, app.kubernetes.io/part-of: fair-platform }
+    spec:
+      serviceAccountName: iam
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: breakglass
+          image: ghcr.io/rformer/fair-iam:REPLACE_WITH_DIGEST
+          args: ["breakglass", "enable", "-emergency",
+                 "-operator", "REPLACE_WITH_OPERATOR_NAME",
+                 "-reason", "REPLACE_WITH_INCIDENT_AND_REASON",
+                 "-holder", "REPLACE_WITH_HOLDER_EMAIL=REPLACE_WITH_HOLDER_NAME"]
+          env:
+            - { name: FAIR_ENV, value: production }
+            - { name: PGHOST, value: REPLACE_WITH_DB_HOST }
+            - { name: PGDATABASE, value: fair }
+            - { name: PGSSLMODE, value: verify-full }
+            - { name: PGSSLROOTCERT, value: /db-ca/ca.crt }
+            - { name: FAIR_MIGRATOR_PASSWORD_FILE, value: /secrets/migrator/password }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 128Mi }
+          volumeMounts:
+            - { name: migrator, mountPath: /secrets/migrator, readOnly: true }
+            - { name: db-ca, mountPath: /db-ca, readOnly: true }
+      volumes:
+        - name: migrator
+          secret: { secretName: iam-db-migrator, defaultMode: 0400 }
+        - name: db-ca
+          secret: { secretName: db-ca }

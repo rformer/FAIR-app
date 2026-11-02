@@ -9,14 +9,18 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/rformer/fair-app/internal/authn/breakglass"
 	"github.com/rformer/fair-app/internal/authn/breakglass/webauthntest"
 	"github.com/rformer/fair-app/internal/config"
 	"github.com/rformer/fair-app/internal/gateway"
 	"github.com/rformer/fair-app/internal/iamapi"
+	"github.com/rformer/fair-app/internal/migrate"
 	"github.com/rformer/fair-app/internal/posture"
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
@@ -443,4 +447,110 @@ func TestBreakglass(t *testing.T) {
 	}
 	e.mustFail("app_rw", "SELECT iam.breakglass_install_enable('[]', '{}', 'x')", "permission denied")
 	e.mustFail("app_rw", "SELECT posture.breakglass_set(true, NULL, NULL, NULL, NULL)", "permission denied")
+}
+
+// F-001 T-35 (AC-46): the IdP-outage recovery drill, the runbook
+// (docs/operations/idp-outage-recovery.md) step by step: break-glass off,
+// the installation in use, no IdP reachable; an operator with cluster-level
+// access enables break-glass in an emergency, a holder enrolls and signs in
+// without any IdP, administers, and turns break-glass off again.
+func TestIdPOutageRecoveryDrill(t *testing.T) {
+	be := bgFixture(t)
+	e := be.e
+	ctx := context.Background()
+	step := 0
+	logStep := func(format string, args ...any) {
+		step++
+		t.Logf("DRILL %d: "+format, append([]any{step}, args...)...)
+	}
+	admin := be.login(t, "admin") // the installation is in use
+	logStep("installation in use (admin session), break-glass off: %s", e.adminQuery("SELECT iam.breakglass_enabled()"))
+
+	// The operator's tool: `iam breakglass`, connected as app_migrator.
+	cc, err := migrate.ConnConfig("development", e.secrets["app_migrator"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	cc.Database = e.db
+	run := func(args ...string) (string, error) {
+		conn, err := pgx.ConnectConfig(ctx, cc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = conn.Close(ctx) }()
+		var out strings.Builder
+		err = breakglass.Command(ctx, conn, args, &out)
+		return out.String(), err
+	}
+	holder := []string{"-holder", "ops1@example.test=Ops One"}
+	if _, err := run(append([]string{"enable", "-reason", "IdP down"}, holder...)...); err == nil || !strings.Contains(err.Error(), "in use") {
+		t.Fatalf("the install path after install: %v", err)
+	}
+	logStep("install-time enable refused: the installation is in use")
+	if _, err := run(append([]string{"enable", "-emergency", "-reason", "IdP down"}, holder...)...); err == nil || !strings.Contains(err.Error(), "-operator") {
+		t.Fatalf("emergency without the operator: %v", err)
+	}
+	if _, err := run(append([]string{"enable", "-emergency", "-operator", "Jo Operator"}, holder...)...); err == nil {
+		t.Fatal("emergency without a reason")
+	}
+	// The database insists too, whatever calls it.
+	e.ownerFails(`SELECT * FROM iam.breakglass_emergency_enable('[{"email": "ops1@example.test", "name": "Ops One"}]', ARRAY['\x`+
+		strings.Repeat("ab", 32)+`'::bytea], 'IdP down', ' ')`, "operator")
+	logStep("emergency enable refused without -operator and without -reason")
+
+	out, err := run(append([]string{"enable", "-emergency", "-operator", "Jo Operator", "-reason", "INC-1234: Entra ID outage"}, holder...)...)
+	if err != nil {
+		t.Fatalf("emergency enable: %v", err)
+	}
+	m := regexp.MustCompile(`shown once: (fbg_\S+)`).FindStringSubmatch(out)
+	if m == nil || !strings.Contains(out, `"type":"breakglass.emergency_enabled"`) || !strings.Contains(out, `"severity":"critical"`) || strings.Count(out, m[1]) != 1 {
+		t.Fatalf("command output: %s", out)
+	}
+	logStep("emergency enable by operator Jo Operator: install-log line breakglass.emergency_enabled (critical); one enrollment code printed once")
+	if got := e.adminQuery(`SELECT iam.breakglass_enabled() || ':' ||
+		(SELECT (expires_at <= now() + interval '24 hours') || ':' || (approved_by = iam.installer_user()) FROM posture.exception WHERE key = 'breakglass.enabled' AND state = 'active') || ':' ||
+		(SELECT payload->>'severity' || ':' || (payload->>'actor') FROM iam.event_outbox WHERE payload->>'type' = 'breakglass.emergency_enabled') || ':' ||
+		(SELECT count(*) FROM iam.notice_outbox WHERE kind = 'breakglass.emergency_enabled')`); got != "true:true:true:critical:operator:Jo Operator:1" {
+		t.Fatalf("after the emergency enable: %s", got)
+	}
+	logStep("on under a posture exception expiring within 24 hours; audited critical as operator:Jo Operator; every channel notified")
+	if _, err := run(append([]string{"enable", "-emergency", "-operator", "Jo Operator", "-reason", "again"}, holder...)...); err == nil {
+		t.Fatal("a second emergency enable while on")
+	}
+	logStep("a second emergency enable while on is refused")
+
+	key := newAuthenticator()
+	if r := be.enroll(t, key, m[1]); r.code != http.StatusCreated {
+		t.Fatalf("enroll: %d %s", r.code, r.raw)
+	}
+	e.drain()
+	r := be.bgLogin(t, key)
+	ops := bgCookie(r)
+	if r.code != 200 || ops == "" {
+		t.Fatalf("break-glass login: %d %s", r.code, r.raw)
+	}
+	logStep("holder ops1 enrolled a security key and signed in with WebAuthn, no IdP involved")
+	if r := be.do(t, "POST", "/api/v1/auth/banner/ack", ops, map[string]any{"version": 1}, be.csrf(t, ops)); r.code != http.StatusNoContent {
+		t.Fatalf("banner: %d %s", r.code, r.raw)
+	}
+	logStep("the holder acknowledged the system-use notification, like every session")
+	if r := be.do(t, "GET", "/api/v1/idps", ops, nil, nil); r.code != 200 {
+		t.Fatalf("IdP administration as break-glass: %d %s", r.code, r.raw)
+	}
+	logStep("as Platform Admin the holder reaches IdP administration (/api/v1/idps) to repair or switch the IdP")
+
+	if r := be.do(t, "POST", "/api/v1/breakglass/disable", ops, map[string]any{"reason": "INC-1234 resolved"}, be.hdrs(ops)); r.code != 200 {
+		t.Fatalf("disable: %d %s", r.code, r.raw)
+	}
+	if r := be.do(t, "GET", "/api/v1/me", ops, nil, nil); r.code != http.StatusUnauthorized {
+		t.Fatalf("break-glass session after disabling: %d %s", r.code, r.raw)
+	}
+	if r := be.do(t, "GET", "/api/v1/me", admin, nil, nil); r.code != 200 {
+		t.Fatalf("other sessions: %d %s", r.code, r.raw)
+	}
+	logStep("break-glass disabled with no approval: its session ended at once, the accounts are disabled, other sessions unaffected")
+	if got := e.adminQuery("SELECT iam.breakglass_enabled() || ':' || (SELECT string_agg(status::text, ',') FROM iam.app_user WHERE source = 'breakglass')"); got != "false:disabled" {
+		t.Fatalf("after the drill: %s", got)
+	}
+	logStep("final state: break-glass off, ops1 disabled")
 }

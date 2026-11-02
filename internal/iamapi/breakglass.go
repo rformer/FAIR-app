@@ -1,14 +1,13 @@
 package iamapi
 
 import (
-	"crypto/sha256"
 	"encoding/json"
 	"net/http"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/rformer/fair-app/internal/authn"
+	"github.com/rformer/fair-app/internal/authn/breakglass"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/authz"
 )
@@ -21,19 +20,6 @@ import (
 // answers each holder's one-time enrollment code, shown once. Disabling
 // needs no approval and ends the accounts' sessions at once. The sign-in
 // itself is internal/authn/breakglass.
-
-// EnrollmentCodePrefix starts every enrollment code (for secret scanners).
-const EnrollmentCodePrefix = "fbg_"
-
-// NewEnrollmentCode returns a code and its SHA-256 (what the database keeps).
-func NewEnrollmentCode() (string, []byte, error) {
-	code, err := authn.NewToken(EnrollmentCodePrefix)
-	if err != nil {
-		return "", nil, err
-	}
-	sum := sha256.Sum256([]byte(code))
-	return code, sum[:], nil
-}
 
 func (a *API) breakglassManage(w http.ResponseWriter, r *http.Request, p authz.Principal) bool {
 	root, err := a.rootBU(r.Context())
@@ -93,7 +79,7 @@ func codes(n int) ([]string, [][]byte, error) {
 	var plain []string
 	var hashes [][]byte
 	for range n {
-		c, h, err := NewEnrollmentCode()
+		c, h, err := breakglass.NewEnrollmentCode()
 		if err != nil {
 			return nil, nil, err
 		}
@@ -175,7 +161,7 @@ func (a *API) newBreakglassCode(w http.ResponseWriter, r *http.Request, p authz.
 		fail(w, errNotFound)
 		return
 	}
-	code, hash, err := NewEnrollmentCode()
+	code, hash, err := breakglass.NewEnrollmentCode()
 	if err != nil {
 		fail(w, err)
 		return
