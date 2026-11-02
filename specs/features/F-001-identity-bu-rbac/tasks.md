@@ -74,7 +74,7 @@ Status: **Approved** (Robert Former, 2026-10-24) | Design: Approved 2026-10-24
 | # | Task | Traces to | Verification | Size | Status |
 |---|---|---|---|---|---|
 | T-37 | Full security event catalog wired to the emitter (incl. privileged-permission and break-glass events) | AC-43, AC-50, AC-54 | Every mutation emits its event; schema test | M | Done (2026-11-02; `pkg/audit/catalog.yaml`, 130 types, and `event.schema.json`; code scan, `x-audit-events` per mutating route, validating emitters; syslog over TLS beside JSON lines) |
-| T-38 | Entitlement report (CSV/PDF), restricted-BU access listing | AC-48, AC-64 | Report matches DB state; scope-respecting for Auditors | M | Todo |
+| T-38 | Entitlement report (CSV/PDF), restricted-BU access listing | AC-48, AC-64 | Report matches DB state; scope-respecting for Auditors | M | Done (2026-11-02; `/api/v1/entitlements/report` and `/restricted`, JSON, CSV, tagged PDF from our own writer `internal/report`; restricted BUs shown to explicit assignees and restriction owners) |
 | T-39 | Access review campaigns (certify/revoke, audited) | AC-49 | Revoke decision removes access ≤ 60 s | M | Todo |
 
 ## Phase 6 — Hardening & release readiness

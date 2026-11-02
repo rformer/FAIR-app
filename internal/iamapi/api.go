@@ -74,6 +74,11 @@
 //	POST   /api/v1/breakglass/apply                          enable once approved; enrollment codes, shown once
 //	POST   /api/v1/breakglass/disable                        at once, no approval; sessions end
 //	POST   /api/v1/breakglass/accounts/{id}/enrollment       a new enrollment code (the old keys stop working)
+//
+// T-38 adds the entitlement report and the restricted-BU access listing:
+//
+//	GET    /api/v1/entitlements/report[?format=csv|pdf]     entitlement.view (+ entitlement.export for files)
+//	GET    /api/v1/entitlements/restricted[?format=csv|pdf]
 package iamapi
 
 import (
@@ -183,6 +188,8 @@ var routes = []route{
 	{"POST", "/api/v1/breakglass/apply", (*API).applyBreakglass},
 	{"POST", "/api/v1/breakglass/disable", (*API).disableBreakglass},
 	{"POST", "/api/v1/breakglass/accounts/{id}/enrollment", (*API).newBreakglassCode},
+	{"GET", "/api/v1/entitlements/report", (*API).entitlementReport},
+	{"GET", "/api/v1/entitlements/restricted", (*API).restrictedListing},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).
@@ -196,7 +203,7 @@ func Routes() []string {
 }
 
 // Prefixes are the path prefixes the API owns (for the service's mux).
-var Prefixes = []string{"/api/v1/idps", "/api/v1/banner", "/api/v1/users", "/api/v1/groups", "/api/v1/group-mappings", "/api/v1/sod-rules", "/api/v1/sod-exceptions", "/api/v1/approvals", "/api/v1/permissions", "/api/v1/roles", "/api/v1/bus", "/api/v1/service-accounts", "/api/v1/breakglass"}
+var Prefixes = []string{"/api/v1/idps", "/api/v1/banner", "/api/v1/users", "/api/v1/groups", "/api/v1/group-mappings", "/api/v1/sod-rules", "/api/v1/sod-exceptions", "/api/v1/approvals", "/api/v1/permissions", "/api/v1/roles", "/api/v1/bus", "/api/v1/service-accounts", "/api/v1/breakglass", "/api/v1/entitlements"}
 
 // Handler returns the API with authentication and idempotency in front.
 func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {

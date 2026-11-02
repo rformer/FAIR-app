@@ -183,6 +183,11 @@ events:
     category: system
     severities: [info, high]
     description: "Database migrations and the release catalog were applied"
+  - type: entitlement.exported
+    category: access
+    severities: [high]
+    requires: [target]
+    description: "An entitlement report or restricted-BU access listing was exported as CSV or PDF (T-38)"
   - type: group_mapping.created
     category: access
     severities: [high]

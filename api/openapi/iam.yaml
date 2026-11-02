@@ -242,6 +242,49 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
 paths:
+  /entitlements/report:
+    get:
+      summary: The entitlement report (T-38, AC-48, AC-64)
+      description: |
+        One row per user and live assignment (a group's assignment once per member): the user
+        (kind user, service_account or breakglass; status; last sign-in), the role (built-in or
+        custom) and its permissions, the BU and whether it is restricted, how it was granted
+        (manual, group, mapped, service_account, breakglass), by whom and when, and the expiry.
+        Rows cover the BUs where the caller holds entitlement.view, restricted subtrees only by
+        an explicit assignment there (AC-64). The answer also lists the restricted BUs the caller
+        may see and everyone with access to them, with a count of those not shown.
+        `format=csv` or `pdf` (the PDF has both sections; tagged for assistive technology) also
+        needs entitlement.export at the BUs exported, and is audited (`entitlement.exported`).
+      x-permission: entitlement.view (entitlement.export for csv and pdf)
+      parameters:
+        - { name: format, in: query, schema: { type: string, enum: [json, csv, pdf] } }
+        - { name: user, in: query, schema: { type: string, format: uuid } }
+        - { name: role, in: query, schema: { type: string, format: uuid } }
+        - { name: bu, in: query, description: The BU and its subtree, schema: { type: string, format: uuid } }
+        - { name: source, in: query, schema: { type: string, enum: [manual, group, mapped, service_account, breakglass] } }
+        - { name: restricted_only, in: query, schema: { type: boolean } }
+        - { name: expiring_before, in: query, schema: { type: string, format: date-time } }
+        - { name: include_inactive, in: query, schema: { type: boolean } }
+      responses:
+        "200": { description: "JSON {as_of, filters, entitlements, restricted_bus, restricted_bus_not_shown}; or a CSV or PDF attachment" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { description: A file without entitlement.export }
+        "404": { $ref: "#/components/responses/Error" }
+  /entitlements/restricted:
+    get:
+      summary: The restricted-BU access listing (AC-64)
+      description: |
+        Every restricted BU the caller may see (an explicit entitlement.view there, or bu.restrict
+        at its parent) and everyone with access to it, from the materialized scopes: write, read
+        or aggregate-only roll-up, with the resource types. `not_shown` counts the restricted BUs
+        the caller may not see. `format=csv` or `pdf` as for the report.
+      x-permission: entitlement.view (entitlement.export for csv and pdf)
+      parameters:
+        - { name: format, in: query, schema: { type: string, enum: [json, csv, pdf] } }
+      responses:
+        "200": { description: "JSON {as_of, restricted_bus, not_shown}; or a CSV or PDF attachment" }
+        "403": { description: A file without entitlement.export }
+        "404": { $ref: "#/components/responses/Error" }
   /breakglass:
     get:
       summary: Break-glass status and accounts (T-34)

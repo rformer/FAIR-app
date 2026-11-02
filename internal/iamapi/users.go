@@ -22,21 +22,23 @@ import (
 // somewhere requires perm in some BU; it answers 404 and returns false
 // otherwise (the API does not exist for the caller, AC-25).
 func (a *API) somewhere(w http.ResponseWriter, r *http.Request, p authz.Principal, perm authz.Permission) bool {
-	if bw, ok := a.Authz.(interface {
-		BUsWith(context.Context, authz.Principal, authz.Permission) (map[string]struct{}, error)
-	}); ok {
-		if bus, err := bw.BUsWith(r.Context(), p, perm); err == nil && len(bus) > 0 {
-			return true
-		}
-		problem(w, http.StatusNotFound, "not_found", "", nil)
-		return false
-	}
-	root, err := a.rootBU(r.Context())
-	if err == nil && a.Authz.Check(r.Context(), p, perm, root) == nil {
+	if a.holdsSomewhere(r, p, perm) {
 		return true
 	}
 	problem(w, http.StatusNotFound, "not_found", "", nil)
 	return false
+}
+
+// holdsSomewhere: p holds perm at some BU.
+func (a *API) holdsSomewhere(r *http.Request, p authz.Principal, perm authz.Permission) bool {
+	if bw, ok := a.Authz.(interface {
+		BUsWith(context.Context, authz.Principal, authz.Permission) (map[string]struct{}, error)
+	}); ok {
+		bus, err := bw.BUsWith(r.Context(), p, perm)
+		return err == nil && len(bus) > 0
+	}
+	root, err := a.rootBU(r.Context())
+	return err == nil && a.Authz.Check(r.Context(), p, perm, root) == nil
 }
 
 func (a *API) userView(w http.ResponseWriter, r *http.Request, p authz.Principal) bool {
