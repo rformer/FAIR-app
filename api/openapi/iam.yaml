@@ -186,6 +186,23 @@ components:
         rollup_mode: { enum: [excluded, aggregate, full] }
         archived_at: { type: [string, "null"], format: date-time }
         manageable: { type: boolean, description: The caller holds bu.restrict at the parent }
+    BUDocument:
+      type: object
+      required: [format, bus]
+      properties:
+        format: { const: fair.bus.v1 }
+        bus:
+          type: array
+          maxItems: 5000
+          items:
+            type: object
+            required: [code, name]
+            properties:
+              code: { type: string }
+              parent_code: { type: [string, "null"] }
+              name: { type: string }
+              restricted: { type: boolean }
+              rollup_mode: { enum: [excluded, aggregate, full] }
     Pinning:
       type: object
       required: [error, current, fingerprints]
@@ -1257,6 +1274,55 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
+  /bus/export:
+    get:
+      summary: Export the BUs the caller manages as fair.bus.v1 (T-31, AC-19)
+      description: |
+        The BUs where the caller holds bu.manage, and restricted BUs whose parent they manage
+        (metadata only), parents before children. JSON by default; `format=csv` gives the same
+        columns (code, parent_code, name, restricted, rollup_mode).
+      x-permission: bu.manage
+      parameters:
+        - { name: format, in: query, schema: { enum: [json, csv] } }
+      responses:
+        "200":
+          description: The document
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BUDocument" }
+            text/csv:
+              schema: { type: string }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /bus/import:
+    post:
+      summary: Import a fair.bus.v1 document (T-31, AC-19)
+      description: |
+        Entries apply in order (a parent exists or comes earlier). Missing BUs are created under a
+        parent where the caller holds bu.manage; existing ones are renamed, restricted or have
+        their roll-up tightened. Moves, archived BUs, un-restricting and loosening are refused.
+        `dry_run=true` reports without saving; otherwise all or nothing (409 with the report).
+      x-permission: bu.manage
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - { name: dry_run, in: query, schema: { type: boolean } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                document: { $ref: "#/components/schemas/BUDocument" }
+                csv: { type: string, description: The CSV form, instead of document }
+                reason: { type: string }
+      responses:
+        "200": { description: "The report ({bus, errors, applied, dry_run})" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { description: An entry failed; nothing was applied }
   /banner:
     get:
       summary: The system-use banner in force (T-19, AC-34)

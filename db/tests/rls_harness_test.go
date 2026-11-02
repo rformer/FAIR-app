@@ -127,6 +127,8 @@ func TestRLSHarnessDetectsBrokenTables(t *testing.T) {
 		{"roll-up policy for every role", "DROP POLICY bu_rollup ON %[1]s; CREATE POLICY bu_rollup ON %[1]s FOR SELECT USING (bu_id = ANY ((SELECT ARRAY(SELECT r.bu_id FROM authz.rollup_bus('register') r WHERE r.mode = 'aggregate'))::uuid[]))", "structure"},
 		{"roll-up policy for full BUs too", "DROP POLICY bu_rollup ON %[1]s; CREATE POLICY bu_rollup ON %[1]s FOR SELECT TO rollup_definer USING (bu_id = ANY ((SELECT ARRAY(SELECT r.bu_id FROM authz.rollup_bus('register') r))::uuid[]))", "structure"},
 		{"roll-up role can write", "GRANT UPDATE ON %s TO rollup_definer", "structure"},
+		{"guard policy for every role", "DROP POLICY bu_guard ON %[1]s; CREATE POLICY bu_guard ON %[1]s FOR SELECT USING (true)", "control"},
+		{"guard role can write", "GRANT DELETE ON %s TO bu_guard_definer", "structure"},
 	}
 	for i, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

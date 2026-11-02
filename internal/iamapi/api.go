@@ -55,6 +55,7 @@
 //
 //	GET    /api/v1/bus[/{id}]                                          bu.view
 //	POST   /api/v1/bus/{id}/restriction, PUT /api/v1/bus/{id}/rollup-mode, POST /api/v1/bus/apply
+//	GET    /api/v1/bus/export[?format=csv], POST /api/v1/bus/import[?dry_run=true]  bu.manage
 //	                                                                   bu.restrict at the parent
 package iamapi
 
@@ -143,6 +144,8 @@ var routes = []route{
 	{"POST", "/api/v1/bus/{id}/restriction", (*API).setRestriction},
 	{"PUT", "/api/v1/bus/{id}/rollup-mode", (*API).setRollupMode},
 	{"POST", "/api/v1/bus/apply", (*API).applyBUApproval},
+	{"GET", "/api/v1/bus/export", (*API).exportBUs},
+	{"POST", "/api/v1/bus/import", (*API).importBUs},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).

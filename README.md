@@ -191,6 +191,8 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_DB_PASSWORD_FILE=<app_posture passwor
 # Restricted BUs (F-001 T-30): POST /api/v1/bus/{id}/restriction restricts at once;
 # un-restricting and PUT .../rollup-mode loosening answer 202 with an approval,
 # applied by POST /api/v1/bus/apply after a second administrator approves it.
+# BU tree (F-001 T-31): GET /api/v1/bus/export[?format=csv]; POST /api/v1/bus/import
+# with {document | csv, reason}, ?dry_run=true to preview (creates and renames only).
 # SAML login (F-001 T-15; ADR-009): the iam service serves /api/v1/auth/saml/ when
 # FAIR_PUBLIC_ORIGIN is set (with FAIR_DB_PASSWORD_FILE and FAIR_LOGIN_TICKET_KEYS_DIR,
 # its ES256 ticket key); the gateway forwards it given an iam upstream and

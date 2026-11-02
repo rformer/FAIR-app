@@ -10,8 +10,10 @@
 //   - structure: RLS enabled and forced, exactly the apply_bu_rls policies
 //     bound to the table's registered resource type (the four command
 //     policies, and bu_rollup: SELECT, for rollup_definer alone, aggregate
-//     BUs only; F-001 T-30), owned by fair_owner, nothing granted to PUBLIC
-//     and nothing but SELECT to rollup_definer;
+//     BUs only; F-001 T-30; bu_guard: SELECT, for bu_guard_definer alone,
+//     every row, for the archive guard's count; F-001 T-31), owned by
+//     fair_owner, nothing granted to PUBLIC and nothing but SELECT to
+//     rollup_definer and bu_guard_definer;
 //   - context: missing, malformed, forged, wrong-key, expired, overlong and
 //     stale tokens see and change nothing;
 //   - writes: write scope, not read scope, governs inserts, updates and
@@ -212,7 +214,7 @@ func (r *run) structure() {
 	if owner != "fair_owner" {
 		r.fail("structure", "owned by %s; BU-owned tables must be owned by fair_owner", owner)
 	}
-	want := map[string]string{"bu_select": "r", "bu_insert": "a", "bu_update": "w", "bu_delete": "d", "bu_rollup": "r"}
+	want := map[string]string{"bu_select": "r", "bu_insert": "a", "bu_update": "w", "bu_delete": "d", "bu_rollup": "r", "bu_guard": "r"}
 	rows, err := r.env.Admin.Query(r.ctx, `SELECT polname, polcmd::text,
 		coalesce(pg_get_expr(polqual, polrelid), ''), coalesce(pg_get_expr(polwithcheck, polrelid), ''),
 		(SELECT string_agg(CASE WHEN o = 0 THEN 'PUBLIC' ELSE o::regrole::text END, ',' ORDER BY o) FROM unnest(polroles) o)
@@ -236,6 +238,13 @@ func (r *run) structure() {
 		}
 		if cmd != wantCmd {
 			r.fail("structure", "policy %s applies to command %s, want %s", name, cmd, wantCmd)
+		}
+		if name == "bu_guard" {
+			// Every row, for the archive guard's count alone (AC-18).
+			if roles != "bu_guard_definer" || qual != "true" || check != "" {
+				r.fail("structure", "policy bu_guard (roles %s, %q) must be for bu_guard_definer alone", roles, qual)
+			}
+			continue
 		}
 		if name == "bu_rollup" {
 			// Aggregate-only rows, for roll-up functions alone (AC-62).
@@ -272,8 +281,9 @@ func (r *run) structure() {
 	}
 	var extra bool
 	if err := r.env.Admin.QueryRow(r.ctx, `SELECT EXISTS (SELECT 1 FROM pg_class c, aclexplode(c.relacl) a
-		WHERE c.oid = $1::regclass AND a.grantee = 'rollup_definer'::regrole AND a.privilege_type <> 'SELECT')`, r.fx.Table).Scan(&extra); err == nil && extra {
-		r.fail("structure", "rollup_definer holds more than SELECT")
+		WHERE c.oid = $1::regclass AND a.grantee IN ('rollup_definer'::regrole, 'bu_guard_definer'::regrole) AND a.privilege_type <> 'SELECT')`,
+		r.fx.Table).Scan(&extra); err == nil && extra {
+		r.fail("structure", "rollup_definer or bu_guard_definer holds more than SELECT")
 	}
 }
 

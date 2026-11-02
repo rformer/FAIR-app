@@ -14,6 +14,8 @@
 --   app_posture    LOGIN    the posture service (F-015); NOBYPASSRLS; owns nothing
 --   rollup_definer NOLOGIN  owns the features' roll-up functions (F-001 T-30): the
 --                           only role that reads aggregate-only restricted BU rows
+--   bu_guard_definer NOLOGIN owns the archive guard's count (F-001 T-31): counts
+--                           a BU's rows in every BU-owned table, never returns them
 --   app_gateway    LOGIN    the gateway (F-001 T-13): sessions and DB contexts
 --                           only, through SECURITY DEFINER functions; NOBYPASSRLS
 --
@@ -26,7 +28,7 @@ DO $$
 DECLARE
   r text;
 BEGIN
-  FOREACH r IN ARRAY ARRAY['fair_owner', 'authz_definer', 'posture_definer', 'rollup_definer'] LOOP
+  FOREACH r IN ARRAY ARRAY['fair_owner', 'authz_definer', 'posture_definer', 'rollup_definer', 'bu_guard_definer'] LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
       EXECUTE format('CREATE ROLE %I NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS', r);
     END IF;
@@ -65,6 +67,8 @@ GRANT authz_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
 GRANT posture_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
 -- Likewise for roll-up functions (F-001 T-30).
 GRANT rollup_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
+-- And for the archive guard (F-001 T-31).
+GRANT bu_guard_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
 
 -- Lock down the database: nobody connects unless granted.
 REVOKE ALL ON DATABASE :"dbname" FROM PUBLIC;
