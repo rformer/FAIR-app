@@ -175,6 +175,13 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_DB_PASSWORD_FILE=<app_posture passwor
 #   curl -u "$CLIENT_ID:$CLIENT_SECRET" -d grant_type=client_credentials https://fair.example.com/api/v1/oauth/token
 # mTLS clients use the gateway's FAIR_MTLS_LISTEN_ADDR listener, or an ingress
 # passing the certificate in FAIR_CLIENT_CERT_HEADER (from FAIR_TRUSTED_PROXIES).
+# Break-glass (F-001 T-34) is off by default. To enable it at install, before anyone
+# signs in (as app_migrator, like iam migrate):
+#   ./bin/iam breakglass enable -reason "..." -holder bg1@example.com="Name" [-holder ...]
+# It prints each holder's one-time enrollment code (24 hours); the holder registers a
+# security key at /api/v1/auth/breakglass/enroll. Later, enabling needs
+# POST /api/v1/breakglass/enable and a second approval; disabling is immediate
+# (POST /api/v1/breakglass/disable or ./bin/iam breakglass disable -reason "...").
 # Logins must show MFA evidence (F-001 T-18) while auth.mfa_required_all is on (the
 # default), and always for privileged users; each IdP's rule is set with
 # PATCH /api/v1/idps/{id} (mfa_evidence_rule), with standards defaults otherwise.

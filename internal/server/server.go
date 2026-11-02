@@ -30,7 +30,7 @@ type Options struct {
 	// ClientAuth asks TLS clients for a certificate (the gateway's mTLS
 	// listener, F-001 T-33: tls.RequestClientCert). Zero asks for none.
 	ClientAuth tls.ClientAuthType
-	Logger      *slog.Logger
+	Logger     *slog.Logger
 }
 
 // Server wraps http.Server with platform defaults.

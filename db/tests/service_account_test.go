@@ -546,10 +546,12 @@ func TestServiceAccountMTLS(t *testing.T) {
 	for name, p := range map[string]string{
 		"CA":          newCert(t, func(c *x509.Certificate) { c.IsCA, c.BasicConstraintsValid = true, true }).pem,
 		"server only": newCert(t, func(c *x509.Certificate) { c.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth} }).pem,
-		"expired":     newCert(t, func(c *x509.Certificate) { c.NotBefore, c.NotAfter = time.Now().Add(-48*time.Hour), time.Now().Add(-time.Hour) }).pem,
-		"chain":       cert.pem + other.pem,
-		"Ed25519":     string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: edDER})),
-		"garbage":     "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n",
+		"expired": newCert(t, func(c *x509.Certificate) {
+			c.NotBefore, c.NotAfter = time.Now().Add(-48*time.Hour), time.Now().Add(-time.Hour)
+		}).pem,
+		"chain":   cert.pem + other.pem,
+		"Ed25519": string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: edDER})),
+		"garbage": "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n",
 	} {
 		if r := add(sa, p); r.code != http.StatusBadRequest {
 			t.Errorf("%s: %d %s", name, r.code, r.raw)

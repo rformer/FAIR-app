@@ -3,6 +3,7 @@ package tests
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -171,12 +172,18 @@ func TestRegistryFIPSFloorIsConditionalOnFamily(t *testing.T) {
 	}
 }
 
-func TestRegistryBreakGlassEnableAlwaysNeedsApproval(t *testing.T) {
+// F-001 AC-41: break-glass is enabled only through its own dual-approved
+// flow (F-001 T-34, /api/v1/breakglass/enable), which also creates the
+// accounts and records the exception; the settings workflow refuses the key
+// in every profile, in either direction.
+func TestRegistryBreakGlassOnlyThroughItsOwnFlow(t *testing.T) {
 	for _, p := range []string{settings.ProfileFedRAMPModerate, settings.ProfileCMMCL2R2, settings.ProfileEnterpriseBaseline} {
 		r := registryFixture(t, p, "self-hosted")
-		res, err := r.set.Set(context.Background(), r.e.principal("admin"), settings.Request{Key: settings.KeyBreakGlassEnabled, Value: true, Explanation: "IdP migration window"})
-		if err != nil || res.Outcome != settings.PendingApproval {
-			t.Errorf("%s: enabling break-glass must require dual approval (F-001 AC-41), got %v %v", p, res.Outcome, err)
+		for _, v := range []bool{true, false} {
+			res, err := r.set.Set(context.Background(), r.e.principal("admin"), settings.Request{Key: settings.KeyBreakGlassEnabled, Value: v, Explanation: "IdP migration window"})
+			if err == nil || !strings.Contains(err.Error(), "break-glass") {
+				t.Errorf("%s: setting breakglass.enabled=%v through the settings workflow: %v %v", p, v, res.Outcome, err)
+			}
 		}
 	}
 }

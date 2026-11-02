@@ -23,10 +23,12 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/rformer/fair-app/internal/authn"
+	"github.com/rformer/fair-app/internal/authn/breakglass"
 	"github.com/rformer/fair-app/internal/config"
 	"github.com/rformer/fair-app/internal/dbconn"
 	"github.com/rformer/fair-app/internal/iamapi"
@@ -47,6 +49,8 @@ func main() {
 			os.Exit(runMigrate())
 		case "worker":
 			os.Exit(runWorker())
+		case "breakglass":
+			os.Exit(runBreakglass(os.Args[2:]))
 		}
 	}
 	if err := run(); err != nil {
@@ -132,11 +136,21 @@ func run() error {
 			return fmt.Errorf("settings: %w", err)
 		}
 		go sc.Run(ctx, func(err error) { logger.Error("settings refresh", "error", err.Error()) })
+		// iam owns F-001's settings: it registers their definitions with
+		// posture (F-015 T-12), which records changes only of registered
+		// keys (break-glass, T-34). Retried until posture is seeded.
+		go registerF001(ctx, pool, logger)
 		logins := authn.Logins{DB: pool, Origin: strings.TrimSuffix(origin, "/"), Tickets: keys, Logger: logger, Settings: sc}
 		sp := &authn.SAML{Logins: logins}
 		srv.Mux().Handle(authn.Prefix, server.SecurityHeaders(sp.Handler()))
 		rp := &authn.OIDC{Logins: logins}
 		srv.Mux().Handle(authn.OIDCPrefix, server.SecurityHeaders(rp.Handler()))
+		// Break-glass sign-in (T-34): WebAuthn, only while breakglass.enabled.
+		bg, err := breakglass.New(pool, keys, strings.TrimSuffix(origin, "/"), logger)
+		if err != nil {
+			return fmt.Errorf("break-glass WebAuthn: %w", err)
+		}
+		srv.Mux().Handle(breakglass.Prefix, server.SecurityHeaders(bg))
 		// The SCIM 2.0 service provider (T-21): bearer tokens per IdP.
 		sp2 := &scim.Server{Store: scim.Store{DB: pool}, Origin: strings.TrimSuffix(origin, "/"), Logger: logger}
 		srv.Mux().Handle(scim.Prefix+"/", server.SecurityHeaders(sp2.Handler()))
@@ -184,4 +198,21 @@ func run() error {
 		Actor:    "system:iam",
 	})
 	return err
+}
+
+// registerF001 registers F-001's setting definitions, retrying every 30
+// seconds until it succeeds (posture refuses before the install is seeded).
+func registerF001(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) {
+	for {
+		err := settings.DBRegistrar{DB: pool}.Register(ctx, "F-001", version, settings.F001Defs())
+		if err == nil {
+			return
+		}
+		logger.Warn("registering F-001 settings", "error", err.Error())
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(30 * time.Second):
+		}
+	}
 }

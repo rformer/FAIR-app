@@ -49,7 +49,7 @@ type Gateway struct {
 	// service accounts' access tokens on proxied routes (T-33).
 	ServiceAccounts *ServiceAccounts
 	Logger          *slog.Logger
-	Now            func() time.Time
+	Now             func() time.Time
 }
 
 func (g *Gateway) now() time.Time {
@@ -93,7 +93,7 @@ var Segments = map[string]string{
 	"idps": "iam", "users": "iam", "groups": "iam", "service-accounts": "iam", "bus": "iam",
 	"roles": "iam", "permissions": "iam", "assignments": "iam", "group-mappings": "iam",
 	"sod-rules": "iam", "sod-exceptions": "iam", "approvals": "iam", "access-reviews": "iam",
-	"entitlements": "iam", "banner": "iam",
+	"entitlements": "iam", "banner": "iam", "breakglass": "iam",
 }
 
 type ctxKey struct{}
@@ -128,7 +128,8 @@ func (g *Gateway) Handler() http.Handler {
 		mux.Handle("/api/v1/auth/saml/", login)
 		mux.Handle("/api/v1/auth/oidc/", login)
 		mux.Handle(authn.DiscoverPath, login)
-		mux.Handle(SCIMPrefix, g.scimRoute(iam)) // the SCIM token is the credential (T-21)
+		mux.Handle("/api/v1/auth/breakglass/", login) // WebAuthn break-glass sign-in (T-34)
+		mux.Handle(SCIMPrefix, g.scimRoute(iam))      // the SCIM token is the credential (T-21)
 	}
 	mux.Handle("/api/", server.SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "")

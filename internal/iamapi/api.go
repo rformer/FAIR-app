@@ -66,6 +66,14 @@
 //	POST   /api/v1/service-accounts/{id}/{disable|enable}
 //	GET|POST /api/v1/service-accounts/{id}/tokens, DELETE .../tokens/{id}              client secrets (shown once)
 //	GET|POST /api/v1/service-accounts/{id}/certificates, DELETE .../certificates/{id}  mTLS certificates
+//
+// T-34 adds break-glass administration (breakglass.manage at the root):
+//
+//	GET    /api/v1/breakglass                                status and accounts
+//	POST   /api/v1/breakglass/enable                         ask to enable (202, a breakglass.enable approval)
+//	POST   /api/v1/breakglass/apply                          enable once approved; enrollment codes, shown once
+//	POST   /api/v1/breakglass/disable                        at once, no approval; sessions end
+//	POST   /api/v1/breakglass/accounts/{id}/enrollment       a new enrollment code (the old keys stop working)
 package iamapi
 
 import (
@@ -95,7 +103,7 @@ type API struct {
 	// TokenPepper keys the HMAC of service-account client secrets (T-33;
 	// FAIR_TOKEN_PEPPER_FILE, shared with the gateway).
 	TokenPepper []byte
-	Dev            bool   // development: http endpoints accepted
+	Dev         bool // development: http endpoints accepted
 
 	rootOnce sync.Once
 	root     string
@@ -170,6 +178,11 @@ var routes = []route{
 	{"GET", "/api/v1/service-accounts/{id}/certificates", (*API).listSACertificates},
 	{"POST", "/api/v1/service-accounts/{id}/certificates", (*API).addSACertificate},
 	{"DELETE", "/api/v1/service-accounts/{id}/certificates/{credential}", (*API).revokeSACredential},
+	{"GET", "/api/v1/breakglass", (*API).getBreakglass},
+	{"POST", "/api/v1/breakglass/enable", (*API).enableBreakglass},
+	{"POST", "/api/v1/breakglass/apply", (*API).applyBreakglass},
+	{"POST", "/api/v1/breakglass/disable", (*API).disableBreakglass},
+	{"POST", "/api/v1/breakglass/accounts/{id}/enrollment", (*API).newBreakglassCode},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).
@@ -183,7 +196,7 @@ func Routes() []string {
 }
 
 // Prefixes are the path prefixes the API owns (for the service's mux).
-var Prefixes = []string{"/api/v1/idps", "/api/v1/banner", "/api/v1/users", "/api/v1/groups", "/api/v1/group-mappings", "/api/v1/sod-rules", "/api/v1/sod-exceptions", "/api/v1/approvals", "/api/v1/permissions", "/api/v1/roles", "/api/v1/bus", "/api/v1/service-accounts"}
+var Prefixes = []string{"/api/v1/idps", "/api/v1/banner", "/api/v1/users", "/api/v1/groups", "/api/v1/group-mappings", "/api/v1/sod-rules", "/api/v1/sod-exceptions", "/api/v1/approvals", "/api/v1/permissions", "/api/v1/roles", "/api/v1/bus", "/api/v1/service-accounts", "/api/v1/breakglass"}
 
 // Handler returns the API with authentication and idempotency in front.
 func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {

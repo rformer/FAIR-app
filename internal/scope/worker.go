@@ -39,6 +39,7 @@ var Subjects = []string{
 	SubjectScopeChanged,
 	"iam.session.revoked",  // F-001 T-13: a session ended early
 	"iam.user.deactivated", // F-001 T-22: a user stopped being active
+	"iam.breakglass.login", // F-001 T-34: a break-glass account signed in (AC-43)
 }
 
 // RiverSchema holds River's tables (migrations 0007, 0008).

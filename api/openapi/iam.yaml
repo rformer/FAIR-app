@@ -242,6 +242,154 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
 paths:
+  /breakglass:
+    get:
+      summary: Break-glass status and accounts (T-34)
+      x-permission: breakglass.manage (at the root)
+      responses:
+        "200": { description: "{enabled, accounts: [{id, email, name, status, disabled_reason, last_login_at, credentials, enrollment_expires_at}], pending_approval}" }
+        "404": { $ref: "#/components/responses/Error" }
+  /breakglass/enable:
+    post:
+      summary: Ask to enable break-glass after install (AC-41)
+      description: |
+        One or two holders (AC-42), each with an email address of its own (not an existing
+        account's) and a name, and a reason. Answers 202 with a `breakglass.enable` approval; a
+        second holder of breakglass.manage approves it (`/approvals/{id}/decision`), then
+        `POST /breakglass/apply` enables it. At install, before anyone has signed in, the
+        installer runs `iam breakglass enable` instead (AC-40).
+      x-permission: breakglass.manage (at the root)
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [holders, reason]
+              additionalProperties: false
+              properties:
+                holders:
+                  type: array
+                  minItems: 1
+                  maxItems: 2
+                  items: { type: object, required: [email, name], properties: { email: { type: string }, name: { type: string } } }
+                reason: { type: string }
+      responses:
+        "202": { description: "Pending approval ({approval_id})" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /breakglass/apply:
+    post:
+      summary: Enable break-glass once the request is approved
+      description: |
+        Sets breakglass.enabled, creates or reactivates the holders' accounts (Platform Admin at
+        the root, no risk data, AC-44) and answers each holder's one-time enrollment code (24
+        hours), shown once: a replay answers 409 `secret_not_replayed`. Audited high
+        (`breakglass.enabled`, with the requester and approver).
+      x-permission: breakglass.manage (at the root)
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approval_id]
+              additionalProperties: false
+              properties:
+                approval_id: { type: string, format: uuid }
+      responses:
+        "200": { description: "{enabled, accounts: [{user_id, email, enrollment_code, expires_at}]}" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /breakglass/disable:
+    post:
+      summary: Disable break-glass at once (AC-45)
+      description: No approval. The setting goes off, the accounts are disabled and their sessions revoked in the same transaction; audited high.
+      x-permission: breakglass.manage (at the root)
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                reason: { type: string }
+      responses:
+        "200": { description: "{enabled: false, accounts_disabled}" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /breakglass/accounts/{id}/enrollment:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      summary: A new enrollment code for a break-glass account (a lost or replaced key)
+      description: The account's registered keys are removed, so the old key no longer signs in. Shown once; audited high.
+      x-permission: breakglass.manage (at the root)
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                reason: { type: string }
+      responses:
+        "201": { description: "{user_id, enrollment_code, expires_at}" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /auth/breakglass/enroll/begin:
+    post:
+      summary: Start registering a break-glass security key with an enrollment code (WebAuthn)
+      description: |
+        No session. 404 while break-glass is off (AC-39). Body `{code}`; answers
+        `{ceremony, options}` (PublicKeyCredentialCreationOptions: a discoverable credential,
+        user verification required, ES256/ES384/RS256/PS256). Rate-limited per client.
+      x-unauthenticated: true
+      responses:
+        "200": { description: "{ceremony, options}" }
+        "401": { description: Invalid or spent code }
+        "404": { description: Break-glass is off }
+  /auth/breakglass/enroll/finish:
+    post:
+      summary: Register the key (spends the code)
+      x-unauthenticated: true
+      responses:
+        "201": { description: Registered (audited high) }
+        "400": { description: The registration does not verify }
+        "401": { description: Invalid code or ceremony }
+        "404": { description: Break-glass is off }
+  /auth/breakglass/login/begin:
+    post:
+      summary: Start a break-glass sign-in (discoverable WebAuthn assertion)
+      x-unauthenticated: true
+      responses:
+        "200": { description: "{ceremony, options}" }
+        "404": { description: Break-glass is off }
+  /auth/breakglass/login/finish:
+    post:
+      summary: Finish the sign-in
+      description: |
+        Body `{ceremony, credential, return}`. On success the gateway answers with the session
+        cookie, as for an IdP login; the login is audited high and announced (AC-43). Failures
+        of a known account count towards its lockout (AC-47); every failure answers alike.
+      x-unauthenticated: true
+      responses:
+        "200": { description: Signed in (through the gateway) }
+        "401": { description: Sign-in failed }
+        "404": { description: Break-glass is off }
   /service-accounts:
     get:
       summary: Service accounts at BUs where the caller holds service_account.manage (T-33)
