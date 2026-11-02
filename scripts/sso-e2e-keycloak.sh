@@ -4,7 +4,9 @@
 # db/tests TestSAMLKeycloakInterop and TestOIDCKeycloakInterop, which
 # configure realms, a SAML client, an OIDC client (PKCE S256) and users
 # through Keycloak's admin API and sign in through the gateway and the iam
-# service (SAML SP- and IdP-initiated; OIDC authorization code).
+# service (SAML SP- and IdP-initiated; OIDC authorization code). T-36:
+# TestKeycloakRealmPolicy imports deploy/keycloak/fair-realm.json and checks
+# its policy with password + TOTP logins.
 #
 # Needs the DB test containers (README: fairpg on the docker network
 # fairtest) and the fair-dbtest image. Run from the repository root:
@@ -30,4 +32,4 @@ echo "== Keycloak $KEYCLOAK_IMAGE starting"
 docker run --rm --network "$NET" -v "$SRC:/src" -v fair-gocache:/root/.cache -v fair-gomod:/go/pkg/mod -w /src \
   -e PGHOST=fairpg -e PGUSER=postgres -e PGPASSWORD="${PGPASSWORD:-pgtest}" -e FAIR_TEST_PG=1 -e GOFLAGS=-buildvcs=false \
   -e GOFIPS140=v1.0.0 -e FAIR_TEST_KEYCLOAK="http://$NAME:8080" -e FAIR_TEST_KEYCLOAK_ADMIN_PASSWORD="$PW" \
-  fair-dbtest go test -count=1 -v -run 'TestSAMLKeycloakInterop|TestOIDCKeycloakInterop' ./db/tests/
+  fair-dbtest go test -count=1 -v -run 'TestSAMLKeycloakInterop|TestOIDCKeycloakInterop|TestKeycloakRealmPolicy' ./db/tests/

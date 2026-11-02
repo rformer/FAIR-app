@@ -155,3 +155,35 @@ func (r MFARule) Satisfied(kind string, e Evidence) bool {
 	}
 	return e.ACR != "" && slices.Contains(r.ACR, e.ACR)
 }
+
+// The bundled Keycloak (F-001 T-36; AC-06; deploy/keycloak/fair-realm.json).
+// Its realm sends RFC 8176 amr values per authenticator: pwd (password), otp
+// (TOTP), hwk (WebAuthn security key), sc (X.509, PIV/CAC). FAIR decides
+// what they are worth, from its own settings and roles:
+//   - while auth.totp_enabled is off (the default), otp is not a factor;
+//   - a user holding a privileged permission must show a phishing-resistant
+//     method (PhishingResistantAMR), whatever else they used.
+
+// PhishingResistantAMR are the amr values of phishing-resistant
+// authenticators: WebAuthn keys and smart cards.
+var PhishingResistantAMR = []string{"hwk", "swk", "sc"}
+
+// PhishingResistant reports whether amr shows a phishing-resistant method.
+func PhishingResistant(amr []string) bool {
+	for _, v := range amr {
+		if slices.Contains(PhishingResistantAMR, v) {
+			return true
+		}
+	}
+	return false
+}
+
+// KeycloakEvidence is e as the bundled Keycloak's evidence counts: without
+// otp while TOTP is not allowed.
+func KeycloakEvidence(e Evidence, totpEnabled bool) Evidence {
+	if totpEnabled {
+		return e
+	}
+	e.AMR = slices.DeleteFunc(slices.Clone(e.AMR), func(v string) bool { return v == "otp" })
+	return e
+}

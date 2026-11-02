@@ -71,6 +71,15 @@ func (h *Logins) jit(ctx context.Context, idpID, externalID string, pr Profile) 
 	return id, "", err
 }
 
+// totpEnabled: auth.totp_enabled (off by default; unreadable means off).
+func (h *Logins) totpEnabled() bool {
+	if h.Settings == nil {
+		return false
+	}
+	on, err := h.Settings.Bool(settings.KeyAuthTOTP, "")
+	return err == nil && on
+}
+
 // mfaRequired: must this user show MFA evidence?
 func (h *Logins) mfaRequired(ctx context.Context, userID string) (bool, error) {
 	if h.Settings == nil {
@@ -143,6 +152,16 @@ func (h *Logins) complete(w http.ResponseWriter, r *http.Request, idpID, externa
 		h.fail(w, r, idpID, err)
 		return
 	}
+	// The bundled Keycloak (T-36, AC-06): TOTP counts only while allowed,
+	// and privileged users need a phishing-resistant method.
+	var privileged bool
+	if kind == "keycloak" {
+		ev = KeycloakEvidence(ev, h.totpEnabled())
+		if err := h.DB.QueryRow(r.Context(), "SELECT iam.login_user_privileged($1)", userID).Scan(&privileged); err != nil {
+			h.fail(w, r, idpID, err)
+			return
+		}
+	}
 	satisfied := rule.Satisfied(kind, ev)
 	if t.MFA == nil {
 		t.MFA = map[string]any{}
@@ -153,6 +172,15 @@ func (h *Logins) complete(w http.ResponseWriter, r *http.Request, idpID, externa
 		attrs["user_id"] = userID
 		if err := h.event(r.Context(), "authn.mfa_missing", "high", "anonymous", idpID, attrs, "no MFA evidence"); err != nil && h.Logger != nil {
 			h.Logger.Error("auditing a login without MFA", "error", err.Error())
+		}
+		writeFailure(w, http.StatusUnauthorized)
+		return
+	}
+	if privileged && !PhishingResistant(ev.AMR) {
+		attrs["user_id"] = userID
+		if err := h.event(r.Context(), "authn.mfa_missing", "high", "anonymous", idpID, attrs,
+			"privileged users need phishing-resistant MFA: a security key or smart card (AC-06)"); err != nil && h.Logger != nil {
+			h.Logger.Error("auditing a login without phishing-resistant MFA", "error", err.Error())
 		}
 		writeFailure(w, http.StatusUnauthorized)
 		return

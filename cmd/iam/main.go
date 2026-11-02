@@ -125,7 +125,7 @@ func run() error {
 		var defs []settings.Def
 		for _, d := range settings.F001Defs() {
 			if d.Key == settings.KeyAuthMFAAll || d.Key == settings.KeyAuthMFAPrivileged || d.Key == settings.KeySessionNetworkBinding ||
-				d.Key == settings.KeyAuthJIT {
+				d.Key == settings.KeyAuthJIT || d.Key == settings.KeyAuthTOTP {
 				defs = append(defs, d)
 			}
 		}

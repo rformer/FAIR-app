@@ -184,6 +184,8 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_DB_PASSWORD_FILE=<app_posture passwor
 # (POST /api/v1/breakglass/disable or ./bin/iam breakglass disable -reason "...").
 # Guides: docs/install/breakglass.md; when every IdP is down and break-glass is off,
 # docs/operations/idp-outage-recovery.md (an operator's emergency enablement, audited).
+# The bundled Keycloak (F-001 T-36): import deploy/keycloak/fair-realm.json and connect
+# it as an IdP of kind keycloak (docs/install/keycloak.md).
 # Logins must show MFA evidence (F-001 T-18) while auth.mfa_required_all is on (the
 # default), and always for privileged users; each IdP's rule is set with
 # PATCH /api/v1/idps/{id} (mfa_evidence_rule), with standards defaults otherwise.

@@ -36,8 +36,9 @@ import (
 // gateway, the iam service's SP, the test IdP, and the session.
 
 // mfaSettings stands in for the settings client: auth.mfa_required_all
-// and auth.mfa_required_privileged (T-18).
-type mfaSettings struct{ all, privileged, jit bool }
+// and auth.mfa_required_privileged (T-18), auth.jit_provisioning (T-23) and
+// auth.totp_enabled (T-36).
+type mfaSettings struct{ all, privileged, jit, totp bool }
 
 func (m *mfaSettings) Bool(key, _ string) (bool, error) {
 	switch key {
@@ -47,6 +48,8 @@ func (m *mfaSettings) Bool(key, _ string) (bool, error) {
 		return m.privileged, nil
 	case settings.KeyAuthJIT:
 		return m.jit, nil
+	case settings.KeyAuthTOTP:
+		return m.totp, nil
 	}
 	return false, fmt.Errorf("unexpected setting %s", key)
 }

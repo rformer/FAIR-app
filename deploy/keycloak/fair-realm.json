@@ -1,0 +1,135 @@
+{
+  "realm": "fair",
+  "displayName": "FAIR",
+  "enabled": true,
+  "sslRequired": "all",
+  "registrationAllowed": false,
+  "registrationEmailAsUsername": false,
+  "rememberMe": false,
+  "resetPasswordAllowed": false,
+  "editUsernameAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "verifyEmail": false,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "failureFactor": 3,
+  "waitIncrementSeconds": 900,
+  "maxFailureWaitSeconds": 900,
+  "maxDeltaTimeSeconds": 900,
+  "quickLoginCheckMilliSeconds": 1000,
+  "minimumQuickLoginWaitSeconds": 60,
+  "passwordPolicy": "length(14) and notUsername and notEmail and passwordHistory(5) and hashAlgorithm(pbkdf2-sha512)",
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 900,
+  "ssoSessionMaxLifespan": 43200,
+  "otpPolicyType": "totp",
+  "otpPolicyAlgorithm": "HmacSHA256",
+  "otpPolicyDigits": 6,
+  "otpPolicyPeriod": 30,
+  "otpPolicyLookAheadWindow": 1,
+  "otpPolicyCodeReusable": false,
+  "webAuthnPolicyRpEntityName": "FAIR",
+  "webAuthnPolicySignatureAlgorithms": ["ES256", "ES384", "RS256", "PS256"],
+  "webAuthnPolicyAttestationConveyancePreference": "none",
+  "webAuthnPolicyAuthenticatorAttachment": "not specified",
+  "webAuthnPolicyRequireResidentKey": "not specified",
+  "webAuthnPolicyUserVerificationRequirement": "required",
+  "webAuthnPolicyAvoidSameAuthenticatorRegister": true,
+  "eventsEnabled": true,
+  "eventsExpiration": 7776000,
+  "adminEventsEnabled": true,
+  "adminEventsDetailsEnabled": true,
+  "browserFlow": "fair browser",
+  "authenticationFlows": [
+    {
+      "alias": "fair browser",
+      "description": "F-001 AC-06: a smart card (X.509, PIV/CAC), or a password and a second factor (a security key; TOTP only where FAIR allows it). Each step reports its RFC 8176 amr; FAIR decides what it is worth.",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        { "authenticator": "auth-cookie", "requirement": "ALTERNATIVE", "priority": 10, "authenticatorFlow": false, "autheticatorFlow": false, "userSetupAllowed": false },
+        { "authenticator": "auth-x509-client-username-form", "authenticatorConfig": "fair x509", "requirement": "ALTERNATIVE", "priority": 20, "authenticatorFlow": false, "autheticatorFlow": false, "userSetupAllowed": false },
+        { "flowAlias": "fair forms", "requirement": "ALTERNATIVE", "priority": 30, "authenticatorFlow": true, "autheticatorFlow": true, "userSetupAllowed": false }
+      ]
+    },
+    {
+      "alias": "fair forms",
+      "description": "Password, then a second factor",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        { "authenticator": "auth-username-password-form", "authenticatorConfig": "fair amr pwd", "requirement": "REQUIRED", "priority": 10, "authenticatorFlow": false, "autheticatorFlow": false, "userSetupAllowed": false },
+        { "flowAlias": "fair second factor", "requirement": "REQUIRED", "priority": 20, "authenticatorFlow": true, "autheticatorFlow": true, "userSetupAllowed": false }
+      ]
+    },
+    {
+      "alias": "fair second factor",
+      "description": "A security key (WebAuthn, user verification required) first; TOTP for users who enrolled it",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        { "authenticator": "webauthn-authenticator", "authenticatorConfig": "fair amr hwk", "requirement": "ALTERNATIVE", "priority": 10, "authenticatorFlow": false, "autheticatorFlow": false, "userSetupAllowed": false },
+        { "authenticator": "auth-otp-form", "authenticatorConfig": "fair amr otp", "requirement": "ALTERNATIVE", "priority": 20, "authenticatorFlow": false, "autheticatorFlow": false, "userSetupAllowed": false }
+      ]
+    }
+  ],
+  "authenticatorConfig": [
+    { "alias": "fair amr pwd", "config": { "default.reference.value": "pwd", "default.reference.maxAge": "0" } },
+    { "alias": "fair amr hwk", "config": { "default.reference.value": "hwk", "default.reference.maxAge": "0" } },
+    { "alias": "fair amr otp", "config": { "default.reference.value": "otp", "default.reference.maxAge": "0" } },
+    {
+      "alias": "fair x509",
+      "config": {
+        "default.reference.value": "sc",
+        "default.reference.maxAge": "0",
+        "x509-cert-auth.mapping-source-selection": "Subject's e-mail",
+        "x509-cert-auth.mapper-selection": "Username or Email",
+        "x509-cert-auth.extendedkeyusage": "1.3.6.1.5.5.7.3.2",
+        "x509-cert-auth.crl-checking-enabled": "false",
+        "x509-cert-auth.ocsp-checking-enabled": "true",
+        "x509-cert-auth.ocsp-fail-open": "false",
+        "x509-cert-auth.timestamp-validation-enabled": "true",
+        "x509-cert-auth.confirmation-page-disallowed": "false"
+      }
+    }
+  ],
+  "requiredActions": [
+    { "alias": "webauthn-register", "name": "Webauthn Register", "providerId": "webauthn-register", "enabled": true, "defaultAction": true, "priority": 10, "config": {} },
+    { "alias": "UPDATE_PASSWORD", "name": "Update Password", "providerId": "UPDATE_PASSWORD", "enabled": true, "defaultAction": false, "priority": 20, "config": {} },
+    { "alias": "CONFIGURE_TOTP", "name": "Configure OTP", "providerId": "CONFIGURE_TOTP", "enabled": true, "defaultAction": false, "priority": 30, "config": {} },
+    { "alias": "VERIFY_EMAIL", "name": "Verify Email", "providerId": "VERIFY_EMAIL", "enabled": true, "defaultAction": false, "priority": 40, "config": {} },
+    { "alias": "webauthn-register-passwordless", "name": "Webauthn Register Passwordless", "providerId": "webauthn-register-passwordless", "enabled": false, "defaultAction": false, "priority": 50, "config": {} },
+    { "alias": "TERMS_AND_CONDITIONS", "name": "Terms and Conditions", "providerId": "TERMS_AND_CONDITIONS", "enabled": false, "defaultAction": false, "priority": 60, "config": {} },
+    { "alias": "delete_account", "name": "Delete Account", "providerId": "delete_account", "enabled": false, "defaultAction": false, "priority": 70, "config": {} }
+  ],
+  "clients": [
+    {
+      "clientId": "fair-platform",
+      "name": "FAIR platform",
+      "protocol": "openid-connect",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "${FAIR_KEYCLOAK_CLIENT_SECRET}",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": false,
+      "redirectUris": ["${FAIR_PUBLIC_ORIGIN}/api/v1/auth/oidc/*"],
+      "webOrigins": [],
+      "attributes": { "pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "${FAIR_PUBLIC_ORIGIN}/*" },
+      "protocolMappers": [
+        {
+          "name": "amr",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-amr-mapper",
+          "config": { "id.token.claim": "true", "access.token.claim": "false", "introspection.token.claim": "false" }
+        }
+      ]
+    }
+  ]
+}
