@@ -92,7 +92,7 @@ func (r *Report) add(name string, err error, ok string) {
 // Markdown renders the report.
 func (r *Report) Markdown() string {
 	var b strings.Builder
-	b.WriteString("# Profile release checklist (F-015 T-07)\n\n| Check | Result | Detail |\n|---|---|---|\n")
+	b.WriteString("# Release checklist (F-015 T-07, F-001 T-40)\n\n| Check | Result | Detail |\n|---|---|---|\n")
 	for _, c := range r.Checks {
 		res := "PASS"
 		if !c.OK {

@@ -167,6 +167,7 @@ Before saving, the editor shows a diff and the number of affected users. The SoD
 |---|---|---|
 | Spoofing | Forged or replayed SAML assertion; XML signature wrapping | Strict schema validation; signature verified against the pinned IdP certificate; reject multiple assertions; replay cache; audience and recipient checks; maintained SAML library plus a negative test corpus |
 | Spoofing | Session theft | `__Host-` cookie, HttpOnly, SameSite=Strict; idle/absolute timeouts; server-side revocation; network binding per profile (§5.8) |
+| Spoofing | Forged internal or proxy headers | The gateway replaces the internal JWT and DB context on every proxied request; login tickets are honored only in iam's responses on login routes; services cannot set cookies or tickets in the browser; the client address comes only from trusted proxies; mTLS thumbprints only from the direct connection or a trusted header (added by T-40) |
 | Tampering | App bug widens data scope | Signed DB context (ADR-007); forced RLS; `NOBYPASSRLS`; fail closed |
 | Tampering | Admin edits a role to gain access | Self-assignment blocked in both API and DB; dual approval for high-risk combinations; versioned roles; privileged-permission alerts |
 | Repudiation | Admin denies a change | All mutations audited with actor, reason and before/after; approvals record both parties (F-002 hash chain) |
@@ -703,3 +704,33 @@ Until F-015 exists, F-001 ships a minimal settings module that holds the three p
       - Named reviewers enforced, and only holders of the permission may be named. Break-glass certified but not revoked.
       - Past the due date, before the sweep, no decisions are taken. The due-date sweep: revoke ends undecided access as the system; keep marks it unreviewed; both closes audited. A closed campaign takes no decisions; a manager closes early and a reviewer cannot. The tables are closed to app_rw.
     - Mutations (self-review, reviewing one's own grants, revocation without a comment, named reviewers ignored, break-glass revocable, the trigger's reviewer or policy path removed, decisions after the due date, deciding without access_review.decide, the keep policy revoking, decisions unaudited, mapped assignments listed one by one) are all caught.
+- 2026-11-02: T-40 implementation notes (`db/tests/stride_f001_test.go`, `db/tests/stride_test.go`, `internal/pentest`, `docs/security/pentest.md`). Robert Former decided: pen-test findings are tracked in a YAML register in the repository that the release gate checks.
+  - **The suite:**
+    - `TestSTRIDECatalog` now reads both threat tables, F-015 §8 and F-001 §7.
+    - Every §7 row maps to named tests, and every named test must exist and be run by `make test-stride` (CI step "STRIDE suites").
+    - §7 gained a row for forged internal or proxy headers, which T-40's scope names.
+  - **The F-001 rows draw on earlier tests:**
+    - The XSW corpus, NameID comment injection and replay (`internal/authn/saml`).
+    - Session cookie, timeouts, revocation, CSRF and network binding.
+    - The signed DB context and the RLS harness.
+    - The escalation suite, custom roles, SoD and access reviews.
+    - The event catalog and the OpenAPI audit declarations, and approvals.
+    - Discovery, SCIM and user-administration visibility.
+    - Roll-ups and the entitlement report.
+    - Discovery and SCIM rate limits, and SCIM bulk caps.
+    - Break-glass and the outage drill.
+  - **New attacks (`TestSTRIDEF001*`):**
+    - **Header spoofing:**
+      - A client presenting a validly signed login ticket on a login route, a service route or `/me` gets no session.
+      - Forged `Authorization` and DB-context headers are replaced before a service sees them.
+      - An internal JWT is no credential at the gateway.
+      - A service cannot set the session cookie or pass a login ticket to the browser.
+    - **Enumeration:** out-of-scope users, groups, BUs, service accounts (and their tokens and certificates), mappings and campaigns answer byte for byte as missing ones, on reads and mutations; the entitlement report omits them.
+    - **Rate limits:** the token endpoint and break-glass login answer 429 with Retry-After under a flood.
+    - **Service-account escalation:** a token with `bu.view` and `role.view` reads roles and reaches no administration route, nor the session APIs.
+  - **Fixed by the suite:** the gateway's generic proxy passed a service's `Set-Cookie` and `X-Fair-Login-Ticket` response headers through. A compromised service could fix a session in the browser. It now strips both, as the login and SCIM routes already did, and drops a client's ticket header from the request.
+  - **Pen tests** (`docs/security/pentest.md`):
+    - `security/pentest-findings.yaml` records engagements and findings; `internal/pentest` validates it strictly.
+    - Statuses: open, in_progress, fixed (with `fix_ref` and `retested`), accepted (time-boxed, never for critical), false_positive (with notes).
+    - `profilegen release-check` fails while a critical or high finding is open, a medium or low one is past its 90- or 180-day target, or an acceptance has expired.
+    - No engagement has run yet; the first is due before the first production release.

@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rformer/fair-app/internal/pentest"
 	"github.com/rformer/fair-app/internal/profilegen"
 	"github.com/rformer/fair-app/internal/profilepkg"
 	"github.com/rformer/fair-app/pkg/settings"
@@ -189,6 +190,12 @@ func releaseCheck(online bool, reportFile string) error {
 	if err != nil {
 		return err
 	}
+	// F-001 T-40: open external pen-test findings block the release.
+	detail, err := pentest.ReleaseCheck("security/pentest-findings.yaml", time.Now().UTC())
+	if err != nil {
+		detail = err.Error()
+	}
+	r.Checks = append(r.Checks, profilegen.Check{Name: "No pen-test finding blocks the release", OK: err == nil, Detail: detail})
 	md := r.Markdown()
 	fmt.Print(md)
 	if reportFile != "" {

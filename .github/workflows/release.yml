@@ -27,7 +27,8 @@ jobs:
       # Pins match MANIFEST.json, profiles and packages rebuild byte for byte,
       # and the CMMC rule's 800-171 revision is re-confirmed against the eCFR
       # (32 CFR part 170); any amendment since the recorded confirmation fails.
-      - name: Profile release checklist
+      # Open external pen-test findings block too (security/pentest-findings.yaml).
+      - name: Release checklist
         run: go run ./cmd/profilegen release-check -online -report release-checklist.md
       - uses: actions/upload-artifact@v4
         if: always()

@@ -80,7 +80,7 @@ Status: **Approved** (Robert Former, 2026-10-24) | Design: Approved 2026-10-24
 ## Phase 6 — Hardening & release readiness
 | # | Task | Traces to | Verification | Size | Status |
 |---|---|---|---|---|---|
-| T-40 | Security test suite from the STRIDE model (XSW, CSRF, enumeration, escalation, roll-up leakage, header spoofing) | Design §7 | Suite in CI; external pen test findings tracked | L | Todo |
+| T-40 | Security test suite from the STRIDE model (XSW, CSRF, enumeration, escalation, roll-up leakage, header spoofing) | Design §7 | Suite in CI; external pen test findings tracked | L | Done (2026-11-02; `make test-stride` maps every §7 threat to tests (`TestSTRIDECatalog`); the gateway no longer passes a service's cookies or login tickets to the browser; pen-test findings in `security/pentest-findings.yaml` gate the release; no engagement has run yet) |
 | T-41 | Deployment-mode matrix: SaaS KMS, Vault/OpenBao, air-gapped metadata + keys | Deployment modes | CI matrix green | M | Todo |
 | T-42 | OpenAPI spec published; API conventions (404 scoping, Idempotency-Key, reason) lint-enforced | Design §6 | Spectral lint in CI | S | Todo |
 | T-43 | 800-53r5 control implementation statements for F-001 (feeds OSCAL component definition) | Control mapping | Statements reviewed | S | Todo |

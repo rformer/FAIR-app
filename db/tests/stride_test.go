@@ -62,12 +62,130 @@ var strideSuite = map[string][]string{
 	},
 }
 
-// The §8 table and the suite agree: every row has tests, every test exists,
-// and no mapping names a row the design no longer has. Runs without a
-// database.
+// strideF001 maps each F-001 design §7 row to its tests (F-001 T-40): the
+// TestSTRIDEF001* attacks in stride_f001_test.go and earlier tests that
+// attack the same mitigation.
+var strideF001 = map[string][]string{
+	"Spoofing | Forged or replayed SAML assertion; XML signature wrapping": {
+		"internal/authn/saml:TestNegativeCorpus", "internal/authn/saml:TestNameIDCommentInjection", "internal/authn/saml:TestReplayAndRequestSingleUse",
+		"db/tests:TestSAMLLoginEndToEnd", "internal/authn:TestTicket", "db/tests:TestLoginTicketRedemption",
+	},
+	"Spoofing | Session theft": {
+		"db/tests:TestGatewaySessionCookieAndStorage", "db/tests:TestGatewayTimeouts", "db/tests:TestGatewayRevocation", "db/tests:TestGatewayCSRF",
+		"db/tests:TestNetworkBindingModes", "db/tests:TestNetworkBindingStrictBU",
+	},
+	"Spoofing | Forged internal or proxy headers": {
+		"db/tests:TestSTRIDEF001HeaderSpoofing", "db/tests:TestGatewayProxy", "db/tests:TestNetworkBindingClientAddressAndASN", "db/tests:TestServiceAccountMTLS",
+	},
+	"Tampering | App bug widens data scope": {
+		"db/tests:TestDBContextScopesRows", "db/tests:TestDBContextFailsClosed", "db/tests:TestRLSHarnessEveryBUOwnedTable",
+		"db/tests:TestRLSHarnessDetectsBrokenTables", "db/tests:TestAppRoleCannotBypassRLS", "db/tests:TestGrantSnapshotNeedsValidContext",
+	},
+	"Tampering | Admin edits a role to gain access": {
+		"db/tests:TestAssignmentEscalationSuite", "db/tests:TestCustomRoleAccess", "db/tests:TestCustomRoleLifecycle",
+		"db/tests:TestSoDBlocksCustomRolesUnlessExcepted", "db/tests:TestAccessReviews",
+	},
+	"Repudiation | Admin denies a change": {
+		"pkg/audit:TestCatalogMatchesCode", "internal/iamapi:TestOpenAPIMatchesRoutes", "db/tests:TestApprovalSecondAdmin", "db/tests:TestApprovalLifecycle",
+	},
+	"Information disclosure | ID enumeration across BUs": {
+		"db/tests:TestSTRIDEF001Enumeration", "db/tests:TestIDPRoutingByDomain", "db/tests:TestSCIMListing", "db/tests:TestUserAdminVisibility",
+	},
+	"Information disclosure | Restricted BU leaks via roll-ups": {
+		"db/tests:TestRollupLeakage", "db/tests:TestRestrictedBUAdministration", "db/tests:TestEntitlementReport",
+	},
+	"Denial of service | Login floods; SCIM bulk abuse": {
+		"internal/authn:TestDiscoveryRateLimit", "internal/scim:TestRateLimitPerToken", "db/tests:TestSCIMBulk", "db/tests:TestBreakglass",
+		"db/tests:TestSTRIDEF001RateLimits",
+	},
+	"Elevation of privilege | BU Admin grants admin rights or crosses a restricted boundary": {
+		"db/tests:TestAssignmentEscalationSuite", "db/tests:TestAssignmentScope", "db/tests:TestRestrictedBUAdministration",
+		"db/tests:TestGroupMappingConflictsAndAuthority", "db/tests:TestSTRIDEF001ServiceAccountEscalation",
+	},
+	"Elevation of privilege | Break-glass misuse": {
+		"db/tests:TestBreakglass", "db/tests:TestIdPOutageRecoveryDrill",
+	},
+}
+
+// The threat tables and the suites agree: every row has tests, every test
+// exists and is run by make test-stride, and no mapping names a row the
+// design no longer has. Runs without a database.
 func TestSTRIDECatalog(t *testing.T) {
 	root := filepath.Join("..", "..")
-	f, err := os.Open(filepath.Join(root, "specs", "features", "F-015-security-posture-profiles", "design.md")) // #nosec G304 -- the repository's own file
+	mk, err := os.ReadFile(filepath.Join(root, "Makefile")) // #nosec G304 -- the repository's own file
+	if err != nil {
+		t.Fatal(err)
+	}
+	// make test-stride runs the TestSTRIDE* tests and those its lists name.
+	run := map[string]bool{}
+	for _, m := range regexp.MustCompile(`(?m)^STRIDE_(?:DB|UNIT)_TESTS = (.*)$`).FindAllSubmatch(mk, -1) {
+		for _, n := range strings.Split(strings.TrimSpace(string(m[1])), "|") {
+			run[n] = true
+		}
+	}
+	for _, c := range []struct {
+		feature, section string
+		min              int
+		suite            map[string][]string
+	}{
+		{"F-015-security-posture-profiles", "## 8.", 9, strideSuite},
+		{"F-001-identity-bu-rbac", "## 7.", 11, strideF001},
+	} {
+		rows := threatRows(t, filepath.Join(root, "specs", "features", c.feature, "design.md"), c.section)
+		if len(rows) < c.min {
+			t.Fatalf("%s: found %d threat rows: %q", c.feature, len(rows), rows)
+		}
+		for _, r := range rows {
+			if len(c.suite[r]) == 0 {
+				t.Errorf("%s threat %q has no tests in the STRIDE suite", c.feature, r)
+			}
+		}
+		for r, tests := range c.suite {
+			if !slices.Contains(rows, r) {
+				t.Errorf("%s: the suite maps %q, which is not a threat row", c.feature, r)
+			}
+			for _, ref := range tests {
+				dir, name, _ := strings.Cut(ref, ":")
+				if !run[name] && !strings.HasPrefix(name, "TestSTRIDE") && (dir != "db/tests" || !runsByPrefix(run, name)) {
+					t.Errorf("%q: %s is not run by make test-stride", r, name)
+				}
+				if dir != "db/tests" && !strings.Contains(string(mk), " ./"+dir+"/") {
+					t.Errorf("%q: make test-stride does not test ./%s/", r, dir)
+				}
+				files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), "*_test.go"))
+				re := regexp.MustCompile(`(?m)^func ` + name + `\(t \*testing\.T\)`)
+				found := false
+				for _, file := range files {
+					b, err := os.ReadFile(file) // #nosec G304 -- the repository's own test files
+					if err == nil && re.Match(b) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("%q: test %s not found", r, ref)
+				}
+			}
+		}
+	}
+}
+
+// runsByPrefix: the database tests run with -run '^(...)', so a listed name
+// also runs the tests it prefixes.
+func runsByPrefix(run map[string]bool, name string) bool {
+	for n := range run {
+		if strings.HasPrefix(name, n) {
+			return true
+		}
+	}
+	return false
+}
+
+// threatRows reads "Threat | Example" from the STRIDE table in a design's
+// section.
+func threatRows(t *testing.T, path, section string) []string {
+	t.Helper()
+	f, err := os.Open(path) // #nosec G304 -- the repository's own file
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,10 +193,11 @@ func TestSTRIDECatalog(t *testing.T) {
 	var rows []string
 	in := false
 	sc := bufio.NewScanner(f)
+	sc.Buffer(nil, 1<<20)
 	for sc.Scan() {
 		line := sc.Text()
 		switch {
-		case strings.HasPrefix(line, "## 8."):
+		case strings.HasPrefix(line, section):
 			in = true
 		case in && strings.HasPrefix(line, "## "):
 			in = false
@@ -87,51 +206,7 @@ func TestSTRIDECatalog(t *testing.T) {
 			rows = append(rows, cells[0]+" | "+cells[1])
 		}
 	}
-	if len(rows) < 9 {
-		t.Fatalf("found %d §8 rows: %q", len(rows), rows)
-	}
-	for _, r := range rows {
-		if len(strideSuite[r]) == 0 {
-			t.Errorf("§8 threat %q has no tests in the STRIDE suite", r)
-		}
-	}
-	// make test-stride runs the TestSTRIDE* tests and those its lists name.
-	mk, err := os.ReadFile(filepath.Join(root, "Makefile")) // #nosec G304 -- the repository's own file
-	if err != nil {
-		t.Fatal(err)
-	}
-	run := map[string]bool{}
-	for _, m := range regexp.MustCompile(`(?m)^STRIDE_(?:DB|UNIT)_TESTS = (.*)$`).FindAllSubmatch(mk, -1) {
-		for _, n := range strings.Split(strings.TrimSpace(string(m[1])), "|") {
-			run[n] = true
-		}
-	}
-	for r, tests := range strideSuite {
-		for _, ref := range tests {
-			if _, name, _ := strings.Cut(ref, ":"); !run[name] && !strings.HasPrefix(name, "TestSTRIDE") {
-				t.Errorf("%q: %s is not run by make test-stride", r, name)
-			}
-		}
-		if !slices.Contains(rows, r) {
-			t.Errorf("the suite maps %q, which is not a §8 row", r)
-		}
-		for _, ref := range tests {
-			dir, name, _ := strings.Cut(ref, ":")
-			files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), "*_test.go"))
-			re := regexp.MustCompile(`(?m)^func ` + name + `\(t \*testing\.T\)`)
-			found := false
-			for _, file := range files {
-				b, err := os.ReadFile(file) // #nosec G304 -- the repository's own test files
-				if err == nil && re.Match(b) {
-					found = true
-					break
-				}
-			}
-			if !found {
-				t.Errorf("%q: test %s not found", r, ref)
-			}
-		}
-	}
+	return rows
 }
 
 // Tampering: an exception's expiry (or approver) edited in the database is

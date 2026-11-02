@@ -344,12 +344,21 @@ func (g *Gateway) proxy(base *url.URL) *httputil.ReverseProxy {
 			pr.Out.Header.Del("Authorization")
 			pr.Out.Header.Del(server.DBContextHeader)
 			pr.Out.Header.Del(CSRFHeader)
+			pr.Out.Header.Del(authn.TicketHeader)
 			if g.ServiceAccounts != nil && g.ServiceAccounts.CertHeader != "" {
 				pr.Out.Header.Del(g.ServiceAccounts.CertHeader)
 			}
 			t, _ := pr.In.Context().Value(tokensKey{}).(tokens)
 			pr.Out.Header.Set("Authorization", "Bearer "+t.jwt)
 			pr.Out.Header.Set(server.DBContextHeader, t.db)
+		},
+		// Only the gateway sets the session cookie, and only iam's login
+		// routes hand it tickets: a service cannot fix a session in the
+		// browser or pass a ticket through it (T-40).
+		ModifyResponse: func(resp *http.Response) error {
+			resp.Header.Del("Set-Cookie")
+			resp.Header.Del(authn.TicketHeader)
+			return nil
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			g.log(r, "proxy", err)

@@ -16,13 +16,13 @@ test:
 test-db:
 	FAIR_TEST_PG=1 go test -count=1 -timeout 60m -v ./db/tests/
 
-# F-015 T-36: the STRIDE suite (design §8), with the database (as test-db).
-# db/tests TestSTRIDECatalog checks that every §8 threat maps to tests and
-# that each of them is named here.
-STRIDE_DB_TESTS = TestSTRIDE|TestPostureImportSigned|TestPostureNoDirectWrites|TestPostureDirectEditDetected|TestDriftDetectsDirectDBEdit|TestApprovalLifecycle|TestPostureAPIRestrictedBUHidden|TestRevertFaultInjection|TestDriftExceptionsAndMissedRevert|TestSecOpsSaaSNotifiesWeakening|TestExceptionDuration|TestRevertOnExpiry|TestScannerChannelAuthentication
-STRIDE_UNIT_TESTS = TestVerifyRelease|TestPackagesSignedReleaseTamper|TestScannerRBACIsReadOnlyAndMatchesAccess|TestPermissionManifest|TestScannerPodHardenedAndEgressRestricted
+# The STRIDE suites of F-015 (T-36, design §8) and F-001 (T-40, design §7),
+# with the database (as test-db). db/tests TestSTRIDECatalog checks that every
+# threat maps to tests and that each of them is run here.
+STRIDE_DB_TESTS = TestSTRIDE|TestPostureImportSigned|TestPostureNoDirectWrites|TestPostureDirectEditDetected|TestDriftDetectsDirectDBEdit|TestApprovalLifecycle|TestPostureAPIRestrictedBUHidden|TestRevertFaultInjection|TestDriftExceptionsAndMissedRevert|TestSecOpsSaaSNotifiesWeakening|TestExceptionDuration|TestRevertOnExpiry|TestScannerChannelAuthentication|TestSAMLLoginEndToEnd|TestLoginTicketRedemption|TestGatewaySessionCookieAndStorage|TestGatewayTimeouts|TestGatewayRevocation|TestGatewayCSRF|TestNetworkBinding|TestGatewayProxy|TestServiceAccountMTLS|TestDBContextScopesRows|TestDBContextFailsClosed|TestRLSHarness|TestAppRoleCannotBypassRLS|TestGrantSnapshotNeedsValidContext|TestAssignmentEscalationSuite|TestCustomRole|TestSoDBlocksCustomRolesUnlessExcepted|TestAccessReviews|TestApprovalSecondAdmin|TestIDPRoutingByDomain|TestSCIMListing|TestUserAdminVisibility|TestRollupLeakage|TestRestrictedBUAdministration|TestEntitlementReport|TestSCIMBulk|TestBreakglass|TestIdPOutageRecoveryDrill|TestAssignmentScope|TestGroupMappingConflictsAndAuthority
+STRIDE_UNIT_TESTS = TestVerifyRelease|TestPackagesSignedReleaseTamper|TestScannerRBACIsReadOnlyAndMatchesAccess|TestPermissionManifest|TestScannerPodHardenedAndEgressRestricted|TestNegativeCorpus|TestNameIDCommentInjection|TestReplayAndRequestSingleUse|TestTicket|TestDiscoveryRateLimit|TestRateLimitPerToken|TestCatalogMatchesCode|TestOpenAPIMatchesRoutes
 test-stride:
-	go test -count=1 -run '^($(STRIDE_UNIT_TESTS))$$' ./internal/profilepkg/ ./internal/profilegen/ ./internal/scanner/
+	go test -count=1 -run '^($(STRIDE_UNIT_TESTS))$$' ./internal/profilepkg/ ./internal/profilegen/ ./internal/scanner/ ./internal/authn/saml/ ./internal/authn/ ./internal/scim/ ./pkg/audit/ ./internal/iamapi/
 	FAIR_TEST_PG=1 go test -count=1 -timeout 30m -v -run '^($(STRIDE_DB_TESTS))' ./db/tests/
 
 # Applies the embedded migrations and release catalog as app_migrator (T-02b).

@@ -60,7 +60,7 @@ jobs:
           PGUSER: postgres
           PGPASSWORD: ci-only-admin
         run: go test -count=1 -v ./db/tests/
-      - name: STRIDE suite (F-015 T-36, design §8)
+      - name: STRIDE suites (F-015 T-36, design §8; F-001 T-40, design §7)
         env:
           FAIR_TEST_PG: "1"
           FAIR_TEST_NATS: nats://localhost:4222
