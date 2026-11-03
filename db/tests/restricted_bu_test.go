@@ -202,7 +202,7 @@ func TestRollupLeakage(t *testing.T) {
 		REVOKE CREATE ON SCHEMA rollup_demo FROM rollup_definer;
 		-- an ordinary fair_owner definer function that reads rows
 		SET ROLE authz_definer;
-		GRANT EXECUTE ON FUNCTION authz.visible_bus(text, text) TO fair_owner;
+		GRANT EXECUTE ON FUNCTION authz.visible_bus(text, text), authz.scope_excludes(text, text), authz.scope_hides(text, text) TO fair_owner;
 		SET ROLE fair_owner;
 		CREATE FUNCTION rollup_demo.rows_sum() RETURNS numeric
 		LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $f$

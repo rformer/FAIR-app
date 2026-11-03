@@ -79,6 +79,8 @@ Two roll-up modes adjust this:
 6. Application DB roles are `app_rw` (NOBYPASSRLS, owns no tables) and `app_engine` (narrower grants). Migrations run as `app_migrator`, and the owner role cannot log in.
 7. **Missing or invalid context yields an empty scope** (fail closed).
 8. **Key rotation:** two keys are valid during a rotation window. Tokens carry a key ID.
+9. **Scope forms** (ADR-007 amendment 1, T-11d): each policy checks the smaller of the caller's visible BUs (`= ANY`) and the BUs they cannot see (`<> ALL`, derived per statement from `iam.bu`). `authz.scope_excludes` chooses the form.
+10. **Listing BU-owned rows** (T-11c): services list rows with `authz.NewestQuery` (newest N, keyset cursor). It reads per visible BU when the caller sees few BUs and scans in order otherwise, so no scope size walks the table. Tables that are listed by a column other than their key also get an index on `(bu_id, <that column>)`.
 
 **Residual risk:** a compromised service can replay a token it legitimately received for up to 5 minutes, limited to that user's scope.
 
@@ -786,3 +788,27 @@ In every mode the keys reach the services as files: the mode's store (the KMS-en
     - The lint is clean, and the self-test passes 12 cases.
     - `TestPostureAPIUnknownIDs`, `TestPostureAPIOptionalReason` and `TestContextReason` pass. The Go contract tests (routes, permissions, Idempotency-Key, audit events) are unchanged and pass.
     - The bundle verifies with `sha256sum -c`; a release name with shell characters is refused.
+- 2026-11-03: T-11b, T-11c and T-11d implementation notes (ADR-007 amendment 1; migration 0062, `pkg/authz/list.go`, `db/tests/bench_test.go`). Robert Former approved the three tasks after the GitHub runner failed the T-11 gate. The "newest 50" query's cost depended on where a caller's rows sat: 0.03 to 16.8 ms for one BU, up to 40 ms for 1,951 BUs at the original indexes.
+  - **T-11d, policy scope forms:**
+    - `authz.scope_excludes` chooses the form by counting the stored array; it is false without a valid context.
+    - `authz.scope_hides` derives the hidden set from `iam.bu` at statement time, plus archived BUs for writes. Without a valid context it is NULL, never empty.
+    - `apply_bu_rls` installs `CASE WHEN scope_excludes THEN bu_id <> ALL(scope_hides) ELSE bu_id = ANY(visible_bus) END` (`authz.bu_scope_expr`) and re-applies it to every registered table.
+    - The RLS harness requires that exact expression on every BU policy.
+    - A role that queries BU-owned tables needs EXECUTE on all three policy functions (`scope_excludes`, `scope_hides`, `visible_bus`); app_rw, app_engine, rollup_definer and bu_guard_definer have it. Without it the query fails closed. Granting these is the owner's (`authz_definer`'s) act: a grant made by any other role is silently ignored, which first hid a missing `REVOKE ... FROM PUBLIC`, so `TestScopeForms` checks the privileges.
+  - **Context check, split for cost:** `authz.ctx_user()` holds `ctx_scope`'s checks (format, live key, HMAC, expiry window, the scope row at that version) and returns only the user and version. `ctx_scope` (same contract) and `visible_bus` (same meaning) are rebuilt on it, and the scope functions read just the column they need. Previously every call unpacked the whole scope row, all resource types and both modes, which cost about 1 ms per call for a caller with 2,000 BUs.
+  - **T-11c:** `authz.NewestQuery` emits one statement. A materialized CTE chooses the form once. The include branch reads the newest rows of each visible BU (`bu_id = v.bu`, the `bu_id` index) and merges them; the exclude branch scans in order. Only the chosen branch runs, and RLS applies in both. Identifiers must be plain lower-case names. `$1` is a keyset cursor.
+  - **T-11b:** the gate measures every scope size with the caller's rows spread uniformly (`bench_doc`), oldest (`bench_<scope>_old`) and newest (`_new`).
+    - "Newest 50" through `NewestQuery` is budgeted; the plain query is reported without a budget.
+    - The report and baseline are regenerated.
+    - Locally, every budgeted row is at most 2.84 ms (large scope, oldest rows); before these tasks, the same shapes ran 8.6 to 40 ms.
+  - Verification:
+    - `TestScopeForms` (STRIDE, mapped to "Tampering | App bug widens data scope"):
+      - the root reader is in the exclude form and a narrow user in the include form;
+      - both forms admit exactly the visible set;
+      - a BU created after the scope is hidden, for reads and writes, until the recompute;
+      - an archived BU is refused for writes in the exclude form;
+      - forged, expired, stale and missing contexts see nothing, and `scope_hides` is NULL for them;
+      - a caller who sees everything gets an empty hidden set and every row.
+    - `TestNewestQuery`: page by page, the same rows and order as the plain query in both forms; a caller without scope gets nothing.
+    - Unit tests for `NewestQuery`'s identifier and limit checks.
+    - The full suite passes.

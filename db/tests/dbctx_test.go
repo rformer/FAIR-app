@@ -224,8 +224,9 @@ func TestDBContextRoleBoundaries(t *testing.T) {
 	e.mustFail("app_rw", "SET row_security = off; SELECT * FROM iam.sample_doc", "row-level security")
 	e.mustFail("app_rw", "ALTER TABLE iam.sample_doc DISABLE ROW LEVEL SECURITY", "must be owner")
 	// RLS is forced for the owner too: its query reaches the policy, which it
-	// may not even evaluate (no EXECUTE on visible_bus), so it fails closed.
-	e.ownerFails(visibleDocs, "permission denied for function visible_bus")
+	// may not even evaluate (no EXECUTE on the scope functions, ADR-007
+	// amendment 1: scope_excludes is evaluated first), so it fails closed.
+	e.ownerFails(visibleDocs, "permission denied for function scope_excludes")
 	if out := e.mustOwner("SELECT proowner::regrole FROM pg_proc WHERE oid = 'authz.visible_bus(text,text)'::regprocedure"); out != "authz_definer" {
 		t.Fatalf("visible_bus owner = %s", out)
 	}

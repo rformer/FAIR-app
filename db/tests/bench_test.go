@@ -5,6 +5,12 @@ package tests
 // 2k BUs, 50k assignments; design D-OQ3) and for the BU closure rebuild
 // (design R1). Runs only with FAIR_BENCH=1.
 //
+// T-11b: results depend on where a caller's rows sit, so list queries are
+// measured for every scope size with the caller's rows spread uniformly, the
+// oldest, and the newest (one table per placement), in the shape services
+// issue them (authz.NewestQuery, T-11c). The plain query is reported too,
+// without a budget.
+//
 //   - FAIR_BENCH_REPORT=<path>   write the Markdown report there
 //   - FAIR_BENCH_BASELINE=<path> compare against this baseline (JSON)
 //   - FAIR_BENCH_WRITE_BASELINE=<path> write this run as the new baseline
@@ -56,26 +62,36 @@ func summarize(name string, ds []time.Duration, budget time.Duration) benchResul
 		Budget: float64(budget.Microseconds()) / 1000}
 }
 
+// benchTables are the BU-owned tables of the gate, 100 rows per BU each:
+// bench_doc spreads every BU's rows uniformly; bench_<scope>_old and _new put
+// that profile's visible BUs' rows first (the oldest) or last (the newest).
+var benchTables = []string{"bench_doc", "bench_small_old", "bench_small_new", "bench_medium_old", "bench_medium_new", "bench_large_old", "bench_large_new"}
+
 // benchSetup loads the target-scale dataset, materializes every scope and
-// adds iam.bench_doc (100 rows per BU) as a BU-owned table.
+// adds the BU-owned tables (filled once the profiles are known: benchFill).
 func benchSetup(t *testing.T) *env {
 	e := setup(t)
 	start := time.Now()
 	e.mustOwner(scaleLoad)
 	dir := t.TempDir()
 	copyMigrations(t, e.root, dir)
-	if err := os.WriteFile(filepath.Join(dir, "9200_bench_doc.sql"), []byte(`
-CREATE TABLE iam.bench_doc (id bigserial PRIMARY KEY, bu_id uuid NOT NULL, title text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
-SELECT authz.apply_bu_rls('iam.bench_doc', 'register');
-GRANT SELECT, INSERT, UPDATE, DELETE ON iam.bench_doc TO app_rw;
-GRANT USAGE ON SEQUENCE iam.bench_doc_id_seq TO app_rw;
-`), 0o600); err != nil {
+	var ddl strings.Builder
+	for _, tb := range benchTables {
+		fmt.Fprintf(&ddl, `CREATE TABLE iam.%[1]s (id bigserial PRIMARY KEY, bu_id uuid NOT NULL, title text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
+SELECT authz.apply_bu_rls('iam.%[1]s', 'register');
+GRANT SELECT, INSERT, UPDATE, DELETE ON iam.%[1]s TO app_rw;
+GRANT USAGE ON SEQUENCE iam.%[1]s_id_seq TO app_rw;
+`, tb)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "9200_bench_doc.sql"), []byte(ddl.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.migrate(dir); err != nil {
 		t.Fatal(err)
 	}
-	e.admin(e.db, `INSERT INTO iam.bench_doc (bu_id, title) SELECT b.id, 'doc ' || g FROM iam.bu b, generate_series(1, 100) g;
+	// Uniform: one row per BU per round, BUs in a fixed shuffled order.
+	e.admin(e.db, `INSERT INTO iam.bench_doc (bu_id, title)
+		SELECT b.id, 'doc ' || g FROM generate_series(1, 100) g, iam.bu b ORDER BY g, md5(b.id::text);
 		ANALYZE iam.bench_doc`)
 	// Materialize every scope; the bulk load's outbox rows are then redundant.
 	e.mustOwner("SELECT count(*) FROM authz.reconcile_scopes()")
@@ -94,6 +110,18 @@ type profile struct {
 	bus     int // register BUs readable
 	oneBU   string
 	onePK   int64
+}
+
+// benchFill fills a profile's placement tables: its visible BUs' rows first
+// (_old) or last (_new), each part interleaved across its BUs.
+func (e *env) benchFill(p profile) {
+	for _, c := range []struct{ suffix, first string }{{"old", "true"}, {"new", "false"}} {
+		e.admin(e.db, fmt.Sprintf(`INSERT INTO iam.bench_%[1]s_%[2]s (bu_id, title)
+			SELECT b.id, 'doc ' || g FROM generate_series(1, 100) g, iam.bu b
+			ORDER BY (b.id::text IN (SELECT jsonb_array_elements_text(s.read_bus->'register') FROM authz.user_scope s WHERE s.user_id = '%[3]s')) = %[4]s DESC,
+			         g, md5(b.id::text);
+			ANALYZE iam.bench_%[1]s_%[2]s`, p.name, c.suffix, p.userID, c.first))
+	}
 }
 
 // profiles picks the users with the smallest, median and largest register
@@ -161,7 +189,11 @@ func TestBenchmarkGate(t *testing.T) {
 	admin := e.adminConn()
 	var results []benchResult
 
-	for _, p := range e.profiles(t, admin) {
+	profiles := e.profiles(t, admin)
+	for _, p := range profiles {
+		e.benchFill(p)
+	}
+	for _, p := range profiles {
 		label := fmt.Sprintf("%s scope (%d BUs)", p.name, p.bus)
 		// Sanity: the profile really sees its BUs through RLS.
 		var n int
@@ -177,9 +209,23 @@ func TestBenchmarkGate(t *testing.T) {
 		results = append(results,
 			summarize(label+": visible_bus", timeTx(t, pool, p, "SELECT cardinality(authz.visible_bus('register'))"), requestBudget),
 			summarize(label+": row by primary key", timeTx(t, pool, p, "SELECT id, title FROM iam.bench_doc WHERE id = $1", p.onePK), requestBudget),
-			summarize(label+": newest 50 rows", timeTx(t, pool, p, "SELECT id, title FROM iam.bench_doc ORDER BY id DESC LIMIT 50"), requestBudget),
 			summarize(label+": count in one BU", timeTx(t, pool, p, "SELECT count(*) FROM iam.bench_doc WHERE bu_id = $1", p.oneBU), requestBudget),
 		)
+		// Newest 50 rows, by placement: as services list (authz.NewestQuery,
+		// budgeted), and the plain query (reported only).
+		for _, pl := range []struct{ name, table string }{
+			{"spread", "iam.bench_doc"}, {"oldest", "iam.bench_" + p.name + "_old"}, {"newest", "iam.bench_" + p.name + "_new"},
+		} {
+			q := authz.NewestQuery{Table: pl.table, ResourceType: "register", Columns: []string{"id", "title"}, OrderBy: "id", Limit: 50}
+			sql, err := q.SQL()
+			if err != nil {
+				t.Fatal(err)
+			}
+			results = append(results,
+				summarize(fmt.Sprintf("%s: newest 50 (NewestQuery), rows %s", label, pl.name), timeTx(t, pool, p, sql, nil), requestBudget),
+				summarize(fmt.Sprintf("%s: newest 50 (plain query), rows %s", label, pl.name),
+					timeTx(t, pool, p, "SELECT id, title FROM "+pl.table+" ORDER BY id DESC LIMIT 50"), 0))
+		}
 	}
 
 	// The same queries without RLS (superuser), for the overhead column.
@@ -265,7 +311,8 @@ func benchReport(results []benchResult) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# F-001 T-11 benchmark report\n\n")
 	fmt.Fprintf(&b, "Generated by `TestBenchmarkGate` (db/tests/bench_test.go) on %s.\n\n", time.Now().UTC().Format("2006-01-02"))
-	fmt.Fprintf(&b, "Dataset: the T-08 target-scale load (10,001 users, 2,011 BUs, ~52k assignments, all scopes materialized) plus `iam.bench_doc`, a BU-owned table with 201,100 rows (100 per BU) under `authz.apply_bu_rls`.\n\n")
+	fmt.Fprintf(&b, "Dataset: the T-08 target-scale load (10,001 users, 2,011 BUs, ~52k assignments, all scopes materialized) plus BU-owned tables under `authz.apply_bu_rls`, 201,100 rows each (100 per BU): `iam.bench_doc` spreads every BU's rows uniformly; for each profile, `bench_<scope>_old` and `_new` put that profile's visible BUs' rows first (the oldest) or last (the newest) (T-11b).\n\n")
+	fmt.Fprintf(&b, "\"NewestQuery\" rows run `authz.NewestQuery` (T-11c), the way services list BU-owned rows; \"plain query\" rows run `SELECT ... ORDER BY id DESC LIMIT 50` for comparison and have no budget. Policies use the ADR-007 amendment 1 scope forms (T-11d).\n\n")
 	fmt.Fprintf(&b, "Request rows time a whole transaction as app_rw over a connection pool: `set_config('authz.ctx', token)`, the query, commit (%d iterations after warm-up). Budget: NFR p95 <= 10 ms. Closure rows time one statement pair as superuser (5 runs).\n\n", benchIterations)
 	fmt.Fprintf(&b, "| Measurement | p50 ms | p95 ms | p99 ms | Budget ms |\n|---|---:|---:|---:|---:|\n")
 	for _, r := range results {

@@ -80,6 +80,7 @@ var strideF001 = map[string][]string{
 	"Tampering | App bug widens data scope": {
 		"db/tests:TestDBContextScopesRows", "db/tests:TestDBContextFailsClosed", "db/tests:TestRLSHarnessEveryBUOwnedTable",
 		"db/tests:TestRLSHarnessDetectsBrokenTables", "db/tests:TestAppRoleCannotBypassRLS", "db/tests:TestGrantSnapshotNeedsValidContext",
+		"db/tests:TestScopeForms", "db/tests:TestNewestQuery",
 	},
 	"Tampering | Admin edits a role to gain access": {
 		"db/tests:TestAssignmentEscalationSuite", "db/tests:TestCustomRoleAccess", "db/tests:TestCustomRoleLifecycle",

@@ -261,10 +261,9 @@ func (r *run) structure() {
 		if name == "bu_select" {
 			mode = "read"
 		}
-		ref := fmt.Sprintf("visible_bus('%s'::text, '%s'::text)", r.rt, mode)
 		for _, expr := range []string{qual, check} {
-			if expr != "" && !strings.Contains(expr, ref) {
-				r.fail("structure", "policy %s expression %q does not use %s", name, expr, ref)
+			if expr != "" && !scopeForm(expr, r.rt, mode) {
+				r.fail("structure", "policy %s expression %q is not the %s scope form for %s (ADR-007 amendment 1)", name, expr, mode, r.rt)
 			}
 		}
 	}
@@ -285,6 +284,17 @@ func (r *run) structure() {
 		r.fx.Table).Scan(&extra); err == nil && extra {
 		r.fail("structure", "rollup_definer or bu_guard_definer holds more than SELECT")
 	}
+}
+
+// scopeForm reports whether a policy expression (as pg_get_expr prints it)
+// is exactly authz.bu_scope_expr(rt, mode): scope_excludes chooses the
+// exclude form over scope_hides or the include form over visible_bus
+// (ADR-007 amendment 1).
+func scopeForm(expr, rt, mode string) bool {
+	want := fmt.Sprintf("CASE WHEN ( SELECT authz.scope_excludes('%[1]s'::text, '%[2]s'::text) AS scope_excludes)"+
+		" THEN (bu_id <> ALL (( SELECT authz.scope_hides('%[1]s'::text, '%[2]s'::text) AS scope_hides)::uuid[]))"+
+		" ELSE (bu_id = ANY (( SELECT authz.visible_bus('%[1]s'::text, '%[2]s'::text) AS visible_bus)::uuid[])) END", rt, mode)
+	return strings.Join(strings.Fields(expr), " ") == want
 }
 
 // visibleSet returns which of the harness rows the context can see, e.g. "in,ro".
