@@ -174,7 +174,7 @@ jobs:
           go-version-file: go.mod
       # Pinned: a release built with a Go at least as new as go.mod's (v2
       # config); "latest" once resolved to a binary built with Go 1.24.
-      - uses: golangci/golangci-lint-action@v8
+      - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.15.0
 
