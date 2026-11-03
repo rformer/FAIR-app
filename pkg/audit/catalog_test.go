@@ -22,7 +22,7 @@ const typePat = `[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+`
 // sqlHelpers are the migrations' audit helpers and the argument (0-based)
 // that names the event type.
 var sqlHelpers = map[string]int{
-	"iam.approval_audit": 0, "iam.authn_event": 0, "iam.breakglass_event": 0, "iam.bu_event": 0, "iam.catalog_audit": 0,
+	"iam.approval_audit": 0, "iam.authn_event": 0, "iam.breakglass_event": 0, "iam.bu_event": 0, "iam.catalog_audit": 0, "iam.claim_group_event": 0,
 	"iam.idp_event": 0, "iam.mapping_event": 0, "iam.role_event": 0, "iam.sa_event": 0, "iam.scim_event": 0,
 	"iam.session_event": 0, "iam.sod_event": 0, "iam.role_write_version": 4, "iam.review_event": 0,
 }

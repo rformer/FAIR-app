@@ -149,7 +149,8 @@ func (h *SAML) acs(w http.ResponseWriter, r *http.Request) {
 	}
 	ev := Evidence{AuthnContext: login.AuthnContextClassRef, Attributes: login.Attributes}
 	h.complete(w, r, idp.ID, login.NameID, samlProfile(login), ev, Ticket{AuthMethod: "saml", MFA: mfa, AuthTime: authTime.Unix(), ReturnTo: login.ReturnTo,
-		StepUp: login.StepUpAt != nil, Replaces: login.Replaces}, attrs)
+		StepUp: login.StepUpAt != nil, Replaces: login.Replaces}, attrs,
+		func(name string) GroupClaim { return SAMLGroups(login.Attributes, name) })
 }
 
 // metadata is this SP's SAML metadata for an IdP: entity ID and ACS.

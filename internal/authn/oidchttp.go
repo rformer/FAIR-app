@@ -146,7 +146,8 @@ func (h *OIDC) callback(w http.ResponseWriter, r *http.Request) {
 	ev := Evidence{AMR: login.AMR, ACR: login.ACR}
 	pr := Profile{Email: login.Email, Name: login.Name, EmailVerified: login.EmailVerified}
 	h.complete(w, r, idp.ID, login.ExternalID, pr, ev, Ticket{AuthMethod: "oidc", MFA: mfa, AuthTime: authTime.Unix(), ReturnTo: login.ReturnTo,
-		StepUp: login.StepUpAt != nil, Replaces: login.Replaces}, attrs)
+		StepUp: login.StepUpAt != nil, Replaces: login.Replaces}, attrs,
+		func(name string) GroupClaim { return OIDCGroups(login.Claims, name) })
 }
 
 // oidcStore is oidc.Store in the database (shared by every iam replica).

@@ -77,6 +77,16 @@ events:
     severities: [low, high]
     requires: [target]
     description: "A service account's token request failed authentication"
+  - type: authn.group_claims_applied
+    category: access
+    severities: [info]
+    requires: [target]
+    description: "A sign-in's group claim changed the user's claim-group membership (T-24b); mapped roles follow"
+  - type: authn.group_claims_unreadable
+    category: access
+    severities: [high]
+    requires: [target]
+    description: "A sign-in's group claim was an overage pointer or over the caps (500 values, 256 characters); claim-group membership was left unchanged (T-24b)"
   - type: authn.login.denied
     category: authentication
     severities: [low, high]
@@ -218,6 +228,16 @@ events:
     severities: [high]
     requires: [target]
     description: "A group-to-role mapping was removed"
+  - type: idp.claim_group_added
+    category: configuration
+    severities: [high]
+    requires: [target]
+    description: "A claim group was declared for an IdP's group claim (T-24b)"
+  - type: idp.claim_group_removed
+    category: configuration
+    severities: [high]
+    requires: [target]
+    description: "A claim group was removed from an IdP (T-24b)"
   - type: idp.created
     category: configuration
     severities: [high]

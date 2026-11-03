@@ -19,6 +19,12 @@
 //	GET    /api/v1/banner                      read            any session
 //	PUT    /api/v1/banner                      change          banner.manage
 //
+// T-24b adds claim groups (the groups an IdP's group claim sets at sign-in):
+//
+//	GET    /api/v1/idps/{id}/claim-groups          list      idp.view
+//	POST   /api/v1/idps/{id}/claim-groups          declare   idp.manage
+//	DELETE /api/v1/idps/{id}/claim-groups/{group}  remove    idp.manage
+//
 // T-23b adds user administration:
 //
 //	GET    /api/v1/users, /api/v1/users/{id}   read            user.view (BU-scoped)
@@ -138,6 +144,9 @@ var routes = []route{
 	{"GET", "/api/v1/idps/{id}/scim-tokens", (*API).listSCIMTokens},
 	{"POST", "/api/v1/idps/{id}/scim-tokens", (*API).createSCIMToken},
 	{"DELETE", "/api/v1/idps/{id}/scim-tokens/{token}", (*API).revokeSCIMToken},
+	{"GET", "/api/v1/idps/{id}/claim-groups", (*API).listClaimGroups},
+	{"POST", "/api/v1/idps/{id}/claim-groups", (*API).addClaimGroup},
+	{"DELETE", "/api/v1/idps/{id}/claim-groups/{group}", (*API).removeClaimGroup},
 	{"GET", "/api/v1/users", (*API).listUsers},
 	{"GET", "/api/v1/users/{id}", (*API).getUser},
 	{"POST", "/api/v1/users/{id}/{action}", (*API).userAction},

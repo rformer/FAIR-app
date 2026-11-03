@@ -115,6 +115,8 @@ type Login struct {
 	// sign-in (nil otherwise); Replaces is the session it replaces.
 	StepUpAt *time.Time
 	Replaces string
+	// Claims is the ID token's verified claims (the group claim, T-24b).
+	Claims map[string]any
 }
 
 func (rp *RP) now() time.Time {
@@ -267,6 +269,7 @@ func (rp *RP) Callback(ctx context.Context, idp IDP, state, code, idpError strin
 		return Login{}, invalid("no %q claim", claim)
 	}
 	login.ExternalID = ext
+	login.Claims = all
 	return login, nil
 }
 

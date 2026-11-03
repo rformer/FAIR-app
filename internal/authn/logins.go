@@ -113,7 +113,8 @@ var errUnknownIDP = errors.New("authn: unknown identity provider")
 // the MFA evidence must meet the IdP's rule when MFA is required (T-18);
 // then the login is audited and answered with a ticket. t carries the
 // method, MFA evidence, authentication time and return path.
-func (h *Logins) complete(w http.ResponseWriter, r *http.Request, idpID, externalID string, pr Profile, ev Evidence, t Ticket, attrs map[string]any) {
+func (h *Logins) complete(w http.ResponseWriter, r *http.Request, idpID, externalID string, pr Profile, ev Evidence, t Ticket, attrs map[string]any,
+	groups func(string) GroupClaim) {
 	var userID, status string
 	err := h.DB.QueryRow(r.Context(), "SELECT user_id::text, status FROM iam.login_user($1, $2)", idpID, externalID).Scan(&userID, &status)
 	if errors.Is(err, pgx.ErrNoRows) && h.jitEnabled() {
@@ -136,9 +137,10 @@ func (h *Logins) complete(w http.ResponseWriter, r *http.Request, idpID, externa
 		h.deny(w, r, idpID, attrs, "user "+status)
 		return
 	}
-	var kind string
+	var kind, groupClaim string
 	var raw []byte
-	if err := h.DB.QueryRow(r.Context(), "SELECT kind, mfa_evidence_rule FROM iam.idp_for_login($1)", idpID).Scan(&kind, &raw); err != nil {
+	if err := h.DB.QueryRow(r.Context(), "SELECT kind, mfa_evidence_rule, coalesce(metadata->>'group_claim', '') FROM iam.idp_for_login($1)",
+		idpID).Scan(&kind, &raw, &groupClaim); err != nil {
 		h.fail(w, r, idpID, err)
 		return
 	}
@@ -183,6 +185,11 @@ func (h *Logins) complete(w http.ResponseWriter, r *http.Request, idpID, externa
 			h.Logger.Error("auditing a login without phishing-resistant MFA", "error", err.Error())
 		}
 		writeFailure(w, http.StatusUnauthorized)
+		return
+	}
+	// Claim groups (T-24b): only a sign-in that succeeds changes them.
+	if err := h.applyGroups(r.Context(), userID, idpID, groupClaim, groups); err != nil {
+		h.fail(w, r, idpID, err)
 		return
 	}
 	t.UserID, t.IDPID = userID, idpID

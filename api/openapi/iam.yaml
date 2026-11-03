@@ -72,12 +72,22 @@ components:
         kind: { enum: [saml, oidc, keycloak] }
         name: { type: string }
         email_domains: { type: array, items: { type: string }, description: Lower-case; a domain is served by at most one enabled IdP }
-        metadata: { type: object, description: "scim_subject_attribute (userName or externalId: which SCIM attribute is the login subject). SAML: entity_id, sso_url, certificates, allow_idp_initiated. OIDC: issuer, authorization_endpoint, token_endpoint, jwks_uri or jwks, client_id, client_secret_file, scopes, subject_claim" }
+        metadata: { type: object, description: "scim_subject_attribute (userName or externalId: which SCIM attribute is the login subject); group_claim (the SAML attribute or OIDC claim listing the user's groups, T-24b). SAML: entity_id, sso_url, certificates, allow_idp_initiated. OIDC: issuer, authorization_endpoint, token_endpoint, jwks_uri or jwks, client_id, client_secret_file, scopes, subject_claim" }
         metadata_source: { enum: [file, url] }
         mfa_evidence_rule: { type: object }
         enabled: { type: boolean }
         created_at: { type: string, format: date-time }
         fingerprints: { $ref: "#/components/schemas/Fingerprints" }
+    ClaimGroup:
+      type: object
+      required: [id, claim_value, display_name, created_at, members, mappings]
+      properties:
+        id: { type: string, format: uuid }
+        claim_value: { type: string }
+        display_name: { type: string }
+        created_at: { type: string, format: date-time }
+        members: { type: integer }
+        mappings: { type: integer, description: Live group-to-role mappings }
     User:
       type: object
       properties:
@@ -1157,6 +1167,90 @@ paths:
         "204": { description: Revoked }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+  /idps/{id}/claim-groups:
+    parameters:
+      - $ref: "#/components/parameters/IdpID"
+    get:
+      operationId: listClaimGroups
+      tags: [idps]
+      summary: The IdP's claim groups (T-24b)
+      description: |
+        The groups the IdP's group claim (the `group_claim` setting) may put a user in at
+        sign-in, with their member and live-mapping counts.
+      x-permission: idp.view
+      responses:
+        "200":
+          description: Claim groups by display name
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  claim_groups:
+                    type: array
+                    items: { $ref: "#/components/schemas/ClaimGroup" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: addClaimGroup
+      tags: [idps]
+      x-audit-events: [idp.claim_group_added]
+      summary: Declare a claim group (T-24b, AC-12, AC-13)
+      description: |
+        At each sign-in through this IdP, a user whose group claim holds `claim_value` (exactly)
+        joins the group, and leaves it when the claim no longer does; values nobody declared
+        are ignored. An absent or empty claim means no claim groups. A claim over 500 values,
+        with a value over 256 characters, or sent as an overage pointer leaves memberships
+        unchanged and is audited (`authn.group_claims_unreadable`). SCIM never sees claim
+        groups and claims never change SCIM groups. Map the group to roles with
+        `/group-mappings`.
+      x-permission: idp.manage
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [claim_value, display_name, reason]
+              additionalProperties: false
+              properties:
+                claim_value: { type: string, minLength: 1, maxLength: 256, description: "The value the IdP sends: a group name, path or object id" }
+                display_name: { type: string, minLength: 1, maxLength: 200 }
+                reason: { type: string }
+      responses:
+        "201":
+          description: Declared
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string, format: uuid }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /idps/{id}/claim-groups/{group}:
+    parameters:
+      - $ref: "#/components/parameters/IdpID"
+      - { name: group, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      operationId: removeClaimGroup
+      tags: [idps]
+      x-audit-events: [idp.claim_group_removed]
+      summary: Remove a claim group
+      description: Its members leave it; refused (409) while a live mapping uses it.
+      x-permission: idp.manage
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - { name: reason, in: query, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Removed }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /users:
     get:
       operationId: listUsers
