@@ -228,7 +228,7 @@ jobs:
           format: spdx-json
           output-file: sbom.spdx.json
       - name: Vulnerability scan (fail on HIGH/CRITICAL)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.IMAGE }}:${{ env.TAG }}
           severity: HIGH,CRITICAL
@@ -293,7 +293,7 @@ jobs:
           format: spdx-json
           output-file: sbom-${{ matrix.component }}.spdx.json
       - name: Vulnerability scan (fail on HIGH/CRITICAL)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.IMAGE }}:${{ env.TAG }}
           severity: HIGH,CRITICAL
