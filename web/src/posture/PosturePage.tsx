@@ -38,7 +38,11 @@ export function PosturePage() {
   const drift = useApi<{ findings: Finding[] }>(`${API}/drift?resolved_since=${encodeURIComponent(since)}`);
   const k8s = useApi<K8sAccess>(`${API}/k8s-access`);
 
-  if (registry.error instanceof ApiError && registry.error.status === 404) {
+  // Every posture route needs posture.view and none of these URLs names an
+  // id, so a 404 from any of them means no access. Whichever answers first
+  // decides, so sections never show their own "not found" alerts meanwhile.
+  const loads: Loaded<unknown>[] = [registry, profiles, exceptions, switches, drift, k8s];
+  if (loads.some((l) => l.error instanceof ApiError && l.error.status === 404)) {
     return (
       <>
         <h1>Security posture</h1>

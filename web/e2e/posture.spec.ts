@@ -129,8 +129,15 @@ test("an action the user may not take reports the refusal", async ({ page }) => 
 });
 
 test("without posture.view the page says so, accessibly", async ({ page }) => {
+  // The registry answers last, so the page must decide from whichever
+  // posture request is refused first (no per-section "not found" alerts).
+  await page.route("**/registry", async (route) => {
+    await new Promise((r) => setTimeout(r, 750));
+    await route.continue();
+  });
   await page.goto("/dev/as/nobody");
   await page.getByRole("button", { name: "Acknowledge and continue" }).click();
   await expect(page.getByRole("alert")).toContainText("You do not have access to the security posture");
+  await expect(page.getByRole("alert")).toHaveCount(1);
   await expectAccessible(page, "the no-access page");
 });
