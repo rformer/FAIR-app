@@ -16,7 +16,7 @@ import (
 // Restricting and tightening a roll-up apply at once; un-restricting and
 // loosening answer 202 with an approval request (T-26), applied after a
 // second person approved it. BU creation, renaming, moving and archiving
-// are T-30b's (proposed).
+// are T-30b's (buadmin.go).
 
 type buItem struct {
 	ID         string     `json:"id"`

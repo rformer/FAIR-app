@@ -221,6 +221,26 @@ components:
         rollup_mode: { enum: [excluded, aggregate, full] }
         archived_at: { type: [string, "null"], format: date-time }
         manageable: { type: boolean, description: The caller holds bu.restrict at the parent }
+    BUMovePreview:
+      type: object
+      properties:
+        bu_id: { type: string, format: uuid }
+        bu: { type: string, description: The BU's code }
+        restricted: { type: boolean }
+        from_parent: { type: string }
+        to_parent: { type: string }
+        to_parent_id: { type: string, format: uuid }
+        depth_after: { type: integer }
+        subtree_bus: { type: integer }
+        restricted_left: { type: array, items: { type: string } }
+        restricted_entered: { type: array, items: { type: string } }
+        reach_gained: { type: array, items: { type: string }, description: BUs whose assignments will reach the BU }
+        reach_lost: { type: array, items: { type: string }, description: BUs whose assignments will no longer reach it }
+        assignments_gaining: { type: integer }
+        assignments_losing: { type: integer }
+        needs_approval: { type: boolean }
+        approval_bu_id: { type: [string, "null"], format: uuid }
+        confirm: { type: string, description: Send back to apply this preview }
     BUDocument:
       type: object
       required: [format, bus]
@@ -2049,6 +2069,90 @@ paths:
                 properties:
                   bus: { type: array, items: { $ref: "#/components/schemas/BU" } }
         "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createBU
+      tags: [bus]
+      x-audit-events: [bu.created]
+      summary: Create a BU (T-30b, AC-16)
+      description: |
+        Needs bu.manage at the parent (and bu.view somewhere, else 404). The BU starts restricted
+        per `bu.new_restricted_default` (AC-61) with roll-up `excluded`; asking for an unrestricted
+        BU while the default is restricted is refused (409; use `/bus/{id}/restriction`). The
+        code is unique and never changes. Refused beyond the maximum depth (409) and under an
+        archived parent (409). Audited high with the reason.
+      x-permission: bu.manage (at the parent)
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [parent_id, code, name, reason]
+              additionalProperties: false
+              properties:
+                parent_id: { type: string, format: uuid }
+                code: { type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$" }
+                name: { type: string, minLength: 1, maxLength: 200 }
+                restricted: { type: boolean, description: Default from bu.new_restricted_default }
+                reason: { type: string }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BU" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /bus/max-depth:
+    get:
+      operationId: getMaxDepth
+      tags: [bus]
+      summary: The BU tree's maximum depth (AC-15)
+      description: The root is depth 0. `deepest` is the depth of the deepest live BU.
+      x-permission: bu.view
+      responses:
+        "200":
+          description: Maximum and current depth
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  max_depth: { type: integer }
+                  deepest: { type: integer }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      operationId: setMaxDepth
+      tags: [bus]
+      x-audit-events: [bu.max_depth_changed]
+      summary: Set the BU tree's maximum depth (T-30b, AC-15)
+      description: |
+        1 to 32 (default 6). Lowering it below the deepest live BU is refused (409 naming it).
+        Audited high with the reason.
+      x-permission: bu.manage (at the root)
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [max_depth, reason]
+              additionalProperties: false
+              properties:
+                max_depth: { type: integer, minimum: 1, maximum: 32 }
+                reason: { type: string }
+      responses:
+        "200": { description: Set }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /bus/{id}:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
@@ -2064,6 +2168,114 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/BU" }
         "404": { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: renameBU
+      tags: [bus]
+      x-audit-events: [bu.renamed]
+      summary: Rename a BU (T-30b, AC-16)
+      description: The name only; the code does not change. Audited high with the old name and the reason.
+      x-permission: bu.manage (at the BU or its parent)
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, reason]
+              additionalProperties: false
+              properties:
+                name: { type: string, minLength: 1, maxLength: 200 }
+                reason: { type: string }
+      responses:
+        "204": { description: Renamed }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /bus/{id}/move:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: moveBU
+      tags: [bus]
+      x-audit-events: [bu.moved, approval.requested]
+      summary: Move a BU and its subtree (T-30b, AC-16, AC-17)
+      description: |
+        Needs bu.manage at the BU's current parent and at the new parent. A move is shown before
+        it applies: with `?dry_run=true`, or without the preview's `confirm` value (409
+        `confirm_required`), the answer is the preview: the parents, the depth after, the
+        restricted subtrees left and entered, the BUs whose assignments gain or lose the BU
+        (`reach_gained`, `reach_lost`) and how many live assignments that is. Sending `confirm`
+        back moves it (200); a preview that changed meanwhile asks again. When a BU that is not
+        itself restricted leaves a restricted subtree (its data becomes visible beyond the wall,
+        as with un-restricting, AC-63), the answer is 202 with a `bu.move_out` approval request
+        (approver: bu.restrict at the wall's parent), applied by `POST /bus/apply` if the preview
+        is unchanged. Refused: the root, cycles, beyond the maximum depth, archived parents (409).
+        The closure and every affected user's scope are recomputed; the move is audited high
+        with the old and new parent.
+      x-permission: bu.manage (at the current and the new parent)
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - { name: dry_run, in: query, required: false, schema: { type: boolean } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [parent_id, reason]
+              additionalProperties: false
+              properties:
+                parent_id: { type: string, format: uuid }
+                confirm: { type: string, description: The preview's confirm value }
+                reason: { type: string }
+      responses:
+        "200":
+          description: "Moved, or the preview (dry_run): {status, preview}"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { enum: [preview, moved] }
+                  preview: { $ref: "#/components/schemas/BUMovePreview" }
+        "202": { description: "Leaving a restricted subtree: pending approval ({approval_id, preview})" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /bus/{id}/archive:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: archiveBU
+      tags: [bus]
+      x-audit-events: [bu.archived]
+      summary: Archive a BU (T-30b, AC-16; never deleted)
+      description: |
+        Refused (409) for the root, while the BU has live children, and while it owns active
+        records (T-31). An archived BU leaves write scope at once. Audited high with the reason.
+      x-permission: bu.manage (at the BU or its parent)
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                reason: { type: string }
+      responses:
+        "204": { description: Archived }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /bus/{id}/restriction:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
@@ -2133,8 +2345,8 @@ paths:
       operationId: applyBUApproval
       tags: [bus]
       x-reason-exempt: applies an approved request (once); its reason was recorded when it was requested and is audited with it
-      x-audit-events: [approval.consumed, bu.unrestricted, bu.rollup_loosened]
-      summary: Apply an approved un-restriction or roll-up loosening (once)
+      x-audit-events: [approval.consumed, bu.unrestricted, bu.rollup_loosened, bu.moved]
+      summary: Apply an approved un-restriction, roll-up loosening or move out of a restricted subtree (once)
       x-permission: bu.restrict (at the parent)
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"

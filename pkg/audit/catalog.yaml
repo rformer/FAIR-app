@@ -159,11 +159,21 @@ events:
     category: bu_restriction
     severities: [high]
     requires: [target]
-    description: "A BU was created (T-31 import)"
+    description: "A BU was created (T-31 import, T-30b API)"
+  - type: bu.archived
+    category: bu_restriction
+    severities: [high]
+    requires: [target]
+    description: "A BU was archived (T-30b, AC-16)"
+  - type: bu.max_depth_changed
+    category: bu_restriction
+    severities: [high]
+    requires: [target]
+    description: "The BU tree's maximum depth was changed (T-30b, AC-15)"
   - type: bu.moved
     category: bu_restriction
-    severities: [info]
-    description: "A BU was moved in the tree"
+    severities: [info, high]
+    description: "A BU was moved in the tree: high from the BU API with the reason and the old and new parent (T-30b, AC-17); info from the scope worker"
   - type: bu.renamed
     category: bu_restriction
     severities: [high]

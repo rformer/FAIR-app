@@ -64,6 +64,15 @@
 //	GET    /api/v1/bus/export[?format=csv], POST /api/v1/bus/import[?dry_run=true]  bu.manage
 //	                                                                   bu.restrict at the parent
 //
+// T-30b adds BU administration (bu.manage; reason; audited high):
+//
+//	POST   /api/v1/bus                         create          at the parent
+//	PATCH  /api/v1/bus/{id}                    rename          at the BU or its parent
+//	POST   /api/v1/bus/{id}/move[?dry_run]     preview, confirm, move (or 202 approval out of a restricted subtree)
+//	                                                           at the current and the new parent
+//	POST   /api/v1/bus/{id}/archive            archive         at the BU or its parent
+//	GET|PUT /api/v1/bus/max-depth              read (bu.view), set at the root
+//
 // T-33 adds service accounts (service_account.manage at the account's BU):
 //
 //	GET    /api/v1/service-accounts[/{id}]                             list, read
@@ -181,6 +190,12 @@ var routes = []route{
 	{"POST", "/api/v1/roles/import", (*API).importRoles},
 	{"GET", "/api/v1/bus", (*API).listBUs},
 	{"GET", "/api/v1/bus/{id}", (*API).getBU},
+	{"POST", "/api/v1/bus", (*API).createBU},
+	{"PATCH", "/api/v1/bus/{id}", (*API).renameBU},
+	{"POST", "/api/v1/bus/{id}/move", (*API).moveBU},
+	{"POST", "/api/v1/bus/{id}/archive", (*API).archiveBU},
+	{"GET", "/api/v1/bus/max-depth", (*API).getMaxDepth},
+	{"PUT", "/api/v1/bus/max-depth", (*API).setMaxDepth},
 	{"POST", "/api/v1/bus/{id}/restriction", (*API).setRestriction},
 	{"PUT", "/api/v1/bus/{id}/rollup-mode", (*API).setRollupMode},
 	{"POST", "/api/v1/bus/apply", (*API).applyBUApproval},
