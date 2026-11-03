@@ -1,0 +1,445 @@
+# NIST SP 800-53 Rev 5 control implementation statements for F-001
+# (Identity, BU hierarchy and RBAC), task T-43. Source for the platform's
+# OSCAL component definition (F-014 assembles the features' files); checked
+# by internal/compliance tests: the controls are exactly F-001's control
+# mapping, every evidence path and test exists, and the OSCAL output
+# validates against the pinned schema.
+#
+# responsibility, per deployment mode (ADR-005):
+#   provider  the platform (and, in SaaS, the vendor operating it) meets it
+#   shared    the platform provides the mechanism; the customer operates it
+#   customer  the customer meets it
+# customer: what the customer does wherever the responsibility is shared
+# or customer. Evidence tests are "<package dir>:<test name>".
+feature: F-001
+title: Identity, BU hierarchy and RBAC
+status: approved # signed off by Robert Former, 2026-11-03
+controls:
+  - id: ac-2
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Accounts come from the customer's identity providers: SCIM 2.0
+      provisioning creates, updates and deactivates users and groups, and
+      just-in-time provisioning (off by default) creates a user on first
+      sign-in from an IdP bound to the email domain, never linking by email
+      and with no roles. Access is granted only by role assignments at a
+      business unit, made by an administrator holding access.assign there,
+      optionally with an expiry, or by group-to-role mappings. Service
+      accounts and break-glass accounts are separate account types with their
+      own controls. Administrators list, disable, re-enable and unlock users
+      with a reason, audited; access review campaigns certify or revoke every
+      assignment, mapping and service account in a business-unit subtree.
+    customer: >-
+      Manage the identity lifecycle in the IdP (joiners, movers, leavers),
+      connect SCIM, assign roles and run periodic access reviews.
+    evidence:
+      code: [internal/scim, db/migrations/0005_assignments.sql, db/migrations/0046_jit_inactivity.sql, db/migrations/0047_user_admin.sql,
+             db/migrations/0060_access_reviews.sql, internal/iamapi/users.go, internal/iamapi/reviews.go]
+      tests: ["db/tests:TestSCIMUsers", "db/tests:TestSCIMGroups", "db/tests:TestJITProvisioning", "db/tests:TestUserAdminActions",
+              "db/tests:TestAssignmentScope", "db/tests:TestAccessReviews"]
+
+  - id: ac-2.1
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Account management is automated: SCIM provisioning applies the IdP's
+      changes as they happen; group-to-role mappings give and remove mapped
+      assignments as members join and leave a group, in the same transaction;
+      deactivating a user revokes their sessions and scope at once; the
+      worker revokes expired assignments every minute and disables inactive
+      accounts hourly.
+    customer: >-
+      Connect SCIM from each IdP and keep group membership there current.
+    evidence:
+      code: [internal/scim, db/migrations/0045_deactivation.sql, db/migrations/0048_group_mappings.sql, db/migrations/0055_assignment_expiry.sql]
+      tests: ["db/tests:TestSCIMUsers", "db/tests:TestGroupMappingLifecycle", "db/tests:TestDeactivationPropagation",
+              "db/tests:TestAssignmentExpirySweep", "db/tests:TestInactivitySweep"]
+
+  - id: ac-2.2
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Emergency accounts are break-glass accounts: off by default; enabled at
+      install or later only with a second administrator's approval, and in an
+      IdP outage by an operator with cluster access (critical audit); always
+      under a posture exception that expires (at most 24 hours for the
+      emergency path), which disables the accounts. Temporary access is an
+      assignment with an expiry, revoked by the system when it passes.
+    customer: >-
+      Decide whether break-glass is enabled, hold its security keys, and set
+      expiries on temporary assignments.
+    evidence:
+      code: [internal/authn/breakglass, db/migrations/0057_breakglass.sql, db/migrations/0058_breakglass_emergency.sql,
+             db/migrations/0055_assignment_expiry.sql, docs/operations/idp-outage-recovery.md]
+      tests: ["db/tests:TestBreakglass", "db/tests:TestIdPOutageRecoveryDrill", "db/tests:TestRegistryBreakGlassOnlyThroughItsOwnFlow",
+              "db/tests:TestAssignmentExpirySweep"]
+
+  - id: ac-2.3
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Accounts are disabled when deactivated in the IdP (SCIM), when inactive
+      for longer than auth.inactive_disable_after (an hourly sweep;
+      break-glass accounts excepted), or by an administrator. Disabling ends
+      every session and removes the user's scope in the same transaction.
+    customer: >-
+      Deprovision leavers in the IdP and set the inactivity period required
+      by the active profile.
+    evidence:
+      code: [db/migrations/0045_deactivation.sql, db/migrations/0046_jit_inactivity.sql]
+      tests: ["db/tests:TestInactivitySweep", "db/tests:TestDeactivationPropagation", "db/tests:TestDeactivationEventsPublished"]
+
+  - id: ac-2.4
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Every account action is audited automatically: creation, modification,
+      enabling, disabling and removal of users, groups, assignments,
+      mappings, roles, service accounts and break-glass accounts emit
+      catalogued security events (high severity for privileged changes), and
+      services refuse uncatalogued events. Events go to the platform's sinks;
+      in SaaS, break-glass events and setting weakenings also go to the
+      vendor's security operations.
+    customer: >-
+      Forward the events to the SIEM and review them.
+    evidence:
+      code: [pkg/audit/catalog.yaml, pkg/audit/catalog.go]
+      tests: ["pkg/audit:TestCatalogMatchesCode", "pkg/audit:TestCatalogCoverage", "db/tests:TestUserAdminActions",
+              "db/tests:TestDeactivationEventsPublished"]
+
+  - id: ac-3
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Access is enforced twice. Services check each action against the
+      caller's permissions at the business unit concerned. The database
+      enforces business-unit scope with forced row-level security on every
+      business-unit-owned table, using a signed database context minted by
+      the gateway for each request (ADR-007): a missing, forged, expired or
+      stale context sees nothing. Application roles cannot bypass row-level
+      security, and out-of-scope objects answer as missing (404).
+    evidence:
+      code: [pkg/authz, db/migrations/0009_db_context.sql, db/migrations/0062_bu_scope_forms.sql, internal/rlstest]
+      tests: ["db/tests:TestDBContextScopesRows", "db/tests:TestDBContextFailsClosed", "db/tests:TestRLSHarnessEveryBUOwnedTable",
+              "db/tests:TestAppRoleCannotBypassRLS", "db/tests:TestScopeForms", "db/tests:TestSTRIDEF001Enumeration"]
+
+  - id: ac-3.7
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Access control is role-based: a versioned catalog of permissions,
+      built-in roles and custom roles (versioned, diffed before change,
+      retired only when unused) assigned to users, groups and service
+      accounts at business units, inherited down the tree except into
+      restricted business units, which require an explicit assignment.
+    customer: >-
+      Define custom roles and assign roles to match job functions.
+    evidence:
+      code: [db/migrations/0004_roles.sql, db/migrations/0051_custom_roles.sql, db/migrations/0006_scope.sql, internal/iamapi/roles.go]
+      tests: ["db/tests:TestCustomRoleLifecycle", "db/tests:TestCustomRoleAccess", "db/tests:TestScopeFollowsGroupsRolesAndExpiry",
+              "db/tests:TestBURestrictBlocksInheritance"]
+
+  - id: ac-5
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Duties are separated: separation-of-duties rules (built-in ones cannot
+      be disabled) refuse conflicting roles unless a time-boxed exception is
+      approved by a second administrator, and roles are suspended when the
+      exception lapses. Nobody assigns roles to themselves or to a group they
+      belong to, approves their own request, or reviews their own access; an
+      assignment that would combine administration with risk data is refused.
+    customer: >-
+      Add separation-of-duties rules for the organization's conflicting
+      duties and decide exceptions.
+    evidence:
+      code: [db/migrations/0050_sod.sql, db/migrations/0017_approvals.sql, db/migrations/0005_assignments.sql]
+      tests: ["db/tests:TestSoDBlocksCustomRolesUnlessExcepted", "db/tests:TestSoDExpiryRevocationSuspend", "db/tests:TestApprovalSecondAdmin",
+              "db/tests:TestAssignmentEscalationSuite", "db/tests:TestAccessReviews"]
+
+  - id: ac-6
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Least privilege: no account has access until a role is assigned;
+      just-in-time accounts get no roles; scope is limited to the assigned
+      business units and their unrestricted descendants; service accounts
+      hold only non-privileged scopes they were granted; break-glass accounts
+      have no risk-data permissions; roll-ups across restricted business
+      units give totals only where their mode allows.
+    customer: >-
+      Grant the narrowest roles at the lowest business units that serve each
+      job.
+    evidence:
+      code: [db/migrations/0006_scope.sql, db/migrations/0053_restricted_bu_admin.sql, db/migrations/0056_service_accounts.sql]
+      tests: ["db/tests:TestScopeMaterialization", "db/tests:TestRollupLeakage", "db/tests:TestSTRIDEF001ServiceAccountEscalation",
+              "db/tests:TestJITProvisioning"]
+
+  - id: ac-6.1
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Security functions (approving, administering and exporting) are
+      privileged permissions in the catalog: the loader refuses a release
+      that marks them otherwise. Only root-level grantors may assign roles
+      containing administrative permissions, and only holders of a
+      function's permission at the business unit may use it.
+    customer: >-
+      Limit who holds privileged permissions, and at which business units.
+    evidence:
+      code: [db/migrations/0004_roles.sql, db/migrations/0052_catalog_upgrades.sql, db/migrations/0005_assignments.sql]
+      tests: ["db/tests:TestRoleAttributes", "db/tests:TestCatalogRetirementAndReclassification", "db/tests:TestAssignmentEscalationSuite"]
+
+  - id: ac-6.5
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Privileged accounts are restricted: administrative roles can be granted
+      only by root-level grantors; restricted business units need an explicit
+      assignment; un-restricting a business unit or loosening its roll-up
+      needs a second administrator; privileged users must present
+      phishing-resistant multi-factor evidence where the IdP is the bundled
+      Keycloak; break-glass is limited to two holders.
+    customer: >-
+      Keep the set of administrators small and reviewed.
+    evidence:
+      code: [db/migrations/0005_assignments.sql, db/migrations/0053_restricted_bu_admin.sql, internal/authn/mfa.go]
+      tests: ["db/tests:TestAssignmentEscalationSuite", "db/tests:TestRestrictedBUAdministration", "db/tests:TestKeycloakAMRPolicy",
+              "db/tests:TestBreakglass"]
+
+  - id: ac-6.9
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Every use of a privileged function is logged: privileged changes are
+      audited at high severity with the actor, target, reason and request,
+      every mutating API route declares its security events (checked against
+      the catalog), and an audit failure fails the operation.
+    customer: >-
+      Forward privileged events to the SIEM and alert on them.
+    evidence:
+      code: [pkg/audit, api/openapi/iam.yaml]
+      tests: ["pkg/audit:TestCatalogMatchesCode", "internal/iamapi:TestOpenAPIMatchesRoutes", "db/tests:TestWorkerAuditFailsClosed",
+              "db/tests:TestRegistryFailsClosedWhenAuditUnavailable"]
+
+  - id: ac-7
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      For the accounts the platform authenticates itself (break-glass),
+      consecutive failed sign-ins lock the account per auth.lockout_threshold
+      within auth.lockout_window; locked accounts are unlocked by an
+      administrator. Home-realm discovery, the token endpoint and break-glass
+      sign-in are rate-limited per client. Federated users are locked out by
+      their IdP.
+    customer: >-
+      Configure lockout in each IdP for federated users.
+    evidence:
+      code: [internal/authn/breakglass, db/migrations/0057_breakglass.sql, internal/authn/discover.go]
+      tests: ["db/tests:TestBreakglass", "db/tests:TestSTRIDEF001RateLimits", "internal/authn:TestDiscoveryRateLimit", "db/tests:TestUserAdminActions"]
+
+  - id: ac-8
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      A system-use notification is shown before access: while banner.enabled
+      is on (the default), each new session can do nothing but read /me,
+      acknowledge the banner and sign out until the user acknowledges the
+      current text; the acknowledgement is recorded with the banner version.
+    customer: >-
+      Set the banner text required by the organization (banner.manage).
+    evidence:
+      code: [db/migrations/0042_banner.sql, internal/gateway, web/src]
+      tests: ["db/tests:TestBannerGatesTheSession", "db/tests:TestBannerTextAPI"]
+
+  - id: ac-11
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Sessions lock after inactivity: a session idle for longer than
+      session.idle_timeout (bounded by the active profile) is ended by the
+      gateway and the user must authenticate again.
+    customer: >-
+      Keep the idle timeout within the profile's bounds for the
+      organization's needs.
+    evidence:
+      code: [internal/gateway/sessions.go, db/migrations/0037_sessions.sql]
+      tests: ["db/tests:TestGatewayTimeouts"]
+
+  - id: ac-12
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Sessions terminate automatically at session.absolute_timeout, on
+      sign-out, when revoked by the user or an administrator (with a reason),
+      when the account is deactivated, and, per session.network_binding, when
+      the session moves to another network.
+    customer: >-
+      Set the timeouts and network binding the profile allows.
+    evidence:
+      code: [internal/gateway/sessions.go, internal/gateway/network.go, db/migrations/0043_network_binding.sql]
+      tests: ["db/tests:TestGatewayTimeouts", "db/tests:TestGatewayRevocation", "db/tests:TestNetworkBindingModes", "db/tests:TestDeactivationPropagation"]
+
+  - id: cm-6
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      F-001's security settings (MFA, lockout, timeouts, banner, network
+      binding, provisioning, token lifetimes, break-glass) are registered
+      with F-015 and read through the settings client, which refuses to start
+      with an unbound setting and fails closed when its values are stale:
+      MFA required, banner on. The services take their keys as files from the
+      deployment mode's secret store and refuse key files open to other
+      users.
+    customer: >-
+      Deliver the keys through the mode's store and keep settings within the
+      profile.
+    evidence:
+      code: [pkg/settings, internal/keys, deploy/k8s/keys]
+      tests: ["db/tests:TestPostureStartupRegistration", "internal/authn:TestMFARequiredFailsClosed", "internal/keys:TestCheckMounted",
+              "db/tests:TestDeploymentModeMatrix"]
+
+  - id: cm-7
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Optional functions are off by default: just-in-time provisioning,
+      break-glass, TOTP for the bundled Keycloak and the service-account mTLS
+      listener; air-gapped installs refuse to fetch IdP metadata from URLs.
+      New business units are restricted by default. The gateway exposes only its session APIs and
+      proxies the documented service segments, stripping credentials,
+      cookies and login tickets in both directions.
+    customer: >-
+      Enable optional functions only where needed.
+    evidence:
+      code: [internal/gateway/gateway.go, db/migrations/0046_jit_inactivity.sql, db/migrations/0057_breakglass.sql]
+      tests: ["db/tests:TestJITProvisioning", "db/tests:TestNewBURestrictedDefault", "db/tests:TestSTRIDEF001HeaderSpoofing",
+              "db/tests:TestIDPMetadataPinningAndAirGapped"]
+
+  - id: ia-2
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Users are identified and authenticated by the customer's IdPs through
+      SAML 2.0 (signature verified against pinned certificates, signature
+      wrapping refused) or OpenID Connect (code flow with PKCE); home-realm
+      discovery routes each email domain to its IdP. Successful sign-ins
+      become a server-side session in a __Host- cookie; services
+      authenticate each request with a short-lived internal token minted by
+      the gateway. Service accounts authenticate with a client secret or a
+      certificate.
+    customer: >-
+      Operate the IdPs and register them with their metadata.
+    evidence:
+      code: [internal/authn, internal/gateway, db/migrations/0040_idp_admin.sql]
+      tests: ["db/tests:TestSAMLLoginEndToEnd", "db/tests:TestOIDCLoginEndToEnd", "internal/authn/saml:TestNegativeCorpus",
+              "db/tests:TestGatewaySessionCookieAndStorage", "db/tests:TestServiceAccounts"]
+
+  - id: ia-2.1
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Privileged users must present multi-factor evidence from the IdP
+      (auth.mfa_required_privileged, always on): a sign-in without it is
+      denied and audited. With the bundled Keycloak, privileged users need a
+      phishing-resistant factor (security key or smart card).
+    customer: >-
+      Require MFA in each IdP and configure the evidence rule FAIR checks.
+    evidence:
+      code: [internal/authn/mfa.go, db/migrations/0041_mfa_evidence.sql]
+      tests: ["db/tests:TestMFAEvidenceSAML", "db/tests:TestMFAEvidenceOIDC", "internal/authn:TestMFARules", "db/tests:TestKeycloakAMRPolicy"]
+
+  - id: ia-2.2
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Non-privileged users must present multi-factor evidence while
+      auth.mfa_required_all is on (the default in every built-in profile);
+      the check fails closed: when the setting cannot be read, MFA is
+      required.
+    customer: >-
+      Require MFA in each IdP.
+    evidence:
+      code: [internal/authn/mfa.go]
+      tests: ["db/tests:TestMFAEvidenceSAML", "db/tests:TestMFAEvidenceOIDC", "internal/authn:TestMFARequiredFailsClosed"]
+
+  - id: ia-2.8
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Authentication is replay-resistant: SAML assertions and request ids are
+      single-use (replay cache); OIDC uses state, nonce and PKCE; the login
+      ticket handed to the gateway is signed and single-use; break-glass uses
+      WebAuthn challenges that are spent once; internal tokens expire within
+      minutes and the database context within ten.
+    evidence:
+      code: [internal/authn/saml, internal/authn/oidc, internal/authn/ticket.go, internal/authn/breakglass]
+      tests: ["internal/authn/saml:TestReplayAndRequestSingleUse", "internal/authn/oidc:TestStateAndCode", "db/tests:TestLoginTicketRedemption",
+              "db/tests:TestBreakglass", "db/tests:TestDBContextFailsClosed"]
+
+  - id: ia-2.12
+    responsibility: { saas: customer, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      PIV and CAC credentials are accepted through the IdP: federated IdPs
+      that verify them pass the authentication method to FAIR, and the
+      bundled Keycloak realm offers X.509 smart-card sign-in and reports it,
+      which counts as phishing-resistant evidence.
+    customer: >-
+      Verify PIV/CAC credentials in the IdP (or the bundled Keycloak, with
+      the organization's certificate authorities).
+    evidence:
+      code: [deploy/keycloak/fair-realm.json, internal/authn/mfa.go, docs/install/keycloak.md]
+      tests: ["internal/authn:TestKeycloakRealm", "internal/authn:TestKeycloakEvidence", "db/tests:TestKeycloakAMRPolicy"]
+
+  - id: ia-4
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Identifiers are managed by the IdP: a user is linked to the IdP subject
+      (or the SCIM attribute the IdP names), never by email; identifiers are
+      not reused, as users and business units are disabled or archived, not
+      deleted. Service accounts get their own identifiers, and SCIM tokens
+      are per IdP.
+    customer: >-
+      Keep subject identifiers stable in the IdP.
+    evidence:
+      code: [internal/scim, db/migrations/0044_scim.sql, db/migrations/0002_bu.sql]
+      tests: ["db/tests:TestSCIMUsers", "db/tests:TestJITProvisioning", "db/tests:TestBUNoHardDelete", "db/tests:TestSCIMTokens"]
+
+  - id: ia-5
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      The platform's authenticators: service-account client secrets are shown
+      once, stored only as hashes keyed with a pepper, and expire within
+      token.max_lifetime; SCIM tokens are shown once, stored only as SHA-256
+      hashes, and expire after 1 to 365 days (90 by default); service-account
+      certificates are pinned by thumbprint; break-glass
+      uses user-verified security keys enrolled with one-time codes. Signing
+      keys and peppers are generated at install from the FIPS module, held in
+      the deployment mode's secret store, rotated with overlap, and never
+      written to code or environment literals.
+    customer: >-
+      Rotate service-account credentials and keys on schedule.
+    evidence:
+      code: [internal/authn/satoken.go, internal/keys, docs/install/keys.md, db/migrations/0056_service_accounts.sql]
+      tests: ["db/tests:TestServiceAccounts", "db/tests:TestServiceAccountMTLS", "db/tests:TestSCIMTokens", "internal/keys:TestRotate",
+              "internal/keys:TestInitLoadsInEveryService"]
+
+  - id: ia-8
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Users from outside the organization (partners) sign in through their
+      own IdP, registered by an administrator with pinned trust anchors and
+      bound to their email domains (a domain belongs to one IdP); they get
+      access only by assignment, like any user.
+    customer: >-
+      Decide which external IdPs to trust and what their users may access.
+    evidence:
+      code: [internal/iamapi/idps.go, db/migrations/0040_idp_admin.sql]
+      tests: ["db/tests:TestIDPRoutingByDomain", "db/tests:TestIDPMetadataPinningAndAirGapped", "db/tests:TestIDPAdminAccess"]
+
+  - id: au-2
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      The security events are defined in a catalog (pkg/audit/catalog.yaml):
+      each type has its category, severities and required fields, and a JSON
+      schema defines the envelope (actor, target, reason, before and after,
+      request id, source address). A test keeps the catalog and the code in
+      step.
+    customer: >-
+      Decide which events the SIEM alerts on.
+    evidence:
+      code: [pkg/audit/catalog.yaml, pkg/audit/event.schema.json]
+      tests: ["pkg/audit:TestCatalogMatchesCode", "pkg/audit:TestCatalogCoverage", "pkg/audit:TestValidate"]
+
+  - id: au-12
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Every service generates its events itself, as JSON lines on standard
+      output and over syslog with TLS, validated against the catalog;
+      database changes queue events in the same transaction; a failure to
+      record an event fails the operation.
+    customer: >-
+      Collect the services' output or syslog into the SIEM.
+    evidence:
+      code: [pkg/audit/audit.go, pkg/audit/syslog.go, internal/scope]
+      tests: ["pkg/audit:TestSyslogRFC5424OverTCP", "pkg/audit:TestFromEnv", "db/tests:TestWorkerAuditFailsClosed",
+              "internal/scope:TestSendValidatesAgainstTheCatalog"]

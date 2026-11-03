@@ -812,3 +812,11 @@ In every mode the keys reach the services as files: the mode's store (the KMS-en
     - `TestNewestQuery`: page by page, the same rows and order as the plain query in both forms; a caller without scope gets nothing.
     - Unit tests for `NewestQuery`'s identifier and limit checks.
     - The full suite passes.
+- 2026-11-03: T-43 implementation notes (`compliance/statements/F-001.yaml`, signed off by Robert Former).
+  - **The statements:** one per control of the requirements' mapping (28). Each gives the responsibility per deployment mode, the customer's part where shared, and evidence (code paths and tests).
+  - **Checks** (`internal/compliance`, as for F-015 T-38): `TestF001Statements` (exactly the mapping; every path and test exists; a valid, deterministic component definition) and `TestComponentDefinitionAllFeatures` (F-001 and F-015 build one document, one control implementation each, so CM-6 and CM-7 appear once per feature).
+  - **Corrected during review:**
+    - AC-11 does not claim step-up re-authentication: session `auth_time` is F-015 T-24b, still open.
+    - IA-5 distinguishes peppered service-account secrets from SHA-256 SCIM tokens (1 to 365 days).
+    - CM-7 says air-gapped installs refuse metadata URL fetches.
+    - AC-2.4 names the events sent to vendor SecOps.

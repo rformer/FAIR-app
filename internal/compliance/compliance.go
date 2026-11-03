@@ -1,5 +1,5 @@
 // Package compliance holds the platform's NIST SP 800-53 Rev 5 control
-// implementation statements (F-015 T-38; F-001 T-43 follows) and turns them
+// implementation statements (F-015 T-38, F-001 T-43) and turns them
 // into the OSCAL component definition F-014 publishes.
 //
 // Each feature's statements live in compliance/statements/<feature>.yaml:
