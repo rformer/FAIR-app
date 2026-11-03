@@ -65,13 +65,13 @@ func (s *Syslog) Emit(ctx context.Context, e Event) error {
 			s.conn = c
 		}
 		_ = s.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-		if _, werr := s.conn.Write([]byte(frame)); werr == nil {
+		_, werr := s.conn.Write([]byte(frame))
+		if werr == nil {
 			return nil
-		} else {
-			_ = s.conn.Close()
-			s.conn = nil
-			err = werr
 		}
+		_ = s.conn.Close()
+		s.conn = nil
+		err = werr
 	}
 	return fmt.Errorf("audit syslog write: %w", err)
 }

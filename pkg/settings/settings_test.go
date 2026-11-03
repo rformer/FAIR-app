@@ -36,7 +36,7 @@ func TestProfileBoundBelowFloorRejected(t *testing.T) {
 
 // Property test: Compare is a total order consistent with Strictest.
 func TestCompareIsTotalOrder(t *testing.T) {
-	rng := rand.New(rand.NewPCG(1, 2))
+	rng := rand.New(rand.NewPCG(1, 2)) // #nosec G404 -- a seeded, reproducible property test, not a secret
 	defs := map[string]Def{}
 	for _, d := range F001Defs() {
 		defs[d.Key] = d

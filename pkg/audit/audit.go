@@ -21,6 +21,8 @@ import (
 // Severity of a security event.
 type Severity string
 
+// The severities, from routine to page-someone (the catalog says which each
+// event type may carry).
 const (
 	SeverityInfo     Severity = "info"
 	SeverityLow      Severity = "low"

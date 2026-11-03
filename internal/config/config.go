@@ -108,7 +108,7 @@ func ReadSecretFile(path string) (string, error) {
 	if path == "" {
 		return "", errors.New("secret file path is empty")
 	}
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(path) // #nosec G304 -- the operator names the mounted secret file
 	if err != nil {
 		return "", fmt.Errorf("reading secret file: %w", err)
 	}

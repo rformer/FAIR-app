@@ -102,7 +102,7 @@ func TLSConfig() *tls.Config {
 
 // Run serves until ctx is cancelled, then shuts down gracefully within timeout.
 func (s *Server) Run(ctx context.Context, shutdownTimeout time.Duration) error {
-	ln, err := net.Listen("tcp", s.opts.Addr)
+	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", s.opts.Addr)
 	if err != nil {
 		return err
 	}

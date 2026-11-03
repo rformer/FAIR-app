@@ -10,6 +10,7 @@ import (
 // Family groups profiles for conditional hard floors (e.g. FIPS).
 type Family string
 
+// The profile families.
 const (
 	FamilyFedRAMP    Family = "fedramp"
 	FamilyCMMC       Family = "cmmc"

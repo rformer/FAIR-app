@@ -133,7 +133,7 @@ func (e *env) script(name string, vars map[string]string) {
 }
 
 func (e *env) scriptErr(name string, vars map[string]string) (string, error) {
-	cmd := exec.Command("bash", filepath.Join(e.root, "scripts", name))
+	cmd := exec.CommandContext(context.Background(), "bash", filepath.Join(e.root, "scripts", name))
 	cmd.Env = withVars(e.adminEnv, vars)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
@@ -148,7 +148,7 @@ func (e *env) admin(db, sql string) {
 }
 
 func (e *env) psqlAs(vars map[string]string, db, sql string) error {
-	cmd := exec.Command("psql", "--no-psqlrc", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-d", db, "-c", sql)
+	cmd := exec.CommandContext(context.Background(), "psql", "--no-psqlrc", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-d", db, "-c", sql)
 	cmd.Env = withVars(e.adminEnv, vars)
 	var buf bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &buf, &buf
@@ -161,7 +161,7 @@ func (e *env) psqlAs(vars map[string]string, db, sql string) error {
 // as runs SQL as an application role and returns (output, error).
 func (e *env) as(role, sql string) (string, error) {
 	pw, _ := os.ReadFile(e.secrets[role])
-	cmd := exec.Command("psql", "--no-psqlrc", "-X", "-q", "-tA", "-v", "ON_ERROR_STOP=1", "-d", e.db, "-c", sql)
+	cmd := exec.CommandContext(context.Background(), "psql", "--no-psqlrc", "-X", "-q", "-tA", "-v", "ON_ERROR_STOP=1", "-d", e.db, "-c", sql)
 	cmd.Env = withVars(e.adminEnv, map[string]string{"PGUSER": role, "PGPASSWORD": strings.TrimSpace(string(pw))})
 	out, err := cmd.CombinedOutput()
 	return strings.TrimSpace(string(out)), err
@@ -241,7 +241,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON iam.rls_probe TO app_rw;
 func TestOwnerRolesCannotLogIn(t *testing.T) {
 	e := setup(t)
 	for _, r := range []string{"fair_owner", "authz_definer", "posture_definer", "rollup_definer", "bu_guard_definer"} {
-		cmd := exec.Command("psql", "--no-psqlrc", "-X", "-d", e.db, "-c", "SELECT 1")
+		cmd := exec.CommandContext(context.Background(), "psql", "--no-psqlrc", "-X", "-d", e.db, "-c", "SELECT 1")
 		cmd.Env = withVars(e.adminEnv, map[string]string{"PGUSER": r, "PGPASSWORD": "irrelevant"})
 		if out, err := cmd.CombinedOutput(); err == nil {
 			t.Fatalf("%s must not be able to log in: %s", r, out)
@@ -258,8 +258,8 @@ func TestMigrationsIdempotentAndTamperEvident(t *testing.T) {
 	dir := t.TempDir()
 	copyMigrations(t, e.root, dir)
 	f := filepath.Join(dir, "0001_schemas.sql")
-	b, _ := os.ReadFile(f)
-	if err := os.WriteFile(f, append(b, []byte("\n-- tampered\n")...), 0o600); err != nil {
+	b, _ := os.ReadFile(f)                                                                  // #nosec G304 G703 -- the test's own copy of the migrations
+	if err := os.WriteFile(f, append(b, []byte("\n-- tampered\n")...), 0o600); err != nil { // #nosec G703 -- as above
 		t.Fatal(err)
 	}
 	if _, err := e.migrate(dir); !errors.Is(err, migrate.ErrChecksum) {
@@ -288,11 +288,11 @@ func copyMigrations(t *testing.T, root, dst string) {
 	t.Helper()
 	files, _ := filepath.Glob(filepath.Join(root, "db", "migrations", "*.sql"))
 	for _, f := range files {
-		b, err := os.ReadFile(f)
+		b, err := os.ReadFile(f) // #nosec G304 -- the repository's own migrations
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(dst, filepath.Base(f)), b, 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(dst, filepath.Base(f)), b, 0o600); err != nil { // #nosec G703 -- a test temporary directory
 			t.Fatal(err)
 		}
 	}

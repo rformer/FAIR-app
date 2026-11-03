@@ -17,7 +17,7 @@ import (
 func TestHealthAndHeaders(t *testing.T) {
 	s := New(Options{Plaintext: true})
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/healthz", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("healthz = %d", rec.Code)
 	}
@@ -34,7 +34,7 @@ func TestReadinessDoesNotLeakErrors(t *testing.T) {
 		return errors.New("password authentication failed for user app_rw")
 	}})
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/readyz", nil))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("readyz = %d, want 503", rec.Code)
 	}
@@ -53,7 +53,7 @@ func TestTLSFloor(t *testing.T) {
 func TestUnknownMethodRejected(t *testing.T) {
 	s := New(Options{Plaintext: true})
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/healthz", nil))
+	s.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/healthz", nil))
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("POST /healthz = %d, want 405", rec.Code)
 	}

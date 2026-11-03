@@ -17,6 +17,7 @@ import (
 // Kind is a setting's value type.
 type Kind int
 
+// The value types.
 const (
 	KindDuration Kind = iota // time.Duration
 	KindInt                  // int
@@ -27,6 +28,7 @@ const (
 // Direction says which values are stricter.
 type Direction int
 
+// The directions.
 const (
 	LowerIsStricter  Direction = iota // durations/ints: smaller is stricter
 	HigherIsStricter                  // durations/ints: larger is stricter

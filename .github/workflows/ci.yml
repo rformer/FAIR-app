@@ -172,9 +172,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: golangci/golangci-lint-action@v6
+      # Pinned: a release built with a Go at least as new as go.mod's (v2
+      # config); "latest" once resolved to a binary built with Go 1.24.
+      - uses: golangci/golangci-lint-action@v8
         with:
-          version: latest
+          version: v2.15.0
 
   # F-001 T-42 (design §6): the OpenAPI documents pass Spectral (spectral:oas
   # and the platform's conventions), and the convention rules pass their

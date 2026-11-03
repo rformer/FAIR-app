@@ -29,7 +29,10 @@ type (
 )
 
 // Metadata and the other aliases in this block are the parts of documents
-// that F-015's exports assemble (T-33, T-34).
+// that F-015's exports assemble (T-33, T-34); each is named after its OSCAL
+// type.
+//
+//nolint:revive // one comment for the group of plain OSCAL aliases
 type (
 	Metadata           = oscaltypes.Metadata
 	Property           = oscaltypes.Property

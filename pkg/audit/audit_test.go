@@ -67,18 +67,18 @@ func TestMultiReportsFailures(t *testing.T) {
 }
 
 func TestSyslogRFC5424OverTCP(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	got := make(chan string, 1)
 	go func() {
 		c, err := ln.Accept()
 		if err != nil {
 			return
 		}
-		defer c.Close()
+		defer func() { _ = c.Close() }()
 		r := bufio.NewReader(c)
 		lenStr, _ := r.ReadString(' ')
 		n, _ := strconv.Atoi(strings.TrimSpace(lenStr))
@@ -88,7 +88,7 @@ func TestSyslogRFC5424OverTCP(t *testing.T) {
 	}()
 
 	s := NewSyslog(ln.Addr().String(), "fair-iam", nil)
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	if err := s.Emit(context.Background(), Event{Type: "authn.login.success", Severity: SeverityCritical, Actor: "u1"}); err != nil {
 		t.Fatal(err)
 	}

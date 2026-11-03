@@ -1,6 +1,6 @@
 module github.com/rformer/fair-app
 
-go 1.26.0
+go 1.26.10
 
 // Constitution S2: FIPS 140-validated cryptography. Binaries are built with
 // GOFIPS140=v1.0.0 (see Makefile/Dockerfile) and run with the FIPS module on.
