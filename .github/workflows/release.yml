@@ -20,8 +20,8 @@ jobs:
   release-checklist:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       # Pins match MANIFEST.json, profiles and packages rebuild byte for byte,
@@ -30,7 +30,7 @@ jobs:
       # Open external pen-test findings block too (security/pentest-findings.yaml).
       - name: Release checklist
         run: go run ./cmd/profilegen release-check -online -report release-checklist.md
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: release-checklist
@@ -42,8 +42,8 @@ jobs:
   openapi:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: npm
@@ -52,7 +52,7 @@ jobs:
         run: bash scripts/openapi-lint.sh
       - name: Stamp the documents with the release
         run: bash scripts/openapi-bundle.sh "${GITHUB_REF_NAME}" openapi-dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: openapi-${{ github.ref_name }}
           path: openapi-dist/
