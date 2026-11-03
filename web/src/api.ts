@@ -23,11 +23,14 @@ async function handle<T>(resp: Response): Promise<T> {
   }
   if (!resp.ok) {
     const b = (body ?? {}) as { error?: string; detail?: string; login_url?: string };
-    // The session ended because its network changed (F-001 T-20): sign in
-    // again at the IdP, coming back to this page.
+    // Sign in again at the IdP, coming back to this page: the session ended
+    // because its network changed (F-001 T-20), or a restricted business
+    // unit needs a recent sign-in (step-up, F-015 T-24b; the URL then
+    // already asks the IdP to re-authenticate).
     if (resp.status === 401 && b.login_url?.startsWith("/api/v1/auth/")) {
-      const back = window.location.pathname + window.location.search;
-      window.location.assign(`${b.login_url}?return=${encodeURIComponent(back)}`);
+      const login = new URL(b.login_url, window.location.origin);
+      login.searchParams.set("return", window.location.pathname + window.location.search);
+      window.location.assign(login.pathname + login.search);
     }
     throw new ApiError(resp.status, b.error ?? "", b.detail ?? "");
   }

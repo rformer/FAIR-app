@@ -23,6 +23,10 @@ type memStore struct {
 func (s *memStore) SaveState(_ context.Context, idp string, st Started, _ time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if st.StepUp {
+		now := time.Now()
+		st.StepUpAt = &now
+	}
 	s.m[idp+"/"+st.State] = st
 	return nil
 }
@@ -63,7 +67,7 @@ func newFixture(t *testing.T) *fixture {
 // login runs start → IdP → callback.
 func (f *fixture) login(t *testing.T, subject string, extra map[string]any) (Login, error) {
 	t.Helper()
-	u, err := f.rp.Start(context.Background(), f.idp, "/posture")
+	u, err := f.rp.Start(context.Background(), f.idp, "/posture", StepUp{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,6 +79,30 @@ func (f *fixture) login(t *testing.T, subject string, extra map[string]any) (Log
 		t.Fatal(err)
 	}
 	return f.rp.Callback(context.Background(), f.idp, state, code, "")
+}
+
+// F-015 T-24b: a step-up asks for prompt=login and max_age, and the login
+// carries when it was asked for and the session it replaces; an ordinary
+// login asks for neither.
+func TestStepUpPromptLogin(t *testing.T) {
+	f := newFixture(t)
+	plain, _ := f.rp.Start(context.Background(), f.idp, "/", StepUp{})
+	u, err := f.rp.Start(context.Background(), f.idp, "/x", StepUp{Force: true, MaxAge: 15 * time.Minute, Replaces: "00000000-0000-4000-8000-000000000001"})
+	if err != nil || strings.Contains(plain, "prompt=") || strings.Contains(plain, "max_age=") ||
+		!strings.Contains(u, "prompt=login") || !strings.Contains(u, "max_age=900") {
+		t.Fatalf("authorization URLs:\n%s\n%s %v", plain, u, err)
+	}
+	code, state, err := f.p.Authorize(u, "user@example.test", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l, err := f.rp.Callback(context.Background(), f.idp, state, code, "")
+	if err != nil || l.StepUpAt == nil || l.Replaces != "00000000-0000-4000-8000-000000000001" || l.ReturnTo != "/x" {
+		t.Fatalf("step-up login: %+v %v", l, err)
+	}
+	if l, err := f.login(t, "user@example.test", nil); err != nil || l.StepUpAt != nil || l.Replaces != "" {
+		t.Fatalf("ordinary login: %+v %v", l, err)
+	}
 }
 
 func TestLoginAccepted(t *testing.T) {
@@ -153,7 +181,7 @@ func TestNegativeCorpus(t *testing.T) {
 
 func TestStateAndCode(t *testing.T) {
 	f := newFixture(t)
-	u, _ := f.rp.Start(context.Background(), f.idp, "/")
+	u, _ := f.rp.Start(context.Background(), f.idp, "/", StepUp{})
 	code, state, _ := f.p.Authorize(u, "user@example.test", nil)
 	// The IdP reports an error: refused, and the state is spent.
 	if _, err := f.rp.Callback(context.Background(), f.idp, state, "", "access_denied"); !errors.Is(err, ErrInvalid) {
@@ -168,7 +196,7 @@ func TestStateAndCode(t *testing.T) {
 			t.Errorf("state %q: %v", s, err)
 		}
 	}
-	u, _ = f.rp.Start(context.Background(), f.idp, "/")
+	u, _ = f.rp.Start(context.Background(), f.idp, "/", StepUp{})
 	code, state, _ = f.p.Authorize(u, "user@example.test", nil)
 	if _, err := f.rp.Callback(context.Background(), f.idp, state, code, ""); err != nil {
 		t.Fatal(err)
@@ -177,8 +205,8 @@ func TestStateAndCode(t *testing.T) {
 		t.Fatalf("callback replayed: %v", err)
 	}
 	// A code issued for another login (another PKCE challenge) cannot complete this one.
-	u1, _ := f.rp.Start(context.Background(), f.idp, "/")
-	u2, _ := f.rp.Start(context.Background(), f.idp, "/")
+	u1, _ := f.rp.Start(context.Background(), f.idp, "/", StepUp{})
+	u2, _ := f.rp.Start(context.Background(), f.idp, "/", StepUp{})
 	code1, _, _ := f.p.Authorize(u1, "user@example.test", nil)
 	_, state2, _ := f.p.Authorize(u2, "user@example.test", nil)
 	if _, err := f.rp.Callback(context.Background(), f.idp, state2, code1, ""); !errors.Is(err, ErrInvalid) {

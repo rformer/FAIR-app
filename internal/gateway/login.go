@@ -27,6 +27,9 @@ import (
 
 type clientKey struct{}
 
+// stepUpKey carries the session a step-up sign-in replaces.
+type stepUpKey struct{}
+
 // loginRoutes forwards the authentication routes to iam.
 func (g *Gateway) loginRoutes(iam *url.URL) http.Handler {
 	p := &httputil.ReverseProxy{
@@ -36,8 +39,13 @@ func (g *Gateway) loginRoutes(iam *url.URL) http.Handler {
 			pr.Out.URL.Path, pr.Out.URL.RawPath = pr.In.URL.Path, pr.In.URL.RawPath
 			pr.SetXForwarded()
 			g.forwardedFor(pr)
-			for _, h := range []string{"Cookie", "Authorization", server.DBContextHeader, CSRFHeader, authn.TicketHeader} {
+			for _, h := range []string{"Cookie", "Authorization", server.DBContextHeader, CSRFHeader, authn.TicketHeader, authn.StepUpHeader} {
 				pr.Out.Header.Del(h)
+			}
+			// A step-up sign-in names the session it replaces (F-015 T-24b):
+			// the browser's live session, never a client's say-so.
+			if h, _ := pr.In.Context().Value(stepUpKey{}).(string); h != "" {
+				pr.Out.Header.Set(authn.StepUpHeader, h)
 			}
 		},
 		ModifyResponse: g.redeem,
@@ -52,7 +60,17 @@ func (g *Gateway) loginRoutes(iam *url.URL) http.Handler {
 		if a := g.Sessions.Network.ClientIP(r); a.IsValid() {
 			ip = net.IP(a.AsSlice())
 		}
-		p.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), clientKey{}, ip)))
+		ctx := context.WithValue(r.Context(), clientKey{}, ip)
+		// The login request of a step-up comes from the signed-in browser
+		// (a same-site navigation, so the cookie is sent).
+		if r.Method == http.MethodGet && r.URL.Query().Get("step_up") == "1" {
+			if c, err := r.Cookie(CookieName); err == nil {
+				if s, err := g.Sessions.Lookup(ctx, c.Value); err == nil {
+					ctx = context.WithValue(ctx, stepUpKey{}, s.Handle)
+				}
+			}
+		}
+		p.ServeHTTP(w, r.WithContext(ctx))
 	}))
 }
 
@@ -133,8 +151,14 @@ func (g *Gateway) redeem(resp *http.Response) error {
 		return fail(http.StatusUnauthorized)
 	}
 	ip, _ := ctx.Value(clientKey{}).(net.IP)
-	_, cookie, err := g.Sessions.Create(ctx, Login{UserID: t.UserID, AuthMethod: t.AuthMethod, IDPID: t.IDPID, MFA: t.MFA, IP: ip,
-		UserAgent: resp.Request.Header.Get("User-Agent")})
+	l := Login{UserID: t.UserID, AuthMethod: t.AuthMethod, IDPID: t.IDPID, MFA: t.MFA, IP: ip, UserAgent: resp.Request.Header.Get("User-Agent")}
+	if t.AuthTime > 0 {
+		l.AuthTime = time.Unix(t.AuthTime, 0)
+	}
+	if t.StepUp {
+		l.Replaces = t.Replaces // the session the step-up started from (F-015 T-24b)
+	}
+	_, cookie, err := g.Sessions.Create(ctx, l)
 	if err != nil {
 		g.log(resp.Request, "creating a session", err)
 		return fail(http.StatusUnauthorized)

@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -63,9 +64,21 @@ type IDP struct {
 	SubjectClaim string // the claim that is the user's external id: sub (default), oid, email, ...
 }
 
-// Started is a login in progress.
+// Started is a login in progress. StepUp and Replaces are saved;
+// StepUpAt is when the store recorded the step-up (read back on consume).
 type Started struct {
 	State, Nonce, Verifier, ReturnTo string
+	StepUp                           bool
+	Replaces                         string
+	StepUpAt                         *time.Time
+}
+
+// StepUp asks the IdP to authenticate the user again (F-015 T-24b):
+// prompt=login with max_age, and the session the new one replaces.
+type StepUp struct {
+	Force    bool
+	MaxAge   time.Duration
+	Replaces string // the handle of the session to replace ("" for none)
 }
 
 // Store keeps started logins (the database: shared by every replica).
@@ -98,6 +111,10 @@ type Login struct {
 	ACR           string
 	AuthTime      *time.Time
 	ReturnTo      string
+	// StepUpAt is when FAIR asked for re-authentication, for a step-up
+	// sign-in (nil otherwise); Replaces is the session it replaces.
+	StepUpAt *time.Time
+	Replaces string
 }
 
 func (rp *RP) now() time.Time {
@@ -134,9 +151,11 @@ func random() (string, error) {
 }
 
 // Start begins a login: the URL to send the browser to. returnTo must
-// already be a local path (the caller checks it).
-func (rp *RP) Start(ctx context.Context, idp IDP, returnTo string) (string, error) {
-	s := Started{Verifier: oauth2.GenerateVerifier(), ReturnTo: returnTo}
+// already be a local path (the caller checks it). A step-up asks for
+// prompt=login and max_age, so the IdP authenticates the user again and
+// reports auth_time.
+func (rp *RP) Start(ctx context.Context, idp IDP, returnTo string, su StepUp) (string, error) {
+	s := Started{Verifier: oauth2.GenerateVerifier(), ReturnTo: returnTo, StepUp: su.Force, Replaces: su.Replaces}
 	var err error
 	if s.State, err = random(); err != nil {
 		return "", err
@@ -147,7 +166,12 @@ func (rp *RP) Start(ctx context.Context, idp IDP, returnTo string) (string, erro
 	if err := rp.Store.SaveState(ctx, idp.ID, s, rp.now().Add(StateTTL)); err != nil {
 		return "", err
 	}
-	return rp.oauth(idp).AuthCodeURL(s.State, gooidc.Nonce(s.Nonce), oauth2.S256ChallengeOption(s.Verifier)), nil
+	opts := []oauth2.AuthCodeOption{gooidc.Nonce(s.Nonce), oauth2.S256ChallengeOption(s.Verifier)}
+	if su.Force {
+		opts = append(opts, oauth2.SetAuthURLParam("prompt", "login"),
+			oauth2.SetAuthURLParam("max_age", strconv.FormatInt(int64(su.MaxAge/time.Second), 10)))
+	}
+	return rp.oauth(idp).AuthCodeURL(s.State, opts...), nil
 }
 
 // Callback completes a login from the redirect's query: the state is
@@ -214,7 +238,8 @@ func (rp *RP) Callback(ctx context.Context, idp IDP, state, code, idpError strin
 	if idt.IssuedAt.After(now.Add(Skew)) {
 		return Login{}, invalid("issued in the future")
 	}
-	login := Login{Subject: idt.Subject, Email: c.Email, Name: c.Name, AMR: c.AMR, ACR: c.ACR, ReturnTo: started.ReturnTo}
+	login := Login{Subject: idt.Subject, Email: c.Email, Name: c.Name, AMR: c.AMR, ACR: c.ACR, ReturnTo: started.ReturnTo,
+		StepUpAt: started.StepUpAt, Replaces: started.Replaces}
 	switch v := c.Verified.(type) {
 	case bool:
 		login.EmailVerified = &v

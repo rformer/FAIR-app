@@ -340,7 +340,7 @@ func run() error {
 	// settings.
 	sc := settings.NewClient(settings.ClientOptions{Source: settings.DBSource{DB: pool}, Service: "posture", Instance: os.Getenv("POD_NAME")})
 	for _, d := range settings.F001Defs() {
-		if d.Key == settings.KeySessionNetworkBinding {
+		if d.Key == settings.KeySessionNetworkBinding || d.Key == settings.KeyBUReauthMaxAge {
 			if err := sc.Register(d); err != nil {
 				return err
 			}
@@ -353,7 +353,9 @@ func run() error {
 	}
 	go sc.Run(ctx, func(err error) { logger.Error("settings refresh", "error", err.Error()) })
 	grants := authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool),
-		NetworkBinding: func(bu string) (string, error) { return sc.Enum(settings.KeySessionNetworkBinding, bu) }})
+		NetworkBinding: func(bu string) (string, error) { return sc.Enum(settings.KeySessionNetworkBinding, bu) },
+		// Restricted BUs need a recent sign-in (F-015 T-24b, AC-33): 401 step_up.
+		ReauthMaxAge: sc.ReauthMaxAge})
 	if url := os.Getenv("FAIR_NATS_URL"); url != "" {
 		nc, err := natspub.Connect(ctx, natspub.Options{Env: cfg.Env, URL: url, CredsFile: os.Getenv("FAIR_NATS_CREDS_FILE"), Name: "fair-posture"})
 		if err != nil {

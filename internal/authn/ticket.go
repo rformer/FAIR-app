@@ -50,8 +50,11 @@ type Ticket struct {
 	MFA        map[string]any `json:"mfa,omitempty"` // the evidence the IdP sent (T-18 applies the rule)
 	AuthTime   int64          `json:"auth_time"`     // the IdP's authentication time (F-015 T-24b)
 	ReturnTo   string         `json:"return_to"`     // a local path
-	IssuedAt   int64          `json:"iat"`
-	Expiry     int64          `json:"exp"`
+	// A step-up sign-in (F-015 T-24b) and the session it replaces.
+	StepUp   bool   `json:"su,omitempty"`
+	Replaces string `json:"rpl,omitempty"`
+	IssuedAt int64  `json:"iat"`
+	Expiry   int64  `json:"exp"`
 }
 
 type header struct {

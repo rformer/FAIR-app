@@ -97,7 +97,8 @@ func (h *OIDC) login(w http.ResponseWriter, r *http.Request) {
 	if !saml.LocalPath(returnTo) {
 		returnTo = "/"
 	}
-	u, err := h.rp.Start(r.Context(), idp, returnTo)
+	force, maxAge, replaces := stepUp(r)
+	u, err := h.rp.Start(r.Context(), idp, returnTo, oidc.StepUp{Force: force, MaxAge: maxAge, Replaces: replaces})
 	if err != nil {
 		h.fail(w, r, idp.ID, err)
 		return
@@ -130,29 +131,43 @@ func (h *OIDC) callback(w http.ResponseWriter, r *http.Request) {
 	if login.ACR != "" {
 		mfa["oidc_acr"] = login.ACR
 	}
+	// A step-up must prove a fresh authentication (F-015 T-24b).
+	if login.StepUpAt != nil {
+		attrs["step_up"] = true
+		if !stepUpFresh(login.AuthTime, *login.StepUpAt, oidc.Skew) {
+			h.stepUpFailed(w, r, idp.ID, attrs)
+			return
+		}
+	}
 	authTime := h.now()
 	if login.AuthTime != nil {
 		authTime = *login.AuthTime
 	}
 	ev := Evidence{AMR: login.AMR, ACR: login.ACR}
 	pr := Profile{Email: login.Email, Name: login.Name, EmailVerified: login.EmailVerified}
-	h.complete(w, r, idp.ID, login.ExternalID, pr, ev, Ticket{AuthMethod: "oidc", MFA: mfa, AuthTime: authTime.Unix(), ReturnTo: login.ReturnTo}, attrs)
+	h.complete(w, r, idp.ID, login.ExternalID, pr, ev, Ticket{AuthMethod: "oidc", MFA: mfa, AuthTime: authTime.Unix(), ReturnTo: login.ReturnTo,
+		StepUp: login.StepUpAt != nil, Replaces: login.Replaces}, attrs)
 }
 
 // oidcStore is oidc.Store in the database (shared by every iam replica).
 type oidcStore struct{ db *pgxpool.Pool }
 
 func (s oidcStore) SaveState(ctx context.Context, idp string, st oidc.Started, expires time.Time) error {
-	_, err := s.db.Exec(ctx, "SELECT iam.oidc_state_save($1, $2, $3, $4, $5, $6)", idp, st.State, st.Nonce, st.Verifier, st.ReturnTo, expires)
+	_, err := s.db.Exec(ctx, "SELECT iam.oidc_state_save($1, $2, $3, $4, $5, $6, $7, $8)", idp, st.State, st.Nonce, st.Verifier, st.ReturnTo, expires,
+		st.StepUp, nullUUID(st.Replaces))
 	return err
 }
 
 func (s oidcStore) ConsumeState(ctx context.Context, idp, state string) (oidc.Started, error) {
 	st := oidc.Started{State: state}
-	err := s.db.QueryRow(ctx, "SELECT nonce, code_verifier, return_to FROM iam.oidc_state_consume($1, $2)", idp, state).
-		Scan(&st.Nonce, &st.Verifier, &st.ReturnTo)
+	var replaces *string
+	err := s.db.QueryRow(ctx, "SELECT nonce, code_verifier, return_to, step_up_at, replaces::text FROM iam.oidc_state_consume($1, $2)", idp, state).
+		Scan(&st.Nonce, &st.Verifier, &st.ReturnTo, &st.StepUpAt, &replaces)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return oidc.Started{}, oidc.ErrUnknownState
+	}
+	if replaces != nil {
+		st.Replaces = *replaces
 	}
 	return st, err
 }

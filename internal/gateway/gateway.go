@@ -299,9 +299,8 @@ func (g *Gateway) mint(sess Session, audience string) (dbToken, jwt string, err 
 	if dbToken, err = authz.MintDBContext(g.ContextKey, sess.UserID, sess.ScopeVersion, TokenTTL, now); err != nil {
 		return "", "", err
 	}
-	// auth_time is the session's start until the login flows record the
-	// IdP's authentication time (F-015 T-24b).
-	jwt, err = authz.MintJWT(g.JWT, authz.Claims{Subject: sess.UserID, ScopeVersion: sess.ScopeVersion, AuthTime: sess.CreatedAt.Unix(),
+	// auth_time: when the user last authenticated at the IdP (F-015 T-24b).
+	jwt, err = authz.MintJWT(g.JWT, authz.Claims{Subject: sess.UserID, ScopeVersion: sess.ScopeVersion, AuthTime: sess.AuthTime.Unix(),
 		DBContext: authz.DBContextHash(dbToken), NetworkChanged: sess.NetworkChangedAt != nil, ServiceAccount: sess.ServiceAccount},
 		audience, TokenTTL, now)
 	return dbToken, jwt, err
@@ -358,6 +357,7 @@ func (g *Gateway) proxy(base *url.URL) *httputil.ReverseProxy {
 		ModifyResponse: func(resp *http.Response) error {
 			resp.Header.Del("Set-Cookie")
 			resp.Header.Del(authn.TicketHeader)
+			g.stepUp(resp) // the way back to a fresh sign-in (F-015 T-24b)
 			return nil
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {

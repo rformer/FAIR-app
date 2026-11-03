@@ -1,9 +1,15 @@
 package saml
 
 import (
+	"bytes"
+	"compress/flate"
 	"context"
 	"crypto/x509"
+	"encoding/base64"
 	"errors"
+	"io"
+	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -29,23 +35,28 @@ const (
 // memStore is Store in memory.
 type memStore struct {
 	mu       sync.Mutex
-	requests map[string]string
+	requests map[string]Pending
 	seen     map[string]bool
 }
 
-func (m *memStore) SaveRequest(_ context.Context, idp, id, returnTo string, _ time.Time) error {
+func (m *memStore) SaveRequest(_ context.Context, idp, id, returnTo string, _ time.Time, su StepUp) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.requests[idp+"/"+id] = returnTo
+	p := Pending{ReturnTo: returnTo}
+	if su.Force {
+		now := time.Now()
+		p.StepUpAt, p.Replaces = &now, su.Replaces
+	}
+	m.requests[idp+"/"+id] = p
 	return nil
 }
 
-func (m *memStore) ConsumeRequest(_ context.Context, idp, id string) (string, error) {
+func (m *memStore) ConsumeRequest(_ context.Context, idp, id string) (Pending, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	r, ok := m.requests[idp+"/"+id]
 	if !ok {
-		return "", ErrUnknownRequest
+		return Pending{}, ErrUnknownRequest
 	}
 	delete(m.requests, idp+"/"+id)
 	return r, nil
@@ -79,7 +90,7 @@ func newKey(t *testing.T, cn string) samltest.Key {
 }
 
 func newFixture(t *testing.T) *fixture {
-	f := &fixture{key: newKey(t, "idp"), store: &memStore{requests: map[string]string{}, seen: map[string]bool{}}, now: time.Now().UTC()}
+	f := &fixture{key: newKey(t, "idp"), store: &memStore{requests: map[string]Pending{}, seen: map[string]bool{}}, now: time.Now().UTC()}
 	f.idp = IDP{ID: idpID, EntityID: idpIss, SSOURL: "https://idp.example.test/sso", Certs: []*x509.Certificate{f.key.Cert}}
 	f.sp = SP{EntityID: spEntity, ACSURL: func(id string) string { return "https://fair.example.test/api/v1/auth/saml/" + id + "/acs" },
 		Store: f.store, Now: func() time.Time { return f.now }}
@@ -103,7 +114,7 @@ func (f *fixture) build(t *testing.T, r samltest.Response) string {
 func (f *fixture) start(t *testing.T, returnTo string) string {
 	t.Helper()
 	id := "_req" + samltest.RandID()
-	if err := f.store.SaveRequest(context.Background(), idpID, id, returnTo, f.now.Add(RequestTTL)); err != nil {
+	if err := f.store.SaveRequest(context.Background(), idpID, id, returnTo, f.now.Add(RequestTTL), StepUp{}); err != nil {
 		t.Fatal(err)
 	}
 	return id
@@ -313,7 +324,7 @@ func TestReplayAndRequestSingleUse(t *testing.T) {
 
 func TestStartAndLocalPath(t *testing.T) {
 	f := newFixture(t)
-	u, err := f.sp.Start(context.Background(), f.idp, "//evil.example.test/x")
+	u, err := f.sp.Start(context.Background(), f.idp, "//evil.example.test/x", StepUp{})
 	if err != nil || !strings.HasPrefix(u, "https://idp.example.test/sso?SAMLRequest=") {
 		t.Fatalf("%q %v", u, err)
 	}
@@ -321,8 +332,8 @@ func TestStartAndLocalPath(t *testing.T) {
 		t.Fatalf("pending requests %v", f.store.requests)
 	}
 	for _, rt := range f.store.requests {
-		if rt != "/" {
-			t.Fatalf("an off-site return path was kept: %q", rt)
+		if rt.ReturnTo != "/" || rt.StepUpAt != nil {
+			t.Fatalf("an off-site return path was kept, or a step-up recorded: %+v", rt)
 		}
 	}
 	for p, want := range map[string]bool{"/": true, "/posture?x=1": true, "//evil": false, "/\\evil": false, "https://evil": false,
@@ -330,6 +341,39 @@ func TestStartAndLocalPath(t *testing.T) {
 		if LocalPath(p) != want {
 			t.Errorf("LocalPath(%q) = %v", p, !want)
 		}
+	}
+}
+
+// F-015 T-24b: a step-up sets ForceAuthn on the AuthnRequest, and the
+// validated login carries when it was asked for and the session it
+// replaces; an ordinary login has neither.
+func TestStepUpForceAuthn(t *testing.T) {
+	f := newFixture(t)
+	authnRequest := func(u string) string {
+		t.Helper()
+		q, _ := url.Parse(u)
+		raw, err := base64.StdEncoding.DecodeString(q.Query().Get("SAMLRequest"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		x, err := io.ReadAll(flate.NewReader(bytes.NewReader(raw)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(x)
+	}
+	plain, _ := f.sp.Start(context.Background(), f.idp, "/", StepUp{})
+	forced, _ := f.sp.Start(context.Background(), f.idp, "/x", StepUp{Force: true, Replaces: "00000000-0000-4000-8000-000000000001"})
+	if strings.Contains(authnRequest(plain), "ForceAuthn") || !strings.Contains(authnRequest(forced), `ForceAuthn="true"`) {
+		t.Fatalf("ForceAuthn: plain %s\nforced %s", authnRequest(plain), authnRequest(forced))
+	}
+	id := regexp.MustCompile(` ID="([^"]+)"`).FindStringSubmatch(authnRequest(forced))[1]
+	l, err := f.sp.Validate(context.Background(), f.idp, f.build(t, f.good(id)))
+	if err != nil || l.StepUpAt == nil || l.Replaces != "00000000-0000-4000-8000-000000000001" || l.ReturnTo != "/x" {
+		t.Fatalf("step-up login: %+v %v", l, err)
+	}
+	if l, err := f.sp.Validate(context.Background(), f.idp, f.build(t, f.good(f.start(t, "/")))); err != nil || l.StepUpAt != nil || l.Replaces != "" {
+		t.Fatalf("ordinary login: %+v %v", l, err)
 	}
 }
 

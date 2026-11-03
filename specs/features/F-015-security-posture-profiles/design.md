@@ -1067,3 +1067,33 @@ The configured mode is `saas`, `self-hosted` or `air-gapped` (ADR-005, amended 2
 - 2026-11-02: changed by F-001 T-34 (decided by Robert Former). `breakglass.enabled` no longer goes through the settings change workflow: `posture.change` refuses requested changes of it, and break-glass's own dual-approved flow (F-001 AC-41) records an applied change and a posture exception covering `true`, so drift, the Posture page, POA&M, renewal and auto-revert treat it like any exception. `TestRegistryBreakGlassEnableAlwaysNeedsApproval` became `TestRegistryBreakGlassOnlyThroughItsOwnFlow`. iam now registers F-001's setting definitions at startup (none of the services did; posture records changes only of registered keys).
 - 2026-11-02: D-OQ5 (key custody) resolved by F-001 T-41: files delivered by the mode's store (§15).
 - 2026-11-03: changed by F-001 T-42 (design §6 conventions; decided by Robert Former). The Posture API answers a missing id with 404 (migration 0061 `posture.exists`; it was 409 or 400). Profile create, import and submit, switch activate and cancel, Kubernetes-grant acknowledgement and export creation take an optional `reason`, recorded on their audit events. `api/openapi/posture.yaml` is linted by Spectral.
+- 2026-11-03: T-24b implementation notes (migration 0063, `internal/authn/stepup.go`, `internal/gateway/stepup.go`). Robert Former decided:
+  - a step-up must carry an IdP authentication no older than FAIR's request;
+  - the step-up creates a new session and revokes the old one;
+  - a service account's authentication time is its token's issue time;
+  - the gateway gives the browser the login URL.
+  - **Session `auth_time`:**
+    - The login ticket's IdP authentication time (SAML AuthnInstant, OIDC `auth_time`) is stored by `iam.session_create`. It is capped at the session's start, and one more than 2 minutes in the future is refused.
+    - `session_lookup` returns it, and the gateway puts it in the internal token, replacing the session's start, which T-24 used as a stand-in.
+    - For service accounts it is the access token's issue time, so they pass the 15-minute overlay; a stricter BU applies to them too.
+  - **The check runs:** the iam and posture services register `bu.reauth_max_age` and wire `CacheOptions.ReauthMaxAge`. T-24 had added the check, but no service enabled it.
+  - **The way back:**
+    - The gateway keeps a service's `WWW-Authenticate: step_up max_age=N` and answers `{error: step_up_required, max_age, login_url}`. `login_url` is the session's own SAML or OIDC login route with `step_up=1&max_age=N`.
+    - Break-glass sessions and service accounts get no `login_url`.
+    - The UI follows it with the return path (`web/src/api.ts`).
+  - **The step-up sign-in:**
+    - iam asks for SAML `ForceAuthn="true"`, or OIDC `prompt=login` with `max_age`.
+    - The database records when it was asked for (`step_up_at`), and which session it replaces. The gateway sets `X-Fair-Step-Up-Session` from the browser's live session and drops any copy a client sends.
+    - On the response, iam refuses a sign-in whose IdP authentication time is missing or older than the request (less the 2-minute skew). It is audited as `authn.step_up_failed` (high), and the user's session is untouched.
+    - Otherwise the ticket carries the replaced session. `session_create` revokes it (new reason `step_up`), but only when it is the same user's.
+  - **Found by the tests:** `iam.authn_event` accepted only three event types, so the refusal's audit event was dropped. It now accepts `authn.step_up_failed`.
+  - Verification:
+    - `TestStepUpEndToEndSAML` (real gateway, iam and Posture API):
+      - the session holds the IdP's AuthnInstant, and a fresh sign-in reads the restricted BU;
+      - after 20 minutes: 401 step-up with the login URL and the header, while the instance settings still open;
+      - the login URL sends `ForceAuthn`; an IdP authentication from before the request, or none, is refused and audited, and the old session still works;
+      - a fresh one creates a new session, revokes the old (`step_up`) and opens the BU;
+      - a client-supplied replaced-session header does not revoke another user's session.
+    - `TestStepUpEndToEndOIDC`: `prompt=login` and `max_age`; an old or missing `auth_time` is refused; a fresh one opens the BU.
+    - `TestStepUpServiceAccountAuthTime`: the internal token carries the access token's issue time.
+    - Unit: `TestStepUpForceAuthn` (saml), `TestStepUpPromptLogin` (oidc).

@@ -41,9 +41,13 @@ type Session struct {
 	ScopeVersion int64
 	AuthMethod   string
 	CreatedAt    time.Time
-	LastSeenAt   time.Time
-	ExpiresAt    time.Time  // the earlier of the idle and absolute deadlines
-	BannerAckAt  *time.Time // when the system-use banner was acknowledged (T-19)
+	// AuthTime is when the user last authenticated at the IdP (F-015
+	// T-24b): the internal token's auth_time, which restricted BUs check.
+	// For a service account, when its access token was issued.
+	AuthTime    time.Time
+	LastSeenAt  time.Time
+	ExpiresAt   time.Time  // the earlier of the idle and absolute deadlines
+	BannerAckAt *time.Time // when the system-use banner was acknowledged (T-19)
 	// The network recorded at login and whether the client has left it
 	// (T-20, design §5.8).
 	IP               netip.Addr
@@ -77,6 +81,11 @@ type Login struct {
 	MFA        map[string]any
 	IP         net.IP
 	UserAgent  string
+	// AuthTime is the IdP's authentication time (zero: the session's
+	// start). Replaces is the handle of the session a step-up sign-in
+	// replaces: revoked when it is the same user's (F-015 T-24b).
+	AuthTime time.Time
+	Replaces string
 }
 
 // Errors.
@@ -137,7 +146,7 @@ func (s Sessions) Create(ctx context.Context, l Login) (Session, string, error) 
 	if l.MFA == nil {
 		mfa = []byte("{}")
 	}
-	var ip, asn, idp any
+	var ip, asn, idp, authTime, replaces any
 	if l.IP != nil {
 		ip = l.IP.String()
 		if a, ok := netip.AddrFromSlice(l.IP); ok && s.Network.ASN != nil {
@@ -149,11 +158,19 @@ func (s Sessions) Create(ctx context.Context, l Login) (Session, string, error) 
 	if l.IDPID != "" {
 		idp = l.IDPID
 	}
+	if !l.AuthTime.IsZero() {
+		authTime = l.AuthTime
+	}
+	if l.Replaces != "" {
+		replaces = l.Replaces
+	}
 	v4, v6 := s.Network.bits()
 	sess := Session{UserID: l.UserID, AuthMethod: l.AuthMethod, IDPID: l.IDPID, token: token}
 	var expiry time.Time
-	err = s.DB.QueryRow(ctx, "SELECT handle::text, created_at, absolute_expiry_at FROM iam.session_create($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
-		s.idHMAC(token), l.UserID, l.AuthMethod, mfa, ip, l.UserAgent, absolute, idp, asn, v4, v6).Scan(&sess.Handle, &sess.CreatedAt, &expiry)
+	err = s.DB.QueryRow(ctx, `SELECT handle::text, created_at, absolute_expiry_at, auth_time
+		FROM iam.session_create($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+		s.idHMAC(token), l.UserID, l.AuthMethod, mfa, ip, l.UserAgent, absolute, idp, asn, v4, v6, authTime, replaces).
+		Scan(&sess.Handle, &sess.CreatedAt, &expiry, &sess.AuthTime)
 	var pg *pgconn.PgError
 	if errors.As(err, &pg) && pg.Code == "28000" {
 		return Session{}, "", ErrUserInactive
@@ -178,12 +195,12 @@ func (s Sessions) Lookup(ctx context.Context, token string) (Session, error) {
 	var status string
 	var handle, user, method *string
 	var version *int64
-	var created, seen, expires, ack, netChanged *time.Time
+	var created, seen, expires, ack, netChanged, authTime *time.Time
 	var ip, idp *string
 	var asn *int
 	err = s.DB.QueryRow(ctx, `SELECT status, handle::text, user_id::text, scope_version, auth_method, created_at, last_seen_at, expires_at,
-		banner_ack_at, ip, asn, idp_id::text, network_changed_at FROM iam.session_lookup($1, $2, $3)`, s.idHMAC(token), idle, absolute).
-		Scan(&status, &handle, &user, &version, &method, &created, &seen, &expires, &ack, &ip, &asn, &idp, &netChanged)
+		banner_ack_at, ip, asn, idp_id::text, network_changed_at, auth_time FROM iam.session_lookup($1, $2, $3)`, s.idHMAC(token), idle, absolute).
+		Scan(&status, &handle, &user, &version, &method, &created, &seen, &expires, &ack, &ip, &asn, &idp, &netChanged, &authTime)
 	if err != nil {
 		return Session{}, err
 	}
@@ -204,6 +221,9 @@ func (s Sessions) Lookup(ctx context.Context, token string) (Session, error) {
 	}
 	if idp != nil {
 		sess.IDPID = *idp
+	}
+	if authTime != nil {
+		sess.AuthTime = *authTime
 	}
 	return sess, nil
 }

@@ -820,3 +820,7 @@ In every mode the keys reach the services as files: the mode's store (the KMS-en
     - IA-5 distinguishes peppered service-account secrets from SHA-256 SCIM tokens (1 to 365 days).
     - CM-7 says air-gapped installs refuse metadata URL fetches.
     - AC-2.4 names the events sent to vendor SecOps.
+- 2026-11-03: F-015 T-24b changed F-001's sessions and sign-in (migration 0063).
+  - **Sessions:** `iam.session.auth_time` is the IdP authentication time, carried in the internal token. The new revocation reason `step_up` means a step-up sign-in replaced the session.
+  - **Sign-in:** the SAML and OIDC login routes accept `step_up=1&max_age=N` (ForceAuthn, or prompt=login with max_age); such a sign-in must prove a fresh authentication.
+  - **Gateway:** it answers a service's step-up with the login URL for the session's IdP. `gateway.yaml` documents the flow.

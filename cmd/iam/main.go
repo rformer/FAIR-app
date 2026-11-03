@@ -137,7 +137,7 @@ func run() error {
 		var defs []settings.Def
 		for _, d := range settings.F001Defs() {
 			if d.Key == settings.KeyAuthMFAAll || d.Key == settings.KeyAuthMFAPrivileged || d.Key == settings.KeySessionNetworkBinding ||
-				d.Key == settings.KeyAuthJIT || d.Key == settings.KeyAuthTOTP {
+				d.Key == settings.KeyAuthJIT || d.Key == settings.KeyAuthTOTP || d.Key == settings.KeyBUReauthMaxAge {
 				defs = append(defs, d)
 			}
 		}
@@ -176,7 +176,9 @@ func run() error {
 				return fmt.Errorf("FAIR_JWT_KEYS_DIR: %w", err)
 			}
 			grants := authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool),
-				NetworkBinding: func(bu string) (string, error) { return sc.Enum(settings.KeySessionNetworkBinding, bu) }})
+				NetworkBinding: func(bu string) (string, error) { return sc.Enum(settings.KeySessionNetworkBinding, bu) },
+				// Restricted BUs need a recent sign-in (F-015 T-24b, AC-33): 401 step_up.
+				ReauthMaxAge: sc.ReauthMaxAge})
 			api := &iamapi.API{DB: pool, Authz: grants, DeploymentMode: cfg.DeploymentMode, Dev: cfg.Env == "development"}
 			// Service-account client secrets (T-33) are stored as HMACs under
 			// the token pepper the gateway holds too.

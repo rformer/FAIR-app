@@ -86,6 +86,11 @@ events:
     severities: [info]
     requires: [target]
     description: "A user signed in through an IdP"
+  - type: authn.step_up_failed
+    category: authentication
+    severities: [high]
+    requires: [target]
+    description: "A step-up sign-in was refused: the IdP did not report an authentication at or after the request (F-015 T-24b)"
   - type: authn.mfa_missing
     category: authentication
     severities: [high]

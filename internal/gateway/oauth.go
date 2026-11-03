@@ -275,6 +275,7 @@ func (g *Gateway) bearer(ctx context.Context, r *http.Request, token string) (Se
 		}
 	}
 	s.ServiceAccount = true
+	s.AuthTime = s.CreatedAt // the account authenticated when the token was issued (F-015 T-24b)
 	s.LastSeenAt = g.now()
 	return s, nil
 }

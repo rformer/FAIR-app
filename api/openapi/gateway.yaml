@@ -34,6 +34,17 @@ info:
     system-use banner. The gateway checks the token in the database on each request, so
     disabling the account or revoking its credential ends it at once. Tokens issued over
     mTLS (RFC 8705) are bound to the client certificate and must be presented with it.
+
+    Step-up (F-015 T-24b, AC-33): a session records when the user authenticated at the
+    IdP. When a service refuses a restricted business unit because that is older than the
+    unit's `bu.reauth_max_age`, the gateway answers 401 with `WWW-Authenticate: step_up
+    max_age=<seconds>` and `{error: step_up_required, max_age, login_url}`. `login_url` is
+    the login route of the session's own IdP with `step_up=1&max_age=<seconds>`, which asks
+    the IdP to authenticate the user again (SAML ForceAuthn, OIDC prompt=login with
+    max_age); add `return=/path`. The sign-in is refused unless the IdP reports an
+    authentication at or after the request; it then replaces the session it started from.
+    Break-glass sessions sign in again with break-glass (no `login_url`). For a service
+    account, the authentication time is when its access token was issued.
 servers:
   - url: /api/v1
 security:

@@ -100,7 +100,8 @@ func (h *SAML) login(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, "", err)
 		return
 	}
-	u, err := h.sp().Start(r.Context(), idp, r.URL.Query().Get("return"))
+	force, _, replaces := stepUp(r)
+	u, err := h.sp().Start(r.Context(), idp, r.URL.Query().Get("return"), saml.StepUp{Force: force, Replaces: replaces})
 	if err != nil {
 		h.fail(w, r, idp.ID, err)
 		return
@@ -130,6 +131,14 @@ func (h *SAML) acs(w http.ResponseWriter, r *http.Request) {
 	}
 	attrs := map[string]any{"idp": idp.ID, "name_id": login.NameID, "assertion_id": login.AssertionID, "idp_initiated": login.IDPInitiated,
 		"authn_context": login.AuthnContextClassRef, "client": clientIP(r)}
+	// A step-up must prove a fresh authentication (F-015 T-24b).
+	if login.StepUpAt != nil {
+		attrs["step_up"] = true
+		if !stepUpFresh(login.AuthnInstant, *login.StepUpAt, saml.Skew) {
+			h.stepUpFailed(w, r, idp.ID, attrs)
+			return
+		}
+	}
 	authTime := h.now()
 	if login.AuthnInstant != nil {
 		authTime = *login.AuthnInstant
@@ -139,7 +148,8 @@ func (h *SAML) acs(w http.ResponseWriter, r *http.Request) {
 		mfa["saml_authn_context"] = login.AuthnContextClassRef
 	}
 	ev := Evidence{AuthnContext: login.AuthnContextClassRef, Attributes: login.Attributes}
-	h.complete(w, r, idp.ID, login.NameID, samlProfile(login), ev, Ticket{AuthMethod: "saml", MFA: mfa, AuthTime: authTime.Unix(), ReturnTo: login.ReturnTo}, attrs)
+	h.complete(w, r, idp.ID, login.NameID, samlProfile(login), ev, Ticket{AuthMethod: "saml", MFA: mfa, AuthTime: authTime.Unix(), ReturnTo: login.ReturnTo,
+		StepUp: login.StepUpAt != nil, Replaces: login.Replaces}, attrs)
 }
 
 // metadata is this SP's SAML metadata for an IdP: entity ID and ACS.
@@ -177,20 +187,31 @@ func (h *SAML) metadata(w http.ResponseWriter, r *http.Request) {
 // dbStore is saml.Store in the database (shared by every iam replica).
 type dbStore struct{ db *pgxpool.Pool }
 
-func (s dbStore) SaveRequest(ctx context.Context, idp, id, returnTo string, expires time.Time) error {
-	_, err := s.db.Exec(ctx, "SELECT iam.saml_request_save($1, $2, $3, $4)", idp, id, returnTo, expires)
+func (s dbStore) SaveRequest(ctx context.Context, idp, id, returnTo string, expires time.Time, su saml.StepUp) error {
+	_, err := s.db.Exec(ctx, "SELECT iam.saml_request_save($1, $2, $3, $4, $5, $6)", idp, id, returnTo, expires, su.Force, nullUUID(su.Replaces))
 	return err
 }
 
-func (s dbStore) ConsumeRequest(ctx context.Context, idp, id string) (string, error) {
-	var rt *string
-	if err := s.db.QueryRow(ctx, "SELECT iam.saml_request_consume($1, $2)", idp, id).Scan(&rt); err != nil {
-		return "", err
+func (s dbStore) ConsumeRequest(ctx context.Context, idp, id string) (saml.Pending, error) {
+	var p saml.Pending
+	var replaces *string
+	err := s.db.QueryRow(ctx, "SELECT return_to, step_up_at, replaces::text FROM iam.saml_request_consume($1, $2)", idp, id).
+		Scan(&p.ReturnTo, &p.StepUpAt, &replaces)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return saml.Pending{}, saml.ErrUnknownRequest
 	}
-	if rt == nil {
-		return "", saml.ErrUnknownRequest
+	if replaces != nil {
+		p.Replaces = *replaces
 	}
-	return *rt, nil
+	return p, err
+}
+
+// nullUUID is a session handle for the database: NULL when empty.
+func nullUUID(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 func (s dbStore) RecordAssertion(ctx context.Context, idp, id string, until time.Time) error {

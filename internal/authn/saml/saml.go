@@ -83,13 +83,27 @@ type IDP struct {
 	AllowIDPInitiated bool
 }
 
+// StepUp asks the IdP to authenticate the user again (F-015 T-24b):
+// ForceAuthn, and the session the new one replaces.
+type StepUp struct {
+	Force    bool
+	Replaces string // the handle of the session to replace ("" for none)
+}
+
+// Pending is a consumed AuthnRequest.
+type Pending struct {
+	ReturnTo string
+	StepUpAt *time.Time // when a step-up was asked for (the store's clock); nil otherwise
+	Replaces string
+}
+
 // Store keeps pending AuthnRequests and the replay cache (shared by every
 // iam replica: the database).
 type Store interface {
-	SaveRequest(ctx context.Context, idpID, requestID, returnTo string, expires time.Time) error
-	// ConsumeRequest returns the pending request's return path and deletes
-	// it; ErrUnknownRequest when there is none (or it expired).
-	ConsumeRequest(ctx context.Context, idpID, requestID string) (returnTo string, err error)
+	SaveRequest(ctx context.Context, idpID, requestID, returnTo string, expires time.Time, su StepUp) error
+	// ConsumeRequest returns the pending request and deletes it;
+	// ErrUnknownRequest when there is none (or it expired).
+	ConsumeRequest(ctx context.Context, idpID, requestID string) (Pending, error)
 	// RecordAssertion records an assertion ID until it expires; ErrReplay
 	// when it is already recorded.
 	RecordAssertion(ctx context.Context, idpID, assertionID string, until time.Time) error
@@ -113,6 +127,10 @@ type Login struct {
 	AssertionID          string
 	ReturnTo             string // the path the user asked for ("/" when IdP-initiated)
 	IDPInitiated         bool
+	// StepUpAt is when FAIR asked for re-authentication, for a step-up
+	// sign-in (nil otherwise); Replaces is the session it replaces.
+	StepUpAt *time.Time
+	Replaces string
 }
 
 func (s SP) now() time.Time {
@@ -141,12 +159,13 @@ func (s SP) provider(idp IDP) *saml2.SAMLServiceProvider {
 
 // Start begins an SP-initiated login: the URL to send the browser to (the
 // IdP, HTTP-Redirect binding) and the pending request recorded for
-// InResponseTo. returnTo must be a local path.
-func (s SP) Start(ctx context.Context, idp IDP, returnTo string) (string, error) {
+// InResponseTo. returnTo must be a local path. A step-up sets ForceAuthn.
+func (s SP) Start(ctx context.Context, idp IDP, returnTo string, su StepUp) (string, error) {
 	if !LocalPath(returnTo) {
 		returnTo = "/"
 	}
 	sp := s.provider(idp)
+	sp.ForceAuthn = su.Force
 	doc, err := sp.BuildAuthRequestDocument()
 	if err != nil {
 		return "", err
@@ -155,7 +174,7 @@ func (s SP) Start(ctx context.Context, idp IDP, returnTo string) (string, error)
 	if id == "" {
 		return "", errors.New("saml: AuthnRequest without ID")
 	}
-	if err := s.Store.SaveRequest(ctx, idp.ID, id, returnTo, s.now().Add(RequestTTL)); err != nil {
+	if err := s.Store.SaveRequest(ctx, idp.ID, id, returnTo, s.now().Add(RequestTTL), su); err != nil {
 		return "", err
 	}
 	return sp.BuildAuthURLRedirect("", doc)
@@ -244,14 +263,14 @@ func (s SP) Validate(ctx context.Context, idp IDP, encoded string) (Login, error
 	case resp.inResponseTo != scd:
 		return Login{}, invalid("InResponseTo differs between the response (%q) and the assertion (%q)", resp.inResponseTo, scd)
 	default:
-		returnTo, err := s.Store.ConsumeRequest(ctx, idp.ID, resp.inResponseTo)
+		pending, err := s.Store.ConsumeRequest(ctx, idp.ID, resp.inResponseTo)
 		if errors.Is(err, ErrUnknownRequest) {
 			return Login{}, invalid("InResponseTo %q is not a pending request", resp.inResponseTo)
 		}
 		if err != nil {
 			return Login{}, err
 		}
-		login.ReturnTo = returnTo
+		login.ReturnTo, login.StepUpAt, login.Replaces = pending.ReturnTo, pending.StepUpAt, pending.Replaces
 	}
 	if err := s.Store.RecordAssertion(ctx, idp.ID, a.ID, notAfter.Add(Skew)); err != nil {
 		if errors.Is(err, ErrReplay) {
