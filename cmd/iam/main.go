@@ -10,7 +10,8 @@
 // FAIR_DB_PASSWORD_FILE (app_rw) and FAIR_LOGIN_TICKET_KEYS_DIR (the ES256
 // key that signs login tickets for the gateway). `iam migrate`
 // applies the embedded schema migrations and release catalog (T-02b);
-// `iam worker` runs the scope worker (T-08). Domain modules
+// `iam worker` runs the scope worker (T-08); `iam keys` creates, rotates and
+// checks the installation's keys (T-41, docs/install/keys.md). Domain modules
 // (authn, scim, directory, org, access, approvals, reviews) arrive in Phases 1–4.
 package main
 
@@ -32,6 +33,7 @@ import (
 	"github.com/rformer/fair-app/internal/config"
 	"github.com/rformer/fair-app/internal/dbconn"
 	"github.com/rformer/fair-app/internal/iamapi"
+	"github.com/rformer/fair-app/internal/keys"
 	"github.com/rformer/fair-app/internal/scim"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/audit"
@@ -51,6 +53,8 @@ func main() {
 			os.Exit(runWorker())
 		case "breakglass":
 			os.Exit(runBreakglass(os.Args[2:]))
+		case "keys":
+			os.Exit(runKeys(os.Args[2:]))
 		}
 	}
 	if err := run(); err != nil {
@@ -67,6 +71,11 @@ func run() error {
 	cfg, err := config.Load("iam")
 	if err != nil {
 		return fmt.Errorf("configuration: %w", err)
+	}
+	// F-001 T-41: key files, however the mode's store delivered them, are
+	// not open to other users.
+	if err := keys.CheckMounted(cfg.Env, os.Getenv); err != nil {
+		return err
 	}
 
 	// Constitution S2: refuse to run without the FIPS 140 module when required.

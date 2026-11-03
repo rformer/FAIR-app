@@ -115,6 +115,13 @@ FAIR_ENGINE_PASSWORD_FILE=... FAIR_POSTURE_PASSWORD_FILE=... FAIR_GATEWAY_PASSWO
 #    server certificate must be verified: PGSSLMODE=verify-full.
 PGDATABASE=fair PGSSLMODE=verify-full FAIR_MIGRATOR_PASSWORD_FILE=... ./bin/iam migrate
 
+# 2b. The services' keys (F-001 T-41; docs/install/keys.md): create them, register
+#     the DB-context key (as app_migrator), load them into the mode's store (cloud
+#     secret manager + External Secrets in SaaS, OpenBao/Vault or Kubernetes Secrets
+#     self-hosted and air-gapped; deploy/k8s/keys), then delete the directory.
+./bin/iam keys init -dir ./fair-keys
+PGDATABASE=fair PGSSLMODE=verify-full FAIR_MIGRATOR_PASSWORD_FILE=... ./bin/iam keys register -dir ./fair-keys
+
 # 3. Posture row-MAC key (F-015 T-09), once per install, as app_migrator with
 #    SET ROLE fair_owner. Generate the secret in the database (or pass 32+ bytes
 #    from your KMS); it never leaves it. Rotate: add a new key, then
@@ -158,7 +165,7 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_DB_PASSWORD_FILE=<app_posture passwor
 # The gateway (F-001 T-13; image target gateway; contract api/openapi/gateway.yaml)
 # holds browser sessions and proxies /api/v1/<service>/ with fresh internal
 # credentials. It needs FAIR_DB_PASSWORD_FILE (app_gateway), FAIR_SESSION_PEPPER_FILE,
-# FAIR_DB_CONTEXT_KEY_ID and _FILE (the key in authz.ctx_key), FAIR_JWT_KEYS_DIR
+# FAIR_DB_CONTEXT_KEY_ID_FILE and _FILE (the key in authz.ctx_key), FAIR_JWT_KEYS_DIR
 # (signing keys), FAIR_PUBLIC_ORIGIN, FAIR_UPSTREAMS (e.g.
 # posture=https://posture.fair-platform:8443) and FAIR_UPSTREAM_CA_FILE.
 # OIDC login (F-001 T-16) is served alongside it under /api/v1/auth/oidc/ (an OIDC

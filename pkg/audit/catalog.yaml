@@ -241,6 +241,16 @@ events:
     category: configuration
     severities: [high]
     description: "An identity provider's settings changed"
+  - type: key.db_context_registered
+    category: configuration
+    severities: [high]
+    requires: [target]
+    description: "The installer registered a DB-context signing key in authz.ctx_key (iam keys register, T-41)"
+  - type: key.db_context_retired
+    category: configuration
+    severities: [high]
+    requires: [target]
+    description: "The installer retired a DB-context signing key (iam keys retire-db-context, T-41)"
   - type: overlay.change_requested
     category: configuration
     severities: [high]

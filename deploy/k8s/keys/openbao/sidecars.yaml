@@ -1,0 +1,172 @@
+# F-001 T-41 (design §10, self-hosted with OpenBao): the OpenBao Agent as a
+# native sidecar (Kubernetes 1.29+). It authenticates with a projected token
+# for OpenBao's audience (the service itself has none), renders the keys into
+# an in-memory /keys shared read-only with the service, and refreshes them;
+# the service starts once the first render is done (startupProbe). A pod
+# restart drops keys removed from OpenBao. The service's environment is the
+# same as with secret-mounts.yaml. Strategic-merge patches, as there.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: fair-platform
+spec:
+  template:
+    spec:
+      securityContext:
+        fsGroup: 65532
+      initContainers:
+        - name: openbao-agent
+          image: quay.io/openbao/openbao:2.2.0@sha256:19612d67a4a95d05a7b77c6ebc6c2ac5dac67a8712d8df2e4c31ad28bee7edaa
+          restartPolicy: Always
+          command: ["bao", "agent", "-config=/etc/openbao/gateway.hcl"]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+            seccompProfile: { type: RuntimeDefault }
+          startupProbe:
+            exec: { command: ["test", "-s", "/keys/.rendered"] }
+            periodSeconds: 2
+            failureThreshold: 60
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 64Mi }
+          volumeMounts:
+            - { name: keys, mountPath: /keys }
+            - { name: openbao-agent, mountPath: /etc/openbao, readOnly: true }
+            - { name: openbao-ca, mountPath: /etc/openbao/ca, readOnly: true }
+            - { name: openbao-token, mountPath: /var/run/secrets/openbao, readOnly: true }
+      containers:
+        - name: gateway
+          env:
+            - { name: FAIR_JWT_KEYS_DIR, value: /keys/jwt }
+            - { name: FAIR_LOGIN_TICKET_KEYS_DIR, value: /keys/login-ticket }
+            - { name: FAIR_SESSION_PEPPER_FILE, value: /keys/secrets/session-pepper }
+            - { name: FAIR_TOKEN_PEPPER_FILE, value: /keys/secrets/token-pepper }
+            - { name: FAIR_DB_CONTEXT_KEY_FILE, value: /keys/secrets/db-context.key }
+            - { name: FAIR_DB_CONTEXT_KEY_ID_FILE, value: /keys/secrets/db-context.id }
+          volumeMounts:
+            - { name: keys, mountPath: /keys, readOnly: true }
+      volumes:
+        - name: keys
+          emptyDir: { medium: Memory, sizeLimit: 1Mi }
+        - name: openbao-agent
+          configMap: { name: fair-openbao-agent }
+        - name: openbao-ca
+          configMap: { name: openbao-ca }
+        - name: openbao-token
+          projected:
+            sources:
+              - serviceAccountToken: { audience: openbao, expirationSeconds: 600, path: token }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iam
+  namespace: fair-platform
+spec:
+  template:
+    spec:
+      securityContext:
+        fsGroup: 65532
+      initContainers:
+        - name: openbao-agent
+          image: quay.io/openbao/openbao:2.2.0@sha256:19612d67a4a95d05a7b77c6ebc6c2ac5dac67a8712d8df2e4c31ad28bee7edaa
+          restartPolicy: Always
+          command: ["bao", "agent", "-config=/etc/openbao/iam.hcl"]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+            seccompProfile: { type: RuntimeDefault }
+          startupProbe:
+            exec: { command: ["test", "-s", "/keys/.rendered"] }
+            periodSeconds: 2
+            failureThreshold: 60
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 64Mi }
+          volumeMounts:
+            - { name: keys, mountPath: /keys }
+            - { name: openbao-agent, mountPath: /etc/openbao, readOnly: true }
+            - { name: openbao-ca, mountPath: /etc/openbao/ca, readOnly: true }
+            - { name: openbao-token, mountPath: /var/run/secrets/openbao, readOnly: true }
+      containers:
+        - name: iam
+          env:
+            - { name: FAIR_JWT_KEYS_DIR, value: /keys/jwt }
+            - { name: FAIR_LOGIN_TICKET_KEYS_DIR, value: /keys/login-ticket }
+            - { name: FAIR_TOKEN_PEPPER_FILE, value: /keys/secrets/token-pepper }
+          volumeMounts:
+            - { name: keys, mountPath: /keys, readOnly: true }
+      volumes:
+        - name: keys
+          emptyDir: { medium: Memory, sizeLimit: 1Mi }
+        - name: openbao-agent
+          configMap: { name: fair-openbao-agent }
+        - name: openbao-ca
+          configMap: { name: openbao-ca }
+        - name: openbao-token
+          projected:
+            sources:
+              - serviceAccountToken: { audience: openbao, expirationSeconds: 600, path: token }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: posture
+  namespace: fair-platform
+spec:
+  template:
+    spec:
+      securityContext:
+        fsGroup: 65532
+      initContainers:
+        - name: openbao-agent
+          image: quay.io/openbao/openbao:2.2.0@sha256:19612d67a4a95d05a7b77c6ebc6c2ac5dac67a8712d8df2e4c31ad28bee7edaa
+          restartPolicy: Always
+          command: ["bao", "agent", "-config=/etc/openbao/posture.hcl"]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+            seccompProfile: { type: RuntimeDefault }
+          startupProbe:
+            exec: { command: ["test", "-s", "/keys/.rendered"] }
+            periodSeconds: 2
+            failureThreshold: 60
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 64Mi }
+          volumeMounts:
+            - { name: keys, mountPath: /keys }
+            - { name: openbao-agent, mountPath: /etc/openbao, readOnly: true }
+            - { name: openbao-ca, mountPath: /etc/openbao/ca, readOnly: true }
+            - { name: openbao-token, mountPath: /var/run/secrets/openbao, readOnly: true }
+      containers:
+        - name: posture
+          env:
+            - { name: FAIR_JWT_KEYS_DIR, value: /keys/jwt }
+          volumeMounts:
+            - { name: keys, mountPath: /keys, readOnly: true }
+      volumes:
+        - name: keys
+          emptyDir: { medium: Memory, sizeLimit: 1Mi }
+        - name: openbao-agent
+          configMap: { name: fair-openbao-agent }
+        - name: openbao-ca
+          configMap: { name: openbao-ca }
+        - name: openbao-token
+          projected:
+            sources:
+              - serviceAccountToken: { audience: openbao, expirationSeconds: 600, path: token }

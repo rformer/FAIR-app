@@ -344,7 +344,7 @@ The configured mode is `saas`, `self-hosted` or `air-gapped` (ADR-005, amended 2
 
 ## 15. Open items
 - Live OpenShift and RKE2 runs of the scanner and `fips-probe` (from T-28/T-29; T-37 ran them live on kind and on a four-node Docker Desktop cluster only). They need OpenShift and RKE2 clusters or CI runners; the OpenShift run includes the SELinux behaviour of the probe's hostPath under its SCC.
-- D-OQ5 (needed by T-10 and the release pipeline, not by T-06): where the release signing key is held (KMS or Vault, per §8) and where the bundled public key ships in the install bundle. T-06 reads the private key from a file and takes the public key as a file.
+- D-OQ5 key custody: resolved 2026-11-02 by F-001 T-41 (decided by Robert Former). Keys stay files, delivered by each mode's store: the KMS-encrypted cloud secret manager through the External Secrets Operator (SaaS), OpenBao/Vault (self-hosted), or Kubernetes Secrets (air-gapped). The services never call a KMS per request. The export signing key and the release signing key follow the same rule: the release pipeline mounts its key from the CI secret store as the file `profilegen sign` and `releasegen sign` read. Where the release public key ships in the install bundle belongs to the F-014 bundle.
 
 ## Change Log
 - 2026-10-24: Initial draft.
@@ -1065,3 +1065,4 @@ The configured mode is `saas`, `self-hosted` or `air-gapped` (ADR-005, amended 2
   - `oscal.UUIDv5` replaces the identical private helpers in `internal/posture` and `internal/profilegen` (outputs unchanged: the regenerated profile packages are byte-identical; `TestPlatformComponentUUID` pins the component UUID).
   - Verification: `TestF015Statements` (the controls are exactly the requirements' mapping; `Check` passes; the component definition validates, names the platform component, and is deterministic); `TestCheckRefuses` (each malformed case refused, unknown fields refused). Mutations (a control dropped, a missing evidence test cited, a customer part on a provider-only control) each fail.
 - 2026-11-02: changed by F-001 T-34 (decided by Robert Former). `breakglass.enabled` no longer goes through the settings change workflow: `posture.change` refuses requested changes of it, and break-glass's own dual-approved flow (F-001 AC-41) records an applied change and a posture exception covering `true`, so drift, the Posture page, POA&M, renewal and auto-revert treat it like any exception. `TestRegistryBreakGlassEnableAlwaysNeedsApproval` became `TestRegistryBreakGlassOnlyThroughItsOwnFlow`. iam now registers F-001's setting definitions at startup (none of the services did; posture records changes only of registered keys).
+- 2026-11-02: D-OQ5 (key custody) resolved by F-001 T-41: files delivered by the mode's store (§15).

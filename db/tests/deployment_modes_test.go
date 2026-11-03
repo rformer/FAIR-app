@@ -7,14 +7,22 @@ import (
 	"crypto/rand"
 	"errors"
 	"maps"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/rformer/fair-app/internal/config"
+	"github.com/rformer/fair-app/internal/keys"
+	"github.com/rformer/fair-app/internal/migrate"
 	"github.com/rformer/fair-app/internal/posture"
 	"github.com/rformer/fair-app/internal/profilepkg"
 	"github.com/rformer/fair-app/pkg/audit"
+	"github.com/rformer/fair-app/pkg/authz"
 	"github.com/rformer/fair-app/pkg/settings"
 )
 
@@ -123,5 +131,121 @@ func deploymentMode(t *testing.T, mode string) {
 	// The mode is one of the three.
 	if out, err := e.owner("SELECT posture.set_deployment_mode('offline')"); err == nil || !strings.Contains(out, "saas, self-hosted or air-gapped") {
 		t.Errorf("an unknown mode: %v %s", err, out)
+	}
+	deploymentModeF001(t, mode, e)
+}
+
+// deploymentModeF001 checks F-001's rows of the matrix (design §10; T-41).
+func deploymentModeF001(t *testing.T, mode string, e *env) {
+	ctx := context.Background()
+	saas := mode == config.ModeSaaS
+
+	// Signing keys: files in every mode, from the mode's store (the store
+	// itself: scripts/openbao-e2e.sh, deploy/k8s/keys). iam keys init
+	// creates them; the DB-context key is registered by the installer and
+	// then verifies the gateway's contexts.
+	dir := t.TempDir()
+	set, err := keys.Init(dir, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := keys.Check(dir); err != nil {
+		t.Fatal(err)
+	}
+	cc, err := migrate.ConnConfig("development", e.secrets["app_migrator"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	cc.Database = e.db
+	mem := audit.NewMemory()
+	catalog, err := audit.DefaultCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	emit := audit.Validating{Next: mem, Catalog: catalog}
+	withConn := func(f func(*pgx.Conn) error) error {
+		conn, err := pgx.ConnectConfig(ctx, cc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = conn.Close(ctx) }()
+		return f(conn)
+	}
+	register := func() (bool, error) {
+		var added bool
+		err := withConn(func(c *pgx.Conn) error {
+			var err error
+			_, added, err = keys.RegisterDBContext(ctx, c, emit, dir)
+			return err
+		})
+		return added, err
+	}
+	if added, err := register(); err != nil || !added {
+		t.Fatalf("registering the DB-context key: %v %v", added, err)
+	}
+	if added, err := register(); err != nil || added {
+		t.Fatalf("registering it again: %v %v", added, err)
+	}
+	sec, _ := keys.ReadSecret(filepath.Join(dir, keys.Gateway, keys.SecretsDir, keys.DBContextKey), keys.SecretLen)
+	first := authz.ContextKey{ID: set.DBContext, Secret: sec}
+	e.mustOwner("INSERT INTO iam.app_user (email, display_name) VALUES ('erin@example.test', 'Erin')")
+	e.mustOwner(grant("admin", "user:erin", "Executive Viewer", "ENTERPRISE"))
+	e.drain()
+	e.mustOwner("SELECT authz.retire_ctx_key('k1', now())") // the fixture's key: ours is the only one
+	scoped := func(k authz.ContextKey) string {
+		out, _ := e.asCtx(e.mint("erin", k), "SELECT cardinality(authz.visible_bus('register')) > 0")
+		return out
+	}
+	if got := scoped(first); got != "t" {
+		t.Fatalf("a context signed with the registered key: %q", got)
+	}
+	// Rotation: register the successor, then retire the old key; contexts
+	// it signed still verify for the retirement window.
+	if err := withConn(func(c *pgx.Conn) error { return keys.RetireDBContext(ctx, c, emit, set.DBContext) }); err == nil {
+		t.Fatal("retired the only DB-context key")
+	}
+	next, err := keys.Rotate(dir, keys.KindDBContext, time.Now().Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if added, err := register(); err != nil || !added {
+		t.Fatalf("registering the successor: %v %v", added, err)
+	}
+	if err := withConn(func(c *pgx.Conn) error { return keys.RetireDBContext(ctx, c, emit, set.DBContext) }); err != nil {
+		t.Fatal(err)
+	}
+	sec2, _ := keys.ReadSecret(filepath.Join(dir, keys.Gateway, keys.SecretsDir, keys.DBContextKey), keys.SecretLen)
+	if scoped(authz.ContextKey{ID: next, Secret: sec2}) != "t" || scoped(first) != "t" {
+		t.Error("the successor, or the retired key within its window, does not verify")
+	}
+	// A key directory from another installation does not overwrite this one's.
+	_ = os.WriteFile(filepath.Join(dir, keys.Gateway, keys.SecretsDir, keys.DBContextKey), []byte(strings.Repeat("z", 43)), 0o600)
+	if _, err := register(); !errors.Is(err, keys.ErrKeyMismatch) {
+		t.Fatalf("a different secret under a registered id: %v", err)
+	}
+	if n := len(mem.Events()); n != 3 {
+		t.Errorf("%d install-log events, want 3 (two registrations, one retirement)", n)
+	}
+
+	// Break-glass alerts: the vendor's SecOps only in SaaS; the internal
+	// relay (iam.notice_outbox, F-009) in every mode.
+	before := e.adminQuery("SELECT count(*) FROM posture.secops_outbox")
+	e.mustOwner(`SELECT posture.breakglass_secops('{"type": "breakglass.login"}')`)
+	want, _ := strconv.Atoi(before)
+	if saas {
+		want++
+	}
+	if got := e.adminQuery("SELECT count(*) FROM posture.secops_outbox"); got != strconv.Itoa(want) {
+		t.Errorf("break-glass SecOps alerts in %s mode: %s, want %d", mode, got, want)
+	}
+
+	// IdP metadata: URL fetches everywhere but air-gapped, which takes
+	// files only. (Last: a new fixture resets the shared roles' passwords.)
+	ie := idpFixture(t)
+	ie.api.DeploymentMode = mode
+	oid := ie.create(t, "oidc", "Partner", "partner.example")
+	r := ie.do(t, "POST", "/api/v1/idps/"+oid+"/metadata/fetch", ie.admin, map[string]any{"url": "https://idp.partner.example", "reason": "x"}, ie.hdr())
+	if (r.body["error"] == "air_gapped") != (mode == config.ModeAirGapped) {
+		t.Errorf("a metadata URL fetch in %s mode: %d %s", mode, r.code, r.raw)
 	}
 }

@@ -1,0 +1,11 @@
+# F-001 T-41: the OpenBao Agent configuration for the services
+# (kubectl apply -k deploy/k8s/keys/openbao). sidecars.yaml patches the
+# Deployments; policy-*.hcl are loaded into OpenBao (docs/install/keys.md).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: fair-platform
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+  - name: fair-openbao-agent
+    files: [gateway.hcl, gateway.ctmpl, iam.hcl, iam.ctmpl, posture.hcl, posture.ctmpl]

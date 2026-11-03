@@ -53,6 +53,7 @@ import (
 
 	"github.com/rformer/fair-app/internal/config"
 	"github.com/rformer/fair-app/internal/dbconn"
+	"github.com/rformer/fair-app/internal/keys"
 	"github.com/rformer/fair-app/internal/natspub"
 	"github.com/rformer/fair-app/internal/posture"
 	"github.com/rformer/fair-app/internal/postureapi"
@@ -275,6 +276,11 @@ func run() error {
 	cfg, err := config.Load("posture")
 	if err != nil {
 		return fmt.Errorf("configuration: %w", err)
+	}
+	// F-001 T-41: key files, however the mode's store delivered them, are
+	// not open to other users.
+	if err := keys.CheckMounted(cfg.Env, os.Getenv); err != nil {
+		return err
 	}
 	// Constitution S2: refuse to run without the FIPS 140 module when required.
 	if cfg.RequireFIPS && !fips140.Enabled() {

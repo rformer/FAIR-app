@@ -74,7 +74,8 @@ jobs:
           name: coverage
           path: coverage.out
 
-  # F-015 T-37: the deployment-mode matrix (design §11), one install per mode.
+  # F-015 T-37 and F-001 T-41: the deployment-mode matrix (F-015 design §11,
+  # F-001 design §10), one install per mode.
   deployment-modes:
     runs-on: ubuntu-latest
     strategy:
@@ -105,6 +106,13 @@ jobs:
           PGUSER: postgres
           PGPASSWORD: ci-only-admin
         run: go test -count=1 -v -run 'TestDeploymentModeMatrix/^${{ matrix.mode }}$' ./db/tests/
+      # F-001 T-41: each mode's key delivery (deploy/k8s/keys) matches the key
+      # layout; self-hosted also delivers through a live OpenBao.
+      - name: Key delivery manifests
+        run: go test -count=1 -v -run 'TestDeployManifests' ./internal/keys/
+      - name: Keys through OpenBao (live)
+        if: matrix.mode == 'self-hosted'
+        run: bash scripts/openbao-e2e.sh
 
   # F-015 T-27 to T-29, T-37: posture-scanner and fips-probe on a live kind
   # cluster (RBAC, egress, check catalog, node FIPS evidence).

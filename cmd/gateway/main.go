@@ -9,7 +9,8 @@
 //	FAIR_DB_PASSWORD_FILE        app_gateway's password (and the libpq variables)
 //	FAIR_SESSION_PEPPER_FILE     at least 32 random bytes; session ids are
 //	                             stored as HMAC(pepper, token)
-//	FAIR_DB_CONTEXT_KEY_ID       the authz.ctx_key the gateway signs with,
+//	FAIR_DB_CONTEXT_KEY_ID       the authz.ctx_key the gateway signs with (or
+//	FAIR_DB_CONTEXT_KEY_ID_FILE  a file holding it, as `iam keys init` writes),
 //	FAIR_DB_CONTEXT_KEY_FILE     and its secret (at least 32 bytes)
 //	FAIR_JWT_KEYS_DIR            the internal-JWT signing keys (PEM per key id)
 //	FAIR_PUBLIC_ORIGIN           the platform's origin, e.g. https://fair.example.com
@@ -72,6 +73,7 @@ import (
 	"github.com/rformer/fair-app/internal/config"
 	"github.com/rformer/fair-app/internal/dbconn"
 	"github.com/rformer/fair-app/internal/gateway"
+	"github.com/rformer/fair-app/internal/keys"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/authz"
 	"github.com/rformer/fair-app/pkg/settings"
@@ -95,6 +97,11 @@ func run() error {
 	if cfg.RequireFIPS && !fips140.Enabled() {
 		return errors.New("FIPS 140 mode is required but not enabled (build with GOFIPS140 and run with GODEBUG=fips140=on)")
 	}
+	// T-41: key files, however the mode's store delivered them, are not open
+	// to other users.
+	if err := keys.CheckMounted(cfg.Env, os.Getenv); err != nil {
+		return err
+	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "gateway", "version", version)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -106,6 +113,15 @@ func run() error {
 	ctxSecret, err := readSecret("FAIR_DB_CONTEXT_KEY_FILE", 32)
 	if err != nil {
 		return err
+	}
+	ctxKeyID := os.Getenv("FAIR_DB_CONTEXT_KEY_ID")
+	if f := os.Getenv("FAIR_DB_CONTEXT_KEY_ID_FILE"); f != "" {
+		if ctxKeyID != "" {
+			return errors.New("set FAIR_DB_CONTEXT_KEY_ID or FAIR_DB_CONTEXT_KEY_ID_FILE, not both")
+		}
+		if ctxKeyID, err = keys.ReadID(f); err != nil {
+			return fmt.Errorf("FAIR_DB_CONTEXT_KEY_ID_FILE: %w", err)
+		}
 	}
 	keys, err := authz.LoadLocalKeys(os.Getenv("FAIR_JWT_KEYS_DIR"))
 	if err != nil {
@@ -179,7 +195,7 @@ func run() error {
 
 	g := &gateway.Gateway{
 		Sessions:   gateway.Sessions{DB: pool, Pepper: pepper, Timeouts: timeouts, Network: network},
-		ContextKey: authz.ContextKey{ID: os.Getenv("FAIR_DB_CONTEXT_KEY_ID"), Secret: ctxSecret},
+		ContextKey: authz.ContextKey{ID: ctxKeyID, Secret: ctxSecret},
 		JWT:        keys,
 		Origin:     origin,
 		Upstreams:  upstreams,

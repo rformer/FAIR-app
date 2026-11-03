@@ -225,6 +225,8 @@ Until F-015 exists, F-001 ships a minimal settings module that holds the three p
 | Network binding ASN data | Bundled database, updated with releases | Same | Prefix-only fallback if absent |
 | Break-glass notifications | Email/webhook | Customer SMTP/webhook | Internal relay |
 
+In every mode the keys reach the services as files: the mode's store (the KMS-encrypted cloud secret manager, OpenBao/Vault, or Kubernetes Secrets) is the system of record and delivers them (T-41, `docs/install/keys.md`).
+
 ## 11. Alternatives considered
 - **External authorization engine (OPA, OpenFGA, SpiceDB):** rejected by ADR-008 (accepted).
 - **Keycloak as a mandatory broker in front of every IdP:** rejected. It would add an always-on dependency and widen the SaaS attack surface.
@@ -734,3 +736,32 @@ Until F-015 exists, F-001 ships a minimal settings module that holds the three p
     - Statuses: open, in_progress, fixed (with `fix_ref` and `retested`), accepted (time-boxed, never for critical), false_positive (with notes).
     - `profilegen release-check` fails while a critical or high finding is open, a medium or low one is past its 90- or 180-day target, or an acceptance has expired.
     - No engagement has run yet; the first is due before the first production release.
+- 2026-11-02: T-41 implementation notes (`internal/keys`, `iam keys`, `deploy/k8s/keys`, `scripts/openbao-e2e.sh`, `docs/install/keys.md`). Robert Former decided:
+  - keys stay files, delivered by each mode's store; this also settles F-015 D-OQ5;
+  - CI runs a live OpenBao, and checks the SaaS (KMS) manifests statically;
+  - `iam keys init` creates the keys at install.
+  - **Layout:** one directory per service and store entry: `gateway/{jwt,login-ticket,secrets}`, `iam/{jwt,login-ticket,secrets}`, `posture/jwt`.
+    - Each is delivered at `/keys/<dir>` with the same environment in every mode (`keys.Mounts`).
+    - Signing directories hold exactly one private key; verifiers hold public keys.
+    - Secrets are base64url text of 32 random bytes, so every store carries them unchanged.
+    - The gateway takes the DB-context key id from `FAIR_DB_CONTEXT_KEY_ID_FILE` (or `FAIR_DB_CONTEXT_KEY_ID`), so a rotation changes only the store.
+  - **`iam keys`:**
+    - `init`: every key; FIPS random source; 0600 files in 0700 directories; never overwrites.
+    - `rotate -kind jwt|login-ticket|db-context`: verifiers are written first; the old signer becomes public. Peppers do not rotate.
+    - `check`: completeness; each signer's public key held by its verifiers; one token pepper; private permissions.
+    - `register` and `retire-db-context`: as app_migrator, acting as fair_owner. A different secret under a registered id is refused, and so is retiring the last active key. Both are audited to the install log, as `key.db_context_registered` and `key.db_context_retired` (catalogued).
+    - The README's install steps gain the key step; before this, nothing registered the DB-context key.
+  - **Startup:** in production, iam, the gateway and posture refuse key and secret files open to other users (`keys.CheckMounted`; Kubernetes projected-volume `..data` links are followed).
+  - **Delivery** (`deploy/k8s/keys`):
+    - `secret-mounts.yaml`: Secrets `fair-<service>-<dir>` with mode 0440 and fsGroup 65532. SaaS fills them through the External Secrets Operator (`saas/external-secrets.yaml`), from cloud secret manager entries `fair/<instance>/<service>/<dir>` encrypted under the instance's KMS key. The SecretStore uses workload identity, never static credentials. Air-gapped (or self-hosted without OpenBao) installs create the Secrets from `iam keys init`.
+    - `openbao/`: a native OpenBao Agent sidecar per service, with Kubernetes auth and a projected token for the `openbao` audience (the services have no token). It renders into an in-memory `/keys` that is mounted read-only in the service, and gates startup on the first render.
+    - The templates guard file names and write only to the service's own directories. The policies grant read on exactly the service's entries. The image is pinned by digest.
+  - **Fixed during the live run:** rendered files were 0440, so the agent's own refresh could not rewrite them and a rotation would never reach a running pod. They are now 0640: the agent rewrites them, the service reads them through the read-only mount, and others have no access.
+  - **§10 rows not exercised here:**
+    - Keycloak "not deployed" in SaaS belongs to the F-014 chart.
+    - The ASN fallback does not depend on the mode (T-20's tests).
+  - Verification:
+    - Unit: `TestInitLoadsInEveryService` (the generated keys load in the real loaders; JWT, ticket and DB-context signing work across services; never overwrites), `TestRotate` (old tokens verify, new ones use the new key), `TestCheckRefuses` (seven defects), `TestCheckMounted` (0644 refused, 0440 and projected volumes pass), and `TestDeployManifests` (the three delivery manifests against `keys.Mounts`).
+    - DB, per mode (`TestDeploymentModeMatrix`): keys from `init` registered, verifying RLS context; the retirement rules; a different secret refused; install-log events; IdP metadata fetch refused only when air-gapped; break-glass SecOps alerts only in SaaS.
+    - Live (`scripts/openbao-e2e.sh`, 9 checks; CI step in the self-hosted leg): the rendered keys pass `iam keys check`, match `init`'s files exactly and are 0640; each role reads only its own entries; an in-place re-render after `rotate -kind jwt` delivers the new signing key.
+    - Not covered: a live SaaS secret manager or ESO (no cloud account in CI). The CI legs have not yet run in GitHub Actions.
