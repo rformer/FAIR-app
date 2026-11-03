@@ -82,7 +82,7 @@ Status: **Approved** (Robert Former, 2026-10-24) | Design: Approved 2026-10-24
 |---|---|---|---|---|---|
 | T-40 | Security test suite from the STRIDE model (XSW, CSRF, enumeration, escalation, roll-up leakage, header spoofing) | Design §7 | Suite in CI; external pen test findings tracked | L | Done (2026-11-02; `make test-stride` maps every §7 threat to tests (`TestSTRIDECatalog`); the gateway no longer passes a service's cookies or login tickets to the browser; pen-test findings in `security/pentest-findings.yaml` gate the release; no engagement has run yet) |
 | T-41 | Deployment-mode matrix: SaaS KMS, Vault/OpenBao, air-gapped metadata + keys | Deployment modes | CI matrix green | M | Done (2026-11-02; keys are files delivered by the mode's store: External Secrets from KMS-encrypted cloud secrets, an OpenBao Agent sidecar, or Secrets from `iam keys init`; live OpenBao in CI, SaaS manifests checked statically; the CI jobs have not yet run in GitHub Actions) |
-| T-42 | OpenAPI spec published; API conventions (404 scoping, Idempotency-Key, reason) lint-enforced | Design §6 | Spectral lint in CI | S | Todo |
+| T-42 | OpenAPI spec published; API conventions (404 scoping, Idempotency-Key, reason) lint-enforced | Design §6 | Spectral lint in CI | S | Done (2026-11-03; Spectral 6.17.0 with the platform's rules and a rule self-test, CI job `openapi`; the release job stamps the documents with a SHA-256 manifest; the Posture API now answers missing ids 404 and takes an optional reason; the CI jobs have not yet run in GitHub Actions) |
 | T-43 | 800-53r5 control implementation statements for F-001 (feeds OSCAL component definition) | Control mapping | Statements reviewed | S | Todo |
 
 ## Definition of Done (F-001)

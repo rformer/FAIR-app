@@ -104,6 +104,10 @@ func Routes() []string {
 
 // Handler returns the API with authentication and idempotency in front.
 func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {
+	// A request's optional reason (design §6) reaches the events it causes.
+	if _, ok := a.Audit.(audit.ContextReason); !ok {
+		a.Audit = audit.ContextReason{Next: a.Audit}
+	}
 	mux := http.NewServeMux()
 	for _, rt := range routes {
 		h := rt.h
@@ -139,6 +143,22 @@ func (a *API) rootBU(ctx context.Context) (string, error) {
 	return a.root, a.rootErr
 }
 
+// found answers 404 and returns false when the path's id names no object of
+// kind (design §6: a missing id answers as one out of reach). The posture
+// functions report a missing object as a state conflict, so the API asks
+// first (posture.exists, migration 0061).
+func (a *API) found(w http.ResponseWriter, r *http.Request, kind, id string) bool {
+	var ok bool
+	if err := a.DB.QueryRow(r.Context(), "SELECT posture.exists($1, $2)", kind, id).Scan(&ok); err != nil {
+		problem(w, http.StatusServiceUnavailable, "unavailable", "", nil)
+		return false
+	}
+	if !ok {
+		problem(w, http.StatusNotFound, "not_found", "", nil)
+	}
+	return ok
+}
+
 // view requires posture.view at bu (the root when ""); it answers and
 // returns false otherwise.
 func (a *API) view(w http.ResponseWriter, r *http.Request, p authz.Principal, bu string) bool {
@@ -155,6 +175,19 @@ func (a *API) view(w http.ResponseWriter, r *http.Request, p authz.Principal, bu
 		return false
 	}
 	return true
+}
+
+// reasonBody is the optional body of an action that takes nothing else.
+type reasonBody struct {
+	Reason string `json:"reason"`
+}
+
+// decodeOptional decodes a body when there is one.
+func decodeOptional(w http.ResponseWriter, r *http.Request, v any) bool {
+	if r.ContentLength == 0 {
+		return true
+	}
+	return decode(w, r, v)
 }
 
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
@@ -328,7 +361,7 @@ func (a *API) changeSetting(w http.ResponseWriter, r *http.Request, p authz.Prin
 		Explanation       string          `json:"explanation"`
 		ExceptionDuration string          `json:"exception_duration"`
 	}
-	if !a.view(w, r, p, "") || !decode(w, r, &body) {
+	if !a.view(w, r, p, "") || !a.found(w, r, "setting", r.PathValue("key")) || !decode(w, r, &body) {
 		return
 	}
 	if body.BUID != "" && !a.view(w, r, p, body.BUID) {
@@ -480,7 +513,7 @@ func (a *API) renew(w http.ResponseWriter, r *http.Request, p authz.Principal) {
 		Justification string `json:"justification"`
 		Duration      string `json:"duration"`
 	}
-	if !a.view(w, r, p, "") || !decode(w, r, &body) {
+	if !a.view(w, r, p, "") || !a.found(w, r, "exception", r.PathValue("id")) || !decode(w, r, &body) {
 		return
 	}
 	d, ok := duration(w, body.Duration)
@@ -540,11 +573,12 @@ func (a *API) createProfile(w http.ResponseWriter, r *http.Request, p authz.Prin
 		BaseVersion string `json:"base_version"`
 		ID          string `json:"id"`
 		Name        string `json:"name"`
+		Reason      string `json:"reason"`
 	}
 	if !a.view(w, r, p, "") || !decode(w, r, &body) {
 		return
 	}
-	v, err := a.profilesSvc().Create(r.Context(), p, body.BaseID, body.BaseVersion, body.ID, body.Name)
+	v, err := a.profilesSvc().Create(audit.WithReason(r.Context(), body.Reason), p, body.BaseID, body.BaseVersion, body.ID, body.Name)
 	if err != nil {
 		fail(w, err)
 		return
@@ -560,7 +594,7 @@ func (a *API) editProfile(w http.ResponseWriter, r *http.Request, p authz.Princi
 		Bound         json.RawMessage `json:"bound"`
 		Justification string          `json:"justification"`
 	}
-	if !a.view(w, r, p, "") || !decode(w, r, &body) {
+	if !a.view(w, r, p, "") || !a.found(w, r, "custom_profile", r.PathValue("id")) || !decode(w, r, &body) {
 		return
 	}
 	loosened, err := a.profilesSvc().Edit(r.Context(), p, r.PathValue("id"), body.Version, body.Key, body.Default, body.Bound, body.Justification)
@@ -574,11 +608,12 @@ func (a *API) editProfile(w http.ResponseWriter, r *http.Request, p authz.Princi
 func (a *API) submitProfile(w http.ResponseWriter, r *http.Request, p authz.Principal) {
 	var body struct {
 		Version string `json:"version"`
+		Reason  string `json:"reason"`
 	}
-	if !a.view(w, r, p, "") || !decode(w, r, &body) {
+	if !a.view(w, r, p, "") || !a.found(w, r, "custom_profile", r.PathValue("id")) || !decode(w, r, &body) {
 		return
 	}
-	approval, err := a.profilesSvc().Submit(r.Context(), p, r.PathValue("id"), body.Version)
+	approval, err := a.profilesSvc().Submit(audit.WithReason(r.Context(), body.Reason), p, r.PathValue("id"), body.Version)
 	if err != nil {
 		fail(w, err)
 		return
@@ -587,7 +622,7 @@ func (a *API) submitProfile(w http.ResponseWriter, r *http.Request, p authz.Prin
 }
 
 func (a *API) diffProfile(w http.ResponseWriter, r *http.Request, p authz.Principal) {
-	if !a.view(w, r, p, "") {
+	if !a.view(w, r, p, "") || !a.found(w, r, "profile", r.PathValue("id")) {
 		return
 	}
 	q := r.URL.Query()
@@ -621,17 +656,19 @@ func (a *API) importProfile(w http.ResponseWriter, r *http.Request, p authz.Prin
 		ID       string          `json:"id"`
 		Format   string          `json:"format"`
 		Document json.RawMessage `json:"document"`
+		Reason   string          `json:"reason"`
 	}
 	if !a.view(w, r, p, "") || !decode(w, r, &body) {
 		return
 	}
+	ctx := audit.WithReason(r.Context(), body.Reason)
 	var v string
 	var err error
 	switch body.Format {
 	case "json":
-		v, err = a.profilesSvc().ImportJSON(r.Context(), p, body.ID, body.Document)
+		v, err = a.profilesSvc().ImportJSON(ctx, p, body.ID, body.Document)
 	case "oscal":
-		v, err = a.profilesSvc().ImportOSCAL(r.Context(), p, body.ID, body.Document)
+		v, err = a.profilesSvc().ImportOSCAL(ctx, p, body.ID, body.Document)
 	default:
 		problem(w, http.StatusBadRequest, "invalid_request", "format is json or oscal", nil)
 		return
@@ -644,7 +681,7 @@ func (a *API) importProfile(w http.ResponseWriter, r *http.Request, p authz.Prin
 }
 
 func (a *API) exportProfile(w http.ResponseWriter, r *http.Request, p authz.Principal) {
-	if !a.view(w, r, p, "") {
+	if !a.view(w, r, p, "") || !a.found(w, r, "profile", r.PathValue("id")) {
 		return
 	}
 	q := r.URL.Query()
@@ -711,7 +748,7 @@ func (a *API) pendingSwitch(w http.ResponseWriter, r *http.Request, p authz.Prin
 }
 
 func (a *API) getSwitch(w http.ResponseWriter, r *http.Request, p authz.Principal) {
-	if !a.view(w, r, p, "") {
+	if !a.view(w, r, p, "") || !a.found(w, r, "switch", r.PathValue("id")) {
 		return
 	}
 	ps, err := a.switches().Pending(r.Context(), p)
@@ -754,7 +791,7 @@ func (a *API) resolveConflict(w http.ResponseWriter, r *http.Request, p authz.Pr
 		Reason     string `json:"reason"`
 		Duration   string `json:"duration"`
 	}
-	if !a.view(w, r, p, "") || !decode(w, r, &body) {
+	if !a.view(w, r, p, "") || !a.found(w, r, "switch", r.PathValue("id")) || !decode(w, r, &body) {
 		return
 	}
 	d, ok := duration(w, body.Duration)
@@ -771,10 +808,11 @@ func (a *API) resolveConflict(w http.ResponseWriter, r *http.Request, p authz.Pr
 }
 
 func (a *API) activateSwitch(w http.ResponseWriter, r *http.Request, p authz.Principal) {
-	if !a.view(w, r, p, "") {
+	var body reasonBody
+	if !a.view(w, r, p, "") || !a.found(w, r, "switch", r.PathValue("id")) || !decodeOptional(w, r, &body) {
 		return
 	}
-	n, err := a.switches().Activate(r.Context(), p, r.PathValue("id"))
+	n, err := a.switches().Activate(audit.WithReason(r.Context(), body.Reason), p, r.PathValue("id"))
 	if err != nil {
 		fail(w, err)
 		return
@@ -783,10 +821,11 @@ func (a *API) activateSwitch(w http.ResponseWriter, r *http.Request, p authz.Pri
 }
 
 func (a *API) cancelSwitch(w http.ResponseWriter, r *http.Request, p authz.Principal) {
-	if !a.view(w, r, p, "") {
+	var body reasonBody
+	if !a.view(w, r, p, "") || !a.found(w, r, "switch", r.PathValue("id")) || !decodeOptional(w, r, &body) {
 		return
 	}
-	if err := a.switches().Cancel(r.Context(), p, r.PathValue("id")); err != nil {
+	if err := a.switches().Cancel(audit.WithReason(r.Context(), body.Reason), p, r.PathValue("id")); err != nil {
 		fail(w, err)
 		return
 	}
@@ -884,7 +923,7 @@ func (a *API) acknowledgeDrift(w http.ResponseWriter, r *http.Request, p authz.P
 	var body struct {
 		Reason string `json:"reason"`
 	}
-	if !a.view(w, r, p, "") || !decode(w, r, &body) {
+	if !a.view(w, r, p, "") || !a.found(w, r, "drift_finding", r.PathValue("id")) || !decode(w, r, &body) {
 		return
 	}
 	f, err := posture.Drift{DB: a.DB, Audit: a.Audit}.Acknowledge(r.Context(), p, r.PathValue("id"), body.Reason)
@@ -929,11 +968,12 @@ func (a *API) k8sAccess(w http.ResponseWriter, r *http.Request, p authz.Principa
 func (a *API) acknowledgeGrant(w http.ResponseWriter, r *http.Request, p authz.Principal) {
 	var body struct {
 		PermissionsDigest string `json:"permissions_digest"`
+		Reason            string `json:"reason"`
 	}
 	if !a.view(w, r, p, "") || !decode(w, r, &body) {
 		return
 	}
-	if err := (posture.K8sAccess{DB: a.DB, Audit: a.Audit}).Acknowledge(r.Context(), p, body.PermissionsDigest); err != nil {
+	if err := (posture.K8sAccess{DB: a.DB, Audit: a.Audit}).Acknowledge(audit.WithReason(r.Context(), body.Reason), p, body.PermissionsDigest); err != nil {
 		fail(w, err)
 		return
 	}

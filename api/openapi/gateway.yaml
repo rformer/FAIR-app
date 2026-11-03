@@ -2,6 +2,7 @@ openapi: 3.1.0
 info:
   title: FAIR Gateway API
   version: "1"
+  contact: { name: FAIR Risk Platform, url: "https://github.com/rformer/FAIR-app" }
   description: |
     F-001 design §2, §5.1, §5.2, §6 (T-13; AC-31, AC-33, AC-35). The gateway owns
     browser sessions: the `__Host-sid` cookie (Secure, HttpOnly, SameSite=Strict,
@@ -81,9 +82,16 @@ components:
       type: object
       properties:
         reason: { type: string, description: Required when revoking another user's sessions }
+tags:
+  - { name: auth, description: "Sign-out and the system-use banner" }
+  - { name: me, description: "The signed-in user and their sessions" }
+  - { name: oauth, description: "Service-account access tokens" }
+  - { name: sessions, description: "Another user's sessions" }
 paths:
   /me:
     get:
+      operationId: getMe
+      tags: [me]
       summary: The signed-in user's session, and its CSRF token
       x-permission: none (any session)
       responses:
@@ -113,6 +121,10 @@ paths:
         "401": { description: No live session, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
   /auth/banner/ack:
     post:
+      operationId: acknowledgeBanner
+      tags: [auth]
+      x-idempotency-exempt: acknowledging again changes nothing (409 once the banner changed)
+      x-reason-exempt: self-service on the callers own session
       x-audit-events: [session.banner_acknowledged]
       summary: Acknowledge the system-use banner for this session
       x-permission: none (own session)
@@ -132,6 +144,10 @@ paths:
         "409": { description: The banner changed; read /me again, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
   /auth/logout:
     post:
+      operationId: logout
+      tags: [auth]
+      x-idempotency-exempt: signing out again changes nothing
+      x-reason-exempt: self-service on the callers own session
       x-audit-events: [session.revoked]
       summary: End this session and clear the cookie
       x-permission: none (own session)
@@ -139,10 +155,16 @@ paths:
       responses: { "204": { description: Signed out } }
   /me/sessions:
     get:
+      operationId: listMySessions
+      tags: [me]
       summary: The user's active sessions
       x-permission: none (own sessions)
       responses: { "200": { description: Sessions, content: { application/json: { schema: { type: object, properties: { sessions: { type: array, items: { $ref: "#/components/schemas/Session" } } } } } } } }
     delete:
+      operationId: revokeMyOtherSessions
+      tags: [me]
+      x-idempotency-exempt: revoking again revokes nothing more
+      x-reason-exempt: self-service on the callers own sessions
       x-audit-events: [session.revoked]
       summary: Revoke the user's other sessions (sign out everywhere else)
       x-permission: none (own sessions)
@@ -150,6 +172,10 @@ paths:
       responses: { "200": { description: How many were revoked } }
   /me/sessions/{handle}:
     delete:
+      operationId: revokeMySession
+      tags: [me]
+      x-idempotency-exempt: revoking again answers 404
+      x-reason-exempt: self-service on the callers own sessions
       x-audit-events: [session.revoked]
       summary: Revoke one of the user's sessions
       x-permission: none (own sessions); session.revoke for another user's
@@ -157,11 +183,16 @@ paths:
       responses: { "204": { description: Revoked }, "404": { description: No active session with that id } }
   /sessions:
     get:
+      operationId: listUserSessions
+      tags: [sessions]
       summary: A user's active sessions
       x-permission: session.view (for another user)
       parameters: [{ $ref: "#/components/parameters/User" }]
       responses: { "200": { description: Sessions }, "403": { description: Forbidden } }
     delete:
+      operationId: revokeUserSessions
+      tags: [sessions]
+      x-idempotency-exempt: revoking again revokes nothing more
       x-audit-events: [session.revoked]
       summary: Revoke every session of a user
       x-permission: session.revoke (for another user; with a reason)
@@ -170,6 +201,9 @@ paths:
       responses: { "200": { description: How many were revoked }, "403": { description: Forbidden }, "422": { description: A reason is required } }
   /sessions/{handle}:
     delete:
+      operationId: revokeSession
+      tags: [sessions]
+      x-idempotency-exempt: revoking again answers 404
       x-audit-events: [session.revoked]
       summary: Revoke a session
       x-permission: session.revoke (for another user's; with a reason)
@@ -178,6 +212,10 @@ paths:
       responses: { "204": { description: Revoked }, "403": { description: Forbidden }, "404": { description: Not found }, "422": { description: A reason is required } }
   /oauth/token:
     post:
+      operationId: issueAccessToken
+      tags: [oauth]
+      x-unauthenticated: true
+      x-idempotency-exempt: the OAuth token endpoint (RFC 6749 §4.4); each call issues a new short-lived token and standard clients send no extra headers
       x-audit-events: [authn.client_credentials, authn.client_credentials_failed]
       summary: Issue a service account's access token (client credentials)
       description: |

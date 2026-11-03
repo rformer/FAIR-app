@@ -1,0 +1,50 @@
+# F-001 T-42 (design §6): the lint gate for the published OpenAPI documents
+# (api/openapi/*.yaml). Spectral is pinned in tools/spectral:
+#   npm ci --prefix tools/spectral
+#   tools/spectral/node_modules/.bin/spectral lint api/openapi/*.yaml --fail-severity=warn
+# Spectral's OpenAPI rules plus the platform's conventions
+# (tools/spectral/functions/fairConventions.js). Exemptions are explicit in
+# the documents (x-idempotency-exempt, x-reason-exempt) and say why.
+extends: ["spectral:oas"]
+functionsDir: tools/spectral/functions
+functions: [fairConventions]
+rules:
+  # Long descriptions are optional; every operation has a summary instead
+  # (fair-summary).
+  operation-description: off
+
+  fair-permission:
+    description: Every operation declares who may call it (x-permission) or that it needs no session.
+    severity: error
+    given: "$.paths[*]"
+    then: { function: fairConventions, functionOptions: { check: permission } }
+  fair-unauthenticated-security:
+    description: Operations without a session declare security [].
+    severity: error
+    given: "$.paths[*]"
+    then: { function: fairConventions, functionOptions: { check: unauthenticated } }
+  fair-idempotency-key:
+    description: Every mutating call requires an Idempotency-Key (design §6).
+    severity: error
+    given: "$.paths[*]"
+    then: { function: fairConventions, functionOptions: { check: idempotency } }
+  fair-reason:
+    description: Admin mutations accept a reason (design §6).
+    severity: error
+    given: "$.paths[*]"
+    then: { function: fairConventions, functionOptions: { check: reason } }
+  fair-not-found:
+    description: Operations on an id document 404 for out-of-scope or missing ids (design §6, AC-25).
+    severity: error
+    given: "$.paths[*]"
+    then: { function: fairConventions, functionOptions: { check: notFound } }
+  fair-audit-events:
+    description: Every mutation declares its security events (T-37).
+    severity: error
+    given: "$.paths[*]"
+    then: { function: fairConventions, functionOptions: { check: audit } }
+  fair-summary:
+    description: Every operation has a summary.
+    severity: error
+    given: "$.paths[*]"
+    then: { function: fairConventions, functionOptions: { check: summary } }

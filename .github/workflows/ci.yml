@@ -176,6 +176,21 @@ jobs:
         with:
           version: latest
 
+  # F-001 T-42 (design §6): the OpenAPI documents pass Spectral (spectral:oas
+  # and the platform's conventions), and the convention rules pass their
+  # self-test.
+  openapi:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: tools/spectral/package-lock.json
+      - name: Spectral lint and rule self-test
+        run: bash scripts/openapi-lint.sh
+
   image:
     needs: [test, lint]
     runs-on: ubuntu-latest

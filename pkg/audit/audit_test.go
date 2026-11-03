@@ -110,3 +110,18 @@ func TestMsgIDSanitized(t *testing.T) {
 		t.Fatalf("msgid not sanitized: %q", got)
 	}
 }
+
+// F-001 T-42: a request's reason reaches the events that have none.
+func TestContextReason(t *testing.T) {
+	mem := NewMemory()
+	e := ContextReason{Next: mem}
+	ctx := WithReason(context.Background(), "ticket 7")
+	_ = e.Emit(ctx, Event{Type: "a", Severity: SeverityInfo, Actor: "u"})
+	_ = e.Emit(ctx, Event{Type: "b", Severity: SeverityInfo, Actor: "u", Reason: "its own"})
+	_ = e.Emit(context.Background(), Event{Type: "c", Severity: SeverityInfo, Actor: "u"})
+	_ = e.Emit(WithReason(context.Background(), ""), Event{Type: "d", Severity: SeverityInfo, Actor: "u"})
+	got := mem.Events()
+	if got[0].Reason != "ticket 7" || got[1].Reason != "its own" || got[2].Reason != "" || got[3].Reason != "" {
+		t.Fatalf("%+v", got)
+	}
+}

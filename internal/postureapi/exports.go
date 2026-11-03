@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/rformer/fair-app/internal/posture"
+	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
 )
 
@@ -72,18 +73,20 @@ func (a *API) listExports(w http.ResponseWriter, r *http.Request, p authz.Princi
 // reproduce the export of that kind recorded then (200). posture.export.
 func (a *API) createExport(w http.ResponseWriter, r *http.Request, p authz.Principal) {
 	var body struct {
-		Kind string     `json:"kind"`
-		AsOf *time.Time `json:"as_of,omitempty"`
+		Kind   string     `json:"kind"`
+		AsOf   *time.Time `json:"as_of,omitempty"`
+		Reason string     `json:"reason"`
 	}
 	if !a.view(w, r, p, "") || !decode(w, r, &body) {
 		return
 	}
+	ctx := audit.WithReason(r.Context(), body.Reason)
 	if body.Kind != posture.KindAssessmentResults && body.Kind != posture.KindPOAM {
 		problem(w, http.StatusBadRequest, "invalid_request", "kind is assessment_results or poam", nil)
 		return
 	}
 	if body.AsOf != nil {
-		e, err := a.exportsSvc().Reproduce(r.Context(), p, body.Kind, *body.AsOf)
+		e, err := a.exportsSvc().Reproduce(ctx, p, body.Kind, *body.AsOf)
 		if err != nil {
 			exportFail(w, err)
 			return
@@ -91,7 +94,7 @@ func (a *API) createExport(w http.ResponseWriter, r *http.Request, p authz.Princ
 		writeJSON(w, http.StatusOK, toJSON(e))
 		return
 	}
-	e, err := a.exportsSvc().Create(r.Context(), p, body.Kind)
+	e, err := a.exportsSvc().Create(ctx, p, body.Kind)
 	if err != nil {
 		exportFail(w, err)
 		return

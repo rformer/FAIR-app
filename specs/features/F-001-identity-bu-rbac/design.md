@@ -156,10 +156,11 @@ Before saving, the editor shows a diff and the number of affected users. The SoD
 - **Access:** `/permissions`, `/roles` (+ `/versions`, `/diff`, `/clone`, `/export`, `/import`), `/assignments`, `/group-mappings`, `/sod-rules`, `/sod-exceptions`
 - **Identity admin:** `/idps`, `/users`, `/groups`, `/service-accounts` (+ `/tokens`), `/sessions`, `/banner` (T-19)
 - **Governance:** `/approvals`, `/access-reviews`, `/entitlements/report?format=csv|pdf`
-- **Conventions:**
-  - Out-of-scope IDs return 404.
-  - Every mutating call requires an `Idempotency-Key`.
-  - Admin mutations accept a `reason`, which is required where the active profile demands one.
+- **Conventions** (lint-enforced by Spectral, `.spectral.yaml`; T-42):
+  - Out-of-scope IDs return 404, and so do missing ones: the two are indistinguishable.
+  - Every mutating call requires an `Idempotency-Key`. Exempt, each with its why in the document (`x-idempotency-exempt`): the gateway's own session calls (logout, banner acknowledgement, revocations: repeating them changes nothing), the OAuth token endpoint (RFC 6749 clients send no extra headers), and calls without a session (discovery changes nothing; a WebAuthn ceremony is single-use).
+  - Admin mutations accept a `reason`, which is required where the active profile demands one. An operation whose reason travels in another field names it (`x-reason-field`: `explanation`, `justification`, `comment`). Exempt, with the why (`x-reason-exempt`): applying an approved request (its reason was recorded with the request), acknowledging release notices, and self-service on one's own sessions.
+  - Every operation declares its permission (`x-permission`, or `x-unauthenticated` with `security: []`) and, if it mutates, its security events (`x-audit-events`, T-37).
 
 ## 7. Security design (threat model, STRIDE)
 
@@ -765,3 +766,23 @@ In every mode the keys reach the services as files: the mode's store (the KMS-en
     - DB, per mode (`TestDeploymentModeMatrix`): keys from `init` registered, verifying RLS context; the retirement rules; a different secret refused; install-log events; IdP metadata fetch refused only when air-gapped; break-glass SecOps alerts only in SaaS.
     - Live (`scripts/openbao-e2e.sh`, 9 checks; CI step in the self-hosted leg): the rendered keys pass `iam keys check`, match `init`'s files exactly and are 0640; each role reads only its own entries; an in-place re-render after `rotate -kind jwt` delivers the new signing key.
     - Not covered: a live SaaS secret manager or ESO (no cloud account in CI). The CI legs have not yet run in GitHub Actions.
+- 2026-11-03: T-42 implementation notes (`.spectral.yaml`, `tools/spectral`, `scripts/openapi-lint.sh`, `scripts/openapi-bundle.sh`, migration 0061). Robert Former decided:
+  - operations that carry the reason in another field declare it, and the posture mutations without one gain an optional `reason`;
+  - exemptions are explicit, each with its why;
+  - the documents are published as release artifacts.
+  - **Lint:** Spectral 6.17.0, pinned with a lockfile in `tools/spectral`.
+    - The ruleset is `spectral:oas` plus seven platform rules (`fairConventions.js`): permission, unauthenticated security, Idempotency-Key, reason, 404 on ids, audit events, summary. `operation-description` is off: summaries suffice.
+    - Warnings fail the build.
+    - `tools/spectral/selftest.mjs` breaks a conforming fixture once per rule and checks that the rule fires.
+    - The CI job `openapi` runs both.
+    - The three documents gained `operationId`s (the Go handler names), tags with descriptions, and contact information.
+  - **What the lint found** (each checked against the code before choosing a fix):
+    - The Posture API answered missing ids with 409 or 400, not 404 (12 operations). Migration 0061 adds `posture.exists(kind, id)`, and the API answers 404 before acting; an object in the wrong state still answers 409. `TestPostureAPIUnknownIDs` covers every posture operation on an id.
+    - Seven posture mutations had no reason. They take an optional `reason`, recorded on their audit events through `audit.WithReason` / `audit.ContextReason` (`TestPostureAPIOptionalReason`).
+    - `POST /idps/{id}/scim-tokens` answered 404 but did not document it.
+    - The break-glass ceremonies were marked unauthenticated but inherited the JWT security.
+  - **Publishing:** the release job `openapi` lints, then `scripts/openapi-bundle.sh` stamps each document with the release (`info.x-fair-release`; `info.version` stays the API major version) and writes `SHA256SUMS`. It uploads them as the artifact `openapi-<tag>`, which F-012's publishing job attaches to the release.
+  - Verification:
+    - The lint is clean, and the self-test passes 12 cases.
+    - `TestPostureAPIUnknownIDs`, `TestPostureAPIOptionalReason` and `TestContextReason` pass. The Go contract tests (routes, permissions, Idempotency-Key, audit events) are unchanged and pass.
+    - The bundle verifies with `sha256sum -c`; a release name with shell characters is refused.

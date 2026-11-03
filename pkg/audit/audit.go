@@ -154,6 +154,29 @@ func (m *Memory) OfType(t string) []Event {
 	return out
 }
 
+type reasonKey struct{}
+
+// WithReason attaches the reason a caller gave for a request (F-001 design
+// §6) to ctx; ContextReason records it on the events the request causes.
+func WithReason(ctx context.Context, reason string) context.Context {
+	if reason == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, reasonKey{}, reason)
+}
+
+// ContextReason fills an event's Reason from its context (WithReason) when
+// the event carries none of its own.
+type ContextReason struct{ Next Emitter }
+
+// Emit implements Emitter.
+func (c ContextReason) Emit(ctx context.Context, e Event) error {
+	if r, _ := ctx.Value(reasonKey{}).(string); e.Reason == "" && r != "" {
+		e.Reason = r
+	}
+	return c.Next.Emit(ctx, e)
+}
+
 // Multi fans an event out to several sinks and returns every failure.
 type Multi []Emitter
 

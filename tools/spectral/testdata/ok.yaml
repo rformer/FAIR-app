@@ -1,0 +1,72 @@
+# A document that keeps every convention: the self-test expects no findings.
+openapi: 3.1.0
+info:
+  title: Conventions fixture
+  version: "1"
+  description: Fixture for scripts/openapi-lint.sh.
+  contact: { name: FAIR Risk Platform, url: "https://github.com/rformer/FAIR-app" }
+servers:
+  - url: /api/v1
+security:
+  - internalJWT: []
+tags:
+  - { name: widgets, description: Widgets }
+  - { name: auth, description: Sign-in }
+components:
+  securitySchemes:
+    internalJWT: { type: http, scheme: bearer, bearerFormat: JWT }
+  parameters:
+    IdempotencyKey: { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+    ID: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+paths:
+  /widgets/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      operationId: getWidget
+      tags: [widgets]
+      summary: A widget
+      x-permission: widget.view
+      responses:
+        "200": { description: The widget }
+        "404": { description: "No such widget, or out of reach" }
+    post:
+      operationId: changeWidget
+      tags: [widgets]
+      summary: Change a widget
+      x-permission: widget.manage
+      x-audit-events: [widget.changed]
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { colour: { type: string }, reason: { type: string } } }
+      responses:
+        "200": { description: Changed }
+        "404": { description: "No such widget, or out of reach" }
+    patch:
+      operationId: tuneWidget
+      tags: [widgets]
+      summary: Tune a widget (the reason travels as an explanation)
+      x-permission: widget.manage
+      x-audit-events: [widget.changed]
+      x-reason-field: explanation
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { explanation: { type: string } } }
+      responses:
+        "200": { description: Tuned }
+        "404": { description: "No such widget, or out of reach" }
+  /auth/lookup:
+    post:
+      operationId: lookUp
+      tags: [auth]
+      summary: A lookup without a session
+      security: []
+      x-unauthenticated: true
+      x-audit-events: []
+      x-idempotency-exempt: a lookup; it changes nothing
+      responses:
+        "200": { description: Found }

@@ -2,6 +2,7 @@ openapi: 3.1.0
 info:
   title: FAIR IAM API
   version: "1"
+  contact: { name: FAIR Risk Platform, url: "https://github.com/rformer/FAIR-app" }
   description: |
     F-001 design §6. Requests reach the iam service through the gateway, which
     authenticates the session and forwards an internal JWT (ES256, audience `iam`, at
@@ -241,15 +242,36 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
+tags:
+  - { name: access-reviews, description: "Access review campaigns" }
+  - { name: approvals, description: "Dual-approval requests" }
+  - { name: auth, description: "Sign-in without a session: home-realm discovery and break-glass" }
+  - { name: banner, description: "The system-use banner" }
+  - { name: breakglass, description: "Break-glass administration" }
+  - { name: bus, description: "Business units: tree, restriction, roll-up mode, import and export" }
+  - { name: entitlements, description: "Entitlement reports" }
+  - { name: group-mappings, description: "Group-to-role mappings" }
+  - { name: groups, description: "Groups (from SCIM)" }
+  - { name: idps, description: "Identity providers: metadata, MFA evidence rules, SCIM tokens" }
+  - { name: permissions, description: "The permission catalog and its release notices" }
+  - { name: roles, description: "Custom roles: versions, diffs, import and export" }
+  - { name: service-accounts, description: "Service accounts and their credentials" }
+  - { name: sod-exceptions, description: "Separation-of-duties exceptions" }
+  - { name: sod-rules, description: "Separation-of-duties rules" }
+  - { name: users, description: "Users: listing and administration" }
 paths:
   /access-reviews:
     get:
+      operationId: listReviews
+      tags: [access-reviews]
       summary: Access review campaigns the caller manages or reviews in (T-39, AC-49)
       x-permission: access_review.manage or access_review.decide
       responses:
         "200": { description: "{campaigns: [{id, name, bu_id, bu_code, role_ids, reviewers, due_at, on_expiry, reason, state, created_by, created_at, closed_at, closed_by, manages, items, decided, revoked, open_for_me}]}" }
         "404": { $ref: "#/components/responses/Error" }
     post:
+      operationId: openReview
+      tags: [access-reviews]
       summary: Open a campaign over a BU subtree
       description: |
         Snapshots the live access in the BU's subtree (optionally only `role_ids`): one item per
@@ -286,6 +308,8 @@ paths:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     get:
+      operationId: getReview
+      tags: [access-reviews]
       summary: A campaign and the items the caller may see
       description: All items for its managers; otherwise the items at BUs where the caller holds access_review.decide, each with `can_decide`.
       x-permission: access_review.manage (at the BU) or access_review.decide
@@ -296,6 +320,8 @@ paths:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     post:
+      operationId: closeReview
+      tags: [access-reviews]
       summary: Close a campaign now; undecided items follow its policy (keep or revoke)
       x-permission: access_review.manage (at the BU)
       x-audit-events: [access_review.campaign_closed, access_review.decided, group_mapping.removed, session.revoked]
@@ -320,6 +346,9 @@ paths:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       - { name: item, in: path, required: true, schema: { type: string, format: uuid } }
     post:
+      operationId: decideReviewItem
+      tags: [access-reviews]
+      x-reason-field: comment
       summary: Certify or revoke an item (AC-49)
       description: |
         Needs access_review.decide at the item's BU (and to be a named reviewer when the campaign
@@ -351,6 +380,8 @@ paths:
         "409": { $ref: "#/components/responses/Error" }
   /entitlements/report:
     get:
+      operationId: entitlementReport
+      tags: [entitlements]
       summary: The entitlement report (T-38, AC-48, AC-64)
       description: |
         One row per user and live assignment (a group's assignment once per member): the user
@@ -379,6 +410,8 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
   /entitlements/restricted:
     get:
+      operationId: restrictedListing
+      tags: [entitlements]
       summary: The restricted-BU access listing (AC-64)
       description: |
         Every restricted BU the caller may see (an explicit entitlement.view there, or bu.restrict
@@ -394,6 +427,8 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
   /breakglass:
     get:
+      operationId: getBreakglass
+      tags: [breakglass]
       summary: Break-glass status and accounts (T-34)
       x-permission: breakglass.manage (at the root)
       responses:
@@ -401,6 +436,8 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
   /breakglass/enable:
     post:
+      operationId: enableBreakglass
+      tags: [breakglass]
       x-audit-events: [approval.requested]
       summary: Ask to enable break-glass after install (AC-41)
       description: |
@@ -434,6 +471,9 @@ paths:
         "409": { $ref: "#/components/responses/Error" }
   /breakglass/apply:
     post:
+      operationId: applyBreakglass
+      tags: [breakglass]
+      x-reason-exempt: applies an approved request (once); its reason was recorded when it was requested and is audited with it
       x-audit-events: [approval.consumed, breakglass.enabled, breakglass.accounts_disabled]
       summary: Enable break-glass once the request is approved
       description: |
@@ -460,6 +500,8 @@ paths:
         "409": { $ref: "#/components/responses/Error" }
   /breakglass/disable:
     post:
+      operationId: disableBreakglass
+      tags: [breakglass]
       x-audit-events: [breakglass.disabled, session.revoked]
       summary: Disable break-glass at once (AC-45)
       description: No approval. The setting goes off, the accounts are disabled and their sessions revoked in the same transaction; audited high.
@@ -484,6 +526,8 @@ paths:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     post:
+      operationId: newBreakglassCode
+      tags: [breakglass]
       x-audit-events: [breakglass.enrollment_reset]
       summary: A new enrollment code for a break-glass account (a lost or replaced key)
       description: The account's registered keys are removed, so the old key no longer signs in. Shown once; audited high.
@@ -506,6 +550,10 @@ paths:
         "409": { $ref: "#/components/responses/Error" }
   /auth/breakglass/enroll/begin:
     post:
+      operationId: breakglassEnrollBegin
+      tags: [auth]
+      security: []
+      x-idempotency-exempt: a WebAuthn ceremony is single-use (its challenge is spent); a retry starts a new one
       x-audit-events: []
       x-audit-note: starts a WebAuthn ceremony; nothing changes until finish
       summary: Start registering a break-glass security key with an enrollment code (WebAuthn)
@@ -520,6 +568,10 @@ paths:
         "404": { description: Break-glass is off }
   /auth/breakglass/enroll/finish:
     post:
+      operationId: breakglassEnrollFinish
+      tags: [auth]
+      security: []
+      x-idempotency-exempt: a WebAuthn ceremony is single-use (its challenge is spent); a retry starts a new one
       x-audit-events: [breakglass.enrolled, authn.login.denied]
       summary: Register the key (spends the code)
       x-unauthenticated: true
@@ -530,6 +582,10 @@ paths:
         "404": { description: Break-glass is off }
   /auth/breakglass/login/begin:
     post:
+      operationId: breakglassLoginBegin
+      tags: [auth]
+      security: []
+      x-idempotency-exempt: a WebAuthn ceremony is single-use (its challenge is spent); a retry starts a new one
       x-audit-events: []
       x-audit-note: starts a WebAuthn ceremony; nothing changes until finish
       summary: Start a break-glass sign-in (discoverable WebAuthn assertion)
@@ -539,6 +595,10 @@ paths:
         "404": { description: Break-glass is off }
   /auth/breakglass/login/finish:
     post:
+      operationId: breakglassLoginFinish
+      tags: [auth]
+      security: []
+      x-idempotency-exempt: a WebAuthn ceremony is single-use (its challenge is spent); a retry starts a new one
       x-audit-events: [breakglass.login, breakglass.login_failed, user.locked, session.revoked, authn.login.denied]
       summary: Finish the sign-in
       description: |
@@ -552,6 +612,8 @@ paths:
         "404": { description: Break-glass is off }
   /service-accounts:
     get:
+      operationId: listServiceAccounts
+      tags: [service-accounts]
       summary: Service accounts at BUs where the caller holds service_account.manage (T-33)
       x-permission: service_account.manage
       responses:
@@ -565,6 +627,8 @@ paths:
                   service_accounts: { type: array, items: { $ref: "#/components/schemas/ServiceAccount" } }
         "404": { $ref: "#/components/responses/Error" }
     post:
+      operationId: createServiceAccount
+      tags: [service-accounts]
       x-audit-events: [service_account.created, approval.requested]
       summary: Create a service account (AC-36)
       description: |
@@ -603,6 +667,9 @@ paths:
         "409": { $ref: "#/components/responses/Error" }
   /service-accounts/apply:
     post:
+      operationId: applyServiceAccount
+      tags: [service-accounts]
+      x-reason-exempt: applies an approved request (once); its reason was recorded when it was requested and is audited with it
       x-audit-events: [approval.consumed, service_account.created, service_account.scopes_changed]
       summary: Apply an approved service_account.scopes request (create, or change scopes)
       x-permission: service_account.manage (at the BU)
@@ -628,6 +695,8 @@ paths:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     get:
+      operationId: getServiceAccount
+      tags: [service-accounts]
       summary: A service account
       x-permission: service_account.manage (at its BU)
       responses:
@@ -636,6 +705,8 @@ paths:
           content: { application/json: { schema: { $ref: "#/components/schemas/ServiceAccount" } } }
         "404": { $ref: "#/components/responses/Error" }
     patch:
+      operationId: updateServiceAccount
+      tags: [service-accounts]
       x-audit-events: [service_account.renamed, service_account.scopes_changed, approval.requested]
       summary: Rename it or change its scopes
       description: |
@@ -672,6 +743,8 @@ paths:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       - { name: action, in: path, required: true, schema: { type: string, enum: [disable, enable] } }
     post:
+      operationId: serviceAccountAction
+      tags: [service-accounts]
       x-audit-events: [service_account.disabled, service_account.enabled]
       summary: Disable (ending its access tokens at once) or enable a service account
       x-permission: service_account.manage (at its BU)
@@ -697,12 +770,16 @@ paths:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     get:
+      operationId: listSASecrets
+      tags: [service-accounts]
       summary: The account's client secrets (never the secrets themselves)
       x-permission: service_account.manage (at its BU)
       responses:
         "200": { description: "{tokens: [{id, name, prefix, created_at, created_by, expires_at, last_used_at, revoked_at}]}" }
         "404": { $ref: "#/components/responses/Error" }
     post:
+      operationId: createSASecret
+      tags: [service-accounts]
       x-audit-events: [token.created]
       summary: Issue a client secret (client_credentials accounts; AC-37)
       description: |
@@ -737,6 +814,8 @@ paths:
       - { name: credential, in: path, required: true, schema: { type: string, format: uuid } }
       - { name: reason, in: query, required: true, schema: { type: string } }
     delete:
+      operationId: revokeSAToken
+      tags: [service-accounts]
       x-audit-events: [token.revoked]
       summary: Revoke a client secret and the access tokens issued for it
       x-permission: service_account.manage (at its BU)
@@ -750,12 +829,16 @@ paths:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     get:
+      operationId: listSACertificates
+      tags: [service-accounts]
       summary: The account's mTLS certificates
       x-permission: service_account.manage (at its BU)
       responses:
         "200": { description: "{certificates: [{id, name, thumbprint_sha256, subject, not_before, not_after, created_at, created_by, expires_at, last_used_at, revoked_at}]}" }
         "404": { $ref: "#/components/responses/Error" }
     post:
+      operationId: addSACertificate
+      tags: [service-accounts]
       x-audit-events: [service_account.certificate_added]
       summary: Register a client certificate (mtls accounts; AC-38)
       description: |
@@ -789,6 +872,8 @@ paths:
       - { name: credential, in: path, required: true, schema: { type: string, format: uuid } }
       - { name: reason, in: query, required: true, schema: { type: string } }
     delete:
+      operationId: revokeSACertificate
+      tags: [service-accounts]
       x-audit-events: [service_account.certificate_revoked]
       summary: Revoke a certificate and the access tokens issued for it
       x-permission: service_account.manage (at its BU)
@@ -800,6 +885,8 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
   /idps:
     get:
+      operationId: listIDPs
+      tags: [idps]
       summary: List identity providers
       x-permission: idp.view
       responses:
@@ -814,6 +901,8 @@ paths:
                   idps: { type: array, items: { $ref: "#/components/schemas/IdP" } }
         "404": { $ref: "#/components/responses/Error" }
     post:
+      operationId: createIDP
+      tags: [idps]
       x-audit-events: [idp.created]
       summary: Create an identity provider (disabled until it has metadata)
       x-permission: idp.manage
@@ -849,6 +938,8 @@ paths:
     parameters:
       - $ref: "#/components/parameters/IdpID"
     get:
+      operationId: getIDP
+      tags: [idps]
       summary: Read an identity provider
       x-permission: idp.view
       responses:
@@ -859,6 +950,8 @@ paths:
               schema: { $ref: "#/components/schemas/IdP" }
         "404": { $ref: "#/components/responses/Error" }
     patch:
+      operationId: updateIDP
+      tags: [idps]
       x-audit-events: [idp.updated, idp.enabled, idp.disabled, idp.mfa_rule_changed]
       summary: Change name, email domains, settings or enabled
       description: |
@@ -912,6 +1005,8 @@ paths:
     parameters:
       - $ref: "#/components/parameters/IdpID"
     put:
+      operationId: uploadMetadata
+      tags: [idps]
       x-audit-events: [idp.metadata_changed]
       summary: Upload SAML metadata, an OIDC discovery document or a JWKS file
       x-permission: idp.manage
@@ -940,6 +1035,8 @@ paths:
     parameters:
       - $ref: "#/components/parameters/IdpID"
     post:
+      operationId: fetchMetadata
+      tags: [idps]
       x-audit-events: [idp.metadata_changed]
       summary: Fetch metadata from a URL (SAML metadata URL or OIDC issuer)
       x-permission: idp.manage
@@ -974,6 +1071,8 @@ paths:
     parameters:
       - $ref: "#/components/parameters/IdpID"
     get:
+      operationId: listSCIMTokens
+      tags: [idps]
       summary: The IdP's SCIM tokens (never the secrets)
       x-permission: scim.manage
       responses:
@@ -1000,6 +1099,8 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
     post:
+      operationId: createSCIMToken
+      tags: [idps]
       x-audit-events: [token.created]
       summary: Issue a SCIM bearer token for the IdP (T-21, AC-08)
       description: |
@@ -1037,12 +1138,15 @@ paths:
                   expires_at: { type: string, format: date-time }
         "400": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
   /idps/{id}/scim-tokens/{token}:
     parameters:
       - $ref: "#/components/parameters/IdpID"
       - { name: token, in: path, required: true, schema: { type: string, format: uuid } }
     delete:
+      operationId: revokeSCIMToken
+      tags: [idps]
       x-audit-events: [token.revoked]
       summary: Revoke a SCIM token
       x-permission: scim.manage
@@ -1055,6 +1159,8 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
   /users:
     get:
+      operationId: listUsers
+      tags: [users]
       summary: Users the caller may see (T-23b)
       description: |
         With `user.view` at the root, every user; with `user.view` at a BU, the users holding an
@@ -1085,6 +1191,8 @@ paths:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     get:
+      operationId: getUser
+      tags: [users]
       summary: A user the caller may see
       x-permission: user.view
       responses:
@@ -1099,6 +1207,8 @@ paths:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       - { name: action, in: path, required: true, schema: { enum: [disable, enable, unlock] } }
     post:
+      operationId: userAction
+      tags: [users]
       x-audit-events: [user.disabled, user.enabled, user.unlocked, session.revoked]
       summary: Disable, re-enable or unlock a user (T-23b)
       description: |
@@ -1131,6 +1241,8 @@ paths:
         "409": { $ref: "#/components/responses/Error" }
   /groups:
     get:
+      operationId: listGroups
+      tags: [groups]
       summary: Groups the caller may see (read-only; SCIM manages them)
       x-permission: user.view
       responses:
@@ -1147,6 +1259,8 @@ paths:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     get:
+      operationId: getGroup
+      tags: [groups]
       summary: A group the caller may see
       x-permission: user.view
       responses:
@@ -1158,6 +1272,8 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
   /group-mappings:
     get:
+      operationId: listMappings
+      tags: [group-mappings]
       summary: Group-to-role mappings at BUs where the caller holds access.view (T-24)
       x-permission: access.view
       responses:
@@ -1171,6 +1287,8 @@ paths:
                   mappings: { type: array, items: { $ref: "#/components/schemas/GroupMapping" } }
         "404": { $ref: "#/components/responses/Error" }
     post:
+      operationId: createMapping
+      tags: [group-mappings]
       x-audit-events: [group_mapping.created, assignment.mapped_granted, assignment.mapped_skipped]
       summary: Map a group to a role at a BU (AC-12)
       description: |
@@ -1210,6 +1328,8 @@ paths:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     get:
+      operationId: getMapping
+      tags: [group-mappings]
       summary: A mapping, with its skipped members and why
       x-permission: access.view
       responses:
@@ -1220,6 +1340,8 @@ paths:
               schema: { $ref: "#/components/schemas/GroupMapping" }
         "404": { $ref: "#/components/responses/Error" }
     delete:
+      operationId: removeMapping
+      tags: [group-mappings]
       x-audit-events: [group_mapping.removed, assignment.mapped_revoked]
       summary: Remove a mapping; its mapped assignments end
       x-permission: access.map_groups
@@ -1236,6 +1358,8 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
   /sod-rules:
     get:
+      operationId: listSoDRules
+      tags: [sod-rules]
       summary: The separation-of-duties rule set (T-27, AC-29)
       x-permission: role.view
       responses:
@@ -1249,6 +1373,8 @@ paths:
                   rules: { type: array, items: { $ref: "#/components/schemas/SoDRule" } }
         "404": { $ref: "#/components/responses/Error" }
     post:
+      operationId: createSoDRule
+      tags: [sod-rules]
       x-audit-events: [sod.rule_created, role.suspended]
       summary: Add a rule
       description: Refused (409) while custom roles already combine the pair without an exception; they are listed.
@@ -1277,6 +1403,8 @@ paths:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     patch:
+      operationId: updateSoDRule
+      tags: [sod-rules]
       x-audit-events: [sod.rule_enabled, sod.rule_disabled, role.suspended, role.reactivated]
       summary: Enable or disable a rule
       description: |
@@ -1303,6 +1431,8 @@ paths:
         "409": { $ref: "#/components/responses/Error" }
   /sod-exceptions:
     get:
+      operationId: listSoDExceptions
+      tags: [sod-exceptions]
       summary: Separation-of-duties exceptions, live first
       x-permission: role.view
       responses:
@@ -1316,6 +1446,8 @@ paths:
                   exceptions: { type: array, items: { type: object } }
         "404": { $ref: "#/components/responses/Error" }
     post:
+      operationId: requestSoDException
+      tags: [sod-exceptions]
       x-audit-events: [approval.requested]
       summary: Request an exception for a custom role (AC-53)
       description: |
@@ -1349,6 +1481,9 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
   /sod-exceptions/apply:
     post:
+      operationId: applySoDException
+      tags: [sod-exceptions]
+      x-reason-exempt: applies an approved request (once); its reason was recorded when it was requested and is audited with it
       x-audit-events: [approval.consumed, sod.exception_granted, role.reactivated]
       summary: Apply an approved exception request (once)
       x-permission: role.manage
@@ -1373,6 +1508,8 @@ paths:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     delete:
+      operationId: revokeSoDException
+      tags: [sod-exceptions]
       x-audit-events: [sod.exception_revoked, role.suspended]
       summary: Revoke an exception; the role is suspended if it still breaks the rule
       x-permission: sod.manage
@@ -1389,6 +1526,8 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
   /approvals:
     get:
+      operationId: listApprovals
+      tags: [approvals]
       summary: Approval requests the caller made or may decide (T-26 engine)
       x-permission: none (requester or eligible approver)
       parameters:
@@ -1406,6 +1545,8 @@ paths:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     get:
+      operationId: getApproval
+      tags: [approvals]
       summary: An approval request (its requester or an eligible approver; 404 otherwise)
       x-permission: none (requester or eligible approver)
       responses:
@@ -1419,6 +1560,8 @@ paths:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     post:
+      operationId: decideApproval
+      tags: [approvals]
       x-audit-events: [approval.approved, approval.rejected]
       summary: Approve or reject (never one's own request; a rejection needs a reason)
       x-permission: the kind's approve permission (sod.manage for sod.exception)
@@ -1447,6 +1590,8 @@ paths:
         "409": { $ref: "#/components/responses/Error" }
   /permissions:
     get:
+      operationId: listPermissions
+      tags: [permissions]
       summary: The permission catalog, privileged and risk-data flags included (AC-54)
       x-permission: role.view
       responses:
@@ -1471,6 +1616,8 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
   /roles:
     get:
+      operationId: listRoles
+      tags: [roles]
       summary: Built-in and custom roles (T-28)
       x-permission: role.view
       responses:
@@ -1484,6 +1631,8 @@ paths:
                   roles: { type: array, items: { $ref: "#/components/schemas/Role" } }
         "404": { $ref: "#/components/responses/Error" }
     post:
+      operationId: createRole
+      tags: [roles]
       x-audit-events: [role.created, role.privileged_added]
       summary: Create a custom role from catalog permissions (AC-51)
       description: |
@@ -1513,6 +1662,8 @@ paths:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     get:
+      operationId: getRole
+      tags: [roles]
       summary: A role with its current permissions, privileged ones flagged, and its holders
       x-permission: role.view
       responses:
@@ -1523,6 +1674,8 @@ paths:
               schema: { $ref: "#/components/schemas/Role" }
         "404": { $ref: "#/components/responses/Error" }
     put:
+      operationId: updateRole
+      tags: [roles]
       x-audit-events: [role.updated, role.privileged_added, role.suspended]
       summary: Save a new version of a custom role (AC-55)
       description: |
@@ -1559,6 +1712,8 @@ paths:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     get:
+      operationId: roleVersions
+      tags: [roles]
       summary: A role's versions, newest first
       x-permission: role.view
       responses:
@@ -1568,6 +1723,8 @@ paths:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     get:
+      operationId: roleDiff
+      tags: [roles]
       summary: Preview saving these permissions as the next version (AC-55)
       x-permission: role.view
       parameters:
@@ -1593,6 +1750,8 @@ paths:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     post:
+      operationId: cloneRole
+      tags: [roles]
       x-audit-events: [role.cloned, role.cloned_from, role.privileged_added]
       summary: Clone a built-in or custom role under a new name (AC-51, AC-52)
       x-permission: role.manage
@@ -1618,6 +1777,8 @@ paths:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     post:
+      operationId: retireRole
+      tags: [roles]
       x-audit-events: [role.retired]
       summary: Retire a custom role nobody holds (AC-56)
       description: Refused (409, with the counts) while it has live assignments or group mappings.
@@ -1641,6 +1802,8 @@ paths:
         "409": { $ref: "#/components/responses/Error" }
   /permissions/notices:
     get:
+      operationId: listCatalogNotices
+      tags: [permissions]
       summary: Catalog upgrade notices (T-29, AC-57)
       description: |
         Left by each upgrade: permissions added (never given to custom roles), retired (no longer
@@ -1673,6 +1836,9 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
   /permissions/notices/acknowledge:
     post:
+      operationId: acknowledgeCatalogNotices
+      tags: [permissions]
+      x-reason-exempt: acknowledges release notices; it changes no access or setting
       x-audit-events: [catalog.notices_acknowledged]
       summary: Acknowledge catalog notices
       x-permission: role.manage
@@ -1697,6 +1863,8 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
   /roles/export:
     get:
+      operationId: exportRoles
+      tags: [roles]
       summary: Export custom roles as a fair.roles.v1 document (AC-58)
       x-permission: role.view
       parameters:
@@ -1718,6 +1886,8 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
   /roles/import:
     post:
+      operationId: importRoles
+      tags: [roles]
       x-audit-events: [role.imported, role.privileged_added]
       summary: Import custom roles from a fair.roles.v1 document (AC-58)
       description: |
@@ -1767,6 +1937,8 @@ paths:
         "409": { description: A role failed; nothing was applied (the report says why) }
   /bus:
     get:
+      operationId: listBUs
+      tags: [bus]
       summary: The BUs the caller may see (T-30)
       description: |
         BUs where the caller holds bu.view, and the BUs whose restriction the caller manages
@@ -1787,6 +1959,8 @@ paths:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     get:
+      operationId: getBU
+      tags: [bus]
       summary: A BU the caller may see
       x-permission: bu.view
       responses:
@@ -1800,6 +1974,8 @@ paths:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     post:
+      operationId: setRestriction
+      tags: [bus]
       x-audit-events: [bu.restricted, approval.requested]
       summary: Restrict a BU (at once) or ask to un-restrict it (AC-59, AC-63)
       description: |
@@ -1830,6 +2006,8 @@ paths:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     put:
+      operationId: setRollupMode
+      tags: [bus]
       x-audit-events: [bu.rollup_tightened, approval.requested]
       summary: Set how a restricted BU appears in ancestor roll-ups (AC-62, AC-63)
       description: |
@@ -1858,6 +2036,9 @@ paths:
         "409": { $ref: "#/components/responses/Error" }
   /bus/apply:
     post:
+      operationId: applyBUApproval
+      tags: [bus]
+      x-reason-exempt: applies an approved request (once); its reason was recorded when it was requested and is audited with it
       x-audit-events: [approval.consumed, bu.unrestricted, bu.rollup_loosened]
       summary: Apply an approved un-restriction or roll-up loosening (once)
       x-permission: bu.restrict (at the parent)
@@ -1880,6 +2061,8 @@ paths:
         "409": { $ref: "#/components/responses/Error" }
   /bus/export:
     get:
+      operationId: exportBUs
+      tags: [bus]
       summary: Export the BUs the caller manages as fair.bus.v1 (T-31, AC-19)
       description: |
         The BUs where the caller holds bu.manage, and restricted BUs whose parent they manage
@@ -1900,6 +2083,8 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
   /bus/import:
     post:
+      operationId: importBUs
+      tags: [bus]
       x-audit-events: [bu.created, bu.renamed, bu.restricted, bu.rollup_tightened]
       summary: Import a fair.bus.v1 document (T-31, AC-19)
       description: |
@@ -1930,6 +2115,8 @@ paths:
         "409": { description: An entry failed; nothing was applied }
   /banner:
     get:
+      operationId: getBanner
+      tags: [banner]
       summary: The system-use banner in force (T-19, AC-34)
       x-permission: none (any session)
       responses:
@@ -1945,6 +2132,8 @@ paths:
                   text: { type: string }
                   updated_at: { type: string, format: date-time }
     put:
+      operationId: setBanner
+      tags: [banner]
       x-audit-events: [banner.changed]
       summary: Change the banner text (a new version; sessions acknowledge at their next sign-in)
       x-permission: banner.manage
@@ -1971,6 +2160,9 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
   /auth/discover:
     post:
+      operationId: discoverHomeRealm
+      tags: [auth]
+      x-idempotency-exempt: a lookup; it changes nothing
       x-audit-events: []
       x-audit-note: a lookup; nothing changes
       summary: Home-realm discovery

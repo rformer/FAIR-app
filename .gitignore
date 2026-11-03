@@ -5,3 +5,4 @@ coverage.out
 *.pem
 *.key
 secrets/
+tools/spectral/node_modules/

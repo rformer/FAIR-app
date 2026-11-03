@@ -1,0 +1,8 @@
+{
+  "name": "fair-spectral",
+  "private": true,
+  "description": "F-001 T-42: Spectral, pinned, for linting api/openapi (ruleset .spectral.yaml)",
+  "devDependencies": {
+    "@stoplight/spectral-cli": "6.17.0"
+  }
+}
