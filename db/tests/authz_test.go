@@ -20,7 +20,6 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/rformer/fair-app/internal/scope"
-	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
 )
 
@@ -191,7 +190,7 @@ func TestCacheInvalidationViaNATS(t *testing.T) {
 	e := docFixture(t)
 	pub, _ := scopeEvents(t)
 	pool := e.appPool()
-	w := scope.New(scope.Options{Pool: pool, Publisher: pub, Audit: audit.NewMemory(), DrainEvery: time.Second})
+	w := scope.New(scope.Options{Pool: pool, Publisher: pub, DrainEvery: time.Second})
 	client, err := w.RiverClient()
 	if err != nil {
 		t.Fatal(err)

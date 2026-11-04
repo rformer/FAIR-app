@@ -190,7 +190,7 @@ func recordFindings(ctx context.Context, tx pgx.Tx, em audit.Emitter, kind strin
 		} else {
 			resolved = append(resolved, c.f)
 		}
-		if err := em.Emit(ctx, ev); err != nil {
+		if err := em.Emit(audit.WithTx(ctx, tx), ev); err != nil {
 			return nil, nil, fmt.Errorf("audit: %w", err) // fail closed: nothing is recorded
 		}
 	}
@@ -325,7 +325,7 @@ func (d Drift) Acknowledge(ctx context.Context, p authz.Principal, findingID, re
 			return err
 		}
 		f.Status, f.AcknowledgeReason = "acknowledged", strings.TrimSpace(reason)
-		return d.Audit.Emit(ctx, audit.Event{Type: EventDriftAcknowledged, Severity: audit.SeverityLow, Actor: p.UserID,
+		return d.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: EventDriftAcknowledged, Severity: audit.SeverityLow, Actor: p.UserID,
 			Target: f.Subject, Reason: f.AcknowledgeReason, Attributes: f.eventAttrs()})
 	})
 	if err != nil {

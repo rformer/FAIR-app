@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/rformer/fair-app/db"
 	"github.com/rformer/fair-app/internal/access/catalog"
@@ -63,7 +64,7 @@ func runMigrate() int {
 
 	// Audit failures fail closed (ADR-006): the run reports failure if its
 	// evidence cannot be recorded.
-	emitter, err := auditSink()
+	emitter, err := migrateSink(ctx, env)
 	if err != nil {
 		logger.Error("audit sink", "error", err.Error())
 		return 1
@@ -152,4 +153,31 @@ func releasePackages() ([][]byte, error) {
 		return nil, err
 	}
 	return profilepkg.LoadRelease(dir, "manifest.json")
+}
+
+// migrateSink is the install log (JSON lines) plus the audit trail: the
+// migrator records db.migrated as fair_owner (F-002 T-06) once the trail
+// exists, which it does after the migrations it has just applied.
+func migrateSink(ctx context.Context, env string) (audit.Emitter, error) {
+	sink, err := auditSink()
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := migrate.ConnConfig(env, os.Getenv("FAIR_MIGRATOR_PASSWORD_FILE"))
+	if err != nil {
+		return nil, err
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig(cfg))
+	if err != nil {
+		return nil, fmt.Errorf("migrate: audit trail: %w", err)
+	}
+	context.AfterFunc(ctx, pool.Close)
+	return audit.WithTrail(sink, audit.Trail{DB: pool, Role: "fair_owner"}), nil
+}
+
+func poolConfig(cc *pgx.ConnConfig) *pgxpool.Config {
+	pc, _ := pgxpool.ParseConfig("")
+	pc.ConnConfig = cc
+	pc.MaxConns = 1
+	return pc
 }

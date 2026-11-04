@@ -50,7 +50,7 @@ func RegisterDBContext(ctx context.Context, conn *pgx.Conn, emit audit.Emitter, 
 	if _, err := tx.Exec(ctx, "SELECT authz.add_ctx_key($1, $2)", id, sec); err != nil {
 		return "", false, err
 	}
-	if err := emit.Emit(ctx, audit.Event{Type: "key.db_context_registered", Severity: audit.SeverityHigh, Actor: "system:installer",
+	if err := emit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "key.db_context_registered", Severity: audit.SeverityHigh, Actor: "system:installer",
 		Target: "authz.ctx_key:" + id}); err != nil {
 		return "", false, err // audit failures fail closed
 	}
@@ -79,7 +79,7 @@ func RetireDBContext(ctx context.Context, conn *pgx.Conn, emit audit.Emitter, id
 	if _, err := tx.Exec(ctx, "SELECT authz.retire_ctx_key($1)", id); err != nil {
 		return err
 	}
-	if err := emit.Emit(ctx, audit.Event{Type: "key.db_context_retired", Severity: audit.SeverityHigh, Actor: "system:installer",
+	if err := emit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "key.db_context_retired", Severity: audit.SeverityHigh, Actor: "system:installer",
 		Target: "authz.ctx_key:" + id}); err != nil {
 		return err
 	}

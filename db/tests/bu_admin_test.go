@@ -61,7 +61,7 @@ func (be *buAdminEnv) move(t *testing.T, cookie, code, parent, reason string) gw
 func (be *buAdminEnv) audit(typ string) string {
 	return be.e.adminQuery(`SELECT coalesce(string_agg((payload->>'severity') || ':' || coalesce(payload->>'reason', '') || ':' ||
 		coalesce(payload->'attributes'->>'old_parent', payload->'attributes'->>'from', payload->'attributes'->>'parent', ''), '|' ORDER BY id), '')
-		FROM iam.event_outbox WHERE topic = 'audit' AND payload->>'type' = '` + typ + `' AND payload->>'severity' = 'high'`)
+		FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE topic = 'audit' AND payload->>'type' = '` + typ + `' AND payload->>'severity' = 'high'`)
 }
 
 func TestBUAdministrationCreateRenameArchive(t *testing.T) {
@@ -222,7 +222,7 @@ func TestBUAdministrationMove(t *testing.T) {
 	if got := be.audit("bu.moved"); got != "high:reorg:A" {
 		t.Fatalf("moved audit %q", got)
 	}
-	if got := e.adminQuery(`SELECT payload->'attributes'->>'new_parent' FROM iam.event_outbox WHERE payload->>'type' = 'bu.moved' AND payload->>'severity' = 'high'`); got != "B" {
+	if got := e.adminQuery(`SELECT payload->'attributes'->>'new_parent' FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'bu.moved' AND payload->>'severity' = 'high'`); got != "B" {
 		t.Fatalf("moved audit new parent %q", got)
 	}
 
@@ -288,7 +288,7 @@ func TestBUAdministrationMove(t *testing.T) {
 		t.Fatal("R1 did not move")
 	}
 	if got := e.adminQuery(`SELECT (payload->'attributes'->>'approved_by') = (SELECT id::text FROM iam.app_user WHERE email = 'admin2@example.test')
-		FROM iam.event_outbox WHERE payload->>'type' = 'bu.moved' AND payload->'attributes'->>'new_parent' = 'A' AND payload->>'severity' = 'high'`); got != "t" {
+		FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'bu.moved' AND payload->'attributes'->>'new_parent' = 'A' AND payload->>'severity' = 'high'`); got != "t" {
 		t.Fatalf("the approved move's audit does not name the approver: %q", got)
 	}
 
@@ -338,7 +338,7 @@ func TestBUAdministrationMaxDepth(t *testing.T) {
 		t.Fatalf("set: %d %s", r.code, r.raw)
 	}
 	if got := e.adminQuery(`SELECT payload->>'reason' || ':' || (payload->'attributes'->>'from') || '>' || (payload->'attributes'->>'to')
-		FROM iam.event_outbox WHERE payload->>'type' = 'bu.max_depth_changed'`); got != "flatter tree:6>2" {
+		FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'bu.max_depth_changed'`); got != "flatter tree:6>2" {
 		t.Fatalf("audit %q", got)
 	}
 	// AC-15 at depth 2: no BU below A1; no move that would go deeper.

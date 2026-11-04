@@ -89,7 +89,7 @@ func (k K8sAccess) Decide(ctx context.Context, state, reason, actor string) (str
 		case AccessRequested:
 			sev = audit.SeverityLow
 		}
-		return k.Audit.Emit(ctx, audit.Event{Type: "posture.k8s_access_" + state, Severity: sev, Actor: actor, Target: "posture:k8s-access",
+		return k.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "posture.k8s_access_" + state, Severity: sev, Actor: actor, Target: "posture:k8s-access",
 			Reason: reason, Attributes: map[string]string{"previous": prev, "state": state, "permissions_digest": digest}})
 	})
 	return prev, mapErr(err)
@@ -102,7 +102,7 @@ func (k K8sAccess) Acknowledge(ctx context.Context, p authz.Principal, digest st
 		if _, err := tx.Exec(ctx, "SELECT posture.acknowledge_k8s_access($1)", digest); err != nil {
 			return err
 		}
-		return k.Audit.Emit(ctx, audit.Event{Type: "posture.k8s_access_granted", Severity: audit.SeverityInfo, Actor: p.UserID,
+		return k.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "posture.k8s_access_granted", Severity: audit.SeverityInfo, Actor: p.UserID,
 			Target: "posture:k8s-access", Attributes: map[string]string{"previous": AccessRequested, "state": AccessGranted,
 				"permissions_digest": digest, "acknowledged": "true"}})
 	}))

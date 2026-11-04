@@ -45,7 +45,7 @@ func (s Profiles) audited(ctx context.Context, p authz.Principal, fn func(pgx.Tx
 		if err := fn(tx); err != nil {
 			return err
 		}
-		return s.Audit.Emit(ctx, ev)
+		return s.Audit.Emit(audit.WithTx(ctx, tx), ev)
 	}))
 }
 
@@ -73,7 +73,7 @@ func (s Profiles) Edit(ctx context.Context, p authz.Principal, id, version, key 
 		if loosened {
 			sev = audit.SeverityLow
 		}
-		return s.Audit.Emit(ctx, audit.Event{Type: "profile.value_changed", Severity: sev, Actor: p.UserID, Target: "profile:" + id,
+		return s.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "profile.value_changed", Severity: sev, Actor: p.UserID, Target: "profile:" + id,
 			Reason: justification, Attributes: map[string]string{"profile": id, "version": version, "key": key,
 				"default": string(def), "bound": string(bound), "loosened": strconv.FormatBool(loosened)}})
 	})
@@ -123,7 +123,7 @@ func (s Profiles) Approve(ctx context.Context, id, version string) (string, erro
 		if err := tx.QueryRow(ctx, "SELECT posture.approve_custom_profile($1, $2)::text", id, version).Scan(&approver); err != nil {
 			return err
 		}
-		return s.Audit.Emit(ctx, audit.Event{Type: "profile.approved", Severity: audit.SeverityHigh, Actor: approver, Target: "profile:" + id,
+		return s.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "profile.approved", Severity: audit.SeverityHigh, Actor: approver, Target: "profile:" + id,
 			Attributes: map[string]string{"profile": id, "version": version}})
 	})
 	return approver, mapErr(err)

@@ -26,7 +26,7 @@ func approvalsFixture(t *testing.T) (*env, approvals.Service) {
 
 func auditTypes(e *env, target string) string {
 	return e.adminQuery(`SELECT coalesce(string_agg(payload->>'type' || ':' || (payload->>'severity'), ',' ORDER BY id), '')
-		FROM iam.event_outbox WHERE topic = 'audit' AND payload->>'target' = 'approval:` + target + `'`)
+		FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE topic = 'audit' AND payload->>'target' = 'approval:` + target + `'`)
 }
 
 func TestApprovalLifecycle(t *testing.T) {
@@ -73,7 +73,7 @@ func TestApprovalLifecycle(t *testing.T) {
 	if got := auditTypes(e, id); got != "approval.requested:info,approval.approved:high" {
 		t.Fatalf("audit trail %s", got)
 	}
-	if got := e.adminQuery(`SELECT (payload->'attributes'->>'decided_by') = '` + platform.UserID + `' FROM iam.event_outbox WHERE payload->>'type' = 'approval.approved'`); got != "t" {
+	if got := e.adminQuery(`SELECT (payload->'attributes'->>'decided_by') = '` + platform.UserID + `' FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'approval.approved'`); got != "t" {
 		t.Fatalf("approval audit does not name the approver: %s", got)
 	}
 

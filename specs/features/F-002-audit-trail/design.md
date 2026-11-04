@@ -374,3 +374,25 @@ The STRIDE rows join `TestSTRIDECatalog` (`db/tests/stride_f002_test.go`).
     - The SaaS, plain-Secret and OpenBao manifests carry the audit entries (`TestDeployManifests`), and `docs/install/keys.md` covers them. `scripts/openbao-e2e.sh` still loads only the F-001 entries: extending it needs a live OpenBao run.
   - **Mutation testing.** 12 of 13 mutants were caught. The one that survived removes the "still held" half of the lock check. That is equivalent in practice, because a session lock is lost only with its connection, and then the same query fails with an error first.
   - **"Boots in kind."** Not run in kind. Verified instead by starting two replicas of the image (read-only root filesystem, all capabilities dropped) against a migrated database: both became ready, one led, and stopping it handed the lead to the other.
+- 2026-11-04: T-06 implementation notes (migration 0070, `pkg/audit/trail.go`):
+  - **SQL producers.** A `BEFORE INSERT` trigger on `iam.event_outbox` (`audit.from_outbox`, owned by `audit_definer`) hands every `audit` row to `audit.submit` in the producer's transaction and skips the outbox row.
+    - The payload is converted by `audit.outbox_event`, as `FromOutbox` did. Top-level nulls are dropped (never nested ones). Null attributes are dropped, and non-string attributes become their JSON text. The row's `created_at` becomes the event time.
+    - Pending audit rows were moved by the migration.
+    - A refused event (PF011) now fails the SQL change that produced it.
+  - **The scope worker.** It relays only NATS topics; an audit row reaching it is an error. Its `Options.Audit` option is gone.
+  - **Go producers.**
+    - `audit.Trail` submits through a transaction from `audit.WithTx`, or through a short transaction of its own; `Role` takes `SET LOCAL ROLE` first.
+    - `audit.WithTrail` records in the trail first and writes to the logs only once the trail has the event; an event the trail refuses is written nowhere else.
+    - iam, posture (service and commands), the audit service, `iam migrate` and `iam keys register` / `retire-db-context` record to the trail. The installer commands record as `fair_owner`: migration 0070 grants it `audit.submit`, and the producer is still `app_migrator`.
+    - iam's `service.started` now follows the pool, and a failure to record it stops the start.
+    - The break-glass CLI's lines stay in the install log only, because its SQL functions already record the same events.
+  - **Posture.** 27 emits that report a change made in a transaction now join it (`WithTx`). Three stay outside: the hard-floor refusals and the failed-revert event, which report no change, and the export-mismatch event, whose transaction rolls back with the refusal.
+  - **Invalid events.** `audit.Validating` records an event the catalog refuses as `audit.invalid_event` (critical, the original attached, best effort, outside the caller's transaction, and never for a secret-looking original) and still returns the refusal. This replaces the worker's relay fallback.
+  - **Tests.**
+    - After every test, `checkAuditCatalog` validates every intake body against the Go catalog, checks that every producer is a login role, and fails if any audit row reached the outbox. Together these show that every exercised SQL producer lands in the trail.
+    - The DB tests read audit events from `audit.intake`. Attributes are strings now, so nested values are read with `::jsonb`.
+    - `TestAuditTrailFromSQLProducers` and `TestAuditTrailFromGo` cover commit and rollback, the conversion, exactly-once retries, refusals failing the caller and the change, and the installer role. `TestWorkerAuditFailsClosed` now shows a refused `bu.moved` rolling back the scope drain.
+    - F-001's AU-12 evidence names `pkg/audit:TestValidatingRecordsInvalidEvents` in place of the removed scope test.
+  - **Timing.** `db/tests` takes about 10% longer, roughly 630 s. CI's DB test step now has `-timeout 60m`, as `make test-db` does.
+  - **Unchanged.** Per-service syslog remains until T-16.
+  - **Mutation testing.** All 12 mutants were caught, after adding a check that the outbox row's time becomes the event time.

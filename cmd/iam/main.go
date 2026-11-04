@@ -90,16 +90,6 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	_ = emitter.Emit(ctx, audit.Event{
-		Type:     "service.started",
-		Severity: audit.SeverityInfo,
-		Actor:    "system:iam",
-		Attributes: map[string]string{
-			"fips140": fmt.Sprint(fips140.Enabled()),
-			"env":     cfg.Env,
-		},
-	})
-
 	srv := server.New(server.Options{
 		Addr:        cfg.ListenAddr,
 		TLSCertFile: cfg.TLSCertFile,
@@ -131,6 +121,8 @@ func run() error {
 			return fmt.Errorf("database: %w", err)
 		}
 		defer pool.Close()
+		// F-002 T-06: iam's own events go to the audit trail first.
+		emitter = audit.WithTrail(emitter, audit.Trail{DB: pool})
 		// Whether a login must show MFA evidence (T-18), read as every service
 		// reads settings; a stale snapshot requires MFA (fail closed).
 		sc := settings.NewClient(settings.ClientOptions{Source: settings.DBSource{DB: pool}, Service: "iam", Instance: os.Getenv("POD_NAME")})
@@ -202,6 +194,19 @@ func run() error {
 		srv.AddReadinessCheck(server.ReadinessCheck{Name: "database", Check: func(ctx context.Context) error { return pool.Ping(ctx) }})
 	} else if cfg.Env == "production" {
 		return fmt.Errorf("FAIR_PUBLIC_ORIGIN is required in production (the SAML service provider, F-001 T-15)")
+	}
+
+	// Audit failures fail closed (ADR-006): no start without its record.
+	if err := emitter.Emit(ctx, audit.Event{
+		Type:     "service.started",
+		Severity: audit.SeverityInfo,
+		Actor:    "system:iam",
+		Attributes: map[string]string{
+			"fips140": fmt.Sprint(fips140.Enabled()),
+			"env":     cfg.Env,
+		},
+	}); err != nil {
+		return fmt.Errorf("audit: %w", err)
 	}
 
 	err = srv.Run(ctx, cfg.ShutdownTimeout)

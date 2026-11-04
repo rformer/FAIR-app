@@ -266,7 +266,7 @@ func TestGatewayTimeouts(t *testing.T) {
 		if got := ge.sessionRow(t, tok, "revoked_reason"); got != reason {
 			t.Fatalf("revoked_reason %q, want %s", got, reason)
 		}
-		if got := e.adminQuery("SELECT count(*) FROM iam.event_outbox WHERE topic = 'audit' AND payload->>'type' = 'session.expired' AND payload->>'reason' = '" + reason + "'"); got != "1" {
+		if got := e.adminQuery("SELECT count(*) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE topic = 'audit' AND payload->>'type' = 'session.expired' AND payload->>'reason' = '" + reason + "'"); got != "1" {
 			t.Fatalf("%s audit events: %s", reason, got)
 		}
 	}
@@ -321,7 +321,7 @@ func TestGatewayTimeouts(t *testing.T) {
 	if r := ge.do(t, "GET", "/api/v1/me", d, nil, nil); r.code != 401 || !strings.Contains(r.raw, "disabled") {
 		t.Fatalf("disabled user's session: %d %s", r.code, r.raw)
 	}
-	if got := e.adminQuery("SELECT count(*) FROM iam.event_outbox WHERE topic = 'audit' AND payload->>'type' = 'session.revoked' AND payload->>'reason' = 'user_disabled'"); got != "1" {
+	if got := e.adminQuery("SELECT count(*) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE topic = 'audit' AND payload->>'type' = 'session.revoked' AND payload->>'reason' = 'user_disabled'"); got != "1" {
 		t.Fatalf("user_disabled audit events: %s", got)
 	}
 }
@@ -391,7 +391,7 @@ func TestGatewayRevocation(t *testing.T) {
 		t.Fatal("a session revoked by an admin still works")
 	}
 	ev := e.adminQuery(`SELECT payload->>'severity' || ':' || (payload->>'reason') || ':' || (payload->'attributes'->>'user_id')
-		FROM iam.event_outbox WHERE topic = 'audit' AND payload->>'type' = 'session.revoked' ORDER BY id DESC LIMIT 1`)
+		FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE topic = 'audit' AND payload->>'type' = 'session.revoked' ORDER BY id DESC LIMIT 1`)
 	if ev != "high:lost laptop, ticket SEC-42:"+userID {
 		t.Fatalf("admin revocation audit %q", ev)
 	}

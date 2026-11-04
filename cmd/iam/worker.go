@@ -69,14 +69,9 @@ func worker(logger *slog.Logger) error {
 	}
 	defer pub.Close()
 
-	sink, err := auditSink()
-	if err != nil {
-		return err
-	}
-	w := scope.New(scope.Options{
-		Pool: pool, Publisher: pub, Logger: logger,
-		Audit: sink,
-	})
+	// The worker's database functions record their audit events to the
+	// trail themselves (F-002 T-06); it relays only the NATS topics.
+	w := scope.New(scope.Options{Pool: pool, Publisher: pub, Logger: logger})
 	client, err := w.RiverClient()
 	if err != nil {
 		return err

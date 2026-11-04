@@ -50,7 +50,7 @@ func TestJITProvisioning(t *testing.T) {
 		return resp.StatusCode, sessionCookie(resp)
 	}
 	denied := func() string {
-		return e.adminQuery("SELECT coalesce(string_agg(payload->>'reason', '|' ORDER BY id), '') FROM iam.event_outbox WHERE payload->>'type' = 'authn.login.denied'")
+		return e.adminQuery("SELECT coalesce(string_agg(payload->>'reason', '|' ORDER BY id), '') FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'authn.login.denied'")
 	}
 	nobody := func(email string) {
 		t.Helper()
@@ -92,7 +92,7 @@ func TestJITProvisioning(t *testing.T) {
 	if n := e.adminQuery("SELECT count(*) FROM authz.user_scope WHERE user_id = '" + id + "'"); n != "0" {
 		t.Fatal("a just-in-time user has access")
 	}
-	if n := e.adminQuery("SELECT count(*) FROM iam.event_outbox WHERE payload->>'type' = 'user.jit_provisioned' AND payload->>'target' = 'user:" + id + "'"); n != "1" {
+	if n := e.adminQuery("SELECT count(*) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'user.jit_provisioned' AND payload->>'target' = 'user:" + id + "'"); n != "1" {
 		t.Fatal("provisioning not audited")
 	}
 	// The next login finds the user (no second account).
@@ -161,7 +161,7 @@ func TestJITProvisioningOIDC(t *testing.T) {
 func TestInactivitySweep(t *testing.T) {
 	ge := gatewayFixture(t)
 	e := ge.e
-	w := scope.New(scope.Options{Pool: e.appPool(), Audit: audit.NewMemory()})
+	w := scope.New(scope.Options{Pool: e.appPool()})
 	ctx := context.Background()
 	// Without the setting in force the sweep refuses to guess.
 	_, err := w.SweepInactive(ctx)
@@ -202,7 +202,7 @@ func TestInactivitySweep(t *testing.T) {
 	if r := ge.do(t, "GET", "/api/v1/me", cookie, nil, nil); r.code != http.StatusUnauthorized {
 		t.Fatalf("an inactive user's session: %d", r.code)
 	}
-	if n := e.adminQuery("SELECT count(*) FROM iam.event_outbox WHERE payload->>'type' = 'user.disabled_inactive' AND payload->'attributes'->>'inactive_after' = '2160h0m0s'"); n != "2" {
+	if n := e.adminQuery("SELECT count(*) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'user.disabled_inactive' AND payload->'attributes'->>'inactive_after' = '2160h0m0s'"); n != "2" {
 		t.Fatalf("%s sweep audit events", n)
 	}
 	// Idempotent; a shorter period (a stricter profile) catches more.

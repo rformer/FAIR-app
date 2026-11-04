@@ -43,7 +43,7 @@ func nch(t *testing.T, r *http.Request) bool {
 func (ge *gwEnv) networkEvents(t *testing.T) string {
 	t.Helper()
 	return ge.e.adminQuery(`SELECT coalesce(string_agg((payload->>'reason') || ':' || (payload->'attributes'->>'action') || ':' ||
-		(payload->'attributes'->>'new_ip'), '|' ORDER BY id), '') FROM iam.event_outbox WHERE payload->>'type' = 'session.network_changed'`)
+		(payload->'attributes'->>'new_ip'), '|' ORDER BY id), '') FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'session.network_changed'`)
 }
 
 func TestNetworkBindingModes(t *testing.T) {
@@ -131,7 +131,7 @@ func TestNetworkBindingModes(t *testing.T) {
 	if got := ge.networkEvents(t); !strings.HasSuffix(got, "|reauthenticate:revoked:198.51.100.9") {
 		t.Fatalf("reauthenticate audit %q", got)
 	}
-	if got := e.adminQuery("SELECT count(*) FROM iam.event_outbox WHERE payload->>'type' = 'session.revoked' AND payload->>'reason' = 'network_change'"); got != "1" {
+	if got := e.adminQuery("SELECT count(*) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'session.revoked' AND payload->>'reason' = 'network_change'"); got != "1" {
 		t.Fatalf("%s revocations audited", got)
 	}
 	// A session flagged earlier is revoked once the mode is reauthenticate.
@@ -186,7 +186,7 @@ func TestNetworkBindingClientAddressAndASN(t *testing.T) {
 	if r.code != http.StatusUnauthorized {
 		t.Fatalf("same /24, another ASN: %d %s", r.code, r.raw)
 	}
-	if got := ge.e.adminQuery("SELECT payload->'attributes'->>'asn' || '>' || (payload->'attributes'->>'new_asn') FROM iam.event_outbox WHERE payload->>'type' = 'session.network_changed'"); !strings.Contains(got, "64500>64501") {
+	if got := ge.e.adminQuery("SELECT payload->'attributes'->>'asn' || '>' || (payload->'attributes'->>'new_asn') FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'session.network_changed'"); !strings.Contains(got, "64500>64501") {
 		t.Fatalf("ASN audit %q", got)
 	}
 	// The services see the client's address, not the ingress's.

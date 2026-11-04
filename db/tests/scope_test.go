@@ -70,7 +70,7 @@ func TestScopeMoveCannotCommitWithoutOutboxRow(t *testing.T) {
 	e.mustOwner("ALTER TABLE iam.outbox DROP CONSTRAINT refuse_all")
 
 	e.drain()
-	if out := e.mustOwner(`SELECT payload->>'type' FROM iam.event_outbox WHERE topic = 'audit'`); out != "bu.moved" {
+	if out := e.adminQuery(`SELECT payload->>'type' FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE topic = 'audit'`); out != "bu.moved" {
 		t.Fatalf("audit events = %q, want bu.moved", out)
 	}
 }
@@ -192,7 +192,7 @@ func TestScopeReconcileDetectsDrift(t *testing.T) {
 	if !mapsEqual(got.Read, want.Read) || got.Version <= want.Version {
 		t.Fatalf("not repaired: %+v", got)
 	}
-	if out := e.mustOwner(`SELECT payload->>'severity' FROM iam.event_outbox WHERE topic = 'audit' AND payload->>'type' = 'authz.scope.drift'`); out != "high" {
+	if out := e.adminQuery(`SELECT payload->>'severity' FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE topic = 'audit' AND payload->>'type' = 'authz.scope.drift'`); out != "high" {
 		t.Fatalf("drift alert = %q", out)
 	}
 }

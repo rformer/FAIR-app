@@ -53,7 +53,7 @@ func (s Switches) Request(ctx context.Context, p authz.Principal, targetID, targ
 		if r.Loosening {
 			sev = audit.SeverityHigh // AC-19
 		}
-		return s.Audit.Emit(ctx, audit.Event{Type: "profile.switch_requested", Severity: sev, Actor: p.UserID,
+		return s.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "profile.switch_requested", Severity: sev, Actor: p.UserID,
 			Target: "profile:" + targetID + "@" + targetVersion, Reason: justification, Attributes: map[string]string{
 				"switch_id": r.ID, "loosening": strconv.FormatBool(r.Loosening), "conflicts": strconv.Itoa(r.Conflicts), "approval_id": r.ApprovalID}})
 	})
@@ -77,7 +77,7 @@ func (s Switches) Resolve(ctx context.Context, p authz.Principal, switchID, key,
 			switchID, key, nullable(buID), resolution, nullable(reason), durationArg(d)).Scan(&approval); err != nil {
 			return err
 		}
-		return s.Audit.Emit(ctx, audit.Event{Type: "profile.conflict_resolved", Severity: audit.SeverityInfo, Actor: p.UserID,
+		return s.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "profile.conflict_resolved", Severity: audit.SeverityInfo, Actor: p.UserID,
 			Target: "setting:" + key, Reason: reason, Attributes: map[string]string{"switch_id": switchID, "key": key, "bu_id": buID, "resolution": resolution}})
 	})
 	if approval == nil {
@@ -95,7 +95,7 @@ func (s Switches) Activate(ctx context.Context, p authz.Principal, switchID stri
 		if err := tx.QueryRow(ctx, "SELECT posture.activate_switch($1)", switchID).Scan(&changed); err != nil {
 			return err
 		}
-		return s.Audit.Emit(ctx, audit.Event{Type: "profile.activated", Severity: audit.SeverityHigh, Actor: p.UserID,
+		return s.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "profile.activated", Severity: audit.SeverityHigh, Actor: p.UserID,
 			Target: "switch:" + switchID, Attributes: map[string]string{"switch_id": switchID, "changed": strconv.Itoa(changed)}})
 	})
 	if err != nil {
@@ -115,7 +115,7 @@ func (s Switches) Cancel(ctx context.Context, p authz.Principal, switchID string
 		if _, err := tx.Exec(ctx, "SELECT posture.cancel_switch($1)", switchID); err != nil {
 			return err
 		}
-		return s.Audit.Emit(ctx, audit.Event{Type: "profile.switch_cancelled", Severity: audit.SeverityInfo, Actor: p.UserID,
+		return s.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "profile.switch_cancelled", Severity: audit.SeverityInfo, Actor: p.UserID,
 			Target: "switch:" + switchID, Attributes: map[string]string{"switch_id": switchID}})
 	}))
 }

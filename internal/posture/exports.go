@@ -202,7 +202,7 @@ func (x Exports) Create(ctx context.Context, p authz.Principal, kind string) (Ex
 			e.ID, kind, e.AsOf, e.CreatedAt, snapBytes, e.SnapshotDigest, e.DocumentDigest, e.Statement, e.Signature, kid); err != nil {
 			return err
 		}
-		return x.Audit.Emit(ctx, audit.Event{Type: EventExported, Severity: audit.SeverityHigh, Actor: p.UserID,
+		return x.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: EventExported, Severity: audit.SeverityHigh, Actor: p.UserID,
 			Target: "export:" + e.ID, Attributes: e.attrs()})
 	})
 	if err != nil {
@@ -240,13 +240,14 @@ func (x Exports) Get(ctx context.Context, p authz.Principal, id string) (Export,
 		if why := x.reproduce(&e, snap); why != "" {
 			attrs := e.attrs()
 			attrs["reason"] = why
+			// Its own transaction: this one rolls back with the refusal below.
 			if err := x.Audit.Emit(ctx, audit.Event{Type: EventExportMismatched, Severity: audit.SeverityCritical, Actor: p.UserID,
 				Target: "export:" + e.ID, Reason: why, Attributes: attrs}); err != nil {
 				return err
 			}
 			return fmt.Errorf("%w: %s", ErrNotReproducible, why)
 		}
-		return x.Audit.Emit(ctx, audit.Event{Type: EventExportFetched, Severity: audit.SeverityLow, Actor: p.UserID,
+		return x.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: EventExportFetched, Severity: audit.SeverityLow, Actor: p.UserID,
 			Target: "export:" + e.ID, Attributes: e.attrs()})
 	})
 	if err != nil {

@@ -9,7 +9,6 @@ import (
 
 	"github.com/rformer/fair-app/internal/scope"
 	"github.com/rformer/fair-app/internal/server"
-	"github.com/rformer/fair-app/pkg/audit"
 )
 
 // F-001 T-23b (AC-11, AC-25, AC-47, AC-54; design §6): user administration
@@ -151,7 +150,7 @@ func TestUserAdminActions(t *testing.T) {
 	admin, buadmin, um := ue.admin, ue.login(t, "buadmin"), ue.login(t, "um")
 	aliceSession := ue.login(t, "alice")
 	auditOf := func(typ string) string {
-		return e.adminQuery("SELECT coalesce(string_agg((payload->>'severity') || ':' || (payload->>'reason') || ':' || (payload->'attributes'->'before'->>'status') || '>' || (payload->'attributes'->'after'->>'status'), ',' ORDER BY id), '') FROM iam.event_outbox WHERE payload->>'type' = '" + typ + "'")
+		return e.adminQuery("SELECT coalesce(string_agg((payload->>'severity') || ':' || (payload->>'reason') || ':' || ((payload->'attributes'->>'before')::jsonb->>'status') || '>' || ((payload->'attributes'->>'after')::jsonb->>'status'), ',' ORDER BY id), '') FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = '" + typ + "'")
 	}
 
 	// disable: immediate, sessions end (T-22), audited high with before/after.
@@ -196,7 +195,7 @@ func TestUserAdminActions(t *testing.T) {
 	if r := ue.act(t, admin, "alice", "enable", "returned"); r.code != 200 || r.body["status"] != "active" {
 		t.Fatalf("enable: %d %s", r.code, r.raw)
 	}
-	w := scope.New(scope.Options{Pool: e.appPool(), Audit: audit.NewMemory()})
+	w := scope.New(scope.Options{Pool: e.appPool()})
 	if _, err := w.SweepInactive(context.Background()); err != nil {
 		t.Fatal(err)
 	}

@@ -442,4 +442,4 @@ controls:
     evidence:
       code: [pkg/audit/audit.go, pkg/audit/syslog.go, internal/scope]
       tests: ["pkg/audit:TestSyslogRFC5424OverTCP", "pkg/audit:TestFromEnv", "db/tests:TestWorkerAuditFailsClosed",
-              "internal/scope:TestSendValidatesAgainstTheCatalog"]
+              "pkg/audit:TestValidatingRecordsInvalidEvents"]

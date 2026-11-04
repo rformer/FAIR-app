@@ -124,7 +124,7 @@ func TestBUImportExport(t *testing.T) {
 		t.Fatalf("after import: %s", got)
 	}
 	if got := e.adminQuery(`SELECT string_agg(payload->>'type' || ':' || (payload->'attributes'->>'code') || ':' || (payload->>'reason'), ',' ORDER BY payload->'attributes'->>'code')
-		FROM iam.event_outbox WHERE payload->>'type' IN ('bu.created', 'bu.renamed') AND payload->>'severity' = 'high'`); got != "bu.renamed:A:reorg,bu.created:N:reorg,bu.created:N1:reorg" {
+		FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' IN ('bu.created', 'bu.renamed') AND payload->>'severity' = 'high'`); got != "bu.renamed:A:reorg,bu.created:N:reorg,bu.created:N1:reorg" {
 		t.Fatalf("import audit: %s", got)
 	}
 

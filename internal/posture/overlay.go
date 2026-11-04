@@ -76,7 +76,7 @@ func (o Overlay) Change(ctx context.Context, p authz.Principal, key string, valu
 			res.Warning = overlayWarning(key, current, value, def, params)
 			attrs["approval_id"] = res.ApprovalID
 			attrs["controls"] = strings.Join(res.Warning.Controls, ",")
-			return o.Audit.Emit(ctx, audit.Event{Type: "overlay.change_requested", Severity: audit.SeverityHigh, Actor: p.UserID,
+			return o.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "overlay.change_requested", Severity: audit.SeverityHigh, Actor: p.UserID,
 				Target: "overlay:" + key, Reason: explanation, Attributes: attrs})
 		}
 		var exc *string
@@ -88,7 +88,7 @@ func (o Overlay) Change(ctx context.Context, p authz.Principal, key string, valu
 		if res.Direction == "loosen" {
 			sev = audit.SeverityLow // back towards the default: audited and flagged
 		}
-		return o.Audit.Emit(ctx, audit.Event{Type: "overlay.changed", Severity: sev, Actor: p.UserID,
+		return o.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "overlay.changed", Severity: sev, Actor: p.UserID,
 			Target: "overlay:" + key, Reason: explanation, Attributes: attrs})
 	})
 	var pg *pgconn.PgError
@@ -150,7 +150,7 @@ func (o Overlay) ApplyApproved(ctx context.Context, changeID string) (Exception,
 			Scan(&x.Key, &x.Value, &x.OwnerID, &x.ApprovedBy, &x.ExpiresAt); err != nil {
 			return err
 		}
-		return o.Audit.Emit(ctx, audit.Event{Type: "overlay.exception_created", Severity: audit.SeverityHigh, Actor: x.ApprovedBy,
+		return o.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "overlay.exception_created", Severity: audit.SeverityHigh, Actor: x.ApprovedBy,
 			Target: "overlay:" + x.Key, Attributes: map[string]string{
 				"key": x.Key, "value": string(x.Value), "change_id": changeID, "exception_id": x.ID,
 				"owner": x.OwnerID, "approved_by": x.ApprovedBy, "expires_at": x.ExpiresAt.UTC().Format(time.RFC3339)}})

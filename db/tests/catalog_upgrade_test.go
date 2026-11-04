@@ -101,7 +101,7 @@ func TestCatalogRetirementAndReclassification(t *testing.T) {
 	if adminRisk < 1 {
 		t.Errorf("bu.view becoming risk data puts admins in AC-30 conflict; the notice says %v", adminRisk)
 	}
-	if got := e.adminQuery("SELECT count(*) FROM iam.event_outbox WHERE payload->>'type' IN ('catalog.permission_retired', 'catalog.permission_reclassified') AND payload->>'severity' = 'high'"); got != "3" {
+	if got := e.adminQuery("SELECT count(*) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' IN ('catalog.permission_retired', 'catalog.permission_reclassified') AND payload->>'severity' = 'high'"); got != "3" {
 		t.Fatalf("%s catalog audit events", got)
 	}
 	if a := se.call(t, se.admin, "POST", "/api/v1/permissions/notices/acknowledge", map[string]any{"ids": ids}); a.code != 200 || a.body["acknowledged"] != float64(len(ids)) {
@@ -201,7 +201,7 @@ func TestRoleExportImport(t *testing.T) {
 	if ver, perms := e.rolePerms("Reviewer"); ver != 2 || !slices.Contains(perms, "audit.view") {
 		t.Fatalf("Reviewer after import: v%d %v", ver, perms)
 	}
-	if got := e.adminQuery("SELECT count(*) FROM iam.event_outbox WHERE payload->>'type' = 'role.imported'"); got != "2" {
+	if got := e.adminQuery("SELECT count(*) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'role.imported'"); got != "2" {
 		t.Fatalf("%s import audit events", got)
 	}
 	// All or nothing: one bad role keeps the good one out too.

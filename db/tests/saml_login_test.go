@@ -163,7 +163,7 @@ func TestSAMLLoginEndToEnd(t *testing.T) {
 	se := samlFixture(t, false)
 	e := se.e
 	audit := func(typ string) string {
-		return e.adminQuery("SELECT coalesce(string_agg(coalesce(payload->>'reason', '') , '|' ORDER BY id), '') FROM iam.event_outbox WHERE topic = 'audit' AND payload->>'type' = '" + typ + "'")
+		return e.adminQuery("SELECT coalesce(string_agg(coalesce(payload->>'reason', '') , '|' ORDER BY id), '') FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE topic = 'audit' AND payload->>'type' = '" + typ + "'")
 	}
 
 	// SP-initiated: the browser comes back signed in, at the page it asked for.
@@ -193,7 +193,7 @@ func TestSAMLLoginEndToEnd(t *testing.T) {
 	if got := se.sessionRow(t, cookie, "mfa_evidence->>'saml_authn_context'"); got != samltest.MultiFactor {
 		t.Fatalf("MFA evidence %q", got)
 	}
-	if audit("authn.login.success") != "" || e.adminQuery("SELECT count(*) FROM iam.event_outbox WHERE payload->>'type' = 'authn.login.success'") != "1" {
+	if audit("authn.login.success") != "" || e.adminQuery("SELECT count(*) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'authn.login.success'") != "1" {
 		t.Fatalf("success audit %q", audit("authn.login.success"))
 	}
 

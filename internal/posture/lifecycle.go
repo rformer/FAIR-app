@@ -33,7 +33,7 @@ func (ev Evaluator) RequestRenewal(ctx context.Context, p authz.Principal, excep
 			exceptionID, justification, durationArg(duration)).Scan(&r.ID, &r.ApprovalID); err != nil {
 			return err
 		}
-		return ev.Audit.Emit(ctx, audit.Event{Type: "setting.exception_renewal_requested", Severity: audit.SeverityHigh, Actor: p.UserID,
+		return ev.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "setting.exception_renewal_requested", Severity: audit.SeverityHigh, Actor: p.UserID,
 			Target: "exception:" + exceptionID, Reason: justification,
 			Attributes: map[string]string{"exception_id": exceptionID, "renewal_id": r.ID, "approval_id": r.ApprovalID}})
 	})
@@ -57,7 +57,7 @@ func (ev Evaluator) ApplyRenewal(ctx context.Context, renewalID string) (Excepti
 		if bu != nil {
 			x.BUID = *bu
 		}
-		return ev.Audit.Emit(ctx, audit.Event{Type: "setting.exception_renewed", Severity: audit.SeverityHigh, Actor: x.ApprovedBy,
+		return ev.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "setting.exception_renewed", Severity: audit.SeverityHigh, Actor: x.ApprovedBy,
 			Target: "setting:" + x.Key, Attributes: map[string]string{
 				"key": x.Key, "bu_id": x.BUID, "renewal_id": renewalID, "exception_id": x.ID, "owner": x.OwnerID,
 				"approved_by": x.ApprovedBy, "expires_at": x.ExpiresAt.UTC().Format(time.RFC3339)}})
@@ -116,7 +116,7 @@ func ExceptionNotices(ctx context.Context, db *pgxpool.Pool, em audit.Emitter) (
 			case 1:
 				sev = audit.SeverityHigh
 			}
-			if err := em.Emit(ctx, audit.Event{Type: "setting.exception_expiring", Severity: sev, Actor: "system:posture",
+			if err := em.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "setting.exception_expiring", Severity: sev, Actor: "system:posture",
 				Target: "exception:" + n.ExceptionID, Attributes: map[string]string{
 					"exception_id": n.ExceptionID, "key": n.Key, "bu_id": n.BUID, "owner": n.OwnerID,
 					"days_before": strconv.Itoa(n.DaysBefore), "expires_at": n.ExpiresAt.UTC().Format(time.RFC3339)}}); err != nil {

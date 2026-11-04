@@ -413,7 +413,7 @@ func (s Profiles) importDoc(ctx context.Context, p authz.Principal, newID string
 				return fmt.Errorf("%s: %w", k.Key, err)
 			}
 		}
-		return s.Audit.Emit(ctx, audit.Event{Type: "profile.imported", Severity: audit.SeverityHigh, Actor: p.UserID, Target: "profile:" + newID,
+		return s.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "profile.imported", Severity: audit.SeverityHigh, Actor: p.UserID, Target: "profile:" + newID,
 			Attributes: map[string]string{"profile": newID, "version": version, "base": d.Base.ID, "base_version": d.Base.Version, "format": format}})
 	})
 	if err != nil && !errors.Is(err, ErrImport) {

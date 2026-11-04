@@ -35,7 +35,7 @@ func TestMFAEvidenceSAML(t *testing.T) {
 	missing := func() string {
 		return e.adminQuery(`SELECT coalesce(string_agg((payload->>'severity') || ':' || (payload->>'reason') || ':' ||
 			(payload->'attributes'->>'user_id') || ':' || coalesce(payload->'attributes'->>'authn_context', ''), '|' ORDER BY id), '')
-			FROM iam.event_outbox WHERE topic = 'audit' AND payload->>'type' = 'authn.mfa_missing'`)
+			FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE topic = 'audit' AND payload->>'type' = 'authn.mfa_missing'`)
 	}
 	userID := e.adminQuery("SELECT id FROM iam.app_user WHERE email = 'user@example.test'")
 
@@ -128,7 +128,7 @@ func TestMFAEvidenceOIDC(t *testing.T) {
 			t.Errorf("acr %q: %d, want %d", acr, resp.StatusCode, want)
 		}
 	}
-	got := e.adminQuery("SELECT string_agg(payload->'attributes'->>'acr', ',' ORDER BY id) FROM iam.event_outbox WHERE payload->>'type' = 'authn.mfa_missing'")
+	got := e.adminQuery("SELECT string_agg(payload->'attributes'->>'acr', ',' ORDER BY id) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'authn.mfa_missing'")
 	if got != ",,silver" {
 		t.Fatalf("mfa_missing audit acr values %q", got)
 	}
@@ -162,7 +162,7 @@ func TestIDPMFARuleAPI(t *testing.T) {
 	if got := ie.e.adminQuery("SELECT mfa_evidence_rule::text FROM iam.idp WHERE id = '" + id + "'"); got != "{}" {
 		t.Fatalf("defaults stored as %s", got)
 	}
-	audit := ie.e.adminQuery(`SELECT count(*) FROM iam.event_outbox WHERE payload->>'type' = 'idp.mfa_rule_changed'
+	audit := ie.e.adminQuery(`SELECT count(*) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'idp.mfa_rule_changed'
 		AND payload->>'severity' = 'high' AND payload->>'reason' = 'change ticket 42'`)
 	if audit != "2" {
 		t.Fatalf("%s rule changes audited", audit)

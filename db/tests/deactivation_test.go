@@ -17,7 +17,6 @@ import (
 	"github.com/rformer/fair-app/internal/natspub"
 	"github.com/rformer/fair-app/internal/scim"
 	"github.com/rformer/fair-app/internal/scope"
-	"github.com/rformer/fair-app/pkg/audit"
 )
 
 // F-001 T-22 (AC-10; design §5.3): a user deactivated through SCIM loses
@@ -92,7 +91,7 @@ func TestDeactivationPropagation(t *testing.T) {
 		t.Fatal("the scope survived the deactivation")
 	}
 	events := e.adminQuery(`SELECT string_agg(CASE WHEN topic = 'audit' THEN payload->>'type' || ':' || (payload->>'severity') ELSE topic END, ',' ORDER BY id)
-		FROM iam.event_outbox WHERE payload::text LIKE '%` + dana + `%' AND (topic <> 'audit' OR payload->>'type' LIKE 'session.revoked%')`)
+		FROM (SELECT id, topic, payload FROM iam.event_outbox UNION ALL SELECT id, 'audit', body FROM audit.intake) ev WHERE payload::text LIKE '%` + dana + `%' AND (topic <> 'audit' OR payload->>'type' LIKE 'session.revoked%')`)
 	for _, want := range []string{"session.revoked:high", "iam.session.revoked", "iam.user.deactivated"} {
 		if strings.Count(events, want+",")+strings.Count(events+",", want+",") == 0 {
 			t.Errorf("events %q lack %s", events, want)
@@ -191,7 +190,7 @@ func TestDeactivationEventsPublished(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := scope.New(scope.Options{Pool: ie.e.appPool(), Publisher: pub, Audit: audit.NewMemory()})
+	w := scope.New(scope.Options{Pool: ie.e.appPool(), Publisher: pub})
 	start := time.Now()
 	if err := w.Deliver(ctx); err != nil {
 		t.Fatal(err)

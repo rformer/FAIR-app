@@ -173,7 +173,7 @@ func seed(profile, version, actor string) error {
 		return err
 	}
 	defer pool.Close()
-	sink, err := auditSink()
+	sink, err := auditSink(pool)
 	if err != nil {
 		return err
 	}
@@ -193,7 +193,7 @@ func k8sAccess(cmd, reason, actor string) error {
 		return err
 	}
 	defer pool.Close()
-	sink, err := auditSink()
+	sink, err := auditSink(pool)
 	if err != nil {
 		return err
 	}
@@ -254,7 +254,7 @@ func importDir(pubFile, dir, actor string) error {
 		return err
 	}
 	defer pool.Close()
-	sink, err := auditSink()
+	sink, err := auditSink(pool)
 	if err != nil {
 		return err
 	}
@@ -316,7 +316,7 @@ func run() error {
 		})
 	}
 
-	emitter, err := auditSink()
+	emitter, err := auditSink(pool)
 	if err != nil {
 		return err
 	}
@@ -573,10 +573,15 @@ func verifyExport(pubFile, docFile, stFile, sigFile string) error {
 // JSON lines on stdout and, when FAIR_AUDIT_SYSLOG_ADDR is set, syslog over
 // TLS; every event checked against the catalog. The F-002 audit trail
 // replaces it.
-func auditSink() (audit.Emitter, error) {
+func auditSink(db audit.Beginner) (audit.Emitter, error) {
 	env := os.Getenv("FAIR_ENV")
 	if env == "" {
 		env = "production"
 	}
-	return audit.FromEnv(env, "fair-posture", os.Getenv)
+	e, err := audit.FromEnv(env, "fair-posture", os.Getenv)
+	if err != nil {
+		return nil, err
+	}
+	// F-002 T-06: the audit trail first, then the logs.
+	return audit.WithTrail(e, audit.Trail{DB: db}), nil
 }

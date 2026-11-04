@@ -77,7 +77,7 @@ func RevertDue(ctx context.Context, db *pgxpool.Pool, em audit.Emitter, pub Publ
 			if _, err := tx.Exec(ctx, "SELECT posture.apply_revert($1)", d.id); err != nil {
 				return err
 			}
-			return em.Emit(ctx, audit.Event{Type: "setting.exception_reverted", Severity: audit.SeverityHigh, Actor: RevertActor,
+			return em.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "setting.exception_reverted", Severity: audit.SeverityHigh, Actor: RevertActor,
 				Target: "setting:" + d.key, Attributes: attrs})
 		})
 		if o.Err == nil {

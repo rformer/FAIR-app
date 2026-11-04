@@ -64,7 +64,7 @@ jobs:
           PGPORT: "5432"
           PGUSER: postgres
           PGPASSWORD: ci-only-admin
-        run: go test -count=1 -v ./db/tests/
+        run: go test -count=1 -timeout 60m -v ./db/tests/ # as make test-db
       - name: STRIDE suites (F-015 T-36, design §8; F-001 T-40, design §7)
         env:
           FAIR_TEST_PG: "1"

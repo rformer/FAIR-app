@@ -160,7 +160,7 @@ func TestAccessReviews(t *testing.T) {
 	}
 	// The audit trail.
 	if got := e.adminQuery(`SELECT string_agg(payload->'attributes'->>'decision' || ':' || (payload->>'severity'), ',' ORDER BY id)
-		FROM iam.event_outbox WHERE payload->>'type' = 'access_review.decided'`); got != "certify:info,revoke:high,revoke:high,revoke:high,certify:info,revoke:high" { // ann, Ops, Eng, the account, rev, zed
+		FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'access_review.decided'`); got != "certify:info,revoke:high,revoke:high,revoke:high,certify:info,revoke:high" { // ann, Ops, Eng, the account, rev, zed
 		t.Fatalf("decisions audited: %s", got)
 	}
 	// Managing campaigns is not deciding items: the admin holds
@@ -232,7 +232,7 @@ func TestAccessReviews(t *testing.T) {
 	if got := e.adminQuery("SELECT string_agg(DISTINCT decision, ',') FROM iam.access_review_item WHERE campaign_id = '" + id2 + "'"); got != "expired_unreviewed" {
 		t.Fatalf("keep policy: %s", got)
 	}
-	if got := e.adminQuery("SELECT count(*) FROM iam.event_outbox WHERE payload->>'type' = 'access_review.campaign_closed' AND payload->>'actor' = 'system:reviews'"); got != "2" {
+	if got := e.adminQuery("SELECT count(*) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'access_review.campaign_closed' AND payload->>'actor' = 'system:reviews'"); got != "2" {
 		t.Fatalf("closes audited: %s", got)
 	}
 	// A closed campaign takes no decisions; a manager closes one early.

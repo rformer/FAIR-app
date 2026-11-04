@@ -61,7 +61,7 @@ func TestOIDCKeycloakInterop(t *testing.T) {
 	if code, cookie, _ := oe.keycloakLogin(t, redirect); code != http.StatusUnauthorized || cookie != "" {
 		t.Fatalf("a login without MFA: %d", code)
 	}
-	if got := e.adminQuery("SELECT count(*) FROM iam.event_outbox WHERE payload->>'type' = 'authn.mfa_missing'"); got != "1" {
+	if got := e.adminQuery("SELECT count(*) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'authn.mfa_missing'"); got != "1" {
 		t.Fatalf("%s logins without MFA audited", got)
 	}
 	oe.mfa.all = false

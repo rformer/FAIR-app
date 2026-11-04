@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/rformer/fair-app/internal/scope"
-	"github.com/rformer/fair-app/pkg/audit"
 )
 
 // F-001 T-32 (AC-23): expired assignments are revoked by the sweep, and the
@@ -28,7 +27,7 @@ func TestAssignmentExpirySweep(t *testing.T) {
 		t.Fatalf("ann's scope before expiry: %+v", s)
 	}
 
-	w := scope.New(scope.Options{Pool: e.appPool(), Audit: audit.NewMemory()})
+	w := scope.New(scope.Options{Pool: e.appPool()})
 	ctx := context.Background()
 	if n, err := w.SweepExpired(ctx); err != nil || n != 0 {
 		t.Fatalf("sweep before expiry: %d %v", n, err)
@@ -53,7 +52,7 @@ func TestAssignmentExpirySweep(t *testing.T) {
 		t.Fatalf("ann's assignment after the sweep: %s", got)
 	}
 	if got := e.adminQuery(`SELECT payload->>'severity' || ':' || (payload->>'actor') || ':' || (payload->>'target' = 'user:' || ` + uid("ann") + `::text)
-		FROM iam.event_outbox WHERE payload->>'type' = 'access.assignment_expired'`); got != "low:system:iam:true" {
+		FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'access.assignment_expired'`); got != "low:system:iam:true" {
 		t.Fatalf("expiry audit: %q", got)
 	}
 	e.drain()

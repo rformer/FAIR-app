@@ -15,7 +15,6 @@ package scope
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -24,8 +23,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
-
-	"github.com/rformer/fair-app/pkg/audit"
 )
 
 // SubjectScopeChanged is published for every user whose scope changed.
@@ -55,7 +52,6 @@ type Publisher interface {
 type Options struct {
 	Pool      *pgxpool.Pool // connected as app_rw
 	Publisher Publisher
-	Audit     audit.Emitter
 	Logger    *slog.Logger
 
 	DrainEvery     time.Duration // default 2s; at least 1s (River's unique-period minimum)
@@ -164,31 +160,13 @@ func (w *Worker) Deliver(ctx context.Context) error {
 }
 
 func (w *Worker) send(ctx context.Context, e event) error {
-	if e.topic != "audit" {
-		if err := w.o.Publisher.Publish(ctx, e.topic, e.msgID(), e.payload); err != nil {
-			return fmt.Errorf("scope: publish event %d to %s: %w", e.id, e.topic, err)
-		}
-		return nil
+	if e.topic == "audit" {
+		// Since F-002 T-06 audit rows never reach the outbox: a trigger hands
+		// them to the audit trail in the producer's transaction.
+		return fmt.Errorf("scope: event %d has topic audit; audit events go to the trail (iam.event_outbox trigger)", e.id)
 	}
-	ev, err := audit.FromOutbox(e.id, e.payload) // target, reason, before/after kept (T-37)
-	if err != nil {
-		return fmt.Errorf("scope: audit event %d: %w", e.id, err)
-	}
-	err = w.o.Audit.Emit(ctx, ev)
-	if errors.Is(err, audit.ErrUncatalogued) {
-		// An event the catalog does not describe is a defect (the catalog
-		// test and the database tests catch them). It is recorded, not
-		// lost, and it does not hold back the outbox: a critical event
-		// carries the original (T-37).
-		raw := string(e.payload)
-		if len(raw) > 8192 {
-			raw = raw[:8192]
-		}
-		err = w.o.Audit.Emit(ctx, audit.Event{Type: "audit.invalid_event", Severity: audit.SeverityCritical, Actor: "system:iam",
-			Target: "event:" + fmt.Sprint(e.id), Reason: err.Error(), Attributes: map[string]string{"event_id": fmt.Sprint(e.id), "payload": raw}})
-	}
-	if err != nil {
-		return fmt.Errorf("scope: audit event %d: %w", e.id, err)
+	if err := w.o.Publisher.Publish(ctx, e.topic, e.msgID(), e.payload); err != nil {
+		return fmt.Errorf("scope: publish event %d to %s: %w", e.id, e.topic, err)
 	}
 	return nil
 }

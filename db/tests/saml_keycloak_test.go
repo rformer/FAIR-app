@@ -88,7 +88,7 @@ func TestSAMLKeycloakInterop(t *testing.T) {
 	// T-18 (AC-05): a password-only login is not MFA, so while MFA is
 	// required (the default) it is denied and audited.
 	se.keycloakLogin(t, browser, startLogin(), "")
-	if got := e.adminQuery("SELECT payload->'attributes'->>'authn_context' FROM iam.event_outbox WHERE payload->>'type' = 'authn.mfa_missing'"); got == "" {
+	if got := e.adminQuery("SELECT payload->'attributes'->>'authn_context' FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'authn.mfa_missing'"); got == "" {
 		t.Fatal("the login without MFA was not audited")
 	}
 	// With MFA required of privileged users only, this user signs in.
@@ -108,7 +108,7 @@ func TestSAMLKeycloakInterop(t *testing.T) {
 	if cookie2 == "" || cookie2 == cookie {
 		t.Fatal("IdP-initiated login gave no new session")
 	}
-	if got := e.adminQuery("SELECT count(*) FROM iam.event_outbox WHERE payload->>'type' = 'authn.login.success'"); got != "2" {
+	if got := e.adminQuery("SELECT count(*) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'authn.login.success'"); got != "2" {
 		t.Fatalf("%s successful logins audited", got)
 	}
 }

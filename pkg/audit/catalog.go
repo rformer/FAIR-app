@@ -294,9 +294,28 @@ func (v Validating) Emit(ctx context.Context, e Event) error {
 		return err
 	}
 	if err := v.Catalog.Validate(e); err != nil {
+		v.recordInvalid(ctx, e, err)
 		return err
 	}
 	return v.Next.Emit(ctx, e)
+}
+
+// recordInvalid records an event the catalog refused as audit.invalid_event
+// (critical, with the original attached; F-002 design §6.1), best effort:
+// the refusal is returned to the caller either way, so the operation
+// fails. It is recorded outside the caller's transaction, which is about
+// to roll back.
+func (v Validating) recordInvalid(ctx context.Context, e Event, cause error) {
+	raw, _ := json.Marshal(e)
+	if len(raw) > 8192 {
+		raw = raw[:8192]
+	}
+	inv, err := Normalize(Event{Type: "audit.invalid_event", Severity: SeverityCritical, Actor: "system:audit",
+		Target: "event:" + e.ID, Reason: cause.Error(), Attributes: map[string]string{"payload": string(raw)}}, time.Now())
+	if err != nil || v.Catalog.Validate(inv) != nil {
+		return // e.g. the original looks like a secret: not copied anywhere
+	}
+	_ = v.Next.Emit(context.WithValue(ctx, txKey{}, nil), inv)
 }
 
 // strict makes Memory validate against the catalog (tests of the whole

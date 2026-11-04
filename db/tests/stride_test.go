@@ -383,7 +383,7 @@ func TestSTRIDERepudiationAndCollusion(t *testing.T) {
 		t.Fatalf("request %s, exception owner %s approver %s", got, x.OwnerID, x.ApprovedBy)
 	}
 	// And in the audit trail: the approval decision and the exception.
-	outbox := e.adminQuery(`SELECT payload->'attributes'->>'requested_by' || '|' || (payload->'attributes'->>'decided_by') FROM iam.event_outbox
+	outbox := e.adminQuery(`SELECT payload->'attributes'->>'requested_by' || '|' || (payload->'attributes'->>'decided_by') FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev
 		WHERE topic = 'audit' AND payload->>'type' = 'approval.approved' AND payload->>'target' = 'approval:` + res.ApprovalID + `'`)
 	if outbox != admin.UserID+"|"+admin2.UserID {
 		t.Fatalf("approval audit %q", outbox)

@@ -133,7 +133,8 @@ func keysCommand(args []string, out io.Writer) error {
 		if err != nil {
 			return err
 		}
-		emit := audit.Validating{Next: audit.NewJSONLines(out), Catalog: c}
+		// The install log, and the audit trail as fair_owner (F-002 T-06).
+		emit := audit.WithTrail(audit.Validating{Next: audit.NewJSONLines(out), Catalog: c}, audit.Trail{DB: conn, Role: "fair_owner"})
 		if args[0] == "retire-db-context" {
 			return keys.RetireDBContext(ctx, conn, emit, *id)
 		}

@@ -43,7 +43,7 @@ func TestAuditSchemaAccess(t *testing.T) {
 		CROSS JOIN pg_roles r
 		WHERE r.rolname IN ('public', 'app_rw', 'app_posture', 'app_gateway', 'app_engine', 'app_migrator', 'app_audit', 'fair_owner')
 		  AND has_function_privilege(r.oid, f.fn::regprocedure, 'EXECUTE')`)
-	if grants != "app_audit:audit.submit(jsonb),app_gateway:audit.submit(jsonb),app_posture:audit.submit(jsonb),app_rw:audit.submit(jsonb),fair_owner:audit.sync_event_types(jsonb)" {
+	if grants != "app_audit:audit.submit(jsonb),app_gateway:audit.submit(jsonb),app_posture:audit.submit(jsonb),app_rw:audit.submit(jsonb),fair_owner:audit.submit(jsonb),fair_owner:audit.sync_event_types(jsonb)" {
 		t.Fatalf("function grants: %s", grants)
 	}
 	if out := e.mustOwner(`SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -82,7 +82,7 @@ func TestAuditSchemaAccess(t *testing.T) {
 	// SECURITY DEFINER functions are owned by audit_definer with a fixed search_path.
 	fns := e.mustOwner(`SELECT string_agg(p.proname || ':' || pg_get_userbyid(p.proowner) || ':' || coalesce(array_to_string(p.proconfig, '|'), ''), ',' ORDER BY p.proname)
 		FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'audit' AND p.prosecdef`)
-	want := "ensure_partition:audit_definer:search_path=pg_catalog, pg_temp,submit:audit_definer:search_path=pg_catalog, pg_temp,sync_event_types:audit_definer:search_path=pg_catalog, pg_temp"
+	want := "ensure_partition:audit_definer:search_path=pg_catalog, pg_temp,from_outbox:audit_definer:search_path=pg_catalog, pg_temp,submit:audit_definer:search_path=pg_catalog, pg_temp,sync_event_types:audit_definer:search_path=pg_catalog, pg_temp"
 	if fns != want {
 		t.Fatalf("definer functions\n got: %s\nwant: %s", fns, want)
 	}

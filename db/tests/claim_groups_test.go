@@ -40,7 +40,7 @@ func claimState(e *env, user string) (groups, mapped string) {
 
 func claimEvents(e *env, typ string) string {
 	return e.adminQuery(`SELECT coalesce(string_agg((payload->>'severity') || ':' || coalesce(payload->'attributes'->>'claim', ''), '|' ORDER BY id), '')
-		FROM iam.event_outbox WHERE topic = 'audit' AND payload->>'type' = '` + typ + `'`)
+		FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE topic = 'audit' AND payload->>'type' = '` + typ + `'`)
 }
 
 func TestClaimGroupsSAML(t *testing.T) {
@@ -219,7 +219,7 @@ func TestClaimGroupsAPI(t *testing.T) {
 		t.Fatalf("declare: %d %s", r.code, r.raw)
 	}
 	if got := e.adminQuery(`SELECT payload->>'severity' || ':' || (payload->>'reason') || ':' || (payload->'attributes'->>'claim_value')
-		FROM iam.event_outbox WHERE payload->>'type' = 'idp.claim_group_added'`); got != "high:ticket 9:analysts" {
+		FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'idp.claim_group_added'`); got != "high:ticket 9:analysts" {
 		t.Fatalf("added event %q", got)
 	}
 	for name, c := range map[string]struct {
@@ -310,7 +310,7 @@ func TestClaimGroupsAPI(t *testing.T) {
 	if r := ie.do(t, "DELETE", base+"/"+gid+"?reason=again", ie.admin, nil, ie.hdr()); r.code != http.StatusNotFound {
 		t.Fatalf("removing twice: %d", r.code)
 	}
-	if got := e.adminQuery("SELECT count(*) FROM iam.event_outbox WHERE payload->>'type' = 'idp.claim_group_removed'"); got != "1" {
+	if got := e.adminQuery("SELECT count(*) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'idp.claim_group_removed'"); got != "1" {
 		t.Fatalf("removed events %s", got)
 	}
 	// The value can be declared again.

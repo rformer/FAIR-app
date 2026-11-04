@@ -102,7 +102,7 @@ func run() error {
 		return err
 	}
 
-	emitter, err := auditSink(cfg.Env)
+	emitter, err := auditSink(cfg.Env, pool)
 	if err != nil {
 		return err
 	}
@@ -178,8 +178,12 @@ func connect(ctx context.Context, env string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-// auditSink is the service's own event emitter (F-001 T-37). T-06 moves
-// every service, this one included, onto the trail.
-func auditSink(env string) (audit.Emitter, error) {
-	return audit.FromEnv(env, "fair-audit", os.Getenv)
+// auditSink is the service's own event emitter (F-001 T-37): the audit
+// trail first, then the logs (F-002 T-06).
+func auditSink(env string, db audit.Beginner) (audit.Emitter, error) {
+	e, err := audit.FromEnv(env, "fair-audit", os.Getenv)
+	if err != nil {
+		return nil, err
+	}
+	return audit.WithTrail(e, audit.Trail{DB: db}), nil
 }

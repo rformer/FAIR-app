@@ -175,7 +175,7 @@ func TestBreakglass(t *testing.T) {
 	if got := e.adminQuery(`SELECT count(*) FROM iam.breakglass_enrollment WHERE code_hash IN ('\x` + hashOf(code1) + `', '\x` + hashOf(code2) + `')`); got != "2" {
 		t.Fatal("enrollment codes not stored as their hashes")
 	}
-	if got := e.adminQuery(`SELECT payload->>'actor' || ':' || (payload->'attributes'->>'at_install') || ':' || (payload->>'reason') FROM iam.event_outbox
+	if got := e.adminQuery(`SELECT payload->>'actor' || ':' || (payload->'attributes'->>'at_install') || ':' || (payload->>'reason') FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev
 		WHERE payload->>'type' = 'breakglass.enabled'`); got != "system:installer:true:disaster recovery per runbook 7" {
 		t.Fatalf("install audit: %s", got)
 	}
@@ -231,7 +231,7 @@ func TestBreakglass(t *testing.T) {
 	if got := e.adminQuery("SELECT auth_method || ':' || (mfa_evidence->>'webauthn') FROM iam.session WHERE user_id = '" + bgID + "'"); got != "breakglass:true" {
 		t.Fatalf("session: %s", got)
 	}
-	if got := e.adminQuery(`SELECT (SELECT payload->>'severity' FROM iam.event_outbox WHERE topic = 'audit' AND payload->>'type' = 'breakglass.login') || ':' ||
+	if got := e.adminQuery(`SELECT (SELECT payload->>'severity' FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE topic = 'audit' AND payload->>'type' = 'breakglass.login') || ':' ||
 		(SELECT count(*) FROM iam.event_outbox WHERE topic = 'iam.breakglass.login') || ':' ||
 		(SELECT count(*) FROM iam.notice_outbox WHERE kind = 'breakglass.login' AND channels = 'all') || ':' ||
 		(SELECT count(*) FROM posture.secops_outbox)`); got != "high:1:1:0" {
@@ -282,7 +282,7 @@ func TestBreakglass(t *testing.T) {
 	if r := be.bgLogin(t, bg1); r.code != http.StatusUnauthorized {
 		t.Fatalf("locked account signs in: %d %s", r.code, r.raw)
 	}
-	if got := e.adminQuery("SELECT count(*) FROM iam.event_outbox WHERE payload->>'type' = 'user.locked' AND payload->>'severity' = 'high'"); got != "1" {
+	if got := e.adminQuery("SELECT count(*) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'user.locked' AND payload->>'severity' = 'high'"); got != "1" {
 		t.Fatalf("lockout audit: %s", got)
 	}
 	// Unlocking (user administration) starts afresh.
@@ -394,7 +394,7 @@ func TestBreakglass(t *testing.T) {
 		t.Fatalf("replay: %d %s", again.code, again.raw)
 	}
 	if got := e.adminQuery(`SELECT (payload->'attributes'->>'approved_by' = ` + uid("admin2") + `::text) || ':' || (payload->>'severity')
-		FROM iam.event_outbox WHERE payload->>'type' = 'breakglass.enabled' ORDER BY id DESC LIMIT 1`); got != "true:high" {
+		FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'breakglass.enabled' ORDER BY id DESC LIMIT 1`); got != "true:high" {
 		t.Fatalf("enable audit: %s", got)
 	}
 	exc := e.adminQuery("SELECT id FROM posture.exception WHERE key = 'breakglass.enabled' AND state = 'active'")
@@ -509,7 +509,7 @@ func TestIdPOutageRecoveryDrill(t *testing.T) {
 	logStep("emergency enable by operator Jo Operator: install-log line breakglass.emergency_enabled (critical); one enrollment code printed once")
 	if got := e.adminQuery(`SELECT iam.breakglass_enabled() || ':' ||
 		(SELECT (expires_at <= now() + interval '24 hours') || ':' || (approved_by = iam.installer_user()) FROM posture.exception WHERE key = 'breakglass.enabled' AND state = 'active') || ':' ||
-		(SELECT payload->>'severity' || ':' || (payload->>'actor') FROM iam.event_outbox WHERE payload->>'type' = 'breakglass.emergency_enabled') || ':' ||
+		(SELECT payload->>'severity' || ':' || (payload->>'actor') FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'breakglass.emergency_enabled') || ':' ||
 		(SELECT count(*) FROM iam.notice_outbox WHERE kind = 'breakglass.emergency_enabled')`); got != "true:true:true:critical:operator:Jo Operator:1" {
 		t.Fatalf("after the emergency enable: %s", got)
 	}

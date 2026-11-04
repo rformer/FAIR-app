@@ -65,7 +65,7 @@ func TestBannerGatesTheSession(t *testing.T) {
 	if got := ge.sessionRow(t, cookie, "banner_version"); got != "1" {
 		t.Fatalf("acknowledged version %q", got)
 	}
-	if got := e.adminQuery("SELECT count(*) FROM iam.event_outbox WHERE payload->>'type' = 'session.banner_acknowledged' AND payload->>'reason' = 'banner version 1'"); got != "1" {
+	if got := e.adminQuery("SELECT count(*) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'session.banner_acknowledged' AND payload->>'reason' = 'banner version 1'"); got != "1" {
 		t.Fatalf("%s acknowledgments audited", got)
 	}
 
@@ -124,7 +124,7 @@ func TestBannerTextAPI(t *testing.T) {
 		t.Fatalf("change without banner.manage: %d %s", r.code, r.raw)
 	}
 	if got := e.adminQuery(`SELECT payload->>'severity' || ':' || (payload->>'reason') || ':' || (payload->'attributes'->>'version')
-		FROM iam.event_outbox WHERE payload->>'type' = 'banner.changed'`); got != "high:legal review 7:2" {
+		FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'banner.changed'`); got != "high:legal review 7:2" {
 		t.Fatalf("banner change audit %q", got)
 	}
 	// A new session is shown the new version; acknowledging the old one is refused.

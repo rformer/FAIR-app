@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,7 +22,6 @@ import (
 	"github.com/rformer/fair-app/internal/dbconn"
 	"github.com/rformer/fair-app/internal/natspub"
 	"github.com/rformer/fair-app/internal/scope"
-	"github.com/rformer/fair-app/pkg/audit"
 )
 
 // appPool connects to the test database as app_rw, as the worker does.
@@ -96,8 +96,7 @@ func TestRiverSchemaFullyMigrated(t *testing.T) {
 func TestWorkerEndToEnd(t *testing.T) {
 	e := assignmentFixture(t)
 	pub, cons := scopeEvents(t)
-	mem := audit.NewMemory()
-	w := scope.New(scope.Options{Pool: e.appPool(), Publisher: pub, Audit: mem, DrainEvery: time.Second})
+	w := scope.New(scope.Options{Pool: e.appPool(), Publisher: pub, DrainEvery: time.Second})
 	client, err := w.RiverClient()
 	if err != nil {
 		t.Fatal(err)
@@ -138,57 +137,62 @@ func TestWorkerEndToEnd(t *testing.T) {
 	}
 
 	e.mustOwner("UPDATE iam.bu SET parent_id = " + buID("B") + ", updated_by = " + uid("platform") + " WHERE code = 'A1'")
+	// The drain records bu.moved in the audit trail, in its own transaction
+	// (F-002 T-06).
+	moved := func() string {
+		return e.adminQuery(`SELECT coalesce(string_agg(body->'attributes'->>'new_parent', ','), '') FROM audit.intake WHERE body->>'type' = 'bu.moved'`)
+	}
 	deadline := time.Now().Add(15 * time.Second)
-	for len(mem.OfType("bu.moved")) == 0 {
+	for moved() == "" {
 		if time.Now().After(deadline) {
 			t.Fatal("no bu.moved audit event within 15 s")
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	if ev := mem.OfType("bu.moved")[0]; ev.Attributes["new_parent"] != e.mustOwner("SELECT "+buID("B")) {
-		t.Fatalf("bu.moved = %+v", ev)
+	if got := moved(); got != e.mustOwner("SELECT "+buID("B")) {
+		t.Fatalf("bu.moved new_parent = %q", got)
 	}
 }
 
-type downEmitter struct{}
-
-func (downEmitter) Emit(context.Context, audit.Event) error { return errorString("audit sink down") }
-
-type errorString string
-
-func (e errorString) Error() string { return string(e) }
-
-// Audit failures fail closed: undelivered audit events stay queued and are
-// delivered once the sink recovers.
+// Audit failures fail closed (F-001 AC-50, F-002 AC-02): when the trail
+// refuses the drain's audit event, the drain's transaction records nothing
+// (the scope stays queued); once it accepts, the event and the scope change
+// are recorded together.
 func TestWorkerAuditFailsClosed(t *testing.T) {
 	e := assignmentFixture(t)
 	pub, _ := scopeEvents(t)
-	pool := e.appPool()
+	w := scope.New(scope.Options{Pool: e.appPool(), Publisher: pub})
 	e.mustOwner("UPDATE iam.bu SET parent_id = " + buID("B") + " WHERE code = 'A1'")
+	queued := e.adminQuery("SELECT count(*) FROM iam.outbox")
 
-	down := scope.New(scope.Options{Pool: pool, Publisher: pub, Audit: downEmitter{}})
-	if _, err := down.Drain(context.Background()); err == nil {
-		t.Fatal("drain with a failing audit sink must report the failure")
+	// The trail refuses bu.moved (as it would an event it does not know).
+	e.admin(e.db, "UPDATE audit.event_type SET retired_at = now() WHERE type = 'bu.moved'")
+	if _, err := w.Drain(context.Background()); err == nil || !strings.Contains(err.Error(), "bu.moved") {
+		t.Fatalf("drain with the trail refusing its event: %v", err)
 	}
-	if n := e.mustOwner("SELECT count(*) FROM iam.event_outbox WHERE topic = 'audit' AND published_at IS NULL"); n != "1" {
-		t.Fatalf("pending audit events after sink failure = %s, want 1", n)
+	if got := e.adminQuery("SELECT count(*) FROM iam.outbox"); got != queued || got == "0" {
+		t.Fatalf("outbox rows after the refused drain: %s, want %s", got, queued)
+	}
+	if n := e.adminQuery("SELECT count(*) FROM audit.intake WHERE body->>'type' = 'bu.moved'"); n != "0" {
+		t.Fatalf("%s bu.moved events recorded by a failed drain", n)
 	}
 
-	mem := audit.NewMemory()
-	up := scope.New(scope.Options{Pool: pool, Publisher: pub, Audit: mem})
-	if err := up.Deliver(context.Background()); err != nil {
+	e.admin(e.db, "UPDATE audit.event_type SET retired_at = NULL WHERE type = 'bu.moved'")
+	if _, err := w.Drain(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(mem.OfType("bu.moved")) != 1 || e.mustOwner("SELECT count(*) FROM iam.event_outbox WHERE published_at IS NULL") != "0" {
-		t.Fatalf("recovered sink got %d bu.moved events", len(mem.OfType("bu.moved")))
+	if n := e.adminQuery("SELECT count(*) FROM audit.intake WHERE body->>'type' = 'bu.moved'"); n != "1" {
+		t.Fatalf("bu.moved events after recovery: %s", n)
+	}
+	if got := e.adminQuery("SELECT count(*) FROM iam.outbox"); got != "0" {
+		t.Fatalf("outbox rows after recovery: %s", got)
 	}
 }
 
 func TestWorkerReconcileRaisesDriftAlert(t *testing.T) {
 	e := assignmentFixture(t)
 	pub, _ := scopeEvents(t)
-	mem := audit.NewMemory()
-	w := scope.New(scope.Options{Pool: e.appPool(), Publisher: pub, Audit: mem})
+	w := scope.New(scope.Options{Pool: e.appPool(), Publisher: pub})
 	e.mustOwner(grant("platform", "user:erin", "Executive Viewer", "A"))
 	if _, err := w.Drain(context.Background()); err != nil {
 		t.Fatal(err)
@@ -198,8 +202,7 @@ func TestWorkerReconcileRaisesDriftAlert(t *testing.T) {
 	if err != nil || n != 1 {
 		t.Fatalf("reconcile = %d, %v", n, err)
 	}
-	drift := mem.OfType("authz.scope.drift")
-	if len(drift) != 1 || drift[0].Severity != audit.SeverityHigh {
-		t.Fatalf("drift alerts = %+v", drift)
+	if drift := e.adminQuery("SELECT string_agg(body->>'severity', ',') FROM audit.intake WHERE body->>'type' = 'authz.scope.drift'"); drift != "high" {
+		t.Fatalf("drift alerts = %q", drift)
 	}
 }

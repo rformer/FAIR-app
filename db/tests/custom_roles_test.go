@@ -15,7 +15,7 @@ func TestCustomRoleLifecycle(t *testing.T) {
 	admin := se.admin
 	roleID := func(name string) string { return e.adminQuery("SELECT id FROM iam.role WHERE name = '" + name + "'") }
 	events := func(typ string) string {
-		return e.adminQuery("SELECT coalesce(string_agg(payload->>'severity' || ':' || (payload->'attributes'->>'name'), ',' ORDER BY id), '') FROM iam.event_outbox WHERE payload->>'type' = '" + typ + "'")
+		return e.adminQuery("SELECT coalesce(string_agg(payload->>'severity' || ':' || (payload->'attributes'->>'name'), ',' ORDER BY id), '') FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = '" + typ + "'")
 	}
 
 	// The catalog, privileged permissions flagged (AC-54).

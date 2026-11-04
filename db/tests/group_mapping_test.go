@@ -172,7 +172,7 @@ func TestGroupMappingLifecycle(t *testing.T) {
 		t.Fatal("the deleted group's mapping is live")
 	}
 
-	audit := e.adminQuery(`SELECT string_agg(payload->>'type' || ':' || (payload->>'severity'), ',' ORDER BY id) FROM iam.event_outbox
+	audit := e.adminQuery(`SELECT string_agg(payload->>'type' || ':' || (payload->>'severity'), ',' ORDER BY id) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev
 		WHERE payload->>'type' LIKE 'group_mapping.%' OR payload->>'type' LIKE 'assignment.mapped_%'`)
 	for _, want := range []string{"group_mapping.created:high", "assignment.mapped_granted:info", "assignment.mapped_revoked:info",
 		"assignment.mapped_skipped:info", "group_mapping.removed:high"} {
@@ -224,7 +224,7 @@ func TestGroupMappingConflictsAndAuthority(t *testing.T) {
 	if !strings.Contains(reasons, "AC-28") || !strings.Contains(reasons, "AC-30") {
 		t.Fatalf("skipped reasons %q", reasons)
 	}
-	if n := e.adminQuery("SELECT count(*) FROM iam.event_outbox WHERE payload->>'type' = 'assignment.mapped_skipped' AND payload->>'severity' = 'high'"); n != "2" {
+	if n := e.adminQuery("SELECT count(*) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'assignment.mapped_skipped' AND payload->>'severity' = 'high'"); n != "2" {
 		t.Fatalf("%s high-severity skips", n)
 	}
 	// Leaving the group clears the skip.

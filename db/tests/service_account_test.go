@@ -172,7 +172,7 @@ func TestServiceAccounts(t *testing.T) {
 	if got.code != 200 || got.body["bu_code"] != "A" || fmt.Sprint(got.body["scopes"]) != "[bu.view]" || got.body["status"] != "active" {
 		t.Fatalf("read: %d %s", got.code, got.raw)
 	}
-	if a := e.adminQuery(`SELECT payload->>'severity' FROM iam.event_outbox WHERE payload->>'type' = 'service_account.created'
+	if a := e.adminQuery(`SELECT payload->>'severity' FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'service_account.created'
 		AND payload->>'target' = 'service_account:` + sa + `'`); a != "high" {
 		t.Fatalf("creation audit: %q", a)
 	}
@@ -290,7 +290,7 @@ func TestServiceAccounts(t *testing.T) {
 		t.Errorf("Basic failure without a challenge: %v", r.hdr)
 	}
 	if a := e.adminQuery(`SELECT string_agg(DISTINCT payload->>'reason' || '/' || (payload->>'severity'), ',' ORDER BY payload->>'reason' || '/' || (payload->>'severity'))
-		FROM iam.event_outbox WHERE payload->>'type' = 'authn.client_credentials_failed'`); a != "invalid_secret/high,unknown_client/low" {
+		FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'authn.client_credentials_failed'`); a != "invalid_secret/high,unknown_client/low" {
 		t.Errorf("failure audit: %q", a)
 	}
 	for name, c := range map[string]struct {
@@ -309,7 +309,7 @@ func TestServiceAccounts(t *testing.T) {
 			t.Errorf("%s: %d %s", name, r.code, r.raw)
 		}
 	}
-	if a := e.adminQuery(`SELECT count(*) FROM iam.event_outbox WHERE payload->>'type' = 'authn.client_credentials' AND payload->>'actor' = '` + sa + `'`); a != "2" {
+	if a := e.adminQuery(`SELECT count(*) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'authn.client_credentials' AND payload->>'actor' = '` + sa + `'`); a != "2" {
 		t.Errorf("issuance audit: %s", a)
 	}
 	if e.adminQuery("SELECT last_login_at IS NOT NULL FROM iam.app_user WHERE id = '"+sa+"'") != "t" {
@@ -397,7 +397,7 @@ func TestServiceAccounts(t *testing.T) {
 	if r := apply(approval); r.code != http.StatusConflict {
 		t.Fatalf("applied twice: %d %s", r.code, r.raw)
 	}
-	if a := e.adminQuery(`SELECT payload->'attributes'->>'approved_by' = ` + uid("admin2") + `::text FROM iam.event_outbox
+	if a := e.adminQuery(`SELECT payload->'attributes'->>'approved_by' = ` + uid("admin2") + `::text FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev
 		WHERE payload->>'type' = 'service_account.scopes_changed' ORDER BY id DESC LIMIT 1`); a != "t" {
 		t.Fatalf("approval not in the audit: %s", a)
 	}
@@ -655,7 +655,7 @@ func TestServiceAccountMTLS(t *testing.T) {
 	if r := post(&cert); r.code != http.StatusUnauthorized {
 		t.Fatalf("revoked certificate: %d %s", r.code, r.raw)
 	}
-	if a := e.adminQuery(`SELECT string_agg(payload->>'type', ',' ORDER BY id) FROM iam.event_outbox WHERE payload->>'type' LIKE 'service_account.certificate%'`); a != "service_account.certificate_added,service_account.certificate_revoked" {
+	if a := e.adminQuery(`SELECT string_agg(payload->>'type', ',' ORDER BY id) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' LIKE 'service_account.certificate%'`); a != "service_account.certificate_added,service_account.certificate_revoked" {
 		t.Fatalf("certificate audit: %s", a)
 	}
 }

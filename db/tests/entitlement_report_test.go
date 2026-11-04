@@ -227,7 +227,7 @@ func TestEntitlementReport(t *testing.T) {
 		t.Fatalf("listing PDF: %d", lp.code)
 	}
 	if got := e.adminQuery(`SELECT string_agg(payload->'attributes'->>'format' || ':' || (payload->>'target') || ':' || (payload->'attributes'->>'rows'), ',' ORDER BY id)
-		FROM iam.event_outbox WHERE payload->>'type' = 'entitlement.exported'`); got != "csv:report:entitlements:1,csv:report:entitlements:"+fmt.Sprint(len(pr)-1)+",pdf:report:entitlements:"+fmt.Sprint(len(all)-1)+",pdf:report:restricted_bus:"+fmt.Sprint(len(rowsOf(adminListing, "restricted_bus"))) {
+		FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'entitlement.exported'`); got != "csv:report:entitlements:1,csv:report:entitlements:"+fmt.Sprint(len(pr)-1)+",pdf:report:entitlements:"+fmt.Sprint(len(all)-1)+",pdf:report:restricted_bus:"+fmt.Sprint(len(rowsOf(adminListing, "restricted_bus"))) {
 		// all included dave before he was disabled; the PDF ran after.
 		t.Fatalf("export audit: %s", got)
 	}

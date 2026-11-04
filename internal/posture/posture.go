@@ -45,7 +45,7 @@ func Seed(ctx context.Context, pool *pgxpool.Pool, em audit.Emitter, actor, prof
 			Scan(&s.Version, &s.Digest, &s.Settings); err != nil {
 			return fmt.Errorf("seed: %w", err)
 		}
-		return em.Emit(ctx, audit.Event{
+		return em.Emit(audit.WithTx(ctx, tx), audit.Event{
 			Type:     "posture.seeded",
 			Severity: audit.SeverityHigh,
 			Actor:    actor,
@@ -83,7 +83,7 @@ func Import(ctx context.Context, pool *pgxpool.Pool, em audit.Emitter, pub *ecds
 				return fmt.Errorf("import %s %s: %w", r.Profile, r.Version, err)
 			}
 			if r.Outcome == "imported" {
-				if err := em.Emit(ctx, audit.Event{
+				if err := em.Emit(audit.WithTx(ctx, tx), audit.Event{
 					Type:       "posture.package_imported",
 					Severity:   audit.SeverityHigh,
 					Actor:      actor,

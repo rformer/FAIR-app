@@ -140,7 +140,7 @@ func TestOIDCLoginEndToEnd(t *testing.T) {
 			t.Errorf("%s: %d", name, r.StatusCode)
 		}
 	}
-	denied := e.adminQuery("SELECT string_agg(payload->>'reason', '|' ORDER BY id) FROM iam.event_outbox WHERE payload->>'type' = 'authn.login.denied'")
+	denied := e.adminQuery("SELECT string_agg(payload->>'reason', '|' ORDER BY id) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'authn.login.denied'")
 	for _, want := range []string{"unknown, used or expired state", "unknown user", "user disabled", "nonce mismatch", `"access_denied"`} {
 		if !strings.Contains(denied, want) {
 			t.Errorf("denied audit lacks %q: %s", want, denied)

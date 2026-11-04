@@ -39,7 +39,7 @@ func TestRestrictedBUAdministration(t *testing.T) {
 	if reads() != "f" {
 		t.Fatal("an ancestor's assignment still reaches the restricted BU (AC-60)")
 	}
-	if got := e.adminQuery("SELECT payload->>'severity' || ':' || (payload->>'reason') FROM iam.event_outbox WHERE payload->>'type' = 'bu.restricted'"); got != "high:M&A team" {
+	if got := e.adminQuery("SELECT payload->>'severity' || ':' || (payload->>'reason') FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'bu.restricted'"); got != "high:M&A team" {
 		t.Fatalf("restrict audit %q", got)
 	}
 	for name, c := range map[string]struct {
@@ -88,7 +88,7 @@ func TestRestrictedBUAdministration(t *testing.T) {
 		t.Fatal("un-restricting did not restore inheritance")
 	}
 	if got := e.adminQuery(`SELECT (payload->'attributes'->>'approved_by') = (SELECT id::text FROM iam.app_user WHERE email = 'admin2@example.test')
-		FROM iam.event_outbox WHERE payload->>'type' = 'bu.unrestricted' AND payload->>'severity' = 'high'`); got != "t" {
+		FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'bu.unrestricted' AND payload->>'severity' = 'high'`); got != "t" {
 		t.Fatal("the un-restriction's audit does not name the approver")
 	}
 

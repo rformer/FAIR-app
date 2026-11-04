@@ -2,7 +2,9 @@ package audit
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // F-001 T-37 (AC-50): the catalog lists exactly the event types the code
@@ -295,8 +299,9 @@ func TestValidate(t *testing.T) {
 	// The emitters refuse what the catalog does not describe.
 	mem := NewMemory()
 	v := Validating{Next: mem, Catalog: c}
-	if err := v.Emit(t.Context(), Event{Type: "made.up", Severity: SeverityInfo, Actor: "x"}); err == nil || len(mem.Events()) != 0 {
-		t.Fatal("an uncatalogued event was emitted")
+	if err := v.Emit(t.Context(), Event{Type: "made.up", Severity: SeverityInfo, Actor: "x"}); err == nil || len(mem.OfType("made.up")) != 0 ||
+		len(mem.OfType("audit.invalid_event")) != 1 {
+		t.Fatal("an uncatalogued event was emitted, or its refusal not recorded")
 	}
 	SetStrict(true)
 	defer SetStrict(false)
@@ -713,4 +718,50 @@ func braced(s string) string {
 		}
 	}
 	return s
+}
+
+// F-002 T-06 (design §6.1): an event the catalog refuses is refused to the
+// caller and recorded as audit.invalid_event (critical, the original
+// attached), outside the caller's transaction.
+func TestValidatingRecordsInvalidEvents(t *testing.T) {
+	c, err := DefaultCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mem := NewMemory()
+	var sawTx []bool
+	v := Validating{Next: Multi{mem, emitFunc(func(ctx context.Context, _ Event) error {
+		tx, _ := ctx.Value(txKey{}).(Execer)
+		sawTx = append(sawTx, tx != nil)
+		return nil
+	})}, Catalog: c}
+	ctx := WithTx(t.Context(), fakeExecer{})
+	if err := v.Emit(ctx, Event{Type: "role.dance", Severity: SeverityHigh, Actor: "u1", Target: "role:r1"}); !errors.Is(err, ErrUncatalogued) {
+		t.Fatalf("an uncatalogued event: %v", err)
+	}
+	inv := mem.OfType("audit.invalid_event")
+	if len(inv) != 1 || inv[0].Severity != SeverityCritical || !strings.Contains(inv[0].Attributes["payload"], "role.dance") || len(mem.OfType("role.dance")) != 0 {
+		t.Fatalf("%+v", mem.Events())
+	}
+	if len(sawTx) != 1 || sawTx[0] {
+		t.Fatalf("the invalid event was recorded in the caller's transaction: %v", sawTx)
+	}
+	// An original that looks like a secret is not copied anywhere.
+	mem2 := NewMemory()
+	v.Next = mem2
+	_ = v.Emit(t.Context(), Event{Type: "role.retired", Severity: SeverityHigh, Actor: "u1", Target: "role:r1",
+		Reason: "Bearer abcdefghijklmnopqrstuvwxyz0123"})
+	if len(mem2.Events()) != 0 {
+		t.Fatalf("a secret-looking event was recorded: %+v", mem2.Events())
+	}
+}
+
+type emitFunc func(context.Context, Event) error
+
+func (f emitFunc) Emit(ctx context.Context, e Event) error { return f(ctx, e) }
+
+type fakeExecer struct{}
+
+func (fakeExecer) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, nil
 }

@@ -150,7 +150,7 @@ func (ev Evaluator) Change(ctx context.Context, p authz.Principal, r ChangeReque
 			attrs["approval_id"] = res.ApprovalID
 			attrs["bound"] = string(pv.bound)
 			attrs["controls"] = strings.Join(res.Warning.Controls, ",")
-			return ev.Audit.Emit(ctx, audit.Event{Type: "setting.change_requested", Severity: audit.SeverityHigh, Actor: p.UserID,
+			return ev.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "setting.change_requested", Severity: audit.SeverityHigh, Actor: p.UserID,
 				Target: "setting:" + r.Key, Reason: r.Explanation, Attributes: attrs})
 		}
 		var exc *string
@@ -162,7 +162,7 @@ func (ev Evaluator) Change(ctx context.Context, p authz.Principal, r ChangeReque
 		if res.Direction == "loosen" {
 			sev = audit.SeverityLow // a loosening within bounds: audited and flagged (AC-20)
 		}
-		return ev.Audit.Emit(ctx, audit.Event{Type: "setting.changed", Severity: sev, Actor: p.UserID,
+		return ev.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "setting.changed", Severity: sev, Actor: p.UserID,
 			Target: "setting:" + r.Key, Reason: r.Explanation, Attributes: attrs})
 	})
 	var pg *pgconn.PgError
@@ -229,7 +229,7 @@ func (ev Evaluator) ApplyApproved(ctx context.Context, changeID string) (Excepti
 			if bu != nil {
 				x.BUID = *bu
 			}
-			return ev.Audit.Emit(ctx, audit.Event{Type: "setting.changed", Severity: audit.SeverityHigh, Actor: requester,
+			return ev.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "setting.changed", Severity: audit.SeverityHigh, Actor: requester,
 				Target: "setting:" + key, Attributes: map[string]string{"key": key, "bu_id": x.BUID, "value": string(value),
 					"direction": direction, "change_id": changeID}})
 		}
@@ -242,7 +242,7 @@ func (ev Evaluator) ApplyApproved(ctx context.Context, changeID string) (Excepti
 		if bu != nil {
 			x.BUID = *bu
 		}
-		return ev.Audit.Emit(ctx, audit.Event{Type: "setting.exception_created", Severity: audit.SeverityHigh, Actor: x.ApprovedBy,
+		return ev.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "setting.exception_created", Severity: audit.SeverityHigh, Actor: x.ApprovedBy,
 			Target: "setting:" + x.Key, Attributes: map[string]string{
 				"key": x.Key, "bu_id": x.BUID, "value": string(x.Value), "change_id": changeID, "exception_id": x.ID,
 				"owner": x.OwnerID, "approved_by": x.ApprovedBy, "expires_at": x.ExpiresAt.UTC().Format(time.RFC3339)}})

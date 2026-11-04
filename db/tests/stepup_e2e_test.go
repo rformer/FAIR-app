@@ -169,7 +169,7 @@ func TestStepUpEndToEndSAML(t *testing.T) {
 		}
 	}
 	stepFailures := func() string {
-		return e.adminQuery("SELECT count(*) FROM iam.event_outbox WHERE payload->>'type' = 'authn.step_up_failed'")
+		return e.adminQuery("SELECT count(*) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'authn.step_up_failed'")
 	}
 
 	// The IdP ignored ForceAuthn (the old authentication), or reported no
@@ -180,7 +180,7 @@ func TestStepUpEndToEndSAML(t *testing.T) {
 		_ = resp.Body.Close()
 		if resp.StatusCode != 401 || sessionCookie(resp) != "" || stepFailures() == before {
 			t.Errorf("%s: %d, %s step-up failures; denials: %s", name, resp.StatusCode, stepFailures(),
-				e.adminQuery("SELECT coalesce(string_agg(payload->>'type' || ': ' || coalesce(payload->>'reason', ''), ' | ' ORDER BY id), '') FROM iam.event_outbox WHERE payload->>'type' LIKE 'authn.%'"))
+				e.adminQuery("SELECT coalesce(string_agg(payload->>'type' || ': ' || coalesce(payload->>'reason', ''), ' | ' ORDER BY id), '') FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' LIKE 'authn.%'"))
 		}
 	}
 	if g := se.do(t, "GET", "/api/v1/posture/settings", first, nil, nil); g.code != 200 {

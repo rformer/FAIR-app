@@ -120,7 +120,7 @@ func TestKeycloakRealmPolicy(t *testing.T) {
 	e.mustOwner("UPDATE iam.idp SET kind = 'keycloak', metadata = '" + strings.ReplaceAll(string(md), "'", "''") + "' WHERE id = '" + oe.idpID + "'")
 	e.mustOwner("UPDATE iam.app_user SET idp_id = '" + oe.idpID + "', external_id = email WHERE email IN ('user@example.test', 'other@example.test', 'admin@example.test')")
 	denials := func() string {
-		return e.adminQuery("SELECT coalesce(string_agg(payload->>'reason', '|' ORDER BY id), '') FROM iam.event_outbox WHERE payload->>'type' = 'authn.mfa_missing'")
+		return e.adminQuery("SELECT coalesce(string_agg(payload->>'reason', '|' ORDER BY id), '') FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'authn.mfa_missing'")
 	}
 
 	// TOTP off (the default): password + TOTP is not MFA.
@@ -251,7 +251,7 @@ func TestKeycloakAMRPolicy(t *testing.T) {
 	// Other OIDC IdPs keep T-18's rules: their amr otp counts, and FAIR does
 	// not ask them for phishing-resistant methods (their own policies do).
 	check("oidc", false, map[string]int{"user:pwd otp": 200, "admin:pwd otp": 200})
-	if got := e.adminQuery("SELECT count(*) FROM iam.event_outbox WHERE payload->>'reason' LIKE 'privileged users need phishing-resistant MFA%'"); got != "2" { // admin pwd otp and mfa, with TOTP on
+	if got := e.adminQuery("SELECT count(*) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'reason' LIKE 'privileged users need phishing-resistant MFA%'"); got != "2" { // admin pwd otp and mfa, with TOTP on
 		t.Fatalf("phishing-resistant refusals audited: %s", got)
 	}
 }

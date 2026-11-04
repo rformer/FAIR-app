@@ -189,7 +189,7 @@ func TestSCIMTokens(t *testing.T) {
 		t.Fatalf("issue without scim.manage: %d", r.code)
 	}
 	e.mustFail("app_rw", "SELECT * FROM iam.api_token", "permission denied")
-	audit := e.adminQuery(`SELECT string_agg(payload->>'type', ',' ORDER BY id) FROM iam.event_outbox WHERE payload->>'type' LIKE 'token.%' AND payload->>'severity' = 'high'`)
+	audit := e.adminQuery(`SELECT string_agg(payload->>'type', ',' ORDER BY id) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' LIKE 'token.%' AND payload->>'severity' = 'high'`)
 	if !strings.Contains(audit, "token.created") || !strings.Contains(audit, "token.revoked") {
 		t.Fatalf("token audit %q", audit)
 	}
@@ -303,7 +303,7 @@ func TestSCIMUsers(t *testing.T) {
 		t.Fatalf("SCIM unlocked a locked user: %q", got)
 	}
 	e.mustOwner("UPDATE iam.app_user SET status = 'active' WHERE id = '" + id + "'")
-	audit := e.adminQuery(`SELECT string_agg(payload->>'type' || ':' || (payload->>'severity'), ',' ORDER BY id) FROM iam.event_outbox WHERE payload->>'type' LIKE 'scim.user.%'`)
+	audit := e.adminQuery(`SELECT string_agg(payload->>'type' || ':' || (payload->>'severity'), ',' ORDER BY id) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' LIKE 'scim.user.%'`)
 	for _, want := range []string{"scim.user.created:info", "scim.user.updated:info", "scim.user.deactivated:high", "scim.user.reactivated:high"} {
 		if !strings.Contains(audit, want) {
 			t.Errorf("audit %q lacks %s", audit, want)

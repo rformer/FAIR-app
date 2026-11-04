@@ -239,7 +239,7 @@ func TestIDPRoutingByDomain(t *testing.T) {
 	}
 
 	// Every change is audited (high severity, with the actor and reason).
-	events := e.adminQuery(`SELECT string_agg(payload->>'type' || ':' || (payload->>'reason'), ',' ORDER BY id) FROM iam.event_outbox
+	events := e.adminQuery(`SELECT string_agg(payload->>'type' || ':' || (payload->>'reason'), ',' ORDER BY id) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev
 		WHERE topic = 'audit' AND payload->>'target' = 'idp:` + samlID + `' AND payload->>'severity' = 'high'
 		AND payload->>'actor' = (SELECT id::text FROM iam.app_user WHERE email = 'admin@example.test')`)
 	for _, want := range []string{"idp.created:onboarding", "idp.metadata_changed:metadata rotation", "idp.enabled:change ticket 42", "idp.disabled:change ticket 42"} {

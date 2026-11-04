@@ -10,7 +10,6 @@ import (
 
 	"github.com/rformer/fair-app/internal/scope"
 	"github.com/rformer/fair-app/internal/server"
-	"github.com/rformer/fair-app/pkg/audit"
 )
 
 // F-001 T-27 (AC-29, AC-53): separation-of-duties rules block custom roles
@@ -141,7 +140,7 @@ func TestSoDBlocksCustomRolesUnlessExcepted(t *testing.T) {
 		t.Fatalf("version under an exception: %v", err)
 	}
 	got := e.adminQuery(`SELECT (payload->'attributes'->>'approved_by') = (SELECT id::text FROM iam.app_user WHERE email = 'admin2@example.test')
-		FROM iam.event_outbox WHERE payload->>'type' = 'sod.exception_granted'`)
+		FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'sod.exception_granted'`)
 	if got != "t" {
 		t.Fatal("the exception's audit does not name the approver")
 	}
@@ -185,7 +184,7 @@ func TestSoDExpiryRevocationSuspend(t *testing.T) {
 	// Expiry: the hourly sweep ends the exception and suspends the role,
 	// which then grants nothing and takes no new assignments.
 	e.mustOwner("UPDATE iam.sod_exception SET created_at = now() - interval '2 days', expires_at = now() - interval '1 minute' WHERE id = '" + x + "'")
-	w := scope.New(scope.Options{Pool: e.appPool(), Audit: audit.NewMemory()})
+	w := scope.New(scope.Options{Pool: e.appPool()})
 	if n, err := w.SweepSoD(context.Background()); err != nil || n != 1 {
 		t.Fatalf("sweep: %d %v", n, err)
 	}
@@ -196,7 +195,7 @@ func TestSoDExpiryRevocationSuspend(t *testing.T) {
 		t.Fatal("a suspended role still grants")
 	}
 	e.ownerFails(grant("admin", "user:user", "Editor", "ENTERPRISE"), "not assignable")
-	if got := e.adminQuery("SELECT count(*) FROM iam.event_outbox WHERE payload->>'type' IN ('sod.exception_expired', 'role.suspended') AND payload->>'severity' = 'high'"); got != "2" {
+	if got := e.adminQuery("SELECT count(*) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' IN ('sod.exception_expired', 'role.suspended') AND payload->>'severity' = 'high'"); got != "2" {
 		t.Fatalf("%s expiry events", got)
 	}
 	// A clean version makes it active again.
@@ -299,7 +298,7 @@ func TestSoDRuleManagement(t *testing.T) {
 	if r := add(viewer, "library.edit", "report.view"); r.code != http.StatusForbidden {
 		t.Fatalf("add without sod.manage: %d %s", r.code, r.raw)
 	}
-	if got := e.adminQuery("SELECT string_agg(payload->>'type', ',' ORDER BY id) FROM iam.event_outbox WHERE payload->>'type' LIKE 'sod.rule_%'"); got != "sod.rule_created,sod.rule_disabled" {
+	if got := e.adminQuery("SELECT string_agg(payload->>'type', ',' ORDER BY id) FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' LIKE 'sod.rule_%'"); got != "sod.rule_created,sod.rule_disabled" {
 		t.Fatalf("rule audit %q", got)
 	}
 }
