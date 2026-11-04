@@ -46,6 +46,12 @@ jobs:
       # Service containers cannot take arguments, and JetStream needs -js.
       - name: Start NATS JetStream
         run: docker run -d --name nats -p 4222:4222 nats:2.10 -js
+      # F-002 T-08: an S3-compatible server with Object Lock, over TLS, for
+      # the object storage contract tests (internal/objstore; ADR-012).
+      - name: Start the S3 test server
+        run: |
+          eval "$(bash scripts/s3-test-server.sh start)"
+          env | grep '^FAIR_TEST_S3' >> "$GITHUB_ENV"
       - name: gofmt
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - name: go vet
