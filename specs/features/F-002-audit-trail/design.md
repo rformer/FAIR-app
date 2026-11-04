@@ -304,3 +304,4 @@ The STRIDE rows join `TestSTRIDECatalog` (`db/tests/stride_f002_test.go`).
 ## Change Log
 - 2026-11-04: Initial draft. D1 to D4 resolved by Robert Former.
 - 2026-11-04: **Approved** by Robert Former.
+- 2026-11-04: T-01 implementation notes. ADR-011 accepted. `internal/audit/integrity` (standard library only): `Body`/`IsBody` (sorted keys, compact, no HTML escaping, numbers kept as given), `Leaf`, `Genesis`, `Chain`, `Tree` (RFC 9162 root and inclusion paths, built level by level; checked against the Certificate Transparency vectors and the recursive RFC definition), `VerifyInclusion` (RFC 9162 §2.1.3.2), `Statement` (an empty segment has `seq_to = seq_from − 1`; only the canonical byte form parses), `Sign`/`VerifySignature` (P-256 only), `KeyID`, `VerifyRecords`, `VerifyCheckpoints`, `VerifySegment`. Failures name the first record or segment that does not verify (`*Failure`), which `fair-audit-verify` (T-10) reports.
