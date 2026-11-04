@@ -47,7 +47,13 @@ spec:
             - { name: PGSSLROOTCERT, value: /db-ca/ca.crt }
             - { name: FAIR_DB_PASSWORD_FILE, value: /secrets/db/password }
             # SaaS: write-once storage for checkpoint copies (F-002 AC-10).
+            # The bucket must have versioning and Object Lock (the service
+            # refuses one without); credentials are files (internal/objstore).
             # - { name: FAIR_AUDIT_WORM_BUCKET, value: REPLACE_WITH_BUCKET }
+            # - { name: FAIR_AUDIT_WORM_ENDPOINT, value: REPLACE_WITH_HOST_PORT }
+            # - { name: FAIR_AUDIT_WORM_REGION, value: us-east-1 }
+            # - { name: FAIR_AUDIT_WORM_ACCESS_KEY_FILE, value: /secrets/worm/access-key }
+            # - { name: FAIR_AUDIT_WORM_SECRET_KEY_FILE, value: /secrets/worm/secret-key }
             - name: POD_NAME
               valueFrom: { fieldRef: { fieldPath: metadata.name } }
           securityContext:

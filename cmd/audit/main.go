@@ -5,7 +5,8 @@
 // T-05 scaffold: hardened server with health and readiness, FIPS
 // enforcement, structured logging, audit emission of lifecycle events, a
 // database pool as app_audit, the install checks of design §7, and leader
-// election (one replica leads; the work it leads arrives with T-07).
+// election (one replica leads). The leader sequences the trail (T-07) and
+// closes segments with signed checkpoints every 15 minutes (T-09).
 //
 // Environment: as for every service (FAIR_ENV, FAIR_DEPLOYMENT_MODE,
 // FAIR_LISTEN_ADDR, FAIR_TLS_CERT_FILE, FAIR_TLS_KEY_FILE, FAIR_REQUIRE_FIPS,
@@ -18,12 +19,16 @@
 //	FAIR_JWT_KEYS_DIR                the gateway's internal-JWT public keys,
 //	                                 for the audit API; required in production
 //	FAIR_AUDIT_WORM_BUCKET           write-once storage for checkpoint copies;
-//	                                 required in SaaS (F-002 AC-10)
+//	                                 required in SaaS (F-002 AC-10), with
+//	                                 FAIR_AUDIT_WORM_ENDPOINT, _REGION,
+//	                                 _ACCESS_KEY_FILE, _SECRET_KEY_FILE,
+//	                                 _CA_FILE (internal/objstore)
 //	POD_NAME                         this replica's name, in leader logs
 package main
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"crypto/fips140"
 	"errors"
 	"fmt"
@@ -39,6 +44,7 @@ import (
 	"github.com/rformer/fair-app/internal/config"
 	"github.com/rformer/fair-app/internal/dbconn"
 	"github.com/rformer/fair-app/internal/keys"
+	"github.com/rformer/fair-app/internal/objstore"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
@@ -78,12 +84,27 @@ func run() error {
 	if err := auditsvc.CheckInstall(auditsvc.InstallCheck{Env: cfg.Env, Mode: cfg.DeploymentMode, Getenv: os.Getenv}); err != nil {
 		return err
 	}
+	// The checkpoint key (T-09). Outside production a missing key means no
+	// checkpoints; production refuses to start without one (CheckInstall).
+	var cpKey *ecdsa.PrivateKey
 	if dir := os.Getenv("FAIR_AUDIT_CHECKPOINT_KEYS_DIR"); dir != "" {
-		_, id, err := keys.CheckpointKey(dir)
+		k, id, err := keys.CheckpointKey(dir)
 		if err != nil {
 			return fmt.Errorf("FAIR_AUDIT_CHECKPOINT_KEYS_DIR: %w", err)
 		}
+		cpKey = k
 		logger.Info("checkpoint signing key", "key", id)
+	} else {
+		logger.Warn("no checkpoint key (FAIR_AUDIT_CHECKPOINT_KEYS_DIR): segments are not checkpointed")
+	}
+	// Write-once copies of checkpoints (AC-10), required in SaaS.
+	var worm *objstore.Store
+	if os.Getenv("FAIR_AUDIT_WORM_BUCKET") != "" {
+		s, err := objstore.New(objstore.FromEnv("FAIR_AUDIT_WORM", cfg.Env, os.Getenv))
+		if err != nil {
+			return fmt.Errorf("FAIR_AUDIT_WORM: %w", err)
+		}
+		worm = s
 	}
 	if dir := os.Getenv("FAIR_JWT_KEYS_DIR"); dir != "" {
 		if _, err := authz.LoadLocalKeys(dir); err != nil {
@@ -101,6 +122,11 @@ func run() error {
 	defer pool.Close()
 	if err := schemaReady(ctx, pool); err != nil {
 		return err
+	}
+	if worm != nil {
+		if err := worm.CheckBucket(ctx); err != nil {
+			return fmt.Errorf("FAIR_AUDIT_WORM_BUCKET: %w", err) // not write-once: refuse (AC-10)
+		}
 	}
 
 	emitter, err := auditSink(cfg.Env, pool)
@@ -133,11 +159,40 @@ func run() error {
 		}
 		return d
 	}}
+	// ...and closes segments with signed checkpoints (T-09).
+	var cp *auditsvc.Checkpointer
+	if cpKey != nil {
+		cp = &auditsvc.Checkpointer{DB: pool, Key: cpKey, Audit: emitter, WORM: worm, Retain: func() time.Duration {
+			d, err := sc.Duration(settings.KeyAuditRetentionTotal, "")
+			if err != nil {
+				return 7 * 365 * 24 * time.Hour // the longest built-in retention
+			}
+			return d
+		}}
+		if err := cp.RegisterKey(ctx); err != nil {
+			return err
+		}
+	}
 	leader := auditsvc.Leader{Pool: pool, OnChange: func(leading bool) {
 		logger.Info("leader", "leading", leading, "replica", replica)
 	}}
 	go leader.Run(ctx, func(ctx context.Context) error {
-		return seq.Run(ctx, 0, func(err error) { logger.Error("sequencer", "error", err.Error()) })
+		// Both stop when leadership ends; the first to stop stops the other.
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		done := make(chan error, 1)
+		go func() {
+			defer cancel()
+			if cp == nil {
+				<-ctx.Done()
+				done <- nil
+				return
+			}
+			done <- cp.Run(ctx, 0, func(err error) { logger.Error("checkpoint", "error", err.Error()) })
+		}()
+		err := seq.Run(ctx, 0, func(err error) { logger.Error("sequencer", "error", err.Error()) })
+		cancel()
+		return errors.Join(err, <-done)
 	}, func(err error) { logger.Error("leader", "error", err.Error()) })
 
 	srv := server.New(server.Options{

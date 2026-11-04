@@ -82,6 +82,12 @@ events:
     bu: required
     attributes: [bu, group, mapping, role, user]
     description: "A group mapping could not give a member its role (inactive, or a rule conflict)"
+  - type: audit.checkpoint
+    category: system
+    severities: [info]
+    requires: [target]
+    attributes: [key_id, segment, seq_from, seq_to, signature, statement]
+    description: "A segment of the audit trail was closed with a signed checkpoint, copied to the SIEM through this event (F-002 T-09, AC-09, AC-10)"
   - type: audit.invalid_event
     category: system
     severities: [critical]
