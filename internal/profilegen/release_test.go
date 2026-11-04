@@ -62,7 +62,7 @@ func ecfrFor(t *testing.T, f *fakeECFR) *ECFR {
 
 func releaseInputs(checklist string) ReleaseInputs {
 	return ReleaseInputs{PinDir: pinDir, ProfilesDir: profilesDir, BindingsDir: bindingsDir, PackagesDir: packagesDir,
-		ChecklistFile: checklist, Defs: settings.F001Defs()}
+		ChecklistFile: checklist, Defs: settings.ReleaseDefs()}
 }
 
 func failed(r *Report) []string {

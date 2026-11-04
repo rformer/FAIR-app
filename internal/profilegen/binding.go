@@ -20,15 +20,17 @@ import (
 // strictness, the OSCAL parameters it implements, and per profile its default
 // and bound, with where each value comes from.
 type Binding struct {
-	Setting           string                    `yaml:"setting"`
-	Type              string                    `yaml:"type"`
-	Direction         string                    `yaml:"direction"`
-	Order             []string                  `yaml:"order"` // enum: weakest -> strictest
-	BUScopable        bool                      `yaml:"bu_scopable"`
-	HardFloor         any                       `yaml:"hard_floor"`
-	HardFloorFamilies []string                  `yaml:"hard_floor_families"` // empty: every profile
-	Params            []ParamRef                `yaml:"params"`
-	Profiles          map[string]ProfileBinding `yaml:"profiles"`
+	Setting           string     `yaml:"setting"`
+	Type              string     `yaml:"type"`
+	Direction         string     `yaml:"direction"`
+	Order             []string   `yaml:"order"` // enum: weakest -> strictest
+	BUScopable        bool       `yaml:"bu_scopable"`
+	HardFloor         any        `yaml:"hard_floor"`
+	HardFloorFamilies []string   `yaml:"hard_floor_families"` // empty: every profile
+	Params            []ParamRef `yaml:"params"`
+	// LooseningNeedsApproval: every loosening needs dual approval (F-002 T-04).
+	LooseningNeedsApproval bool                      `yaml:"loosening_needs_approval"`
+	Profiles               map[string]ProfileBinding `yaml:"profiles"`
 
 	file string
 }
@@ -132,6 +134,9 @@ func (c Context) Validate(b Binding) []error {
 		reg := c.Defs[i]
 		if reg.Kind != def.Kind || reg.Direction != def.Direction || !slices.Equal(reg.Order, def.Order) {
 			fail("type/direction/order disagree with the registered definition of %s", b.Setting)
+		}
+		if reg.LooseningNeedsApproval != def.LooseningNeedsApproval {
+			fail("loosening_needs_approval disagrees with the registered definition of %s", b.Setting)
 		}
 		if fmt.Sprint(reg.Floor) != fmt.Sprint(def.Floor) || !slices.Equal(reg.FloorFamilies, def.FloorFamilies) {
 			fail("hard floor %v %v disagrees with the registered %v %v", def.Floor, def.FloorFamilies, reg.Floor, reg.FloorFamilies)
@@ -249,7 +254,7 @@ func (b Binding) label() string {
 
 // Def converts the binding's declaration to a settings.Def.
 func (b Binding) Def() (settings.Def, error) {
-	d := settings.Def{Key: b.Setting, BUScopable: b.BUScopable, Order: b.Order}
+	d := settings.Def{Key: b.Setting, BUScopable: b.BUScopable, Order: b.Order, LooseningNeedsApproval: b.LooseningNeedsApproval}
 	if b.Setting == "" {
 		return d, errors.New("setting is required")
 	}
@@ -268,6 +273,8 @@ func (b Binding) Def() (settings.Def, error) {
 		if len(b.Order) < 2 || len(slices.Compact(slices.Clone(b.Order))) != len(b.Order) {
 			return d, errors.New("enum needs an order of at least two distinct values")
 		}
+	case "string":
+		d.Kind = settings.KindString
 	case "set":
 		return d, errors.New(`type "set" is not supported until a setting needs it`)
 	default:
@@ -276,6 +283,7 @@ func (b Binding) Def() (settings.Def, error) {
 	dirs := map[string]settings.Direction{
 		"lower_is_stricter": settings.LowerIsStricter, "higher_is_stricter": settings.HigherIsStricter,
 		"true_is_stricter": settings.TrueIsStricter, "false_is_stricter": settings.FalseIsStricter, "ordered": settings.OrderedEnum,
+		"nonempty_is_stricter": settings.NonEmptyIsStricter,
 	}
 	dir, ok := dirs[b.Direction]
 	valid := map[settings.Kind][]string{
@@ -283,6 +291,7 @@ func (b Binding) Def() (settings.Def, error) {
 		settings.KindInt:      {"lower_is_stricter", "higher_is_stricter"},
 		settings.KindBool:     {"true_is_stricter", "false_is_stricter"},
 		settings.KindEnum:     {"ordered"},
+		settings.KindString:   {"nonempty_is_stricter"},
 	}
 	if !ok || !slices.Contains(valid[d.Kind], b.Direction) {
 		return d, fmt.Errorf("direction %q does not fit type %s", b.Direction, b.Type)
@@ -316,6 +325,8 @@ func (b Binding) Bound(profile string) (settings.Bound, error) {
 	if pb.Bound != nil {
 		var raw any
 		switch {
+		case d.Kind == settings.KindString:
+			return settings.Bound{}, errors.New("string settings have no bound (any value is within it)")
 		case d.Kind == settings.KindBool || d.Kind == settings.KindEnum:
 			if pb.Bound.Max != nil || pb.Bound.Min != nil || len(pb.Bound.Allowed) == 0 {
 				return settings.Bound{}, fmt.Errorf("%s bounds use allowed", b.Type)
@@ -384,7 +395,7 @@ func parseValue(d settings.Def, raw any) (any, error) {
 			return nil, fmt.Errorf("%v is not a bool", raw)
 		}
 		v = bv
-	case settings.KindEnum:
+	case settings.KindEnum, settings.KindString:
 		s, ok := raw.(string)
 		if !ok {
 			return nil, fmt.Errorf("%v is not a string", raw)

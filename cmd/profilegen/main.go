@@ -99,7 +99,7 @@ func packages() error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	files, err := profilegen.BuildPackages("third_party/oscal", "profiles", "bindings", settings.F001Defs(), previous)
+	files, err := profilegen.BuildPackages("third_party/oscal", "profiles", "bindings", settings.ReleaseDefs(), previous)
 	if err != nil {
 		return err
 	}
@@ -185,7 +185,7 @@ func releaseCheck(online bool, reportFile string) error {
 	defer cancel()
 	r, err := profilegen.ReleaseCheck(ctx, profilegen.ReleaseInputs{
 		PinDir: "third_party/oscal", ProfilesDir: "profiles", BindingsDir: "bindings", PackagesDir: packagesDir,
-		ChecklistFile: "profiles/release-checklist.yaml", Defs: settings.F001Defs(),
+		ChecklistFile: "profiles/release-checklist.yaml", Defs: settings.ReleaseDefs(),
 	}, ecfr, time.Now().UTC())
 	if err != nil {
 		return err

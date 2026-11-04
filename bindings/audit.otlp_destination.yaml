@@ -1,0 +1,18 @@
+# F-002 T-04: binding for audit.otlp_destination: OTLP over TLS destination for the audit trail (AU-6, SI-4); F-002 AC-22, AC-24.
+# Any destination is as strict as any other; clearing one is a loosening and,
+# with loosening_needs_approval, needs dual approval (design §4.4).
+setting: audit.otlp_destination
+type: string
+direction: nonempty_is_stricter
+bu_scopable: false
+loosening_needs_approval: true
+profiles:
+  fedramp-moderate:
+    default: ""
+    platform_choice: "None until the customer names one (an installation choice); removing one needs dual approval"
+  cmmc-l2-r2:
+    default: ""
+    platform_choice: "None until the customer names one (an installation choice); removing one needs dual approval"
+  enterprise-baseline:
+    default: ""
+    platform_choice: "None until the customer names one (an installation choice); removing one needs dual approval"

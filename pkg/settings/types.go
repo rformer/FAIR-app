@@ -11,7 +11,9 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
+	"unicode"
 )
 
 // Kind is a setting's value type.
@@ -23,18 +25,23 @@ const (
 	KindInt                  // int
 	KindBool                 // bool
 	KindEnum                 // string, one of Def.Order
+	KindString               // string, at most MaxStringLen bytes, no control characters (F-002 T-04)
 )
+
+// MaxStringLen is the longest KindString value, in bytes.
+const MaxStringLen = 255
 
 // Direction says which values are stricter.
 type Direction int
 
 // The directions.
 const (
-	LowerIsStricter  Direction = iota // durations/ints: smaller is stricter
-	HigherIsStricter                  // durations/ints: larger is stricter
-	TrueIsStricter                    // bools
-	FalseIsStricter                   // bools
-	OrderedEnum                       // enums: Def.Order lists weakest → strictest
+	LowerIsStricter    Direction = iota // durations/ints: smaller is stricter
+	HigherIsStricter                    // durations/ints: larger is stricter
+	TrueIsStricter                      // bools
+	FalseIsStricter                     // bools
+	OrderedEnum                         // enums: Def.Order lists weakest → strictest
+	NonEmptyIsStricter                  // strings: any non-empty value is as strict as any other; empty is weaker
 )
 
 // Def declares a registered security setting (F-015 AC-01).
@@ -52,6 +59,11 @@ type Def struct {
 	// when non-empty, limits the floor to profiles of those families.
 	Floor         any
 	FloorFamilies []Family
+
+	// LooseningNeedsApproval makes every loosening, within the bound or not,
+	// need a written explanation and dual approval (F-002 T-04, AC-24). A
+	// loosening within the bound applies as a change, not an exception.
+	LooseningNeedsApproval bool
 }
 
 // ErrType is returned for values of the wrong type for a setting.
@@ -76,6 +88,11 @@ func (d Def) Validate(v any) error {
 		s, ok := v.(string)
 		if !ok || !slices.Contains(d.Order, s) {
 			return fmt.Errorf("%w: %s wants one of %v", ErrType, d.Key, d.Order)
+		}
+	case KindString:
+		s, ok := v.(string)
+		if !ok || len(s) > MaxStringLen || strings.ContainsFunc(s, unicode.IsControl) {
+			return fmt.Errorf("%w: %s wants a string of at most %d bytes without control characters", ErrType, d.Key, MaxStringLen)
 		}
 	default:
 		return fmt.Errorf("%w: %s has unknown kind", ErrType, d.Key)
@@ -107,6 +124,16 @@ func (d Def) Compare(a, b any) (int, error) {
 	case KindEnum:
 		if d.Direction == OrderedEnum {
 			return cmp3(int64(slices.Index(d.Order, a.(string))), int64(slices.Index(d.Order, b.(string)))), nil
+		}
+	case KindString:
+		if d.Direction == NonEmptyIsStricter {
+			nonEmpty := func(s string) int64 {
+				if s == "" {
+					return 0
+				}
+				return 1
+			}
+			return cmp3(nonEmpty(a.(string)), nonEmpty(b.(string))), nil
 		}
 	}
 	return 0, fmt.Errorf("settings: %s has incompatible kind/direction", d.Key)

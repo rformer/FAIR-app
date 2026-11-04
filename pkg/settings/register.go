@@ -31,11 +31,12 @@ func (r DBRegistrar) Register(ctx context.Context, ownerFeature, version string,
 	return r.DB.QueryRow(ctx, "SELECT posture.register_settings($1, $2, $3::jsonb)", ownerFeature, version, string(b)).Scan(&n)
 }
 
-var kindNames = map[Kind]string{KindDuration: "duration", KindInt: "int", KindBool: "bool", KindEnum: "enum"}
+var kindNames = map[Kind]string{KindDuration: "duration", KindInt: "int", KindBool: "bool", KindEnum: "enum", KindString: "string"}
 
 var directionNames = map[Direction]string{
 	LowerIsStricter: "lower_is_stricter", HigherIsStricter: "higher_is_stricter",
 	TrueIsStricter: "true_is_stricter", FalseIsStricter: "false_is_stricter", OrderedEnum: "ordered",
+	NonEmptyIsStricter: "nonempty_is_stricter",
 }
 
 // EncodeDefs is the JSON form of definitions that posture.register_settings
@@ -50,11 +51,12 @@ func EncodeDefs(defs []Def) ([]byte, error) {
 		HardFloor  any      `json:"hard_floor"`
 		Families   []Family `json:"hard_floor_families"`
 		Params     []string `json:"params"`
+		Loosening  bool     `json:"loosening_needs_approval"`
 	}
 	out := make([]wire, 0, len(defs))
 	for _, d := range defs {
 		w := wire{Key: d.Key, Type: kindNames[d.Kind], Direction: directionNames[d.Direction], Order: d.Order,
-			BUScopable: d.BUScopable, HardFloor: d.Floor, Families: d.FloorFamilies, Params: d.Params}
+			BUScopable: d.BUScopable, HardFloor: d.Floor, Families: d.FloorFamilies, Params: d.Params, Loosening: d.LooseningNeedsApproval}
 		if w.Type == "" || w.Direction == "" {
 			return nil, fmt.Errorf("settings: %s has an unknown kind or direction", d.Key)
 		}

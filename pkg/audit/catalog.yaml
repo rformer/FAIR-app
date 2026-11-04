@@ -728,10 +728,10 @@ events:
     description: "A posture setting change awaits approval (F-015)"
   - type: setting.changed
     category: configuration
-    severities: [info, low]
+    severities: [info, low, high]
     requires: [target]
     attributes: [bu_id, change_id, direction, key, previous, value]
-    description: "A posture setting changed"
+    description: "A posture setting changed; high when an approved loosening applied (F-002 T-04, loosening_needs_approval)"
   - type: setting.exception_created
     category: configuration
     severities: [high]

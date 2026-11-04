@@ -31,11 +31,12 @@ func strictCases() []strictCase {
 		{settings.Def{Key: "p.bool_true", Kind: settings.KindBool, Direction: settings.TrueIsStricter}, "true_is_stricter", "NULL"},
 		{settings.Def{Key: "p.bool_false", Kind: settings.KindBool, Direction: settings.FalseIsStricter}, "false_is_stricter", "NULL"},
 		{settings.Def{Key: "p.enum", Kind: settings.KindEnum, Direction: settings.OrderedEnum, Order: order}, "ordered", "ARRAY['off','flag','warn','reauthenticate']"},
+		{settings.Def{Key: "p.string", Kind: settings.KindString, Direction: settings.NonEmptyIsStricter}, "nonempty_is_stricter", "NULL"}, // F-002 T-04
 	}
 }
 
 func kindName(k settings.Kind) string {
-	return map[settings.Kind]string{settings.KindDuration: "duration", settings.KindInt: "int", settings.KindBool: "bool", settings.KindEnum: "enum"}[k]
+	return map[settings.Kind]string{settings.KindDuration: "duration", settings.KindInt: "int", settings.KindBool: "bool", settings.KindEnum: "enum", settings.KindString: "string"}[k]
 }
 
 func randomStrictValue(r *rand.Rand, d settings.Def) any {
@@ -47,6 +48,8 @@ func randomStrictValue(r *rand.Rand, d settings.Def) any {
 		return r.IntN(6)
 	case settings.KindBool:
 		return r.IntN(2) == 1
+	case settings.KindString:
+		return []string{"", "", "siem.example:6514", "collector:4317", "relay:6514"}[r.IntN(5)]
 	default:
 		return d.Order[r.IntN(len(d.Order))]
 	}
@@ -83,6 +86,8 @@ func TestPostureStrictnessParity(t *testing.T) {
 		settings.KindInt:  {`3`, `0`, `-1`, `3.5`, `"3"`, `9223372036854775807`, `9223372036854775808`, `1e3`, `null`, `true`},
 		settings.KindBool: {`true`, `false`, `"true"`, `1`, `null`},
 		settings.KindEnum: {`"flag"`, `"off"`, `"Flag"`, `"block"`, `1`, `null`},
+		settings.KindString: {`""`, `"siem.example:6514"`, `"é"`, `"a\nb"`, `"tab\there"`, `"del\u007f"`, `"nel\u0085"`, `1`, `null`, `true`,
+			`"` + strings.Repeat("x", 255) + `"`, `"` + strings.Repeat("x", 256) + `"`, `"` + strings.Repeat("é", 128) + `"`, `"` + strings.Repeat("é", 127) + `"`},
 	}
 	for _, c := range strictCases() {
 		for _, raw := range candidates[c.def.Kind] {

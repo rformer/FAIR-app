@@ -26,6 +26,7 @@ const (
 	KindBUUnrestrict         = "bu.unrestrict"                 // F-001 AC-63
 	KindBURollupLoosen       = "bu.rollup_loosen"              // F-001 AC-63
 	KindSettingsOutOfBounds  = "settings.out_of_bounds"        // F-015 AC-21
+	KindSettingsLoosen       = "settings.loosen"               // F-002 AC-24: loosening a setting that needs approval for any loosening
 )
 
 // Status of a request.

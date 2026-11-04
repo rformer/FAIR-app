@@ -35,7 +35,7 @@ func testContext(t *testing.T) Context {
 		t.Fatal(err)
 	}
 	bindingCtx = Context{
-		Defs:     settings.F001Defs(),
+		Defs:     settings.ReleaseDefs(),
 		Profiles: testProfiles,
 		HasParam: func(catalog, param string) bool {
 			_, ok := findParam(nist, param)
@@ -115,6 +115,14 @@ profiles:
   cmmc-l2-r2:          { default: true, platform_choice: "3.5.3" }
   enterprise-baseline: { default: true, bound: { allowed: [true, false] }, platform_choice: "relaxed" }
 `
+	syslog := `setting: audit.syslog_destination
+type: string
+direction: nonempty_is_stricter
+loosening_needs_approval: true
+profiles:
+  fedramp-moderate:    { default: "", platform_choice: x }
+  cmmc-l2-r2:          { default: "", platform_choice: x }
+`
 	cases := map[string]struct{ yaml, want string }{
 		// The T-03 verification column:
 		"missing param in catalog":   {swap("param: ac-11_odp.02\nprofiles", "param: ac-11_odp.99\nprofiles"), "not in nist-sp-800-53-r5"},
@@ -136,6 +144,11 @@ profiles:
 		"set type":                  {swap("type: duration", "type: set"), `type "set" is not supported`},
 		"unknown catalog":           {swap("catalog: nist-sp-800-53-r5", "catalog: iso-27001"), `unknown catalog "iso-27001"`},
 		"bad duration":              {swap("default: 15m\n    bound: { max: 15m }\n    source", "default: fifteen\n    bound: { max: 15m }\n    source"), "invalid duration"},
+		// F-002 T-04: string settings take no bound, and the loosening flag
+		// must match the registered definition.
+		"string with a bound": {syslog + "  enterprise-baseline: { default: \"\", bound: { allowed: [\"\"] }, platform_choice: x }\n", "string settings have no bound"},
+		"loosening flag differs": {strings.Replace(syslog, "loosening_needs_approval: true\n", "", 1) +
+			"  enterprise-baseline: { default: \"\", platform_choice: x }\n", "loosening_needs_approval disagrees"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {

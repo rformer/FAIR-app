@@ -227,7 +227,7 @@ func DecodeValue(d Def, raw json.RawMessage) (any, error) {
 			return bad()
 		}
 		v = b
-	case KindEnum:
+	case KindEnum, KindString:
 		var s string
 		if err := json.Unmarshal(raw, &s); err != nil {
 			return bad()

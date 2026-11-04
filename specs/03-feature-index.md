@@ -3,7 +3,7 @@ Every feature spec includes **Deployment modes** (SaaS, self-hosted, air-gapped)
 
 **v1 build order:** F-012 (minimal CI) → F-001 Phases 0–1 → F-015 → F-001 remaining phases → F-002 → F-003 onward.
 
-**Current position:** F-015 is **done** (T-01 to T-38, including T-24b). F-001 is **done** apart from T-25 (SCIM vendor interop runs), which is blocked until vendor test tenants and a public deployment exist. Next is **F-002**: requirements, design and tasks are approved (2026-11-04); T-01 (ADR-011, integrity primitives) T-02 (`audit` schema, `audit.submit`, catalog sync) and T-03 (envelope `bu_id`, catalog attribute lists, no secrets) are done; T-04 is next. See `README.md` for the task-level history.
+**Current position:** F-015 is **done** (T-01 to T-38, including T-24b). F-001 is **done** apart from T-25 (SCIM vendor interop runs), which is blocked until vendor test tenants and a public deployment exist. Next is **F-002**: requirements, design and tasks are approved (2026-11-04); T-01 (ADR-011, integrity primitives) T-02 (`audit` schema, `audit.submit`, catalog sync) T-03 (envelope `bu_id`, catalog attribute lists, no secrets) and T-04 (audit settings; F-015 string kind and approval on loosening; packages 1.2.0) are done; T-05 is next. See `README.md` for the task-level history.
 
 | ID | Feature | Depends on | Status |
 |---|---|---|---|

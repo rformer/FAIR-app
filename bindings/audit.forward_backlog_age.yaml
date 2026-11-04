@@ -1,0 +1,18 @@
+# F-002 T-04: binding for audit.forward_backlog_age: Age of the oldest record waiting for a SIEM destination before an alert (AU-5, AU-6); F-002 AC-23.
+setting: audit.forward_backlog_age
+type: duration
+direction: lower_is_stricter
+bu_scopable: false
+profiles:
+  fedramp-moderate:
+    default: "15m"
+    bound: { max: "15m" }
+    platform_choice: "AU-5 (audit processing failures): the checkpoint interval; a SIEM more than one checkpoint behind is alerted"
+  cmmc-l2-r2:
+    default: "15m"
+    bound: { max: "15m" }
+    platform_choice: "800-171 Rev 2 3.3.4 (AU-5); matches FedRAMP Moderate"
+  enterprise-baseline:
+    default: "15m"
+    bound: { max: "1h" }
+    platform_choice: "Enterprise Baseline relaxation: up to one hour"

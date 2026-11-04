@@ -1,0 +1,18 @@
+# F-002 T-04: binding for audit.max_clock_skew: Event time against receipt time beyond which a record is flagged (AU-8); F-002 AC-05.
+setting: audit.max_clock_skew
+type: duration
+direction: lower_is_stricter
+bu_scopable: false
+profiles:
+  fedramp-moderate:
+    default: "5m"
+    bound: { max: "5m" }
+    platform_choice: "AU-8 asks for synchronized time stamps; a five-minute skew flags a clock that has drifted"
+  cmmc-l2-r2:
+    default: "5m"
+    bound: { max: "5m" }
+    platform_choice: "800-171 Rev 2 3.3.7 (AU-8); matches FedRAMP Moderate"
+  enterprise-baseline:
+    default: "5m"
+    bound: { max: "15m" }
+    platform_choice: "Enterprise Baseline relaxation: up to 15 minutes"

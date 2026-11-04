@@ -12,7 +12,7 @@ import (
 
 func TestBuiltinProfilesValid(t *testing.T) {
 	for _, p := range BuiltinProfiles() {
-		if err := ValidateProfile(p, F001Defs()); err != nil {
+		if err := ValidateProfile(p, ReleaseDefs()); err != nil {
 			t.Errorf("%s: %v", p.ID, err)
 		}
 	}
@@ -21,7 +21,7 @@ func TestBuiltinProfilesValid(t *testing.T) {
 func TestProfileMissingBindingRejected(t *testing.T) {
 	p := BuiltinProfiles()[0]
 	delete(p.Settings, KeySessionIdleTimeout)
-	if err := ValidateProfile(p, F001Defs()); err == nil {
+	if err := ValidateProfile(p, ReleaseDefs()); err == nil {
 		t.Fatal("a registered key with no profile binding must fail validation (F-015 AC-01)")
 	}
 }
@@ -29,7 +29,7 @@ func TestProfileMissingBindingRejected(t *testing.T) {
 func TestProfileBoundBelowFloorRejected(t *testing.T) {
 	p := BuiltinProfiles()[0]
 	p.Settings[KeyTLSMinVersion] = Bound{Default: "1.2", Weakest: "1.1"}
-	if err := ValidateProfile(p, F001Defs()); err == nil {
+	if err := ValidateProfile(p, ReleaseDefs()); err == nil {
 		t.Fatal("a profile bound weaker than the hard floor must fail validation (AC-31)")
 	}
 }

@@ -1,0 +1,18 @@
+# F-002 T-04: binding for audit.forward_backlog_records: Records waiting for a SIEM destination before an alert (AU-5, AU-6); F-002 AC-23.
+setting: audit.forward_backlog_records
+type: int
+direction: lower_is_stricter
+bu_scopable: false
+profiles:
+  fedramp-moderate:
+    default: 10000
+    bound: { max: 10000 }
+    platform_choice: "AU-5 (audit processing failures): alert well before a SIEM falls behind; about a minute of peak load"
+  cmmc-l2-r2:
+    default: 10000
+    bound: { max: 10000 }
+    platform_choice: "800-171 Rev 2 3.3.4 (AU-5); matches FedRAMP Moderate"
+  enterprise-baseline:
+    default: 10000
+    bound: { max: 100000 }
+    platform_choice: "Enterprise Baseline relaxation: up to 100,000 records"

@@ -63,6 +63,42 @@ const (
 	KeyFIPSEnabled            = "fips.enabled"
 )
 
+// F-002 setting keys (design §4.4).
+const (
+	KeyAuditRetentionOnline   = "audit.retention_online"
+	KeyAuditRetentionTotal    = "audit.retention_total"
+	KeyAuditMaxClockSkew      = "audit.max_clock_skew"
+	KeyAuditBacklogRecords    = "audit.forward_backlog_records"
+	KeyAuditBacklogAge        = "audit.forward_backlog_age"
+	KeyAuditSyslogDestination = "audit.syslog_destination"
+	KeyAuditOTLPDestination   = "audit.otlp_destination"
+)
+
+// F002Defs returns the F-002 (audit trail) setting definitions, registered
+// by the audit service and bound in bindings/ like F-001's.
+func F002Defs() []Def {
+	return []Def{
+		{Key: KeyAuditRetentionOnline, Kind: KindDuration, Direction: HigherIsStricter, Params: []string{"au-11_odp"}, Controls: []string{"AU-11"},
+			Floor: 90 * day, Description: "How long audit records stay searchable (online retention)"},
+		{Key: KeyAuditRetentionTotal, Kind: KindDuration, Direction: HigherIsStricter, Params: []string{"au-11_odp"}, Controls: []string{"AU-11"},
+			Description: "How long audit records are kept in all, online and archived (at least the online retention)"},
+		{Key: KeyAuditMaxClockSkew, Kind: KindDuration, Direction: LowerIsStricter, Controls: []string{"AU-8"},
+			Description: "Difference between an event's time and its receipt beyond which the record is flagged"},
+		{Key: KeyAuditBacklogRecords, Kind: KindInt, Direction: LowerIsStricter, Controls: []string{"AU-5", "AU-6"},
+			Description: "Records waiting for a SIEM destination before a backlog alert"},
+		{Key: KeyAuditBacklogAge, Kind: KindDuration, Direction: LowerIsStricter, Controls: []string{"AU-5", "AU-6"},
+			Description: "Age of the oldest record waiting for a SIEM destination before a backlog alert"},
+		{Key: KeyAuditSyslogDestination, Kind: KindString, Direction: NonEmptyIsStricter, Controls: []string{"AU-6", "SI-4"},
+			LooseningNeedsApproval: true, Description: "Syslog over TLS destination for the audit trail (host:port; empty: none)"},
+		{Key: KeyAuditOTLPDestination, Kind: KindString, Direction: NonEmptyIsStricter, Controls: []string{"AU-6", "SI-4"},
+			LooseningNeedsApproval: true, Description: "OTLP over TLS destination for the audit trail (host:port; empty: none)"},
+	}
+}
+
+// ReleaseDefs are the setting definitions a release binds: F-001's and
+// F-002's. Profile packages cover exactly these (internal/profilegen).
+func ReleaseDefs() []Def { return append(F001Defs(), F002Defs()...) }
+
 const day = 24 * time.Hour
 
 // F001Defs returns the F-001 setting definitions. Parameter IDs follow the
@@ -122,6 +158,14 @@ func BuiltinProfiles() []Profile {
 			KeyAuditEnabled:           strict(true),
 			KeyRLSEnforced:            strict(true),
 			KeyFIPSEnabled:            strict(true),
+			// F-002 (design §4.4).
+			KeyAuditRetentionOnline:   {Default: 365 * day, Weakest: 365 * day},
+			KeyAuditRetentionTotal:    {Default: 2557 * day, Weakest: 913 * day}, // 30 months (OMB M-21-31)
+			KeyAuditMaxClockSkew:      strict(5 * time.Minute),
+			KeyAuditBacklogRecords:    strict(10000),
+			KeyAuditBacklogAge:        strict(15 * time.Minute),
+			KeyAuditSyslogDestination: strict(""),
+			KeyAuditOTLPDestination:   strict(""),
 		}
 	}
 
@@ -139,6 +183,11 @@ func BuiltinProfiles() []Profile {
 	ent[KeyBUNewRestricted] = Bound{Default: true, Weakest: false}
 	ent[KeyBUReauthMaxAge] = Bound{Default: 12 * time.Hour, Weakest: 24 * time.Hour}
 	ent[KeyFIPSEnabled] = Bound{Default: true, Weakest: false}
+	ent[KeyAuditRetentionOnline] = Bound{Default: 365 * day, Weakest: 90 * day}
+	ent[KeyAuditRetentionTotal] = Bound{Default: 2557 * day, Weakest: 365 * day}
+	ent[KeyAuditMaxClockSkew] = Bound{Default: 5 * time.Minute, Weakest: 15 * time.Minute}
+	ent[KeyAuditBacklogRecords] = Bound{Default: 10000, Weakest: 100000}
+	ent[KeyAuditBacklogAge] = Bound{Default: 15 * time.Minute, Weakest: time.Hour}
 
 	return []Profile{
 		{ID: ProfileFedRAMPModerate, Title: "FedRAMP Moderate", Family: FamilyFedRAMP, Version: "0.1.0-stub", Settings: fed},

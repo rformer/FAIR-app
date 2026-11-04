@@ -5,6 +5,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -26,6 +27,7 @@ func propertyDefs(r *rand.Rand) []Def {
 		{Key: "p.bool_true", Kind: KindBool, Direction: TrueIsStricter},
 		{Key: "p.bool_false", Kind: KindBool, Direction: FalseIsStricter},
 		{Key: "p.enum", Kind: KindEnum, Direction: OrderedEnum, Order: order},
+		{Key: "p.string", Kind: KindString, Direction: NonEmptyIsStricter}, // F-002 T-04
 	}
 }
 
@@ -39,6 +41,8 @@ func randomValue(r *rand.Rand, d Def) any {
 		return r.IntN(8)
 	case KindBool:
 		return r.IntN(2) == 1
+	case KindString:
+		return []string{"", "", "siem.example:6514", "collector.example:4317", "relay:6514"}[r.IntN(5)]
 	default:
 		return d.Order[r.IntN(len(d.Order))]
 	}
@@ -80,7 +84,13 @@ func TestComparatorTotalOrder(t *testing.T) {
 			if ab != -ba {
 				t.Fatalf("%s: Compare(%v,%v)=%d but Compare(%v,%v)=%d", d.Key, a, b, ab, b, a, ba)
 			}
-			if (ab == 0) != (a == b) {
+			// Equal strictness means equal values, except that any two
+			// non-empty strings are equally strict.
+			same := a == b
+			if d.Kind == KindString {
+				same = (a == "") == (b == "")
+			}
+			if (ab == 0) != same {
 				t.Fatalf("%s: Compare(%v,%v)=%d; equal strictness must mean equal values", d.Key, a, b, ab)
 			}
 			if ab >= 0 && mustCompare(t, d, b, c) >= 0 && mustCompare(t, d, a, c) < 0 {
@@ -96,7 +106,17 @@ func TestComparatorTotalOrder(t *testing.T) {
 			case bool:
 				want = cmpNatural(int64(btoi(x)), int64(btoi(b.(bool))))
 			case string:
-				want = cmpNatural(int64(slices.Index(d.Order, x)), int64(slices.Index(d.Order, b.(string))))
+				if d.Kind == KindString {
+					nonEmpty := func(s string) int64 {
+						if s == "" {
+							return 0
+						}
+						return 1
+					}
+					want = cmpNatural(nonEmpty(x), nonEmpty(b.(string)))
+				} else {
+					want = cmpNatural(int64(slices.Index(d.Order, x)), int64(slices.Index(d.Order, b.(string))))
+				}
 			}
 			if d.Direction == LowerIsStricter || d.Direction == FalseIsStricter {
 				want = -want
@@ -142,7 +162,9 @@ func TestStrictestOf(t *testing.T) {
 			}
 			shuffled := slices.Clone(vals)
 			r.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
-			if s2, _ := d.Strictest(shuffled...); s2 != s {
+			// Order-independent up to equal strictness (distinct values tie only
+			// for strings, where any non-empty value is as strict as another).
+			if s2, _ := d.Strictest(shuffled...); s2 != s && mustCompare(t, d, s2, s) != 0 {
 				t.Fatalf("%s: strictest of %v is %v, of %v is %v", d.Key, vals, s, shuffled, s2)
 			}
 			more, _ := d.Strictest(append(slices.Clone(vals), randomValue(r, d))...)
@@ -169,6 +191,10 @@ func TestComparatorRejects(t *testing.T) {
 		"int with bool direction": {Def{Key: "x", Kind: KindInt, Direction: TrueIsStricter}, 1, 2},
 		"enum unordered":          {Def{Key: "x", Kind: KindEnum, Direction: LowerIsStricter, Order: []string{"a", "b"}}, "a", "b"},
 		"unknown kind":            {Def{Key: "x", Kind: Kind(42), Direction: LowerIsStricter}, 1, 2},
+		"string with enum dir":    {Def{Key: "x", Kind: KindString, Direction: OrderedEnum}, "a", "b"},
+		"string too long":         {Def{Key: "x", Kind: KindString, Direction: NonEmptyIsStricter}, strings.Repeat("x", MaxStringLen+1), "a"},
+		"string control char":     {Def{Key: "x", Kind: KindString, Direction: NonEmptyIsStricter}, "a\nb", "a"},
+		"string not a string":     {Def{Key: "x", Kind: KindString, Direction: NonEmptyIsStricter}, 3, "a"},
 	}
 	for name, c := range cases {
 		if _, err := c.d.Compare(c.a, c.b); err == nil {

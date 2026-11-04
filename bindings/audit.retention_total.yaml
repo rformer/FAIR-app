@@ -1,0 +1,22 @@
+# F-002 T-04: binding for audit.retention_total: How long audit records are kept in all (AU-11); F-002 AC-25, AC-28.
+# A value below audit.retention_online is treated as audit.retention_online (design §4.4).
+setting: audit.retention_total
+type: duration
+direction: higher_is_stricter
+bu_scopable: false
+params:
+  - catalog: nist-sp-800-53-r5
+    param: au-11_odp
+profiles:
+  fedramp-moderate:
+    default: "2557d"
+    bound: { min: "913d" }
+    platform_choice: "7 years (common SOX record-keeping); the bound is the 30 months OMB M-21-31 requires (12 months active, 18 months cold), the FedRAMP AU-11 constraint"
+  cmmc-l2-r2:
+    default: "2557d"
+    bound: { min: "913d" }
+    platform_choice: "800-171 Rev 2 3.3.1 (AU-11) leaves the period open; matches FedRAMP Moderate"
+  enterprise-baseline:
+    default: "2557d"
+    bound: { min: "365d" }
+    platform_choice: "Enterprise Baseline relaxation: at least one year in all"

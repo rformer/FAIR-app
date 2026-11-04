@@ -32,7 +32,7 @@ func committedManifest(t *testing.T) *profilepkg.Manifest {
 
 func buildPackages(t *testing.T, bindings string, previous *profilepkg.Manifest) map[string][]byte {
 	t.Helper()
-	files, err := BuildPackages(pinDir, profilesDir, bindings, settings.F001Defs(), previous)
+	files, err := BuildPackages(pinDir, profilesDir, bindings, settings.ReleaseDefs(), previous)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestPackagesMatchBuiltinProfiles(t *testing.T) {
 	if len(m.Packages) != len(builtin) {
 		t.Fatalf("%d packages, %d built-in profiles", len(m.Packages), len(builtin))
 	}
-	defs := settings.F001Defs()
+	defs := settings.ReleaseDefs()
 	for _, want := range builtin {
 		b := files[shippedFile(t, files, want.ID)]
 		p, err := profilepkg.Decode(b)
@@ -157,7 +157,7 @@ func TestPackagesMatchBuiltinProfiles(t *testing.T) {
 func TestPackagesImmutable(t *testing.T) {
 	m := committedManifest(t)
 	m.Packages[0].SHA256 = strings.Repeat("0", 64)
-	_, err := BuildPackages(pinDir, profilesDir, bindingsDir, settings.F001Defs(), m)
+	_, err := BuildPackages(pinDir, profilesDir, bindingsDir, settings.ReleaseDefs(), m)
 	if err == nil || !strings.Contains(err.Error(), "bump") {
 		t.Fatalf("changed a pinned package: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestPackagesFailClosed(t *testing.T) {
 	for name, edit := range cases {
 		t.Run(name, func(t *testing.T) {
 			dir := copyBindings(t, edit)
-			if _, err := BuildPackages(pinDir, profilesDir, dir, settings.F001Defs(), nil); err == nil {
+			if _, err := BuildPackages(pinDir, profilesDir, dir, settings.ReleaseDefs(), nil); err == nil {
 				t.Fatal("built packages")
 			}
 		})

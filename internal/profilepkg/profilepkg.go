@@ -247,11 +247,13 @@ func (p *Package) ToSettings() (settings.Profile, []settings.Def, error) {
 	return prof, defs, nil
 }
 
-var kinds = map[string]settings.Kind{"duration": settings.KindDuration, "int": settings.KindInt, "bool": settings.KindBool, "enum": settings.KindEnum}
+var kinds = map[string]settings.Kind{"duration": settings.KindDuration, "int": settings.KindInt, "bool": settings.KindBool, "enum": settings.KindEnum,
+	"string": settings.KindString}
 
 var directions = map[string]settings.Direction{
 	"lower_is_stricter": settings.LowerIsStricter, "higher_is_stricter": settings.HigherIsStricter,
 	"true_is_stricter": settings.TrueIsStricter, "false_is_stricter": settings.FalseIsStricter, "ordered": settings.OrderedEnum,
+	"nonempty_is_stricter": settings.NonEmptyIsStricter,
 }
 
 func (s Setting) def(key string) (settings.Def, error) {

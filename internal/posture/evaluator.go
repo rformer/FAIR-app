@@ -80,7 +80,7 @@ type ChangeResult struct {
 // Errors returned by the evaluator.
 var (
 	ErrHardFloor           = errors.New("posture: the change would weaken a hard-floor setting")
-	ErrExplanationRequired = errors.New("posture: the change is outside the active profile's bounds; a written explanation and dual approval are required")
+	ErrExplanationRequired = errors.New("posture: the change is outside the active profile's bounds, or loosens a setting that needs approval; a written explanation and dual approval are required")
 	ErrInvalidValue        = errors.New("posture: invalid setting or value")
 	ErrNoContext           = errors.New("posture: a valid signed database context is required")
 	ErrNotPermitted        = errors.New("posture: settings.change is required")
@@ -96,6 +96,7 @@ type preview struct {
 	current, bound, floor   json.RawMessage
 	params                  []string
 	covered                 bool // out of bounds, but a tightening under an active exception (AC-22)
+	looseningApproval       bool // within bounds, but a loosening its definition puts under approval (F-002 T-04)
 }
 
 // Change evaluates and, where the rules allow, applies a change requested by
@@ -106,9 +107,9 @@ func (ev Evaluator) Change(ctx context.Context, p authz.Principal, r ChangeReque
 	var res ChangeResult
 	bu := nullable(r.BUID)
 	var pv preview
-	err := ev.DB.QueryRow(ctx, `SELECT direction, below_floor, out_of_bounds, current_value, bound, hard_floor, params, covered
+	err := ev.DB.QueryRow(ctx, `SELECT direction, below_floor, out_of_bounds, current_value, bound, hard_floor, params, covered, loosening_approval
 		FROM posture.preview_change($1, $2, $3)`, r.Key, bu, []byte(r.Value)).
-		Scan(&pv.direction, &pv.belowFloor, &pv.outOfBounds, &pv.current, &pv.bound, &pv.floor, &pv.params, &pv.covered)
+		Scan(&pv.direction, &pv.belowFloor, &pv.outOfBounds, &pv.current, &pv.bound, &pv.floor, &pv.params, &pv.covered, &pv.looseningApproval)
 	if err != nil {
 		return res, mapErr(err)
 	}
@@ -121,6 +122,16 @@ func (ev Evaluator) Change(ctx context.Context, p authz.Principal, r ChangeReque
 			Controls: ControlsForParams(pv.params),
 			Message: fmt.Sprintf("%s = %s is weaker than the active profile allows (%s). It affects %s and needs a written explanation and a second approver; on approval it applies as a time-limited exception.",
 				r.Key, r.Value, pv.bound, strings.Join(ControlsForParams(pv.params), ", "))}
+		if strings.TrimSpace(r.Explanation) == "" {
+			return res, ErrExplanationRequired
+		}
+	} else if pv.looseningApproval {
+		// F-002 T-04: within the bound, but every loosening of this setting
+		// needs a second approver; approved, it applies as a change.
+		res.Warning = &Warning{Key: r.Key, Current: pv.current, Proposed: r.Value, Bound: pv.bound, Params: pv.params,
+			Controls: ControlsForParams(pv.params),
+			Message: fmt.Sprintf("%s = %s loosens a setting whose every loosening needs a written explanation and a second approver; on approval it applies.",
+				r.Key, r.Value)}
 		if strings.TrimSpace(r.Explanation) == "" {
 			return res, ErrExplanationRequired
 		}
@@ -184,16 +195,43 @@ type Exception struct {
 
 // ApplyApproved applies an approved out-of-bounds change as an exception
 // (AC-21): the approval is consumed once, the floor re-checked, and
-// setting.exception_created emitted (high) inside the transaction.
+// setting.exception_created emitted (high) inside the transaction. An
+// approved loosening within the bound (F-002 T-04, loosening_needs_approval)
+// applies as a change instead: the returned Exception has no ID, and
+// setting.changed is emitted (high).
 func (ev Evaluator) ApplyApproved(ctx context.Context, changeID string) (Exception, error) {
 	var x Exception
 	err := pgx.BeginFunc(ctx, ev.DB, func(tx pgx.Tx) error {
+		// Only a change waiting for its approval: anything else is applied
+		// with Change, and must not be reported as approved.
+		var pending *string
+		if err := tx.QueryRow(ctx, "SELECT state FROM posture.change_summary($1)", changeID).Scan(&pending); err != nil {
+			return err
+		}
+		if pending == nil || *pending != "pending_approval" {
+			return fmt.Errorf("%w: change %s is not waiting for approval", ErrNotApplicable, changeID)
+		}
 		var id *string
 		if err := tx.QueryRow(ctx, "SELECT posture.apply_change($1)", changeID).Scan(&id); err != nil {
 			return err
 		}
 		if id == nil {
-			return fmt.Errorf("%w: change %s needed no approval", ErrNotApplicable, changeID)
+			// No exception: an approved loosening within the bound (the only
+			// approval apply_change applies as a change).
+			var key, direction, requester string
+			var bu *string
+			var value json.RawMessage
+			if err := tx.QueryRow(ctx, "SELECT key, bu_id::text, new_value, direction, requested_by::text FROM posture.change_summary($1)", changeID).
+				Scan(&key, &bu, &value, &direction, &requester); err != nil {
+				return err
+			}
+			x = Exception{Key: key, Value: value}
+			if bu != nil {
+				x.BUID = *bu
+			}
+			return ev.Audit.Emit(ctx, audit.Event{Type: "setting.changed", Severity: audit.SeverityHigh, Actor: requester,
+				Target: "setting:" + key, Attributes: map[string]string{"key": key, "bu_id": x.BUID, "value": string(value),
+					"direction": direction, "change_id": changeID}})
 		}
 		x.ID = *id
 		var bu *string

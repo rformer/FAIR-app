@@ -1,24 +1,58 @@
 {
   "format": "fair-profile-package/v1",
   "profile": {
-    "id": "cmmc-l2-r2",
-    "title": "CMMC Level 2 (NIST SP 800-171 Rev 2)",
-    "family": "cmmc",
-    "version": "1.1.0",
-    "base": "profiles/cmmc-l2-r2/profile.json",
+    "id": "fedramp-moderate",
+    "title": "FedRAMP Moderate",
+    "family": "fedramp",
+    "version": "1.2.0",
+    "base": "third_party/oscal/fedramp/rev5/FedRAMP_rev5_MODERATE-baseline_profile.json",
     "sources": [
       {
-        "path": "profiles/cmmc-l2-r2/profile.json",
-        "sha256": "d0e3a074e0f30bdd1605dbc9616f05bf34c2e73bc28f1af0caf070172eb45483"
+        "path": "third_party/oscal/fedramp/rev5/FedRAMP_rev5_MODERATE-baseline_profile.json",
+        "url": "https://raw.githubusercontent.com/OSCAL-Foundation/fedramp-resources/383977291aad960b0811faf6ebf5a893b0811f7f/baselines/rev5/json/FedRAMP_rev5_MODERATE-baseline_profile.json",
+        "sha256": "9a31036e9f66e0d8cd9d15a981a9f956e9043562a882f44bd78048c7a86820e2"
       },
       {
-        "path": "third_party/oscal/nist/sp800-53r5/NIST_SP-800-53_rev5_catalog.json",
-        "url": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.6.0/nist.gov/SP800-53/rev5/json/NIST_SP-800-53_rev5_catalog.json",
-        "sha256": "64ca6b4161de51ab6af098a7d101d326f14c95e1abf721396cd8a049e8115eeb"
+        "path": "third_party/oscal/fedramp/rev5/FedRAMP_rev5_catalog_tailoring_profile.json",
+        "url": "https://raw.githubusercontent.com/OSCAL-Foundation/fedramp-resources/383977291aad960b0811faf6ebf5a893b0811f7f/baselines/rev5/json/FedRAMP_rev5_catalog_tailoring_profile.json",
+        "sha256": "4d0b5d6e20253654ab7b51d9d23e6b5bfbe2ab93c5c54f620b9a565f50414d5f"
+      },
+      {
+        "path": "third_party/oscal/nist/sp800-53r5-oscal-content-v1.3.0/NIST_SP-800-53_rev5_catalog.json",
+        "url": "https://raw.githubusercontent.com/usnistgov/oscal-content/refs/tags/v1.3.0/nist.gov/SP800-53/rev5/json/NIST_SP-800-53_rev5_catalog.json",
+        "sha256": "81cf2de45ede9aef3de7ce09d65ea9d32f662c483bbf916f6e346292b22f7763"
       },
       {
         "path": "bindings/audit.enabled.yaml",
         "sha256": "ce0e72cd0842c7a2fb2d15e83ef85f34a933f3e99e39552ea6de72ae8d41b2a6"
+      },
+      {
+        "path": "bindings/audit.forward_backlog_age.yaml",
+        "sha256": "50d50eb64778a957e66d01d315622bb66f1a626fc815b9649741c5ae8f5c49fd"
+      },
+      {
+        "path": "bindings/audit.forward_backlog_records.yaml",
+        "sha256": "45e5c86e02bd0eec6f222596f32f87e4391be2455cbb105f136385176d55f834"
+      },
+      {
+        "path": "bindings/audit.max_clock_skew.yaml",
+        "sha256": "d305f1380ec9d4f86bedbf511e432d68f46ea961ea112796d89ca70eb5b7e136"
+      },
+      {
+        "path": "bindings/audit.otlp_destination.yaml",
+        "sha256": "29e3ca8d306d6f90f5d441e93e3fc6d5f3ed102c38fa348c03bfd7ada0a5681c"
+      },
+      {
+        "path": "bindings/audit.retention_online.yaml",
+        "sha256": "3583e09d9c90ef16c19efd2782e8e529ce2b70a83a6ac89a6aca831a017dd06b"
+      },
+      {
+        "path": "bindings/audit.retention_total.yaml",
+        "sha256": "2892b37d388b9f2a0c1d0f4c2e9888cf997b5de7575b80faeb466ec3102b9d15"
+      },
+      {
+        "path": "bindings/audit.syslog_destination.yaml",
+        "sha256": "c7e208e66cc323a7f15f3363af3c6847fd9ed902ff28256e4ddd6ee3ab82b806"
       },
       {
         "path": "bindings/auth.inactive_disable_after.yaml",
@@ -107,7 +141,84 @@
       "default": true,
       "bound": true,
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.3.1 (AU-2, AU-12); hard floor"
+        "platform_choice": "AU-2 and AU-12; hard floor"
+      }
+    },
+    "audit.forward_backlog_age": {
+      "type": "duration",
+      "direction": "lower_is_stricter",
+      "bu_scopable": false,
+      "default": "15m0s",
+      "bound": "15m0s",
+      "origin": {
+        "platform_choice": "AU-5 (audit processing failures): the checkpoint interval; a SIEM more than one checkpoint behind is alerted"
+      }
+    },
+    "audit.forward_backlog_records": {
+      "type": "int",
+      "direction": "lower_is_stricter",
+      "bu_scopable": false,
+      "default": 10000,
+      "bound": 10000,
+      "origin": {
+        "platform_choice": "AU-5 (audit processing failures): alert well before a SIEM falls behind; about a minute of peak load"
+      }
+    },
+    "audit.max_clock_skew": {
+      "type": "duration",
+      "direction": "lower_is_stricter",
+      "bu_scopable": false,
+      "default": "5m0s",
+      "bound": "5m0s",
+      "origin": {
+        "platform_choice": "AU-8 asks for synchronized time stamps; a five-minute skew flags a clock that has drifted"
+      }
+    },
+    "audit.otlp_destination": {
+      "type": "string",
+      "direction": "nonempty_is_stricter",
+      "bu_scopable": false,
+      "default": "",
+      "bound": "",
+      "origin": {
+        "platform_choice": "None until the customer names one (an installation choice); removing one needs dual approval"
+      }
+    },
+    "audit.retention_online": {
+      "type": "duration",
+      "direction": "higher_is_stricter",
+      "bu_scopable": false,
+      "default": "8760h0m0s",
+      "bound": "8760h0m0s",
+      "params": [
+        "au-11_odp"
+      ],
+      "origin": {
+        "source_param": "au-11_odp",
+        "source_constraint": "a time period in compliance with M-21-31"
+      }
+    },
+    "audit.retention_total": {
+      "type": "duration",
+      "direction": "higher_is_stricter",
+      "bu_scopable": false,
+      "default": "61368h0m0s",
+      "bound": "21912h0m0s",
+      "params": [
+        "au-11_odp"
+      ],
+      "origin": {
+        "platform_choice": "7 years (common SOX record-keeping); the bound is the 30 months OMB M-21-31 requires (12 months active, 18 months cold), the FedRAMP AU-11 constraint"
+      }
+    },
+    "audit.syslog_destination": {
+      "type": "string",
+      "direction": "nonempty_is_stricter",
+      "bu_scopable": false,
+      "default": "",
+      "bound": "",
+      "origin": {
+        "platform_choice": "None until the customer names one (an installation choice); removing one needs dual approval"
       }
     },
     "auth.inactive_disable_after": {
@@ -120,7 +231,8 @@
         "ac-02.03_odp.02"
       ],
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.5.6 (IA-4, via Appendix D) leaves the period open; matches FedRAMP Moderate"
+        "source_param": "ac-02.03_odp.02",
+        "source_constraint": "ninety (90) days (See additional requirements and guidance.)"
       }
     },
     "auth.jit_provisioning": {
@@ -130,7 +242,7 @@
       "default": false,
       "bound": false,
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.1.1 (AC-2); F-001 AC-09: JIT off by default"
+        "platform_choice": "AC-2 account management: accounts provisioned through SCIM only (F-001 AC-09)"
       }
     },
     "auth.lockout_threshold": {
@@ -143,7 +255,7 @@
         "ac-07_odp.01"
       ],
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.1.8 (AC-7); F-001 AC-47 default"
+        "platform_choice": "FedRAMP Moderate leaves ac-07_odp.01 unconstrained; F-001 AC-47 default: 3 attempts"
       }
     },
     "auth.lockout_window": {
@@ -156,7 +268,7 @@
         "ac-07_odp.02"
       ],
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.1.8 (AC-7); F-001 AC-47 default"
+        "platform_choice": "FedRAMP Moderate leaves ac-07_odp.02 unconstrained; F-001 AC-47 default: 15 minutes"
       }
     },
     "auth.mfa_required_all": {
@@ -166,7 +278,7 @@
       "default": true,
       "bound": true,
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.5.3 (IA-2(2))"
+        "platform_choice": "IA-2(2) (no parameters): MFA for non-privileged accounts"
       }
     },
     "auth.mfa_required_privileged": {
@@ -176,7 +288,7 @@
       "default": true,
       "bound": true,
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.5.3 (IA-2(1))"
+        "platform_choice": "IA-2(1) (no parameters): MFA for privileged accounts"
       }
     },
     "auth.totp_enabled": {
@@ -189,7 +301,7 @@
         "ia-02.08_odp"
       ],
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.5.4 (IA-2(8)); F-001 AC-06"
+        "platform_choice": "IA-2(8) replay-resistant authentication for privileged and non-privileged accounts; TOTP off by default (F-001 AC-06)"
       }
     },
     "banner.enabled": {
@@ -202,7 +314,7 @@
         "ac-08_odp.01"
       ],
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.1.9 (AC-8)"
+        "platform_choice": "AC-8 system use notification is required; FedRAMP's text for ac-08_odp.01 defers to its guidance"
       }
     },
     "breakglass.enabled": {
@@ -212,7 +324,7 @@
       "default": false,
       "bound": false,
       "origin": {
-        "platform_choice": "F-001 AC-39"
+        "platform_choice": "F-001 AC-39: break-glass disabled by default; enabling needs dual approval"
       }
     },
     "bu.new_restricted_default": {
@@ -232,7 +344,7 @@
       "default": "12h0m0s",
       "bound": "12h0m0s",
       "origin": {
-        "platform_choice": "No 800-171 Rev 2 requirement; matches FedRAMP Moderate and the session absolute timeout"
+        "platform_choice": "IA-11 leaves the circumstances to the organization; the session absolute timeout (12h), lowered to 15m by the Restricted BU overlay (F-015 AC-33)"
       }
     },
     "exception.max_duration": {
@@ -242,7 +354,7 @@
       "default": "2160h0m0s",
       "bound": "2160h0m0s",
       "origin": {
-        "platform_choice": "F-015 secure default"
+        "platform_choice": "F-015 secure default: exceptions expire after 90 days and revert"
       }
     },
     "fips.enabled": {
@@ -255,7 +367,8 @@
         "sc-13_odp.02"
       ],
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.13.11 (SC-13): FIPS-validated cryptography"
+        "source_param": "sc-13_odp.02",
+        "source_constraint": "FIPS-validated or NSA-approved cryptography"
       }
     },
     "rls.enforced": {
@@ -265,7 +378,7 @@
       "default": true,
       "bound": true,
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.1.1 (AC-3); hard floor"
+        "platform_choice": "AC-3; constitution A6; hard floor"
       }
     },
     "session.absolute_timeout": {
@@ -278,7 +391,7 @@
         "ac-12_odp"
       ],
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.1.11 (AC-12) leaves the condition open; matches FedRAMP Moderate"
+        "platform_choice": "FedRAMP Moderate leaves AC-12 (ac-12_odp) without a value for this setting; platform secure default"
       }
     },
     "session.idle_timeout": {
@@ -291,7 +404,8 @@
         "ac-11_odp.02"
       ],
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.1.10 (AC-11) leaves the period open; matches FedRAMP Moderate"
+        "source_param": "ac-11_odp.02",
+        "source_constraint": "fifteen (15) minutes"
       }
     },
     "session.network_binding": {
@@ -306,7 +420,7 @@
       "default": "reauthenticate",
       "bound": "reauthenticate",
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.13.15 (SC-23); F-001 design D-OQ2: reauthenticate in CMMC L2"
+        "platform_choice": "SC-23 session authenticity; F-001 design D-OQ2: reauthenticate in FedRAMP Moderate"
       }
     },
     "tls.min_version": {
@@ -322,7 +436,7 @@
       "default": "1.2",
       "bound": "1.2",
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.13.8 (SC-8); hard floor TLS 1.2"
+        "platform_choice": "SC-8 and SC-13; hard floor TLS 1.2 (ADR-006)"
       }
     },
     "token.max_lifetime": {
@@ -335,13 +449,16 @@
         "ia-05_odp.01"
       ],
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.5.10 (IA-5); F-001 AC-37 default"
+        "platform_choice": "FedRAMP Moderate leaves ia-05_odp.01 unconstrained; F-001 AC-37 default: 90 days"
       }
     }
   },
   "hard_floor": {
     "audit.enabled": {
       "value": true
+    },
+    "audit.retention_online": {
+      "value": "2160h0m0s"
     },
     "auth.mfa_required_privileged": {
       "value": true

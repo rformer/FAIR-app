@@ -33,7 +33,7 @@ func TestF001BindingsResolveInAllProfiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defs := settings.F001Defs()
+	defs := settings.ReleaseDefs()
 	resolved := resolvedProfiles(t)
 	ctx := testContext(t)
 	ctx.Resolved = resolved
@@ -139,7 +139,7 @@ func TestF001BindingsDriftCheck(t *testing.T) {
 			t.Errorf("%s: %v", bd.Setting, errs)
 		}
 	}
-	if sources != 3 {
-		t.Fatalf("%d drift-checked sources, want 3 (AC-11, AC-2(3), SC-13)", sources)
+	if sources != 4 {
+		t.Fatalf("%d drift-checked sources, want 4 (AC-11, AC-2(3), SC-13; F-002 AU-11)", sources)
 	}
 }

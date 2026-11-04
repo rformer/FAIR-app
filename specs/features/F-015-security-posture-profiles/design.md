@@ -1097,3 +1097,4 @@ The configured mode is `saas`, `self-hosted` or `air-gapped` (ADR-005, amended 2
     - `TestStepUpEndToEndOIDC`: `prompt=login` and `max_age`; an old or missing `auth_time` is refused; a fresh one opens the BU.
     - `TestStepUpServiceAccountAuthTime`: the internal token carries the access token's issue time.
     - Unit: `TestStepUpForceAuthn` (saml), `TestStepUpPromptLogin` (oidc).
+- 2026-11-04: F-002 T-04 (approved by Robert Former) extends the registry. It adds the setting kind `string` with the direction `nonempty_is_stricter` (any non-empty value is as strict as any other; empty is weaker; at most 255 bytes, no control characters). It also adds the definition flag `loosening_needs_approval`: every loosening of such a setting needs an explanation and a `settings.loosen` dual approval, and once approved a loosening within the bound applies as a change, not an exception. Migration 0068; the profile packages are 1.2.0 with F-002's seven settings.

@@ -99,10 +99,12 @@ The access model follows posture's (F-015 design §5):
 | `audit.retention_online` | duration | 365 days | Longer is stricter. Hard floor 90 days (AC-28) |
 | `audit.retention_total` | duration | 2,557 days (7 years) | Longer is stricter. Must be ≥ online |
 | `audit.max_clock_skew` | duration | 5 minutes | Shorter is stricter (AC-05) |
-| `audit.forward_backlog_alert` | object `{records, age}` | 10,000 records or 15 minutes | Smaller is stricter (AC-23) |
+| `audit.forward_backlog_records`, `audit.forward_backlog_age` | int; duration | 10,000 records; 15 minutes (an alert when either is crossed) | Smaller is stricter (AC-23) |
 | `audit.syslog_destination`, `audit.otlp_destination` | string (host:port) | empty | Setting or changing a destination is within bounds. Clearing a configured one is a loosening: dual approval and a high-severity event (AC-24) |
-| `audit.storage_quota` | bytes | Set at install (F-014 sizing) | — (AC-30) |
 
+- `audit.retention_total` below `audit.retention_online` is not refused, because F-015 changes one key at a time. The audit service uses max(total, online) as the total, and the Posture page flags the inconsistency.
+- The storage quota (AC-30) is install configuration, not a setting: `FAIR_AUDIT_STORAGE_QUOTA`, sized by F-014. A larger or smaller quota is neither stricter nor weaker.
+- Destinations are a new F-015 setting kind, `string`, with the direction `nonempty_is_stricter`: any non-empty value is as strict as any other, and clearing one is a loosening.
 - The checkpoint interval (15 minutes) and the verification cadence are constants, not settings, because the requirements allow neither to be loosened.
 - `audit.enabled` keeps its hard floor.
 
@@ -336,3 +338,28 @@ The STRIDE rows join `TestSTRIDECatalog` (`db/tests/stride_f002_test.go`).
     - `TestNoSecretsInEvents` runs every listed attribute of every type through ordinary and secret values.
     - Identifiers that are row ids or hashes of public material are not secrets: `session` (the session's row id; the cookie is stored only as an HMAC), `credential`, `certificate`, `credential_id` (WebAuthn's public id), `thumbprint` and `key_id`.
   - **`audit.submit`** applies the same attribute list and secret rule. `audit.sync_event_types` loads `bu` and `attributes` from the catalog.
+- 2026-11-04: Design change for T-04, approved by Robert Former:
+  - the backlog threshold becomes two settings, `audit.forward_backlog_records` (int) and `audit.forward_backlog_age` (duration), because F-015 has no object kind;
+  - the storage quota is install configuration (`FAIR_AUDIT_STORAGE_QUOTA`), not a setting;
+  - total retention below online retention is handled as max(total, online) and flagged, with no cross-setting rule in F-015;
+  - destinations use a new F-015 kind, `string` with `nonempty_is_stricter`.
+- 2026-11-04: T-04 implementation notes (bindings, `pkg/settings`, migration 0068):
+  - **Definitions and packages.** `settings.F002Defs()` holds the seven settings, registered by the audit service (T-05); `ReleaseDefs()` is F-001's plus F-002's, and profilegen builds the packages from it. The profile packages are now 1.2.0, with 27 settings.
+  - **Values in every built-in profile.** Online retention defaults to 365 days, with a 90-day hard floor (`"90d"`). Total retention defaults to 2,557 days (7 years).
+  - **Bounds.**
+
+    | Setting | FedRAMP Moderate and CMMC | Enterprise Baseline |
+    |---|---|---|
+    | Online retention | 365 days (AU-11 constraint "in compliance with M-21-31") | 90 days (the floor) |
+    | Total retention | 913 days (30 months, M-21-31) | 365 days |
+    | Clock skew | 5 minutes | 15 minutes |
+    | Backlog | 10,000 records and 15 minutes | 100,000 records and 1 hour |
+    | Destinations | Empty by default, no bound | Same |
+
+  - **The `string` kind (F-015 change).** It is limited to 255 bytes with no control characters. In Go it is `settings.KindString`, with direction `NonEmptyIsStricter`. In SQL it is handled by `posture.check_value` and `posture.rank`. The parity and property tests cover it, and profilegen refuses a bound on a string setting.
+  - **`loosening_needs_approval` (F-015 change).**
+    - The flag lives in the binding, in `Def.LooseningNeedsApproval` and in `setting_def`. A registration may set it but never clear it (PF001).
+    - `preview_change` reports `loosening_approval`. `request_change` opens a `settings.loosen` approval (granted by `settings.approve`) and requires an explanation (PF002).
+    - `apply_change` reads the approval's kind; `posture_definer` may read `iam.approval_request(id, kind)` for this. An approved loosening within the bound applies as a change with `setting.changed` at high severity, not as an exception, so it does not expire or revert. `Evaluator.ApplyApproved` returns an `Exception` without an ID for it.
+    - A change recorded as `requested` that would now loosen such a setting is refused (PF002).
+    - `ApplyApproved` takes only changes in `pending_approval`; any other change, or a missing one, is `ErrNotApplicable` and is neither applied nor reported as approved (found by mutation testing).
