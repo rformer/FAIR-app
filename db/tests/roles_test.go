@@ -30,6 +30,7 @@ import (
 	"github.com/rformer/fair-app/internal/access/catalog"
 	"github.com/rformer/fair-app/internal/migrate"
 	"github.com/rformer/fair-app/internal/profilepkg"
+	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/profiles"
 )
 
@@ -114,6 +115,10 @@ func (e *env) migrate(dir string) (migrate.Result, error) {
 	if err != nil {
 		return migrate.Result{}, err
 	}
+	events, err := auditEventPayload()
+	if err != nil {
+		return migrate.Result{}, err
+	}
 	pkgDir, err := fs.Sub(profiles.Packages, "packages")
 	if err != nil {
 		return migrate.Result{}, err
@@ -122,7 +127,16 @@ func (e *env) migrate(dir string) (migrate.Result, error) {
 	if err != nil {
 		return migrate.Result{}, err
 	}
-	return migrate.Run(ctx, conn, migrations, migrate.Release{Catalog: payload, ProfilePackages: pkgs})
+	return migrate.Run(ctx, conn, migrations, migrate.Release{Catalog: payload, ProfilePackages: pkgs, Events: events})
+}
+
+// auditEventPayload is the build's security event catalog (F-002 T-02).
+func auditEventPayload() ([]byte, error) {
+	c, err := audit.DefaultCatalog()
+	if err != nil {
+		return nil, err
+	}
+	return c.SyncPayload()
 }
 
 func (e *env) script(name string, vars map[string]string) {
@@ -181,12 +195,12 @@ func (e *env) mustFail(role, sql, wantSubstr string) {
 func TestRoleAttributes(t *testing.T) {
 	e := setup(t)
 	out, err := e.as("app_rw", `SELECT string_agg(rolname||':'||rolcanlogin||':'||rolbypassrls||':'||rolsuper||':'||rolinherit, ',' ORDER BY rolname)
-		FROM pg_roles WHERE rolname IN ('fair_owner','authz_definer','posture_definer','rollup_definer','bu_guard_definer','app_migrator','app_rw','app_engine','app_posture')`)
+		FROM pg_roles WHERE rolname IN ('fair_owner','authz_definer','posture_definer','rollup_definer','bu_guard_definer','audit_definer','app_migrator','app_rw','app_engine','app_posture')`)
 	if err != nil {
 		t.Fatal(err, out)
 	}
 	want := "app_engine:true:false:false:false,app_migrator:true:false:false:false,app_posture:true:false:false:false,app_rw:true:false:false:false," +
-		"authz_definer:false:false:false:false,bu_guard_definer:false:false:false:false,fair_owner:false:false:false:false,posture_definer:false:false:false:false,rollup_definer:false:false:false:false"
+		"audit_definer:false:false:false:false,authz_definer:false:false:false:false,bu_guard_definer:false:false:false:false,fair_owner:false:false:false:false,posture_definer:false:false:false:false,rollup_definer:false:false:false:false"
 	if out != want {
 		t.Fatalf("role attributes\n got: %s\nwant: %s", out, want)
 	}
@@ -240,7 +254,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON iam.rls_probe TO app_rw;
 
 func TestOwnerRolesCannotLogIn(t *testing.T) {
 	e := setup(t)
-	for _, r := range []string{"fair_owner", "authz_definer", "posture_definer", "rollup_definer", "bu_guard_definer"} {
+	for _, r := range []string{"fair_owner", "authz_definer", "posture_definer", "rollup_definer", "bu_guard_definer", "audit_definer"} {
 		cmd := exec.CommandContext(context.Background(), "psql", "--no-psqlrc", "-X", "-d", e.db, "-c", "SELECT 1")
 		cmd.Env = withVars(e.adminEnv, map[string]string{"PGUSER": r, "PGPASSWORD": "irrelevant"})
 		if out, err := cmd.CombinedOutput(); err == nil {

@@ -9,8 +9,9 @@
 //     drift detection).
 //
 // After the migrations it applies the build's permission catalog and
-// built-in roles with iam.sync_release (T-06) and loads the build's profile
-// packages with posture.sync_packages (F-015 T-10), in one privileged
+// built-in roles with iam.sync_release (T-06), loads the build's profile
+// packages with posture.sync_packages (F-015 T-10) and its security event
+// catalog with audit.sync_event_types (F-002 T-02), in one privileged
 // transaction, so every install and upgrade gets the release it ships with.
 package migrate
 
@@ -62,10 +63,20 @@ type PackageSync struct {
 	Unchanged []string `json:"unchanged"`
 }
 
+// EventSync is what audit.sync_event_types reports: event types added,
+// changed, retired (left the catalog) and restored.
+type EventSync struct {
+	Added    []string `json:"added"`
+	Changed  []string `json:"changed"`
+	Retired  []string `json:"retired"`
+	Restored []string `json:"restored"`
+}
+
 // Release is what a build ships besides its migrations.
 type Release struct {
 	Catalog         []byte   // catalog.SyncPayload, for iam.sync_release
 	ProfilePackages [][]byte // profile packages, checked against their manifest (profilepkg.LoadRelease)
+	Events          []byte   // audit.(*Catalog).SyncPayload, for audit.sync_event_types
 }
 
 // Result summarizes a run.
@@ -73,6 +84,7 @@ type Result struct {
 	Applied  []string // versions applied by this run, in order
 	Sync     SyncResult
 	Packages PackageSync
+	Events   EventSync
 }
 
 // ConnConfig builds the migrator's connection (see dbconn.Config). The user
@@ -96,6 +108,9 @@ func Run(ctx context.Context, conn *pgx.Conn, migrations fs.FS, rel Release) (Re
 	}
 	if len(names) == 0 {
 		return res, errors.New("migrate: no migrations found")
+	}
+	if len(rel.Events) == 0 {
+		return res, errors.New("migrate: the release has no security event catalog")
 	}
 	slices.Sort(names)
 	for _, n := range names {
@@ -173,7 +188,13 @@ REVOKE ALL ON fair_meta.schema_migrations FROM PUBLIC;`).ReadAll()
 		if err := tx.QueryRow(ctx, "SELECT posture.sync_packages($1::bytea[])", rel.ProfilePackages).Scan(&out); err != nil {
 			return fmt.Errorf("profile packages: %w", err)
 		}
-		return json.Unmarshal(out, &res.Packages)
+		if err := json.Unmarshal(out, &res.Packages); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx, "SELECT audit.sync_event_types($1::jsonb)", string(rel.Events)).Scan(&out); err != nil {
+			return fmt.Errorf("event catalog: %w", err)
+		}
+		return json.Unmarshal(out, &res.Events)
 	})
 	if err != nil {
 		return res, fmt.Errorf("migrate: %w", err)

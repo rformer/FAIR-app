@@ -1,6 +1,8 @@
 package audit
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -356,6 +358,47 @@ func TestCheckDeclaredEvents(t *testing.T) {
 	} {
 		if err := CheckDeclaredEvents(c.events, c.note); err == nil {
 			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+// F-002 T-02: the catalog as audit.sync_event_types takes it.
+func TestSyncPayload(t *testing.T) {
+	c, err := DefaultCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := c.SyncPayload()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p struct {
+		Events []struct {
+			Type        string   `json:"type"`
+			Category    string   `json:"category"`
+			Severities  []string `json:"severities"`
+			Requires    []string `json:"requires"`
+			Description string   `json:"description"`
+		} `json:"events"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&p); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Events) != len(c.Entries) {
+		t.Fatalf("%d events, catalog has %d", len(p.Events), len(c.Entries))
+	}
+	if !bytes.Contains(b, []byte(`"requires":[]`)) {
+		t.Fatal("an entry without requirements must carry an empty list, not null")
+	}
+	for i, e := range p.Events {
+		if i > 0 && p.Events[i-1].Type >= e.Type {
+			t.Fatalf("not sorted at %s", e.Type)
+		}
+		want := c.Entries[e.Type]
+		if e.Category != want.Category || e.Description != want.Description || len(e.Severities) != len(want.Severities) || len(e.Requires) != len(want.Requires) {
+			t.Fatalf("%s differs from the catalog", e.Type)
 		}
 	}
 }

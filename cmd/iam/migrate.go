@@ -89,6 +89,8 @@ func runMigrate() int {
 			"reclassified_permissions": strings.Join(s.ReclassifiedPermissions, ","),
 			"custom_roles_changed":     strings.Join(s.CustomRolesChanged, ","),
 			"profiles_imported":        strings.Join(res.Packages.Imported, ","),
+			"event_types_added":        strings.Join(res.Events.Added, ","),
+			"event_types_retired":      strings.Join(res.Events.Retired, ","),
 		},
 	}); err != nil {
 		logger.Error("audit emit failed", "error", err.Error())
@@ -96,6 +98,16 @@ func runMigrate() int {
 	}
 	logger.Info("migration complete", "applied", len(res.Applied), "catalog_version", res.Sync.Version)
 	return 0
+}
+
+// auditEventPayload is the build's security event catalog for
+// audit.sync_event_types (F-002 T-02).
+func auditEventPayload() ([]byte, error) {
+	c, err := audit.DefaultCatalog()
+	if err != nil {
+		return nil, err
+	}
+	return c.SyncPayload()
 }
 
 func migrateOnce(ctx context.Context, env string) (migrate.Result, error) {
@@ -117,6 +129,10 @@ func migrateOnce(ctx context.Context, env string) (migrate.Result, error) {
 	if err != nil {
 		return migrate.Result{}, err
 	}
+	events, err := auditEventPayload()
+	if err != nil {
+		return migrate.Result{}, err
+	}
 	migrations, err := fs.Sub(db.Migrations, "migrations")
 	if err != nil {
 		return migrate.Result{}, err
@@ -125,7 +141,7 @@ func migrateOnce(ctx context.Context, env string) (migrate.Result, error) {
 	if err != nil {
 		return migrate.Result{}, err
 	}
-	return migrate.Run(ctx, conn, migrations, migrate.Release{Catalog: payload, ProfilePackages: pkgs})
+	return migrate.Run(ctx, conn, migrations, migrate.Release{Catalog: payload, ProfilePackages: pkgs, Events: events})
 }
 
 // releasePackages returns the embedded profile packages, each checked

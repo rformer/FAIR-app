@@ -18,6 +18,8 @@
 --                           a BU's rows in every BU-owned table, never returns them
 --   app_gateway    LOGIN    the gateway (F-001 T-13): sessions and DB contexts
 --                           only, through SECURITY DEFINER functions; NOBYPASSRLS
+--   audit_definer  NOLOGIN  owns the audit trail's tables and SECURITY DEFINER
+--                           functions (F-002 T-02); append-only by trigger
 --
 -- Required psql variables: dbname, migrator_password, rw_password,
 -- engine_password, posture_password, gateway_password
@@ -28,7 +30,7 @@ DO $$
 DECLARE
   r text;
 BEGIN
-  FOREACH r IN ARRAY ARRAY['fair_owner', 'authz_definer', 'posture_definer', 'rollup_definer', 'bu_guard_definer'] LOOP
+  FOREACH r IN ARRAY ARRAY['fair_owner', 'authz_definer', 'posture_definer', 'rollup_definer', 'bu_guard_definer', 'audit_definer'] LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
       EXECUTE format('CREATE ROLE %I NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS', r);
     END IF;
@@ -69,6 +71,8 @@ GRANT posture_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
 GRANT rollup_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
 -- And for the archive guard (F-001 T-31).
 GRANT bu_guard_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
+-- And for the audit trail (F-002 T-02).
+GRANT audit_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
 
 -- Lock down the database: nobody connects unless granted.
 REVOKE ALL ON DATABASE :"dbname" FROM PUBLIC;

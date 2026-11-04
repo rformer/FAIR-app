@@ -148,6 +148,30 @@ func (c *Catalog) Types() []string {
 	return out
 }
 
+// SyncPayload is the catalog as audit.sync_event_types takes it (F-002
+// T-02): {"events": [{type, category, severities, requires, description}]},
+// sorted by type, so iam migrate makes audit.event_type equal to the build's
+// catalog.
+func (c *Catalog) SyncPayload() ([]byte, error) {
+	type entry struct {
+		Type        string     `json:"type"`
+		Category    string     `json:"category"`
+		Severities  []Severity `json:"severities"`
+		Requires    []string   `json:"requires"`
+		Description string     `json:"description"`
+	}
+	events := make([]entry, 0, len(c.Entries))
+	for _, t := range c.Types() {
+		e := c.Entries[t]
+		req := e.Requires
+		if req == nil {
+			req = []string{}
+		}
+		events = append(events, entry{e.Type, e.Category, e.Severities, req, e.Description})
+	}
+	return json.Marshal(map[string]any{"events": events})
+}
+
 // ErrUncatalogued means the event is not what the catalog describes.
 var ErrUncatalogued = errors.New("audit: event not in the catalog")
 

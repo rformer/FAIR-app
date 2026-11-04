@@ -305,3 +305,22 @@ The STRIDE rows join `TestSTRIDECatalog` (`db/tests/stride_f002_test.go`).
 - 2026-11-04: Initial draft. D1 to D4 resolved by Robert Former.
 - 2026-11-04: **Approved** by Robert Former.
 - 2026-11-04: T-01 implementation notes. ADR-011 accepted. `internal/audit/integrity` (standard library only): `Body`/`IsBody` (sorted keys, compact, no HTML escaping, numbers kept as given), `Leaf`, `Genesis`, `Chain`, `Tree` (RFC 9162 root and inclusion paths, built level by level; checked against the Certificate Transparency vectors and the recursive RFC definition), `VerifyInclusion` (RFC 9162 §2.1.3.2), `Statement` (an empty segment has `seq_to = seq_from − 1`; only the canonical byte form parses), `Sign`/`VerifySignature` (P-256 only), `KeyID`, `VerifyRecords`, `VerifyCheckpoints`, `VerifySegment`. Failures name the first record or segment that does not verify (`*Failure`), which `fair-audit-verify` (T-10) reports.
+- 2026-11-04: T-02 implementation notes (migration 0066, `db/bootstrap/0001_roles.sql`):
+  - **Roles.** `audit_definer` is a NOLOGIN bootstrap role, with SET granted to `fair_owner` (as `posture_definer` is).
+  - **No foreign key on `bu_id`.** `audit.record.bu_id` has no foreign key: `submit` checks the BU, BUs are never deleted, and a key would tie the trail into `iam.bu`'s TRUNCATE cascade.
+  - **Ownership.** `audit_definer` owns the definer functions and also `audit.record`, so `audit.ensure_partition` can add monthly partitions (`record_YYYYMM`). Each partition gets forced RLS and its own TRUNCATE trigger, because statement triggers are not inherited by partitions. The other tables stay owned by `fair_owner`.
+  - **RLS.** Every table has RLS forced with one `definer_only` policy, so `fair_owner` sees no rows.
+  - **Append-only.** `audit.refuse_change` raises **PF012** on `UPDATE`, `DELETE` and `TRUNCATE` of `record`, `checkpoint` and `signing_key`, except for:
+    - `worm_key` and `retired_at`, each set once from NULL with nothing else changing;
+    - record deletes while `audit.archiving` is on, which is for T-18.
+  - **`audit.submit(jsonb)`** is granted to `app_rw`, `app_posture` and `app_gateway`. It raises **PF011** on:
+    - a field outside the envelope, or a non-string scalar field;
+    - an unknown or retired type, or a severity the type does not allow;
+    - a missing actor, or a missing `requires` field;
+    - an invalid `bu_id`, an unknown BU, or no `bu_id` when the type requires one;
+    - an invalid `source_ip`, `time` or id;
+    - a non-object attributes value, or a non-string attribute;
+    - an event over 64 KiB.
+
+    `submit` sets the producer from `session_user`. It fills in a missing id and time, and normalizes the time to UTC with microseconds. A retried event (same id) is a no-op.
+  - **Catalog sync.** `audit.sync_event_types(jsonb)` is run by `iam migrate` with `migrate.Release.Events`, built by `audit.(*Catalog).SyncPayload`. It reports what was added, changed, retired and restored; `db.migrated` carries the added and retired types. An empty or malformed catalog is refused (PF004), and `migrate.Run` refuses a release without one.
