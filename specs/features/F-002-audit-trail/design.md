@@ -396,3 +396,20 @@ The STRIDE rows join `TestSTRIDECatalog` (`db/tests/stride_f002_test.go`).
   - **Timing.** `db/tests` takes about 10% longer, roughly 630 s. CI's DB test step now has `-timeout 60m`, as `make test-db` does.
   - **Unchanged.** Per-service syslog remains until T-16.
   - **Mutation testing.** All 12 mutants were caught, after adding a check that the outbox row's time becomes the event time.
+- 2026-11-04: T-07 implementation notes (migration 0071, `internal/audit/sequencer.go`):
+  - **How a batch runs.** Each batch is one transaction.
+    1. `audit.sequence_head()` locks the head. On first use it creates it, with a random instance id, seq 0, the ADR-011 genesis and segment 1.
+    2. `audit.sequence_pending(n)` drops intake rows whose event is already recorded (a retry arriving after its first copy was sequenced) and returns the oldest `n`.
+    3. The leader builds each body in Go: the event plus `received_at` (the intake row's `accepted_at`), `producer` and the resolved `bu_id` (the root BU by default), serialized with `integrity.Body`. It also computes the leaf and chain hashes.
+    4. `audit.sequence_append` checks all of it and appends.
+  - **What `sequence_append` checks** (PF013 otherwise):
+    - the head is where the leader read it;
+    - each body equals its intake event plus that row's producer and receipt time and the resolved BU, so neither the producer nor the content can be forged;
+    - the leaf and chain hashes are SHA-256 as ADR-011 defines them.
+
+    It derives every column from the body, puts each record in the partition of its event time, flags skew beyond the given `audit.max_clock_skew`, and assigns the open segment. Its comparisons are NULL-safe (`IS DISTINCT FROM`): a test found that a body without `received_at` passed a NULL comparison.
+  - **Batches.** 500 events per batch. The leader runs batches back to back while there is a backlog, otherwise every 200 ms.
+  - **Settings.** The audit service now registers F-002's settings (retrying until posture is seeded; this was left out of T-05) and reads `audit.max_clock_skew` through `settings.Client`, defaulting to 5 minutes. Migration 0071 grants `app_audit` the posture settings functions.
+  - **Tests.** `TestAuditSequencer` covers order, body and columns, numbers kept exactly, skew under the setting and under the default, and dropped retries. `TestAuditSequencerLateAndConcurrent` covers a late-committing producer and two racing sequencers with four producers: no gap, no fork. `TestAuditSequenceAppendRefusesForgeries` covers producer, receipt time, content, BU, id, hashes, a stale head and a missing row. `TestAuditIntakeWaitsForTheSequencer` covers 1,200 events held while the service is down. Every test verifies the whole trail with `internal/audit/integrity` and checks that SQL and Go agree on the genesis.
+  - **Benchmark gate.** `TestBenchmarkGateAuditSequencer`, in the CI bench job: 200 events/s for 30 s, then 2,000/s for 60 s. Locally the oldest waiting event was at most 93 ms (target 5 s), and the backlog drained 166 ms after the load.
+  - **Mutation testing.** 15 of 16 mutants were caught. The survivor drops the explicit timestamp-validity check, which is equivalent: the cast or `IS DISTINCT FROM` still refuses an invalid or missing receipt time.

@@ -82,7 +82,7 @@ func TestAuditSchemaAccess(t *testing.T) {
 	// SECURITY DEFINER functions are owned by audit_definer with a fixed search_path.
 	fns := e.mustOwner(`SELECT string_agg(p.proname || ':' || pg_get_userbyid(p.proowner) || ':' || coalesce(array_to_string(p.proconfig, '|'), ''), ',' ORDER BY p.proname)
 		FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'audit' AND p.prosecdef`)
-	want := "ensure_partition:audit_definer:search_path=pg_catalog, pg_temp,from_outbox:audit_definer:search_path=pg_catalog, pg_temp,submit:audit_definer:search_path=pg_catalog, pg_temp,sync_event_types:audit_definer:search_path=pg_catalog, pg_temp"
+	want := "ensure_partition:audit_definer:search_path=pg_catalog, pg_temp,from_outbox:audit_definer:search_path=pg_catalog, pg_temp,sequence_append:audit_definer:search_path=pg_catalog, pg_temp,sequence_head:audit_definer:search_path=pg_catalog, pg_temp,sequence_pending:audit_definer:search_path=pg_catalog, pg_temp,submit:audit_definer:search_path=pg_catalog, pg_temp,sync_event_types:audit_definer:search_path=pg_catalog, pg_temp"
 	if fns != want {
 		t.Fatalf("definer functions\n got: %s\nwant: %s", fns, want)
 	}

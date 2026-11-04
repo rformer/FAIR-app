@@ -42,6 +42,7 @@ import (
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
+	"github.com/rformer/fair-app/pkg/settings"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -111,15 +112,32 @@ func run() error {
 		return fmt.Errorf("audit: %w", err) // audit failures fail closed (ADR-006)
 	}
 
-	// One replica leads (design §2). T-07 onward give the leader its work;
-	// until then it holds the lead and waits.
+	// F-002's settings (design §4.4): registered with posture (retried until
+	// the install is seeded) and read as every service reads settings.
 	replica := os.Getenv("POD_NAME")
+	sc := settings.NewClient(settings.ClientOptions{Source: settings.DBSource{DB: pool}, Service: "audit", Instance: replica})
+	if err := sc.Register(settings.F002Defs()...); err != nil {
+		return err
+	}
+	go registerF002(ctx, pool, logger)
+	if err := sc.Refresh(ctx); err != nil {
+		logger.Warn("settings not loaded yet; defaults apply until they are", "error", err.Error())
+	}
+	go sc.Run(ctx, func(err error) { logger.Error("settings refresh", "error", err.Error()) })
+
+	// One replica leads (design §2) and sequences the trail (T-07).
+	seq := auditsvc.Sequencer{DB: pool, MaxSkew: func() time.Duration {
+		d, err := sc.Duration(settings.KeyAuditMaxClockSkew, "")
+		if err != nil {
+			return 5 * time.Minute // the default of every built-in profile
+		}
+		return d
+	}}
 	leader := auditsvc.Leader{Pool: pool, OnChange: func(leading bool) {
 		logger.Info("leader", "leading", leading, "replica", replica)
 	}}
 	go leader.Run(ctx, func(ctx context.Context) error {
-		<-ctx.Done()
-		return ctx.Err()
+		return seq.Run(ctx, 0, func(err error) { logger.Error("sequencer", "error", err.Error()) })
 	}, func(err error) { logger.Error("leader", "error", err.Error()) })
 
 	srv := server.New(server.Options{
@@ -186,4 +204,21 @@ func auditSink(env string, db audit.Beginner) (audit.Emitter, error) {
 		return nil, err
 	}
 	return audit.WithTrail(e, audit.Trail{DB: db}), nil
+}
+
+// registerF002 registers F-002's setting definitions, retrying every 30
+// seconds until it succeeds (posture refuses before the install is seeded).
+func registerF002(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) {
+	for {
+		err := settings.DBRegistrar{DB: pool}.Register(ctx, "F-002", version, settings.F002Defs())
+		if err == nil {
+			return
+		}
+		logger.Warn("registering F-002 settings", "error", err.Error())
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(30 * time.Second):
+		}
+	}
 }
