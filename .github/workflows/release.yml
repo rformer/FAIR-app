@@ -22,6 +22,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
+        # GOFIPS140 off for this step only: with it set, setup-go's "go env"
+        # unpacks the FIPS module into the empty module cache, and the cache
+        # restore then fails on those read-only files ("File exists").
+        env:
+          GOFIPS140: ""
         with:
           go-version-file: go.mod
       # Pins match MANIFEST.json, profiles and packages rebuild byte for byte,
