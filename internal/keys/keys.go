@@ -52,6 +52,7 @@ const (
 	Gateway = "gateway"
 	IAM     = "iam"
 	Posture = "posture"
+	Audit   = "audit" // F-002 T-05
 )
 
 // Files and directories in a service's key directory.
@@ -63,6 +64,7 @@ const (
 	TokenPepper   = "token-pepper"
 	DBContextKey  = "db-context.key"
 	DBContextID   = "db-context.id"
+	CheckpointDir = "checkpoint" // the audit trail's checkpoint signing key (F-002 design §6.3)
 )
 
 // MountRoot is where every store delivers a service's key directories.
@@ -90,6 +92,8 @@ var Mounts = []Mount{
 	{IAM, TicketDir, map[string]string{"FAIR_LOGIN_TICKET_KEYS_DIR": MountRoot + "/login-ticket"}},
 	{IAM, SecretsDir, map[string]string{"FAIR_TOKEN_PEPPER_FILE": MountRoot + "/secrets/" + TokenPepper}},
 	{Posture, JWTDir, map[string]string{"FAIR_JWT_KEYS_DIR": MountRoot + "/jwt"}},
+	{Audit, JWTDir, map[string]string{"FAIR_JWT_KEYS_DIR": MountRoot + "/jwt"}},
+	{Audit, CheckpointDir, map[string]string{"FAIR_AUDIT_CHECKPOINT_KEYS_DIR": MountRoot + "/checkpoint"}},
 }
 
 // SecretLen is the random bytes in each pepper and the DB-context secret.
@@ -97,27 +101,31 @@ const SecretLen = 32
 
 // Kinds of key that rotate.
 const (
-	KindJWT       = "jwt"
-	KindTicket    = "login-ticket"
-	KindDBContext = "db-context"
+	KindJWT        = "jwt"
+	KindTicket     = "login-ticket"
+	KindDBContext  = "db-context"
+	KindCheckpoint = "checkpoint"
 )
+
+// jwtVerifiers hold the gateway's internal-JWT public keys.
+var jwtVerifiers = []string{IAM, Posture, Audit}
 
 var kidRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 // Set names the keys Init created or Rotate added.
 type Set struct {
-	JWT, Ticket, DBContext string // key ids
+	JWT, Ticket, DBContext, Checkpoint string // key ids
 }
 
 // Init creates every key into dir (one subdirectory per service). It never
 // overwrites: an existing file is an error and nothing is written over it.
 func Init(dir string, now time.Time) (Set, error) {
-	for _, p := range []string{Gateway, IAM, Posture} {
+	for _, p := range []string{Gateway, IAM, Posture, Audit} {
 		if _, err := os.Stat(filepath.Join(dir, p)); err == nil {
-			return Set{}, fmt.Errorf("keys: %s already exists; keys are never overwritten (use rotate)", filepath.Join(dir, p))
+			return Set{}, fmt.Errorf("keys: %s already exists; keys are never overwritten (use rotate, or upgrade to add a new service's keys)", filepath.Join(dir, p))
 		}
 	}
-	s := Set{JWT: kid("jwt", now), Ticket: kid("ticket", now), DBContext: kid("ctx", now)}
+	s := Set{JWT: kid("jwt", now), Ticket: kid("ticket", now), DBContext: kid("ctx", now), Checkpoint: kid("checkpoint", now)}
 	jwt, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return Set{}, err
@@ -128,9 +136,15 @@ func Init(dir string, now time.Time) (Set, error) {
 	}
 	token := secret()
 	w := &writer{}
+	checkpoint, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return Set{}, err
+	}
 	w.private(filepath.Join(dir, Gateway, JWTDir, s.JWT+".pem"), jwt)
-	w.public(filepath.Join(dir, IAM, JWTDir, s.JWT+".pem"), &jwt.PublicKey)
-	w.public(filepath.Join(dir, Posture, JWTDir, s.JWT+".pem"), &jwt.PublicKey)
+	for _, v := range jwtVerifiers {
+		w.public(filepath.Join(dir, v, JWTDir, s.JWT+".pem"), &jwt.PublicKey)
+	}
+	w.private(filepath.Join(dir, Audit, CheckpointDir, s.Checkpoint+".pem"), checkpoint)
 	w.private(filepath.Join(dir, IAM, TicketDir, s.Ticket+".pem"), ticket)
 	w.public(filepath.Join(dir, Gateway, TicketDir, s.Ticket+".pem"), &ticket.PublicKey)
 	w.file(filepath.Join(dir, Gateway, SecretsDir, SessionPepper), secret())
@@ -141,6 +155,70 @@ func Init(dir string, now time.Time) (Set, error) {
 	return s, w.err
 }
 
+// Upgrade adds the key directories of services newer than a key directory
+// (F-002 T-05: audit/, with the gateway's internal-JWT public keys and a new
+// checkpoint signing key). It returns the services it added; nothing when
+// the directory is complete. It never overwrites.
+func Upgrade(dir string, now time.Time) ([]string, error) {
+	for _, p := range []string{Gateway, IAM, Posture} {
+		if _, err := os.Stat(filepath.Join(dir, p)); err != nil {
+			return nil, fmt.Errorf("keys: %s is not a key directory (no %s/; use init)", dir, p)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, Audit)); err == nil {
+		return nil, nil
+	}
+	signers, err := privateKeys(filepath.Join(dir, Gateway, JWTDir))
+	if err != nil {
+		return nil, fmt.Errorf("keys: %s/%s: %w", Gateway, JWTDir, err)
+	}
+	if len(signers) != 1 {
+		return nil, fmt.Errorf("keys: %s/%s: want exactly one private key, found %d", Gateway, JWTDir, len(signers))
+	}
+	pubs, err := filepath.Glob(filepath.Join(dir, Gateway, JWTDir, "*.pem"))
+	if err != nil {
+		return nil, err
+	}
+	w := &writer{}
+	for _, f := range pubs {
+		id := strings.TrimSuffix(filepath.Base(f), ".pem")
+		if k, ok := signers[id]; ok {
+			w.public(filepath.Join(dir, Audit, JWTDir, id+".pem"), &k.PublicKey)
+			continue
+		}
+		k, err := publicKey(f)
+		if err != nil {
+			return nil, err
+		}
+		w.public(filepath.Join(dir, Audit, JWTDir, id+".pem"), k)
+	}
+	checkpoint, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+	w.private(filepath.Join(dir, Audit, CheckpointDir, kid("checkpoint", now)+".pem"), checkpoint)
+	if w.err != nil {
+		return nil, w.err
+	}
+	return []string{Audit}, nil
+}
+
+// CheckpointKey reads the audit trail's checkpoint signing key: the one
+// private key in dir (FAIR_AUDIT_CHECKPOINT_KEYS_DIR), with its id.
+func CheckpointKey(dir string) (*ecdsa.PrivateKey, string, error) {
+	keys, err := privateKeys(dir)
+	if err != nil {
+		return nil, "", err
+	}
+	if len(keys) != 1 {
+		return nil, "", fmt.Errorf("keys: %s: want exactly one private key, found %d", dir, len(keys))
+	}
+	for id, k := range keys {
+		return k, id, nil
+	}
+	return nil, "", nil
+}
+
 // Rotate adds a new key of kind and returns its id:
 //   - jwt: a new gateway signing key; the old one becomes public. Roll out
 //     iam and posture (which now accept it) before the gateway.
@@ -148,6 +226,9 @@ func Init(dir string, now time.Time) (Set, error) {
 //     out the gateway before iam.
 //   - db-context: a new secret and id for the gateway. Register it (iam keys
 //     register) before rolling out the gateway; retire the old id after.
+//   - checkpoint: a new audit checkpoint signing key; the old one becomes
+//     public. The audit service records each key's public half (F-002 §6.3),
+//     so checkpoints signed before stay verifiable.
 //
 // The peppers do not rotate: a new session pepper ends every session and a
 // new token pepper invalidates every service-account secret.
@@ -155,7 +236,7 @@ func Rotate(dir, kind string, now time.Time) (string, error) {
 	w := &writer{overwrite: true}
 	switch kind {
 	case KindJWT, KindTicket:
-		signer, verifiers, prefix := Gateway, []string{IAM, Posture}, "jwt"
+		signer, verifiers, prefix := Gateway, jwtVerifiers, "jwt"
 		sub := JWTDir
 		if kind == KindTicket {
 			signer, verifiers, prefix, sub = IAM, []string{Gateway}, "ticket", TicketDir
@@ -183,13 +264,32 @@ func Rotate(dir, kind string, now time.Time) (string, error) {
 			w.public(filepath.Join(sdir, old+".pem"), &ok.PublicKey)
 		}
 		return id, w.err
+	case KindCheckpoint:
+		id := kid("checkpoint", now)
+		sdir := filepath.Join(dir, Audit, CheckpointDir)
+		if _, err := os.Stat(filepath.Join(sdir, id+".pem")); err == nil {
+			return "", fmt.Errorf("keys: %s already exists", id)
+		}
+		olds, err := privateKeys(sdir)
+		if err != nil {
+			return "", err
+		}
+		k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			return "", err
+		}
+		w.private(filepath.Join(sdir, id+".pem"), k)
+		for old, ok := range olds {
+			w.public(filepath.Join(sdir, old+".pem"), &ok.PublicKey)
+		}
+		return id, w.err
 	case KindDBContext:
 		id := kid("ctx", now)
 		w.file(filepath.Join(dir, Gateway, SecretsDir, DBContextKey), secret())
 		w.file(filepath.Join(dir, Gateway, SecretsDir, DBContextID), []byte(id+"\n"))
 		return id, w.err
 	}
-	return "", fmt.Errorf("keys: unknown kind %q (jwt, login-ticket or db-context)", kind)
+	return "", fmt.Errorf("keys: unknown kind %q (jwt, login-ticket, db-context or checkpoint)", kind)
 }
 
 // Check verifies a key directory as a whole: every file each service needs
@@ -214,8 +314,9 @@ func Check(dir string) error {
 			}
 		}
 	}
-	pair(Gateway, JWTDir, IAM, Posture)
+	pair(Gateway, JWTDir, jwtVerifiers...)
 	pair(IAM, TicketDir, Gateway)
+	pair(Audit, CheckpointDir)
 	for _, f := range []string{filepath.Join(Gateway, SecretsDir, SessionPepper), filepath.Join(Gateway, SecretsDir, TokenPepper), filepath.Join(IAM, SecretsDir, TokenPepper),
 		filepath.Join(Gateway, SecretsDir, DBContextKey)} {
 		if b, err := ReadSecret(filepath.Join(dir, f), SecretLen); err != nil {
@@ -284,7 +385,7 @@ func CheckPermissions(paths ...string) error {
 var SecretVars = []string{
 	"FAIR_JWT_KEYS_DIR", "FAIR_LOGIN_TICKET_KEYS_DIR", "FAIR_SESSION_PEPPER_FILE", "FAIR_TOKEN_PEPPER_FILE",
 	"FAIR_DB_CONTEXT_KEY_FILE", "FAIR_DB_PASSWORD_FILE", "FAIR_TLS_KEY_FILE", "FAIR_EXPORT_SIGNING_KEY_FILE",
-	"FAIR_SECOPS_SECRET_FILE", "FAIR_SCANNER_GRPC_KEY_FILE",
+	"FAIR_SECOPS_SECRET_FILE", "FAIR_SCANNER_GRPC_KEY_FILE", "FAIR_AUDIT_CHECKPOINT_KEYS_DIR",
 }
 
 // CheckMounted is the services' startup check (production): the key and

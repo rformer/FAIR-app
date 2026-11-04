@@ -1,0 +1,8 @@
+{{- /* F-002 T-05 (as F-001 T-41): renders the audit service's keys from OpenBao into /keys/<dir>/<file>,
+     0640, owned by the service's user: the agent rewrites them on every
+     refresh, the service reads them through a read-only mount. Only names a
+     key directory can hold are written. The output below is the readiness
+     marker. */ -}}
+{{- with secret "secret/data/fair/audit/jwt" }}{{ range $name, $value := .Data.data }}{{ if regexMatch "^[A-Za-z0-9_-][A-Za-z0-9_.-]*$" $name }}{{ writeToFile (printf "/keys/jwt/%s" $name) "65532" "65532" "0640" $value }}{{ end }}{{ end }}{{ end }}
+{{- with secret "secret/data/fair/audit/checkpoint" }}{{ range $name, $value := .Data.data }}{{ if regexMatch "^[A-Za-z0-9_-][A-Za-z0-9_.-]*$" $name }}{{ writeToFile (printf "/keys/checkpoint/%s" $name) "65532" "65532" "0640" $value }}{{ end }}{{ end }}{{ end }}
+rendered

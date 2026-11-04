@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -18,8 +19,9 @@ import (
 )
 
 const keysUsage = `usage:
-  iam keys init -dir DIR                      create every F-001 key (never overwrites)
-  iam keys rotate -dir DIR -kind KIND         add a key: jwt, login-ticket or db-context
+  iam keys init -dir DIR                      create every key (never overwrites)
+  iam keys upgrade -dir DIR                   add the keys of services newer than DIR (F-002: audit/)
+  iam keys rotate -dir DIR -kind KIND         add a key: jwt, login-ticket, db-context or checkpoint
   iam keys check -dir DIR                     check a key directory as a whole
   iam keys register -dir DIR                  add the gateway's DB-context key to the database
   iam keys retire-db-context -id ID           retire a DB-context key the gateway no longer uses`
@@ -43,7 +45,7 @@ func keysCommand(args []string, out io.Writer) error {
 	}
 	fs := flag.NewFlagSet("keys "+args[0], flag.ContinueOnError)
 	dir := fs.String("dir", "", "the key directory (one subdirectory per service)")
-	kind := fs.String("kind", "", "rotate: jwt, login-ticket or db-context")
+	kind := fs.String("kind", "", "rotate: jwt, login-ticket, db-context or checkpoint")
 	id := fs.String("id", "", "retire-db-context: the key id")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
@@ -71,9 +73,23 @@ func keysCommand(args []string, out io.Writer) error {
 		if err != nil {
 			return err
 		}
-		_, err = fmt.Fprintf(out, "created in %s: internal-JWT key %s, login-ticket key %s, DB-context key %s\n"+
-			"load gateway/, iam/ and posture/ into your secret store, register the DB-context key (iam keys register), then delete this directory\n",
-			*dir, s.JWT, s.Ticket, s.DBContext)
+		_, err = fmt.Fprintf(out, "created in %s: internal-JWT key %s, login-ticket key %s, DB-context key %s, audit checkpoint key %s\n"+
+			"load gateway/, iam/, posture/ and audit/ into your secret store, register the DB-context key (iam keys register), then delete this directory\n",
+			*dir, s.JWT, s.Ticket, s.DBContext, s.Checkpoint)
+		return err
+	case "upgrade":
+		if err := needDir(); err != nil {
+			return err
+		}
+		added, err := keys.Upgrade(*dir, now)
+		if err != nil {
+			return err
+		}
+		if len(added) == 0 {
+			_, err = fmt.Fprintln(out, "nothing to add: the directory has every service's keys")
+			return err
+		}
+		_, err = fmt.Fprintf(out, "added %s/ to %s; load it into your secret store\n", strings.Join(added, "/, "), *dir)
 		return err
 	case "rotate":
 		if err := needDir(); err != nil {

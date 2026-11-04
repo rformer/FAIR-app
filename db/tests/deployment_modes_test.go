@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	auditsvc "github.com/rformer/fair-app/internal/audit"
 	"github.com/rformer/fair-app/internal/config"
 	"github.com/rformer/fair-app/internal/keys"
 	"github.com/rformer/fair-app/internal/migrate"
@@ -64,6 +65,25 @@ func deploymentMode(t *testing.T, mode string) {
 	withWebhook["FAIR_SECOPS_WEBHOOK_URL"], withWebhook["FAIR_SECOPS_SECRET_FILE"] = "https://secops.vendor.example/intake", "/secrets/secops"
 	if err := check(withWebhook); (err != nil) != (mode == config.ModeAirGapped) {
 		t.Errorf("a SecOps webhook in %s mode: %v", mode, err)
+	}
+
+	// F-002 T-05 (design §7): the audit service's keys in every mode, and
+	// write-once checkpoint storage in SaaS.
+	auditVars := map[string]string{"FAIR_AUDIT_CHECKPOINT_KEYS_DIR": "/keys/checkpoint", "FAIR_JWT_KEYS_DIR": "/keys/jwt"}
+	auditCheck := func(v map[string]string) error {
+		return auditsvc.CheckInstall(auditsvc.InstallCheck{Env: "production", Mode: mode, Getenv: func(k string) string { return v[k] }})
+	}
+	if err := auditCheck(auditVars); (err != nil) != saas {
+		t.Errorf("audit without write-once storage in %s mode: %v", mode, err)
+	}
+	withWORM := maps.Clone(auditVars)
+	withWORM["FAIR_AUDIT_WORM_BUCKET"] = "s3://fair-audit-worm"
+	if err := auditCheck(withWORM); err != nil {
+		t.Errorf("a complete %s audit install refused: %v", mode, err)
+	}
+	delete(withWORM, "FAIR_AUDIT_CHECKPOINT_KEYS_DIR")
+	if err := auditCheck(withWORM); err == nil {
+		t.Errorf("audit without its checkpoint key in %s mode", mode)
 	}
 
 	// Profile packages: the release's packages load at migrate in every

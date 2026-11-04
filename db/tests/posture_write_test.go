@@ -12,7 +12,7 @@ import (
 // adminQuery runs SQL as the admin (superuser) and returns its output.
 func (e *env) adminQuery(sql string) string {
 	e.t.Helper()
-	cmd := exec.CommandContext(context.Background(), "psql", "--no-psqlrc", "-X", "-q", "-tA", "-v", "ON_ERROR_STOP=1", "-d", e.db, "-c", sql)
+	cmd := exec.CommandContext(context.Background(), "psql", "--no-psqlrc", "-X", "-q", "-tA", "-v", "ON_ERROR_STOP=1", "-d", e.db, "-c", sql) // #nosec G702 -- a test helper running the tests' own SQL
 	cmd.Env = e.adminEnv
 	out, err := cmd.CombinedOutput()
 	if err != nil {

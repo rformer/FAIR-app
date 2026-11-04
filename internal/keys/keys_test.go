@@ -1,6 +1,9 @@
 package keys
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -238,5 +241,112 @@ func TestCheckMounted(t *testing.T) {
 	_ = os.Symlink(filepath.Join("..data", "session-pepper"), filepath.Join(vol, "session-pepper"))
 	if err := CheckPermissions(vol); err != nil {
 		t.Fatalf("a projected volume with 0440: %v", err)
+	}
+}
+
+// F-002 T-05: the audit service's keys: the gateway's internal-JWT public
+// keys and the checkpoint signing key, in new and in older directories.
+func TestAuditKeys(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Init(dir, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, id, err := CheckpointKey(filepath.Join(dir, Audit, CheckpointDir))
+	if err != nil || id != s.Checkpoint || k == nil {
+		t.Fatalf("checkpoint key %s: %v", id, err)
+	}
+	signer, _ := privateKeys(filepath.Join(dir, Gateway, JWTDir))
+	pub, err := publicKey(filepath.Join(dir, Audit, JWTDir, s.JWT+".pem"))
+	if err != nil || !pub.Equal(&signer[s.JWT].PublicKey) {
+		t.Fatalf("audit lacks the gateway's JWT public key: %v", err)
+	}
+	if p, _ := privateKeys(filepath.Join(dir, Audit, JWTDir)); len(p) != 0 {
+		t.Fatal("audit holds a JWT private key")
+	}
+	// A JWT rotation reaches the audit service too.
+	t1 := t0.Add(time.Hour)
+	jid, err := Rotate(dir, KindJWT, t1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := publicKey(filepath.Join(dir, Audit, JWTDir, jid+".pem")); err != nil {
+		t.Fatalf("rotated JWT key not given to audit: %v", err)
+	}
+	// Checkpoint rotation: one private key, the old one public.
+	cid, err := Rotate(dir, KindCheckpoint, t1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, now, err := CheckpointKey(filepath.Join(dir, Audit, CheckpointDir)); err != nil || now != cid {
+		t.Fatalf("after rotation: %s %v", now, err)
+	}
+	if old, err := publicKey(filepath.Join(dir, Audit, CheckpointDir, s.Checkpoint+".pem")); err != nil || !old.Equal(&k.PublicKey) {
+		t.Fatalf("the old checkpoint key is not kept public: %v", err)
+	}
+	if _, err := Rotate(dir, KindCheckpoint, t1); err == nil {
+		t.Fatal("a second rotation in the same second overwrote a key")
+	}
+	if err := Check(dir); err != nil {
+		t.Fatal(err)
+	}
+	// Check wants exactly one checkpoint private key.
+	_ = os.Remove(filepath.Join(dir, Audit, CheckpointDir, cid+".pem"))
+	if err := Check(dir); err == nil || !strings.Contains(err.Error(), "audit/checkpoint") {
+		t.Fatalf("no checkpoint key passed: %v", err)
+	}
+	if _, _, err := CheckpointKey(filepath.Join(dir, Audit, CheckpointDir)); err == nil {
+		t.Fatal("CheckpointKey with no private key")
+	}
+	// Two private keys are as wrong as none.
+	two := t.TempDir()
+	for _, id := range []string{"a", "b"} {
+		k, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		w := &writer{}
+		w.private(filepath.Join(two, id+".pem"), k)
+		if w.err != nil {
+			t.Fatal(w.err)
+		}
+	}
+	if _, _, err := CheckpointKey(two); err == nil {
+		t.Fatal("CheckpointKey with two private keys")
+	}
+	// The startup check covers the checkpoint directory (outside Windows).
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(filepath.Join(two, "a.pem"), 0o644); err != nil { // #nosec G302 -- deliberately too open, to be refused
+			t.Fatal(err)
+		}
+		env := map[string]string{"FAIR_AUDIT_CHECKPOINT_KEYS_DIR": two}
+		if err := CheckMounted("production", func(k string) string { return env[k] }); err == nil {
+			t.Fatal("a checkpoint key open to others passed the startup check")
+		}
+	}
+
+	// A directory made before F-002 gets audit/ from upgrade, once.
+	old := t.TempDir()
+	if _, err := Init(old, t0); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(old, Audit)); err != nil {
+		t.Fatal(err)
+	}
+	if err := Check(old); err == nil {
+		t.Fatal("a directory without audit/ passed")
+	}
+	if _, err := Init(old, t1); err == nil {
+		t.Fatal("init over an existing directory")
+	}
+	added, err := Upgrade(old, t1)
+	if err != nil || len(added) != 1 || added[0] != Audit {
+		t.Fatalf("upgrade: %v %v", added, err)
+	}
+	if err := Check(old); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := Upgrade(old, t1); err != nil || len(again) != 0 {
+		t.Fatalf("second upgrade: %v %v", again, err)
+	}
+	if _, err := Upgrade(t.TempDir(), t1); err == nil {
+		t.Fatal("upgrade of an empty directory")
 	}
 }

@@ -1,0 +1,116 @@
+# Reference manifest for the audit service (F-002 T-05, design §2). The
+# supported install path is the Helm/Zarf bundle from F-014; this file
+# documents the hardening every chart must preserve. Key material comes from
+# the mode's key store (deploy/k8s/keys: secret-mounts.yaml, saas/, openbao/).
+# Two replicas: one leads (a PostgreSQL advisory lock) and sequences,
+# checkpoints and verifies; both serve the audit API.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: audit
+  namespace: fair-platform
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audit
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: audit, app.kubernetes.io/part-of: fair-platform }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app.kubernetes.io/name: audit }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: audit, app.kubernetes.io/part-of: fair-platform }
+    spec:
+      serviceAccountName: audit
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: audit
+          image: ghcr.io/rformer/fair-audit:REPLACE_WITH_DIGEST
+          ports: [{ name: https, containerPort: 8443 }]
+          env:
+            - { name: FAIR_ENV, value: production }
+            - { name: FAIR_DEPLOYMENT_MODE, value: self-hosted } # saas on vendor-operated instances (ADR-005)
+            - { name: FAIR_TLS_CERT_FILE, value: /tls/tls.crt }
+            - { name: FAIR_TLS_KEY_FILE, value: /tls/tls.key }
+            - { name: PGHOST, value: REPLACE_WITH_DB_HOST }
+            - { name: PGDATABASE, value: fair }
+            - { name: PGSSLMODE, value: verify-full }
+            - { name: PGSSLROOTCERT, value: /db-ca/ca.crt }
+            - { name: FAIR_DB_PASSWORD_FILE, value: /secrets/db/password }
+            # SaaS: write-once storage for checkpoint copies (F-002 AC-10).
+            # - { name: FAIR_AUDIT_WORM_BUCKET, value: REPLACE_WITH_BUCKET }
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          livenessProbe:
+            httpGet: { path: /healthz, port: https, scheme: HTTPS }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /readyz, port: https, scheme: HTTPS }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          volumeMounts:
+            - { name: tls, mountPath: /tls, readOnly: true }
+            - { name: db, mountPath: /secrets/db, readOnly: true }
+            - { name: db-ca, mountPath: /db-ca, readOnly: true }
+      volumes:
+        - name: tls
+          secret: { secretName: audit-tls }
+        - name: db
+          secret: { secretName: audit-db-app, defaultMode: 0400 }
+        - name: db-ca
+          secret: { secretName: db-ca }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: audit
+  namespace: fair-platform
+spec:
+  selector: { app.kubernetes.io/name: audit }
+  ports: [{ name: https, port: 443, targetPort: https }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: audit-ingress-from-gateway
+  namespace: fair-platform
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: audit }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: gateway }
+      ports: [{ port: 8443, protocol: TCP }]
+---
+# Egress: PostgreSQL and DNS. Object storage (T-08) and SIEM destinations
+# (T-16, T-17) are added with the tasks that use them; narrow `to` once the
+# chart knows where they run.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: audit-egress
+  namespace: fair-platform
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: audit }
+  policyTypes: [Egress]
+  egress:
+    - ports: [{ port: 5432, protocol: TCP }]
+    - ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]

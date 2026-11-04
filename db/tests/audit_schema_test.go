@@ -27,7 +27,7 @@ func (e *env) superuser(sql string) (string, error) {
 
 func TestAuditSchemaAccess(t *testing.T) {
 	e := setup(t)
-	for _, role := range []string{"app_rw", "app_posture", "app_gateway", "app_engine", "app_migrator"} {
+	for _, role := range []string{"app_rw", "app_posture", "app_gateway", "app_engine", "app_migrator", "app_audit"} {
 		for _, tbl := range auditTables {
 			e.mustFail(role, "SELECT * FROM audit."+tbl, "permission denied")
 			e.mustFail(role, "DELETE FROM audit."+tbl, "permission denied")
@@ -41,9 +41,9 @@ func TestAuditSchemaAccess(t *testing.T) {
 	grants := e.mustOwner(`SELECT string_agg(r.rolname || ':' || f.fn, ',' ORDER BY f.fn, r.rolname)
 		FROM (VALUES ('audit.submit(jsonb)'), ('audit.ensure_partition(timestamptz)'), ('audit.sync_event_types(jsonb)')) f(fn)
 		CROSS JOIN pg_roles r
-		WHERE r.rolname IN ('public', 'app_rw', 'app_posture', 'app_gateway', 'app_engine', 'app_migrator', 'fair_owner')
+		WHERE r.rolname IN ('public', 'app_rw', 'app_posture', 'app_gateway', 'app_engine', 'app_migrator', 'app_audit', 'fair_owner')
 		  AND has_function_privilege(r.oid, f.fn::regprocedure, 'EXECUTE')`)
-	if grants != "app_gateway:audit.submit(jsonb),app_posture:audit.submit(jsonb),app_rw:audit.submit(jsonb),fair_owner:audit.sync_event_types(jsonb)" {
+	if grants != "app_audit:audit.submit(jsonb),app_gateway:audit.submit(jsonb),app_posture:audit.submit(jsonb),app_rw:audit.submit(jsonb),fair_owner:audit.sync_event_types(jsonb)" {
 		t.Fatalf("function grants: %s", grants)
 	}
 	if out := e.mustOwner(`SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace

@@ -109,7 +109,7 @@ docker run --rm --network fairtest -v "$PWD:/src" -w /src \
 #    upgrade: releases may add roles (F-015 T-08 adds app_posture and
 #    posture_definer).
 PGDATABASE=fair FAIR_MIGRATOR_PASSWORD_FILE=... FAIR_RW_PASSWORD_FILE=... \
-FAIR_ENGINE_PASSWORD_FILE=... FAIR_POSTURE_PASSWORD_FILE=... FAIR_GATEWAY_PASSWORD_FILE=... ./scripts/db-bootstrap.sh
+FAIR_ENGINE_PASSWORD_FILE=... FAIR_POSTURE_PASSWORD_FILE=... FAIR_GATEWAY_PASSWORD_FILE=... FAIR_AUDIT_PASSWORD_FILE=... ./scripts/db-bootstrap.sh
 
 # 2. Migrations and release catalog (as app_migrator). In production the
 #    server certificate must be verified: PGSSLMODE=verify-full.
