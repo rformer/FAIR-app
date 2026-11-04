@@ -38,6 +38,7 @@ type Event struct {
 	Severity   Severity          `json:"severity"` // info|low|high|critical
 	Actor      string            `json:"actor"`    // user ID or "system:<service>"
 	Target     string            `json:"target,omitempty"`
+	BUID       string            `json:"bu_id,omitempty"` // the BU the event concerns (F-002 T-03); none: the root BU
 	Reason     string            `json:"reason,omitempty"`
 	Before     any               `json:"before,omitempty"`
 	After      any               `json:"after,omitempty"`

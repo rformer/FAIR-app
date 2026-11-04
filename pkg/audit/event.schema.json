@@ -17,6 +17,11 @@
       "description": "A user or service account id, system:<component>, operator:<name>, scim:<token id> or anonymous"
     },
     "target": { "type": "string" },
+    "bu_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "F-002 T-03: the BU the event concerns; audit records without one belong to the root BU"
+    },
     "reason": { "type": "string" },
     "before": {},
     "after": {},

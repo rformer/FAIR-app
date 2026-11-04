@@ -109,7 +109,7 @@ func TestAuditSubmit(t *testing.T) {
 
 	ok := map[string]any{"id": "evt-1", "type": "access.assignment_expired", "severity": "low", "actor": "system:iam",
 		"target": "assignment:1", "time": "2026-11-04T10:00:00Z", "bu_id": root, "source_ip": "192.0.2.7",
-		"before": map[string]any{"n": 1.5}, "attributes": map[string]any{"k": "v"}, "request_id": "r-1"}
+		"before": map[string]any{"n": 1.5}, "attributes": map[string]any{"role": "v"}, "request_id": "r-1"}
 	for _, role := range []string{"app_rw", "app_posture", "app_gateway"} {
 		out, err := e.as(role, "SELECT audit.submit('"+submitEvent(ok)+"')")
 		if err != nil || out != "evt-1" {
@@ -180,6 +180,11 @@ func TestAuditSubmit(t *testing.T) {
 		{base(kv{"time": "yesterday-ish"}), "is not a timestamp"},
 		{base(kv{"id": "bad id!"}), "is not valid"},
 		{base(kv{"reason": strings.Repeat("x", 70000)}), "larger than 64 KiB"},
+		// T-03: only the catalog's attributes, and nothing that looks like a secret.
+		{base(kv{"attributes": map[string]any{"nope": "x"}}), "with attribute nope (not in the catalog)"},
+		{base(kv{"reason": "token eyJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJ1MSJ9.c2ln"}), "looks like a secret"},
+		{base(kv{"attributes": map[string]any{"applied": "Bearer abcdefghijklmnopqrstuvwxyz0123"}}), "looks like a secret"},
+		{base(kv{"before": map[string]any{"pem": "-----BEGIN RSA PRIVATE KEY-----"}}), "looks like a secret"}, // #nosec G101 -- a header only, to test the refusal
 	} {
 		out, err := e.as("app_rw", tc.sql)
 		if err == nil || !strings.Contains(out, tc.want) || !strings.Contains(out, "audit event") {
@@ -194,6 +199,14 @@ func TestAuditSubmit(t *testing.T) {
 	e.mustFail("app_rw", base(kv{}), "db.migrated without bu_id")
 	if _, err := e.as("app_rw", base(kv{"bu_id": root})); err != nil {
 		t.Fatalf("with bu_id: %v", err)
+	}
+	// The reserved event_id attribute is accepted on any type.
+	if _, err := e.as("app_rw", base(kv{"attributes": map[string]any{"event_id": "7"}, "bu_id": root})); err != nil {
+		t.Fatalf("event_id attribute: %v", err)
+	}
+	// The catalog's attribute lists reached the database.
+	if out, _ := e.superuser("SET ROLE audit_definer; SELECT count(*) FROM audit.event_type WHERE attributes IS NULL"); out != "0" {
+		t.Fatalf("event types without attribute lists: %s", out)
 	}
 	// The error class is PF011.
 	if _, err := e.as("app_rw", `DO $$ BEGIN PERFORM audit.submit('{}'); EXCEPTION WHEN SQLSTATE 'PF011' THEN NULL; END $$`); err != nil {
@@ -296,7 +309,7 @@ func TestAuditEventTypeSync(t *testing.T) {
 	ent := c.Entries["access.assignment_expired"]
 	row, _ := e.superuser(`SET ROLE audit_definer; SELECT category || '|' || array_to_string(severities, ',') || '|' || array_to_string(requires, ',') || '|' || bu || '|' || description
 		FROM audit.event_type WHERE type = 'access.assignment_expired'`)
-	if row != fmt.Sprintf("%s|low|target|optional|%s", ent.Category, ent.Description) {
+	if row != fmt.Sprintf("%s|low|target|required|%s", ent.Category, ent.Description) {
 		t.Fatalf("event_type row: %s", row)
 	}
 

@@ -324,3 +324,15 @@ The STRIDE rows join `TestSTRIDECatalog` (`db/tests/stride_f002_test.go`).
 
     `submit` sets the producer from `session_user`. It fills in a missing id and time, and normalizes the time to UTC with microseconds. A retried event (same id) is a no-op.
   - **Catalog sync.** `audit.sync_event_types(jsonb)` is run by `iam migrate` with `migrate.Release.Events`, built by `audit.(*Catalog).SyncPayload`. It reports what was added, changed, retired and restored; `db.migrated` carries the added and retired types. An empty or malformed catalog is refused (PF004), and `migrate.Run` refuses a release without one.
+- 2026-11-04: T-03 implementation notes (migration 0067, `pkg/audit`):
+  - **Envelope `bu_id`.** `Event.BUID` and the schema field (a UUID) carry the BU an event concerns.
+  - **`bu: required` types.** 24 types are `bu: required`: BU changes, group mappings and mapped assignments, expired assignments, access reviews and service accounts. Their SQL emitters now pass a top-level `bu_id`: `iam.bu_event`, `mapping_event`, `review_event`, `sa_event`, `assignment_expiry_sweep`, and `authz.drain_outbox` for `bu.moved`. Their bodies are otherwise unchanged. `FromOutbox` maps `bu_id`. Setting and overlay events stay optional, because instance-wide values have no BU.
+  - **Attribute lists.** Every catalog entry declares `attributes` (`[]` for none). The lists came from every event the full suite produced, plus a reading of the code for the 8 types no test emits.
+    - `TestCatalogAttributesMatchCode` checks every literal attribute key written at an emission site against the list: Go `audit.Event` literals, direct SQL payloads, and SQL helper calls (each helper's own keys plus the extra attributes passed to it). That way an untested path cannot fail closed in production on an unlisted name. Keys built at run time are not covered.
+    - `event_id`, which `FromOutbox` adds, is reserved and accepted on every type.
+  - **Secrets (AC-06).**
+    - Names containing `password`, `passwd`, `secret`, `token`, `cookie`, `authorization`, `private_key`, `api_key` or `bearer` are refused by the catalog.
+    - Values that look like secrets are refused in attributes, target, reason, before and after: JWTs, PEM private keys, bearer or basic credentials, and the session cookie. `audit.LooksSecret` applies this rule in Go and `audit.looks_secret` in SQL.
+    - `TestNoSecretsInEvents` runs every listed attribute of every type through ordinary and secret values.
+    - Identifiers that are row ids or hashes of public material are not secrets: `session` (the session's row id; the cookie is stored only as an HMAC), `credential`, `certificate`, `credential_id` (WebAuthn's public id), `thumbprint` and `key_id`.
+  - **`audit.submit`** applies the same attribute list and secret rule. `audit.sync_event_types` loads `bu` and `attributes` from the catalog.

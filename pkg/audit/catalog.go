@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -42,12 +43,40 @@ var Categories = []string{
 
 // CatalogEntry describes one event type.
 type CatalogEntry struct {
-	Type        string     `yaml:"type"`
-	Category    string     `yaml:"category"`
-	Severities  []Severity `yaml:"severities"`
-	Requires    []string   `yaml:"requires"` // target, reason
-	Description string     `yaml:"description"`
+	Type       string     `yaml:"type"`
+	Category   string     `yaml:"category"`
+	Severities []Severity `yaml:"severities"`
+	Requires   []string   `yaml:"requires"` // target, reason
+	// BU is "required" when every event of the type concerns one BU (it must
+	// carry bu_id), else "optional" (F-002 T-03, design §3).
+	BU string `yaml:"bu"`
+	// Attributes are the attribute names the type may carry; nothing else is
+	// accepted (F-002-AC-06). Every entry declares the list, empty or not.
+	Attributes  []string `yaml:"attributes"`
+	Description string   `yaml:"description"`
 }
+
+// BURequired and BUOptional are the values of CatalogEntry.BU.
+const (
+	BURequired = "required"
+	BUOptional = "optional"
+)
+
+// ReservedAttributes may appear on any event: FromOutbox adds event_id.
+var ReservedAttributes = []string{"event_id"}
+
+// deniedNames are attribute-name fragments that would carry a secret
+// (F-002-AC-06): the catalog refuses such names.
+var deniedNames = []string{"password", "passwd", "secret", "token", "cookie", "authorization", "private_key", "api_key", "bearer"}
+
+// secretValueRE matches values that look like secrets: JWTs, PEM private
+// keys, bearer or basic credentials, and the session cookie.
+var secretValueRE = regexp.MustCompile(`eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.|-----BEGIN [A-Z ]*PRIVATE KEY-----|(?i)\b(?:bearer|basic)\s+[A-Za-z0-9._~+/=-]{16,}|__Host-sid=`)
+
+// LooksSecret reports whether s looks like a secret value (F-002-AC-06).
+func LooksSecret(s string) bool { return secretValueRE.MatchString(s) }
+
+var attrNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
 // Catalog is the loaded catalog.
 type Catalog struct {
@@ -95,6 +124,31 @@ func ParseCatalog(doc []byte) (*Catalog, error) {
 		for _, r := range e.Requires {
 			if r != "target" && r != "reason" {
 				return nil, fmt.Errorf("audit: catalog: %s: requires %q", e.Type, r)
+			}
+		}
+		switch e.BU {
+		case "":
+			e.BU = BUOptional
+		case BURequired, BUOptional:
+		default:
+			return nil, fmt.Errorf("audit: catalog: %s: bu %q (required or optional)", e.Type, e.BU)
+		}
+		if e.Attributes == nil {
+			return nil, fmt.Errorf("audit: catalog: %s declares no attributes list (use [] for none)", e.Type)
+		}
+		for i, a := range e.Attributes {
+			switch {
+			case !attrNameRE.MatchString(a):
+				return nil, fmt.Errorf("audit: catalog: %s: attribute %q", e.Type, a)
+			case slices.Contains(ReservedAttributes, a):
+				return nil, fmt.Errorf("audit: catalog: %s: attribute %q is reserved", e.Type, a)
+			case slices.Contains(e.Attributes[:i], a):
+				return nil, fmt.Errorf("audit: catalog: %s: attribute %q listed twice", e.Type, a)
+			}
+			for _, d := range deniedNames {
+				if strings.Contains(a, d) {
+					return nil, fmt.Errorf("audit: catalog: %s: attribute %q would carry a secret (AC-06)", e.Type, a)
+				}
 			}
 		}
 		if _, dup := c.Entries[e.Type]; dup {
@@ -158,6 +212,8 @@ func (c *Catalog) SyncPayload() ([]byte, error) {
 		Category    string     `json:"category"`
 		Severities  []Severity `json:"severities"`
 		Requires    []string   `json:"requires"`
+		BU          string     `json:"bu"`
+		Attributes  []string   `json:"attributes"`
 		Description string     `json:"description"`
 	}
 	events := make([]entry, 0, len(c.Entries))
@@ -167,7 +223,7 @@ func (c *Catalog) SyncPayload() ([]byte, error) {
 		if req == nil {
 			req = []string{}
 		}
-		events = append(events, entry{e.Type, e.Category, e.Severities, req, e.Description})
+		events = append(events, entry{e.Type, e.Category, e.Severities, req, e.BU, e.Attributes, e.Description})
 	}
 	return json.Marshal(map[string]any{"events": events})
 }
@@ -187,6 +243,27 @@ func (c *Catalog) Validate(e Event) error {
 	for _, r := range ent.Requires {
 		if (r == "target" && strings.TrimSpace(e.Target) == "") || (r == "reason" && strings.TrimSpace(e.Reason) == "") {
 			return fmt.Errorf("%w: %s without %s", ErrUncatalogued, e.Type, r)
+		}
+	}
+	if ent.BU == BURequired && e.BUID == "" {
+		return fmt.Errorf("%w: %s without bu_id", ErrUncatalogued, e.Type)
+	}
+	for k, v := range e.Attributes {
+		if !slices.Contains(ent.Attributes, k) && !slices.Contains(ReservedAttributes, k) {
+			return fmt.Errorf("%w: %s with attribute %q (allowed %v)", ErrUncatalogued, e.Type, k, ent.Attributes)
+		}
+		if LooksSecret(v) {
+			return fmt.Errorf("%w: %s: attribute %q looks like a secret", ErrUncatalogued, e.Type, k)
+		}
+	}
+	for name, v := range map[string]any{"target": e.Target, "reason": e.Reason, "before": e.Before, "after": e.After} {
+		s, ok := v.(string)
+		if !ok && v != nil {
+			b, _ := json.Marshal(v)
+			s = string(b)
+		}
+		if LooksSecret(s) {
+			return fmt.Errorf("%w: %s: %s looks like a secret", ErrUncatalogued, e.Type, name)
 		}
 	}
 	b, err := json.Marshal(e)
@@ -238,6 +315,7 @@ func FromOutbox(id int64, payload []byte) (Event, error) {
 		Severity   string         `json:"severity"`
 		Actor      string         `json:"actor"`
 		Target     string         `json:"target"`
+		BUID       string         `json:"bu_id"`
 		Reason     *string        `json:"reason"`
 		Before     any            `json:"before"`
 		After      any            `json:"after"`
@@ -262,7 +340,7 @@ func FromOutbox(id int64, payload []byte) (Event, error) {
 		}
 	}
 	attrs["event_id"] = fmt.Sprint(id)
-	e := Event{Type: p.Type, Severity: Severity(p.Severity), Actor: p.Actor, Target: p.Target, Before: p.Before, After: p.After,
+	e := Event{Type: p.Type, Severity: Severity(p.Severity), Actor: p.Actor, Target: p.Target, BUID: p.BUID, Before: p.Before, After: p.After,
 		RequestID: p.RequestID, SourceIP: p.SourceIP, Attributes: attrs}
 	if p.Reason != nil {
 		e.Reason = *p.Reason
