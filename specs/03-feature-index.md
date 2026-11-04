@@ -3,12 +3,12 @@ Every feature spec includes **Deployment modes** (SaaS, self-hosted, air-gapped)
 
 **v1 build order:** F-012 (minimal CI) → F-001 Phases 0–1 → F-015 → F-001 remaining phases → F-002 → F-003 onward.
 
-**Current position:** F-015 is **done** (T-01 to T-38, including T-24b). F-001 is **done** apart from T-25 (SCIM vendor interop runs), which is blocked until vendor test tenants and a public deployment exist. Next is **F-002**: its requirements and design are approved (2026-11-04); the tasks are next. See `README.md` for the task-level history.
+**Current position:** F-015 is **done** (T-01 to T-38, including T-24b). F-001 is **done** apart from T-25 (SCIM vendor interop runs), which is blocked until vendor test tenants and a public deployment exist. Next is **F-002**: requirements, design and tasks are approved (2026-11-04); T-01 is next. See `README.md` for the task-level history.
 
 | ID | Feature | Depends on | Status |
 |---|---|---|---|
 | F-001 | Identity, BU hierarchy & RBAC (SAML/OIDC, MFA, SCIM, custom roles, restricted BUs, RLS) | F-015 (bounds) | **Done** apart from T-25 (blocked: SCIM vendor tenants) |
-| F-002 | Tamper-evident audit trail service | F-001 | Requirements · Design: **Approved** (2026-11-04) · Tasks: next |
+| F-002 | Tamper-evident audit trail service | F-001 | Requirements · Design · Tasks: **all Approved** (2026-11-04). **In Progress** |
 | F-003 | FAIR data model (scenarios, assets, threat communities, loss forms, controls) | F-001 | Not started |
 | F-004 | Calibrated estimate capture | F-003 | Not started |
 | F-005 | Monte Carlo simulation engine (Python; versioned, reproducible) | F-003, F-004 | Not started |
