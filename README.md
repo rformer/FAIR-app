@@ -203,7 +203,9 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_DB_PASSWORD_FILE=<app_posture passwor
 # forwards the trail to a SIEM (F-002 T-16): set the destination with the setting
 # audit.syslog_destination (host:port; RFC 5424 over TLS 1.2+, structured data
 # [fair@32473 seq chain segment], each record's body as recorded) and its CA with
-# FAIR_AUDIT_SYSLOG_CA_FILE on the audit service. FAIR_AUDIT_SYSLOG_ADDR is retired:
+# FAIR_AUDIT_SYSLOG_CA_FILE on the audit service; and OTLP logs over gRPC with TLS
+# (F-002 T-17): audit.otlp_destination (host:port, each record a log record with
+# fair.seq, fair.chain, fair.segment) and FAIR_AUDIT_OTLP_CA_FILE. FAIR_AUDIT_SYSLOG_ADDR is retired:
 # a service that still has it refuses to start. The event types are
 # pkg/audit/catalog.yaml; the envelope is pkg/audit/event.schema.json.
 # Logins must show MFA evidence (F-001 T-18) while auth.mfa_required_all is on (the

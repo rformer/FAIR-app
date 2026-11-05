@@ -187,23 +187,28 @@ func (s *syslogServer) received(t *testing.T, n int) []gotFrame {
 }
 
 type forwardEnv struct {
-	e     *env
-	pool  *pgxpool.Pool
-	seq   auditsvc.Sequencer
-	fwd   *auditsvc.SyslogForwarder
-	addr  string
-	recs  int
-	age   time.Duration
-	now   time.Time
-	roots *x509.CertPool
+	e    *env
+	pool *pgxpool.Pool
+	seq  auditsvc.Sequencer
+	fwd  *auditsvc.Forwarder
+	addr string
+	recs int
+	age  time.Duration
+	now  time.Time
 }
 
 func newForwardEnv(t *testing.T, e *env, roots *x509.CertPool) *forwardEnv {
 	t.Helper()
+	return newForwardEnvWith(t, e, auditsvc.SyslogDestination,
+		&auditsvc.SyslogTransport{TLS: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}, Hostname: "audit-0"})
+}
+
+// newForwardEnvWith forwards to the destination name through transport.
+func newForwardEnvWith(t *testing.T, e *env, name string, transport auditsvc.Transport) *forwardEnv {
+	t.Helper()
 	pool := e.auditPool()
-	fe := &forwardEnv{e: e, pool: pool, seq: auditsvc.Sequencer{DB: pool}, recs: 10_000, age: 15 * time.Minute, roots: roots}
-	fe.fwd = &auditsvc.SyslogForwarder{DB: pool, Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: pool}), Hostname: "audit-0", Batch: 4,
-		TLS:        &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots},
+	fe := &forwardEnv{e: e, pool: pool, seq: auditsvc.Sequencer{DB: pool}, recs: 10_000, age: 15 * time.Minute}
+	fe.fwd = &auditsvc.Forwarder{DB: pool, Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: pool}), Name: name, Transport: transport, Batch: 4,
 		Address:    func() (string, error) { return fe.addr, nil },
 		Thresholds: func() (int, time.Duration) { return fe.recs, fe.age },
 		Now: func() time.Time {

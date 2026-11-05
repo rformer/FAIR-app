@@ -61,6 +61,8 @@ spec:
             # is the setting audit.syslog_destination). Without it, the
             # system roots.
             # - { name: FAIR_AUDIT_SYSLOG_CA_FILE, value: /secrets/siem/ca.crt }
+            # The same for OTLP (T-17; audit.otlp_destination).
+            # - { name: FAIR_AUDIT_OTLP_CA_FILE, value: /secrets/siem/otlp-ca.crt }
             # SaaS: write-once storage for checkpoint copies (F-002 AC-10).
             # The bucket must have versioning and Object Lock (the service
             # refuses one without); credentials are files (internal/objstore).
@@ -132,8 +134,8 @@ spec:
 # object storage over TLS (write-once checkpoint copies, T-09; exports,
 # T-15; archives, T-18), and the SIEM: syslog over TLS on 6514 (T-16, the
 # setting audit.syslog_destination; change the port here if the SIEM listens
-# elsewhere). OTLP (T-17) is added with that task; narrow `to` once the
-# chart knows where they run.
+# elsewhere), and OTLP over gRPC with TLS on 4317 (T-17, the setting
+# audit.otlp_destination); narrow `to` once the chart knows where they run.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -149,3 +151,4 @@ spec:
     - ports: [{ port: 4222, protocol: TCP }]
     - ports: [{ port: 443, protocol: TCP }]
     - ports: [{ port: 6514, protocol: TCP }]
+    - ports: [{ port: 4317, protocol: TCP }]

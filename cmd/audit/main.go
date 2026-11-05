@@ -8,7 +8,7 @@
 // election (one replica leads). The leader sequences the trail (T-07),
 // closes segments with signed checkpoints every 15 minutes (T-09), and
 // verifies the trail every 15 minutes and in full daily (T-11), and
-// forwards it to the syslog destination (T-16). Every
+// forwards it to the syslog (T-16) and OTLP (T-17) destinations. Every
 // replica serves the Audit API (T-12) and works the evidence export queue
 // (T-15, River in schema audit_river).
 //
@@ -39,6 +39,10 @@
 //	                                 the setting audit.syslog_destination
 //	                                 (F-015); FAIR_AUDIT_SYSLOG_PLAINTEXT=true
 //	                                 (plain TCP) is for development only
+//	FAIR_AUDIT_OTLP_CA_FILE          the OTLP destination's CA (T-17; the
+//	                                 destination is audit.otlp_destination);
+//	                                 FAIR_AUDIT_OTLP_PLAINTEXT=true for
+//	                                 development only
 //	FAIR_NATS_URL                    NATS, for scope changes (the API's grant
 //	                                 cache otherwise refreshes on its own);
 //	                                 FAIR_NATS_CREDS_FILE optional
@@ -144,6 +148,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	otlpTLS, err := auditsvc.OTLPTLS(cfg.Env, os.Getenv)
+	if err != nil {
+		return err
+	}
 	// The Audit API (T-12) verifies the gateway's internal JWTs.
 	var jwtKeys *authz.LocalKeys
 	if dir := os.Getenv("FAIR_JWT_KEYS_DIR"); dir != "" {
@@ -233,34 +241,36 @@ func run() error {
 	}}
 	// ...and verifies the trail continuously (T-11).
 	ver := auditsvc.Verifier{DB: pool, Audit: emitter, WORM: worm}
-	// ...and forwards it to the syslog destination (T-16), named by the
-	// setting audit.syslog_destination; air-gapped installs send inside the
-	// enclave only (design §7).
+	// ...and forwards it to the SIEM destinations named by the settings
+	// audit.syslog_destination (T-16) and audit.otlp_destination (T-17);
+	// air-gapped installs send inside the enclave only (design §7).
 	host, _ := os.Hostname()
-	fwd := &auditsvc.SyslogForwarder{DB: pool, Audit: emitter, TLS: syslogTLS, Hostname: host,
-		Address: func() (string, error) { return sc.Enum(settings.KeyAuditSyslogDestination, "") },
-		Thresholds: func() (int, time.Duration) {
-			n, err := sc.Int(settings.KeyAuditBacklogRecords, "")
-			if err != nil {
-				n = 10_000 // the default of every built-in profile
-			}
-			d, err := sc.Duration(settings.KeyAuditBacklogAge, "")
-			if err != nil {
-				d = 15 * time.Minute
-			}
-			return n, d
-		}}
+	thresholds := func() (int, time.Duration) {
+		n, err := sc.Int(settings.KeyAuditBacklogRecords, "")
+		if err != nil {
+			n = 10_000 // the default of every built-in profile
+		}
+		d, err := sc.Duration(settings.KeyAuditBacklogAge, "")
+		if err != nil {
+			d = 15 * time.Minute
+		}
+		return n, d
+	}
+	var internalOnly func(ctx context.Context, addr string) error
 	if cfg.DeploymentMode == config.ModeAirGapped {
-		fwd.Check = func(ctx context.Context, addr string) error {
+		internalOnly = func(ctx context.Context, addr string) error {
 			return scanner.InternalOnly(ctx, []string{addr}, func(ctx context.Context, host string) ([]net.IP, error) {
 				return net.DefaultResolver.LookupIP(ctx, "ip", host)
 			})
 		}
 	}
+	forwarders := []*auditsvc.Forwarder{
+		{DB: pool, Audit: emitter, Name: auditsvc.SyslogDestination, Transport: &auditsvc.SyslogTransport{TLS: syslogTLS, Hostname: host},
+			Address: func() (string, error) { return sc.Enum(settings.KeyAuditSyslogDestination, "") }, Thresholds: thresholds, Check: internalOnly},
+		{DB: pool, Audit: emitter, Name: auditsvc.OTLPDestination, Transport: &auditsvc.OTLPTransport{TLS: otlpTLS, Hostname: host},
+			Address: func() (string, error) { return sc.Enum(settings.KeyAuditOTLPDestination, "") }, Thresholds: thresholds, Check: internalOnly},
+	}
 	loops := []func(context.Context) error{
-		func(ctx context.Context) error {
-			return fwd.Run(ctx, 0, func(err error) { logger.Error("forwarding", "error", err.Error()) })
-		},
 		func(ctx context.Context) error {
 			return seq.Run(ctx, 0, func(err error) { logger.Error("sequencer", "error", err.Error()) })
 		},
@@ -273,6 +283,11 @@ func run() error {
 				}
 			}, func(err error) { logger.Error("verification", "error", err.Error()) })
 		},
+	}
+	for _, f := range forwarders {
+		loops = append(loops, func(ctx context.Context) error {
+			return f.Run(ctx, 0, func(err error) { logger.Error("forwarding", "destination", f.Name, "error", err.Error()) })
+		})
 	}
 	if cp != nil {
 		loops = append(loops, func(ctx context.Context) error {

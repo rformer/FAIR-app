@@ -210,7 +210,8 @@ func seedPostureScenario(t *testing.T, ae apiEnv) {
 	drainTrail(t, auditsvc.Sequencer{DB: ap})
 	// F-002 T-16: a SIEM destination that is down, its backlog over the
 	// threshold (the Audit trail tile).
-	fwd := &auditsvc.SyslogForwarder{DB: ap, Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: ap}),
+	fwd := &auditsvc.Forwarder{DB: ap, Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: ap}),
+		Name: auditsvc.SyslogDestination, Transport: &auditsvc.SyslogTransport{},
 		Address:    func() (string, error) { return "127.0.0.1:1", nil },
 		Thresholds: func() (int, time.Duration) { return 5, 15 * time.Minute }}
 	if _, err := fwd.Step(ctx); err == nil {
