@@ -70,10 +70,36 @@ func TestAuditRetentionFloorAndBounds(t *testing.T) {
 		Explanation: "storage"}); !errors.Is(err, posture.ErrHardFloor) {
 		t.Fatalf("below the floor: %v", err)
 	}
-	// Enterprise allows 90 days within its bound; longer is a tightening.
-	if res, err := ev.Change(ctx, admin, posture.ChangeRequest{Key: settings.KeyAuditRetentionOnline, Value: json.RawMessage(`"2160h0m0s"`)}); err != nil ||
-		res.Outcome != posture.Applied || res.Direction != "loosen" {
+	// AC-28 (F-002 T-19): Enterprise allows 90 days within its bound, but
+	// any shortening needs an explanation, a warning, a second approver and
+	// a high-severity event; it is then a change, not an exception.
+	short := posture.ChangeRequest{Key: settings.KeyAuditRetentionOnline, Value: json.RawMessage(`"2160h0m0s"`)}
+	if res, err := ev.Change(ctx, admin, short); !errors.Is(err, posture.ErrExplanationRequired) || res.Warning == nil ||
+		!strings.Contains(res.Warning.Message, "second approver") {
+		t.Fatalf("90 days without explanation: %+v %v", res, err)
+	}
+	short.Explanation = "storage costs, decided by the CISO"
+	res, err := ev.Change(ctx, admin, short)
+	if err != nil || res.Outcome != posture.PendingApproval || res.Direction != "loosen" || res.ApprovalID == "" {
 		t.Fatalf("90 days: %+v %v", res, err)
+	}
+	if got := valueOf(e, settings.KeyAuditRetentionOnline); got != `"8760h0m0s":profile` {
+		t.Fatalf("shortened before approval: %s", got)
+	}
+	appr := approvals.Service{DB: e.appPool()}
+	if st, err := appr.Decide(ctx, e.principal("admin2"), res.ApprovalID, true, ""); err != nil || st != approvals.Approved {
+		t.Fatalf("approve: %v %v", st, err)
+	}
+	if x, err := ev.ApplyApproved(ctx, res.ChangeID); err != nil || x.ID != "" {
+		t.Fatalf("apply: %+v %v", x, err)
+	}
+	if got := valueOf(e, settings.KeyAuditRetentionOnline); got != `"2160h0m0s":change` {
+		t.Fatalf("after approval: %s", got)
+	}
+	// The same for the total retention; lengthening applies at once.
+	if res, err := ev.Change(ctx, admin, posture.ChangeRequest{Key: settings.KeyAuditRetentionTotal, Value: json.RawMessage(`"43800h0m0s"`),
+		Explanation: "five years is enough"}); err != nil || res.Outcome != posture.PendingApproval {
+		t.Fatalf("total shortened: %+v %v", res, err)
 	}
 	if res, err := ev.Change(ctx, admin, posture.ChangeRequest{Key: settings.KeyAuditRetentionTotal, Value: json.RawMessage(`"87600h0m0s"`)}); err != nil ||
 		res.Outcome != posture.Applied || res.Direction != "tighten" {

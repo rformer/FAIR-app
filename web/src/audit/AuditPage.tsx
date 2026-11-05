@@ -3,6 +3,7 @@ import { ApiError } from "../api";
 import { Badge, Section, Status, useApi, type Loaded, type Tone } from "../components";
 import { actorHref, auditHref, evidenceHref, recordHref, requestHref } from "../links";
 import { ExportAction } from "./ExportAction";
+import { HoldsPage } from "./HoldsPage";
 import {
   AUDIT_API,
   CATEGORIES,
@@ -25,6 +26,7 @@ import {
 //   ?record=              one record and its proof
 //   otherwise             search, newest first (?view=search&<filters>),
 //                         with the export action (T-15)
+//   /audit/holds          legal holds (T-19; audit.hold at the root)
 // What a user sees is decided by the API (AC-19); every read is recorded
 // there (AC-20).
 
@@ -73,7 +75,21 @@ function titleOf(v: View): string {
   }
 }
 
-export function AuditPage({ search = window.location.search }: { search?: string }) {
+export function AuditPage({ search = window.location.search, path = window.location.pathname }: { search?: string; path?: string }) {
+  if (path === "/audit/holds") {
+    return (
+      <>
+        <nav aria-label="Breadcrumb" className="crumbs">
+          <a href="/audit">Audit trail</a>
+        </nav>
+        <HoldsPage search={search} />
+      </>
+    );
+  }
+  return <AuditViews search={search} />;
+}
+
+function AuditViews({ search }: { search: string }) {
   const view = viewOf(search);
   const title = titleOf(view);
   useEffect(() => {
@@ -228,7 +244,7 @@ function More({ search, param, value, label }: { search: string; param: string; 
 
 // --- search (AC-15) --------------------------------------------------------------
 
-const filterLabel: Record<FilterKey, string> = {
+export const filterLabel: Record<FilterKey, string> = {
   from: "From",
   to: "To",
   type: "Event type",
@@ -242,7 +258,7 @@ const filterLabel: Record<FilterKey, string> = {
 };
 
 /** An RFC 3339 time as a datetime-local value, in the browser's zone. */
-function toLocalInput(iso: string | undefined): string {
+export function toLocalInput(iso: string | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
@@ -364,8 +380,24 @@ function SearchView({ view }: { view: Extract<View, { kind: "search" }> }) {
       <Section id="export" title="Export">
         <ExportAction filter={view.filter} />
       </Section>
+      <Section id="legal-hold" title="Legal hold">
+        <p>
+          Holders of audit.hold can keep these records from being destroyed:{" "}
+          <a href={holdQuery(view.filter) ? `/audit/holds?${holdQuery(view.filter)}` : "/audit/holds"}>place a legal hold on the records matching these filters</a>.
+        </p>
+      </Section>
     </>
   );
+}
+
+/** The applied filters as the holds page's query. */
+function holdQuery(filter: Partial<Record<FilterKey, string>>): string {
+  const p = new URLSearchParams();
+  for (const k of FILTERS) {
+    const v = filter[k];
+    if (v) p.set(k, v);
+  }
+  return p.toString();
 }
 
 // --- history (AC-16, AC-37) and request (AC-17) ---------------------------------

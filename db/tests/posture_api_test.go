@@ -191,7 +191,7 @@ func TestPostureAPIAccessAndChanges(t *testing.T) {
 
 	// The other read endpoints answer the auditor.
 	for _, path := range []string{"/changes", "/exceptions", "/profiles", "/overlay", "/drift", "/k8s-access",
-		"/profiles/enterprise-baseline/diff?version=1.2.0&against=fedramp-moderate@1.2.0"} {
+		"/profiles/enterprise-baseline/diff?version=1.3.0&against=fedramp-moderate@1.3.0"} {
 		if r := ae.call(t, "auditor", "GET", path, "", nil); r.code != 200 {
 			t.Errorf("GET %s: %d %s", path, r.code, r.raw)
 		}

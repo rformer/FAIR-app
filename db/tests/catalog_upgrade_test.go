@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -14,12 +15,22 @@ import (
 // releases retire and reclassify permissions; custom roles move between
 // instances as JSON.
 
-// nextRelease is the installed release with version v and edit applied.
+// rel is the catalog version n − 1 releases after the shipped one: rel(t,
+// 1) is the shipped version, rel(t, 2) the next (F-002 T-19 shipped catalog
+// version 2, so these tests no longer assume version 1).
+func rel(t *testing.T, n int) int {
+	t.Helper()
+	c, _ := release(t)
+	return c.Version - 1 + n
+}
+
+// nextRelease is the installed release with version rel(t, v) and edit
+// applied.
 func nextRelease(t *testing.T, v int, edit func(*catalog.Catalog, *catalog.BuiltinRoles)) (*catalog.Catalog, *catalog.BuiltinRoles) {
 	t.Helper()
 	c, br := release(t)
 	c2, br2 := cloneRelease(c, br)
-	c2.Version, br2.CatalogVersion = v, v
+	c2.Version, br2.CatalogVersion = rel(t, v), rel(t, v)
 	edit(c2, br2)
 	return c2, br2
 }
@@ -58,7 +69,7 @@ func TestCatalogRetirementAndReclassification(t *testing.T) {
 				c.Permissions[i].RiskData = true
 			}
 		}
-		c.Permissions = append(c.Permissions, catalog.Permission{Key: "dashboard.view", ResourceType: "dashboard", Action: catalog.ActionRead, RiskData: true, IntroducedIn: 2})
+		c.Permissions = append(c.Permissions, catalog.Permission{Key: "dashboard.view", ResourceType: "dashboard", Action: catalog.ActionRead, RiskData: true, IntroducedIn: rel(t, 2)})
 	})
 	r := e.sync(t, c2, br2)
 	if strings.Join(r.RetiredPermissions, ",") != "drift.acknowledge" || strings.Join(r.ReclassifiedPermissions, ",") != "bu.view,entitlement.view" ||
@@ -67,7 +78,7 @@ func TestCatalogRetirementAndReclassification(t *testing.T) {
 	}
 	// Retired, not deleted; the custom role lost it (and so did its holder),
 	// built-in roles follow the release.
-	if got := e.adminQuery("SELECT retired_in_version FROM iam.permission WHERE key = 'drift.acknowledge'"); got != "2" {
+	if got := e.adminQuery("SELECT retired_in_version FROM iam.permission WHERE key = 'drift.acknowledge'"); got != strconv.Itoa(rel(t, 2)) {
 		t.Fatalf("retired_in_version %q", got)
 	}
 	if ver, perms := e.rolePerms("Drift Ack"); ver != 2 || strings.Join(perms, ",") != "posture.view" {
@@ -125,7 +136,7 @@ func TestCatalogRetirementAndReclassification(t *testing.T) {
 
 	// Release 3 brings it back: restored, but custom roles are not given it (AC-57).
 	c3, br3 := nextRelease(t, 3, func(c *catalog.Catalog, _ *catalog.BuiltinRoles) {
-		c.Permissions = append(c.Permissions, catalog.Permission{Key: "dashboard.view", ResourceType: "dashboard", Action: catalog.ActionRead, RiskData: true, IntroducedIn: 2})
+		c.Permissions = append(c.Permissions, catalog.Permission{Key: "dashboard.view", ResourceType: "dashboard", Action: catalog.ActionRead, RiskData: true, IntroducedIn: rel(t, 2)})
 	})
 	r3 := e.sync(t, c3, br3)
 	if strings.Join(r3.RestoredPermissions, ",") != "drift.acknowledge" {
@@ -139,7 +150,7 @@ func TestCatalogRetirementAndReclassification(t *testing.T) {
 	}
 	// Identity stays fixed: a changed resource type is refused.
 	bad, brB := nextRelease(t, 4, func(c *catalog.Catalog, _ *catalog.BuiltinRoles) {
-		c.Permissions = append(c.Permissions, catalog.Permission{Key: "dashboard.view", ResourceType: "dashboard", Action: catalog.ActionRead, RiskData: true, IntroducedIn: 3})
+		c.Permissions = append(c.Permissions, catalog.Permission{Key: "dashboard.view", ResourceType: "dashboard", Action: catalog.ActionRead, RiskData: true, IntroducedIn: rel(t, 3)})
 	})
 	e.ownerFails(syncSQL(t, bad, brB), "changed its resource type or introduction version")
 	// Permission rows still never go away, even for the owner.
@@ -160,7 +171,7 @@ func TestRoleExportImport(t *testing.T) {
 	}
 	// AC-58: the document.
 	ex := se.do(t, "GET", "/api/v1/roles/export", admin, nil, nil)
-	if ex.code != 200 || ex.body["format"] != "fair.roles.v1" || len(ex.body["roles"].([]any)) != 2 || ex.body["catalog_version"] != float64(1) ||
+	if ex.code != 200 || ex.body["format"] != "fair.roles.v1" || len(ex.body["roles"].([]any)) != 2 || ex.body["catalog_version"] != float64(rel(t, 1)) ||
 		!strings.Contains(ex.hdr.Get("Content-Disposition"), "roles.json") {
 		t.Fatalf("export: %d %s", ex.code, ex.raw)
 	}
@@ -171,7 +182,7 @@ func TestRoleExportImport(t *testing.T) {
 
 	// The document as another instance would receive it: Reviewer changed,
 	// Board unchanged, Promoted new.
-	doc := map[string]any{"format": "fair.roles.v1", "catalog_version": 1, "roles": []any{
+	doc := map[string]any{"format": "fair.roles.v1", "catalog_version": rel(t, 1), "roles": []any{
 		map[string]any{"name": "Reviewer", "permissions": []string{"analysis.view", "report.view", "audit.view"}},
 		map[string]any{"name": "Board", "permissions": []string{"report.view"}},
 		map[string]any{"name": "Promoted", "permissions": []string{"report.view", "bu.view"}},

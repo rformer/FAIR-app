@@ -3,9 +3,11 @@ package catalog
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -18,7 +20,7 @@ func TestReleaseLoads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Version != 1 || len(c.Permissions) != 56 || len(br.Roles) != 8 {
+	if c.Version != 2 || len(c.Permissions) != 57 || len(br.Roles) != 8 { // version 2: audit.hold (F-002 T-19)
 		t.Fatalf("release = v%d, %d permissions, %d roles", c.Version, len(c.Permissions), len(br.Roles))
 	}
 }
@@ -38,6 +40,7 @@ func TestReleaseMatchesApprovedSpec(t *testing.T) {
 	permRow := regexp.MustCompile("^\\| `([a-z_.]+)` \\| (\\w+) \\| (\\*\\*yes\\*\\*|no) \\|")
 	roleRow := regexp.MustCompile(`^\| ([A-Z][A-Za-z ]+) \| (.*) \|$`)
 	keyRef := regexp.MustCompile("`([a-z_.]+)`")
+	catalogVersion := regexp.MustCompile(`catalog version (\d+)\)`)
 	var want []Permission
 	wantRoles := map[string][]string{}
 	section := ""
@@ -57,16 +60,20 @@ func TestReleaseMatchesApprovedSpec(t *testing.T) {
 		default:
 			if m := permRow.FindStringSubmatch(line); m != nil {
 				res, _, _ := strings.Cut(m[1], ".")
+				introduced := 1 // unless the row names a later catalog version
+				if v := catalogVersion.FindStringSubmatch(line); v != nil {
+					introduced, _ = strconv.Atoi(v[1])
+				}
 				want = append(want, Permission{
 					Key: m[1], ResourceType: res, Action: Action(m[2]), Privileged: m[3] != "no",
-					RiskData: strings.HasPrefix(section, "### Risk data"), IntroducedIn: 1,
+					RiskData: strings.HasPrefix(section, "### Risk data"), IntroducedIn: introduced,
 				})
 			}
 		}
 	}
 	slices.SortFunc(want, func(a, b Permission) int { return strings.Compare(a.Key, b.Key) })
 	if !slices.Equal(c.Permissions, want) {
-		t.Errorf("release/catalog.json differs from %s: %d vs %d permissions; diff %+v", specPath, len(c.Permissions), len(want), Compare(&Catalog{Version: 1, Permissions: want}, c))
+		t.Errorf("release/catalog.json differs from %s: %d vs %d permissions; diff %+v", specPath, len(c.Permissions), len(want), Compare(&Catalog{Version: c.Version, Permissions: want}, c))
 	}
 	if len(wantRoles) != len(br.Roles) {
 		t.Errorf("spec has %d roles, release has %d", len(wantRoles), len(br.Roles))
@@ -110,14 +117,15 @@ func TestParseRolesRejectsInvalid(t *testing.T) {
 		b, _ := json.Marshal(BuiltinRoles{CatalogVersion: version, Roles: roles})
 		return string(b)
 	}
+	v := c.Version
 	cases := map[string]struct{ in, want string }{
-		"version mismatch":    {doc(2), "target catalog 2"},
-		"unknown permission":  {doc(1, BuiltinRole{"X", []string{"nope.nope"}}), "unknown permission"},
-		"admin with risk":     {doc(1, BuiltinRole{"X", []string{"access.assign", "analysis.view"}}), "combines admin"},
-		"duplicate perm":      {doc(1, BuiltinRole{"X", []string{"bu.view", "bu.view"}}), "twice"},
-		"duplicate role name": {doc(1, BuiltinRole{"X", nil}, BuiltinRole{"X", nil}), "duplicated"},
-		"empty name":          {doc(1, BuiltinRole{"", nil}), "duplicated"},
-		"unknown field":       {`{"catalog_version": 1, "roles": [], "x": 1}`, "unknown field"},
+		"version mismatch":    {doc(v + 1), fmt.Sprintf("target catalog %d", v+1)},
+		"unknown permission":  {doc(v, BuiltinRole{"X", []string{"nope.nope"}}), "unknown permission"},
+		"admin with risk":     {doc(v, BuiltinRole{"X", []string{"access.assign", "analysis.view"}}), "combines admin"},
+		"duplicate perm":      {doc(v, BuiltinRole{"X", []string{"bu.view", "bu.view"}}), "twice"},
+		"duplicate role name": {doc(v, BuiltinRole{"X", nil}, BuiltinRole{"X", nil}), "duplicated"},
+		"empty name":          {doc(v, BuiltinRole{"", nil}), "duplicated"},
+		"unknown field":       {fmt.Sprintf(`{"catalog_version": %d, "roles": [], "x": 1}`, v), "unknown field"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

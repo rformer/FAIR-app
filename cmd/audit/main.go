@@ -9,7 +9,8 @@
 // closes segments with signed checkpoints every 15 minutes (T-09), and
 // verifies the trail every 15 minutes and in full daily (T-11), and
 // forwards it to the syslog (T-16) and OTLP (T-17) destinations, and
-// archives segments past the online retention (T-18). Every
+// archives segments past the online retention (T-18), applies legal holds
+// and destroys what is past the total retention (T-19). Every
 // replica serves the Audit API (T-12) and works the evidence export queue
 // (T-15, River in schema audit_river).
 //
@@ -313,6 +314,12 @@ func run() error {
 		}}
 		loops = append(loops, func(ctx context.Context) error {
 			return arc.Run(ctx, 0, func(err error) { logger.Error("archive", "error", err.Error()) })
+		})
+		// ...and applies legal holds and destroys what is past the total
+		// retention (T-19).
+		ret := auditsvc.Retainer{DB: pool, Store: store, Audit: emitter, Retention: arc.Retention}
+		loops = append(loops, func(ctx context.Context) error {
+			return ret.Run(ctx, 0, func(err error) { logger.Error("retention", "error", err.Error()) })
 		})
 	} else {
 		logger.Warn("archiving is off: it needs the audit store (FAIR_AUDIT_STORE_BUCKET)")

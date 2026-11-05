@@ -40,6 +40,42 @@ type memStore struct {
 	fail    error
 	// corrupt makes reads return other bytes than were written.
 	corrupt bool
+	legal   map[objstore.Version]bool
+	// clock is the store's time for locks (time.Now when nil).
+	clock func() time.Time
+}
+
+func (s *memStore) SetLegalHold(_ context.Context, v objstore.Version, on bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.objects[v]; !ok {
+		return errors.New("no such object")
+	}
+	if s.legal == nil {
+		s.legal = map[objstore.Version]bool{}
+	}
+	s.legal[v] = on
+	return nil
+}
+
+// Delete refuses, as the store does, while a lock or a legal hold is on.
+func (s *memStore) Delete(_ context.Context, v objstore.Version) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	if s.clock != nil {
+		now = s.clock()
+	}
+	switch {
+	case s.objects[v] == nil:
+		return errors.New("no such object")
+	case s.legal[v]:
+		return errors.New("object under a legal hold")
+	case s.locks[v].After(now):
+		return errors.New("object locked")
+	}
+	delete(s.objects, v)
+	return nil
 }
 
 func newMemStore() *memStore {

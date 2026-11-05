@@ -79,9 +79,9 @@ const (
 func F002Defs() []Def {
 	return []Def{
 		{Key: KeyAuditRetentionOnline, Kind: KindDuration, Direction: HigherIsStricter, Params: []string{"au-11_odp"}, Controls: []string{"AU-11"},
-			Floor: 90 * day, Description: "How long audit records stay searchable (online retention)"},
+			Floor: 90 * day, LooseningNeedsApproval: true, Description: "How long audit records stay searchable (online retention)"},
 		{Key: KeyAuditRetentionTotal, Kind: KindDuration, Direction: HigherIsStricter, Params: []string{"au-11_odp"}, Controls: []string{"AU-11"},
-			Description: "How long audit records are kept in all, online and archived (at least the online retention)"},
+			LooseningNeedsApproval: true, Description: "How long audit records are kept in all, online and archived (at least the online retention)"},
 		{Key: KeyAuditMaxClockSkew, Kind: KindDuration, Direction: LowerIsStricter, Controls: []string{"AU-8"},
 			Description: "Difference between an event's time and its receipt beyond which the record is flagged"},
 		{Key: KeyAuditBacklogRecords, Kind: KindInt, Direction: LowerIsStricter, Controls: []string{"AU-5", "AU-6"},

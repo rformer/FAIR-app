@@ -35,6 +35,12 @@ info:
     records `audit.exported` (high) with the filter, record count and digest (AC-34).
     Downloading the bundle records `audit.export_fetched`. An export is visible to its
     requester and to holders of `audit.export` at the root.
+
+    Legal holds (F-002 T-19, AC-29) need `audit.hold` at the root (a Platform Admin
+    permission; 403 for other users of this API, 404 for the rest). A hold's filter covers
+    the whole trail, records arriving later included, until it is released; held segments
+    are not destroyed and their archives carry an S3 legal hold. Placing and releasing a
+    hold are recorded at high severity.
 servers:
   - url: /api/v1/audit
 security:
@@ -147,6 +153,22 @@ components:
         failure: { type: [string, "null"] }
         created_at: { type: string, format: date-time }
         completed_at: { type: [string, "null"], format: date-time }
+    Hold:
+      type: object
+      required: [hold_id, filter, reason, placed_by, placed_at, segments, status, names]
+      properties:
+        hold_id: { type: string, format: uuid }
+        filter: { type: object, additionalProperties: { type: string } }
+        reason: { type: string }
+        placed_by: { type: string, format: uuid }
+        placed_at: { type: string, format: date-time }
+        released_by: { type: [string, "null"], format: uuid }
+        released_at: { type: [string, "null"], format: date-time }
+        release_reason: { type: [string, "null"] }
+        archives_checked_at: { type: [string, "null"], format: date-time, description: When archived segments were checked against the hold (null - not yet; nothing is destroyed meanwhile) }
+        segments: { type: integer, description: Segments the hold covers so far }
+        status: { enum: [active, released] }
+        names: { type: object, additionalProperties: { type: string }, description: Display names of placed_by and released_by }
   responses:
     Error: { description: Error, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
 tags:
@@ -154,6 +176,7 @@ tags:
   - { name: approvals, description: "Approval evidence for change management (AC-35)" }
   - { name: verification, description: "Checkpoints, keys and status, for verifiers" }
   - { name: exports, description: "Evidence exports, verifiable offline with fair-audit-verify (AC-32 to AC-34)" }
+  - { name: holds, description: "Legal holds (AC-29)" }
 paths:
   /records:
     get:
@@ -358,3 +381,65 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { description: The export is not ready (pending or failed), content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
         "503": { $ref: "#/components/responses/Error" }
+  /holds:
+    get:
+      operationId: listHolds
+      tags: [holds]
+      summary: Every legal hold, newest first
+      x-permission: audit.hold
+      x-audit-events: [audit.searched]
+      responses:
+        "200":
+          description: Holds
+          content: { application/json: { schema: { type: object, properties: { holds: { type: array, items: { $ref: "#/components/schemas/Hold" } } } } } }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: placeHold
+      tags: [holds]
+      summary: Place a legal hold on the records matching a filter, until released (AC-29)
+      x-permission: audit.hold
+      x-audit-events: [audit.hold_placed]
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                filter: { type: object, additionalProperties: { type: string, minLength: 1 }, description: The search filters; none holds every record }
+                reason: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "201": { description: Placed, content: { application/json: { schema: { $ref: "#/components/schemas/Hold" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /holds/{id}/release:
+    post:
+      operationId: releaseHold
+      tags: [holds]
+      summary: Release a legal hold; segments no other hold covers follow normal retention again
+      x-permission: audit.hold
+      x-audit-events: [audit.hold_released]
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "200": { description: Released, content: { application/json: { schema: { $ref: "#/components/schemas/Hold" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { description: The hold is already released, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }

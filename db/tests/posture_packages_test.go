@@ -74,7 +74,7 @@ func releaseFiles(t *testing.T) (map[string][]byte, *profilepkg.Manifest) {
 // applied to its settings.
 func variant(t *testing.T, files map[string][]byte, id, version string, edit func(s map[string]profilepkg.Setting)) []byte {
 	t.Helper()
-	p, err := profilepkg.Decode(files[profilepkg.FileName(id, "1.2.0")])
+	p, err := profilepkg.Decode(files[profilepkg.FileName(id, "1.3.0")])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestPosturePackagesLoadedAtMigrate(t *testing.T) {
 	}
 
 	// Immutable: the same id and version with other bytes is refused.
-	fed := profilepkg.FileName("fedramp-moderate", "1.2.0")
+	fed := profilepkg.FileName("fedramp-moderate", "1.3.0")
 	changed := []byte(strings.Replace(string(files[fed]), `"title": "FedRAMP Moderate"`, `"title": "FedRAMP Moderate (edited)"`, 1))
 	e.ownerFails("SELECT posture.sync_packages(ARRAY["+byteaLiteral(changed)+"])", "packages are immutable")
 
@@ -187,7 +187,7 @@ func TestPostureSeed(t *testing.T) {
 			digest = p.SHA256
 		}
 	}
-	if s.Version != "1.2.0" || s.Settings != 27 || s.Digest != digest {
+	if s.Version != "1.3.0" || s.Settings != 27 || s.Digest != digest {
 		t.Fatalf("seeded %+v", s)
 	}
 	ev := mem.OfType("posture.seeded")
@@ -195,7 +195,7 @@ func TestPostureSeed(t *testing.T) {
 		ev[0].Attributes["package_digest"] != digest || ev[0].Attributes["settings"] != "27" {
 		t.Fatalf("audit events %+v", mem.Events())
 	}
-	if got := e.adminQuery(`SELECT profile_id || '@' || version FROM posture.active_profile`); got != "fedramp-moderate@1.2.0" {
+	if got := e.adminQuery(`SELECT profile_id || '@' || version FROM posture.active_profile`); got != "fedramp-moderate@1.3.0" {
 		t.Fatalf("active profile %s", got)
 	}
 	if got := e.adminQuery(`SELECT count(*) FROM posture.setting_value s JOIN posture.profile_value v
@@ -226,11 +226,11 @@ func TestPostureImportSigned(t *testing.T) {
 	}
 	files, m := releaseFiles(t)
 
-	// A later release adds fedramp-moderate 1.3.0 alongside the shipped packages.
-	newer := variant(t, files, "fedramp-moderate", "1.3.0", nil)
-	newFile := profilepkg.FileName("fedramp-moderate", "1.3.0")
+	// A later release adds fedramp-moderate 1.4.0 alongside the shipped packages.
+	newer := variant(t, files, "fedramp-moderate", "1.4.0", nil)
+	newFile := profilepkg.FileName("fedramp-moderate", "1.4.0")
 	files[newFile] = newer
-	m.Packages = append(m.Packages, profilepkg.ManifestEntry{File: newFile, ID: "fedramp-moderate", Version: "1.3.0", SHA256: profilepkg.Digest(newer)})
+	m.Packages = append(m.Packages, profilepkg.ManifestEntry{File: newFile, ID: "fedramp-moderate", Version: "1.4.0", SHA256: profilepkg.Digest(newer)})
 	if files["manifest.json"], err = profilepkg.Encode(m); err != nil {
 		t.Fatal(err)
 	}
@@ -274,13 +274,13 @@ func TestPostureImportSigned(t *testing.T) {
 		outcomes = append(outcomes, r.Profile+"@"+r.Version+":"+r.Outcome)
 	}
 	slices.Sort(outcomes)
-	if want := []string{"cmmc-l2-r2@1.2.0:unchanged", "enterprise-baseline@1.2.0:unchanged", "fedramp-moderate@1.2.0:unchanged", "fedramp-moderate@1.3.0:imported"}; !slices.Equal(outcomes, want) {
+	if want := []string{"cmmc-l2-r2@1.3.0:unchanged", "enterprise-baseline@1.3.0:unchanged", "fedramp-moderate@1.3.0:unchanged", "fedramp-moderate@1.4.0:imported"}; !slices.Equal(outcomes, want) {
 		t.Fatalf("outcomes %v", outcomes)
 	}
-	if ev := mem.OfType("posture.package_imported"); len(ev) != 1 || ev[0].Attributes["version"] != "1.3.0" {
+	if ev := mem.OfType("posture.package_imported"); len(ev) != 1 || ev[0].Attributes["version"] != "1.4.0" {
 		t.Fatalf("audit events %+v", mem.Events())
 	}
-	if got := e.adminQuery("SELECT status || ':' || package_digest FROM posture.profile WHERE id = 'fedramp-moderate' AND version = '1.3.0'"); got != "approved:"+profilepkg.Digest(newer) {
+	if got := e.adminQuery("SELECT status || ':' || package_digest FROM posture.profile WHERE id = 'fedramp-moderate' AND version = '1.4.0'"); got != "approved:"+profilepkg.Digest(newer) {
 		t.Fatalf("imported profile %s", got)
 	}
 

@@ -58,7 +58,7 @@ test("an auditor sees every part of the posture (AC-43), accessibly", async ({ p
   await expect(expiries).toContainText("token.max_lifetime reverted to the profile value");
 
   const sw = section(page, "Pending profile switch");
-  await expect(sw).toContainText("fedramp-moderate@1.2.0");
+  await expect(sw).toContainText("fedramp-moderate@1.3.0");
   await expect(sw.getByRole("row", { name: /session\.idle_timeout/ })).toContainText("unresolved");
 
   const drift = section(page, "Drift findings");

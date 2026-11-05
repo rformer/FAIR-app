@@ -83,6 +83,9 @@ var routes = []route{
 	{"POST", "/exports", (*API).createExport},
 	{"GET", "/exports/{id}", (*API).getExport},
 	{"GET", "/exports/{id}/bundle", (*API).exportBundle},
+	{"GET", "/holds", (*API).listHolds},
+	{"POST", "/holds", (*API).placeHold},
+	{"POST", "/holds/{id}/release", (*API).releaseHold},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).

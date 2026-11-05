@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "permissions": [
     {"key": "acceptance.approve", "resource_type": "acceptance", "action": "approve", "privileged": true, "risk_data": true, "introduced_in": 1},
     {"key": "acceptance.request", "resource_type": "acceptance", "action": "write", "privileged": false, "risk_data": true, "introduced_in": 1},
@@ -15,6 +15,7 @@
     {"key": "analysis.run", "resource_type": "analysis", "action": "write", "privileged": false, "risk_data": true, "introduced_in": 1},
     {"key": "analysis.view", "resource_type": "analysis", "action": "read", "privileged": false, "risk_data": true, "introduced_in": 1},
     {"key": "audit.export", "resource_type": "audit", "action": "export", "privileged": true, "risk_data": false, "introduced_in": 1},
+    {"key": "audit.hold", "resource_type": "audit", "action": "admin", "privileged": true, "risk_data": false, "introduced_in": 2},
     {"key": "audit.view", "resource_type": "audit", "action": "read", "privileged": true, "risk_data": false, "introduced_in": 1},
     {"key": "banner.manage", "resource_type": "banner", "action": "admin", "privileged": true, "risk_data": false, "introduced_in": 1},
     {"key": "breakglass.manage", "resource_type": "breakglass", "action": "admin", "privileged": true, "risk_data": false, "introduced_in": 1},

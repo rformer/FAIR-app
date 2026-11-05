@@ -81,6 +81,22 @@ export interface Export {
   completed_at: string | null;
 }
 
+/** A legal hold (F-002 T-19, AC-29). */
+export interface Hold {
+  hold_id: string;
+  filter: Record<string, string>;
+  reason: string;
+  placed_by: string;
+  placed_at: string;
+  released_by: string | null;
+  released_at: string | null;
+  release_reason: string | null;
+  archives_checked_at: string | null;
+  segments: number;
+  status: "active" | "released";
+  names: Record<string, string>;
+}
+
 /** The search filters (AC-15), in the order the form shows them. */
 export const FILTERS = ["from", "to", "type", "category", "severity", "actor", "target", "bu", "request_id", "source_ip"] as const;
 export type FilterKey = (typeof FILTERS)[number];

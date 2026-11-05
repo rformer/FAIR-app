@@ -100,6 +100,18 @@ events:
     requires: [target]
     attributes: [bu_scope_count, checkpoint_segment, digest, export_id, failure, filter, format, record_count, status]
     description: "An evidence export of the audit trail was made (status ready: its filter, record count, bundle digest and closing checkpoint) or could not be made (status failed); the actor is the requester and the reason theirs (F-002 T-15, AC-32 to AC-34)"
+  - type: audit.hold_placed
+    category: system
+    severities: [high]
+    requires: [target]
+    attributes: [filter, hold_id, online_segments]
+    description: "A legal hold was placed on the audit records matching a filter, until released; the reason is the holder's (F-002 T-19, AC-29)"
+  - type: audit.hold_released
+    category: system
+    severities: [high]
+    requires: [target]
+    attributes: [filter, hold_id, segments_released]
+    description: "A legal hold was released; segments no other hold covers follow normal retention again (F-002 T-19, AC-29)"
   - type: audit.invalid_event
     category: system
     severities: [critical]
@@ -128,6 +140,12 @@ events:
     requires: [target]
     attributes: [destroy_after, digest, object_key, record_count, segment, seq_from, seq_to, version_id]
     description: "A segment past the online retention was written to the archive, read back and checked, and its records removed from the database (F-002 T-18, AC-25, AC-26)"
+  - type: audit.records_destroyed
+    category: system
+    severities: [high]
+    requires: [target]
+    attributes: [destroy_after, object_key, record_count, segment, seq_from, seq_to, version_id]
+    description: "An archived segment past the total retention, under no legal hold, was destroyed; its checkpoint is kept (F-002 T-19, AC-27)"
   - type: audit.searched
     category: access
     severities: [low]

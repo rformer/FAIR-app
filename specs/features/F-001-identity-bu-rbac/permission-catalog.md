@@ -10,7 +10,7 @@ This is the first shipped permission catalog. T-06 commits it as the catalog JSO
 - **Privileged** (AC-54): every `approve`, `admin` and `export` permission is privileged, and the loader enforces this. `audit.view` (audit-log access) and `entitlement.view` are also marked privileged.
 - **Admin permissions** (AC-22, AC-30) are the ones with action `admin`.
 - **Risk data** (AC-30, AC-44): each permission carries a required `risk_data` flag (PC-1). It is true exactly for the "Risk data" table below. An `admin` permission can never be risk data, and the loader enforces this.
-- **Version:** all keys are `introduced_in: 1`. The catalog stays at version 1 until the first release. After that, every change follows the T-03 upgrade rules: the version is bumped, and new keys are never added to existing custom roles (AC-57).
+- **Version:** keys are `introduced_in: 1` unless their row names a later catalog version. The catalog was at version 1 until the first addition. Every change follows the T-03 upgrade rules: the version is bumped, and new keys are never added to existing custom roles (AC-57). Version 2 adds `audit.hold` (F-002 T-19).
 - **Scope:** permissions are checked at a BU (`authz.Check(principal, permission, buID)`). Instance-wide administration is checked at the Enterprise root.
 - **Restricted BUs:** AC-22's "explicitly granted that right there" needs no extra permission. `access.assign` held at an ancestor does not inherit into a restricted BU (AC-60), so assigning roles there requires an assignment at or below that BU.
 
@@ -44,6 +44,7 @@ This is the first shipped permission catalog. T-06 commits it as the catalog JSO
 | `entitlement.export` | export | **yes** | F-001 | Export entitlement reports as CSV/PDF |
 | `audit.view` | read | **yes** | F-002 | View the audit trail (AC-54: audit-log access is privileged) |
 | `audit.export` | export | **yes** | F-002 | Export audit evidence |
+| `audit.hold` | admin | **yes** | F-002 | Place and release legal holds on audit records (F-002 AC-29; catalog version 2) |
 
 ### Security posture (from F-015 requirements)
 | Key | Action | Privileged | Owning feature | Description |
@@ -90,7 +91,7 @@ This is the first shipped permission catalog. T-06 commits it as the catalog JSO
 ## Built-in role templates (input to T-06)
 | Role | Permissions |
 |---|---|
-| Platform Admin | `idp.view`, `idp.manage`, `scim.manage`, `user.view`, `user.manage`, `bu.view`, `bu.manage`, `bu.restrict`, `role.view`, `role.manage`, `access.view`, `access.assign`, `access.map_groups`, `access.approve`, `sod.manage`, `session.view`, `session.revoke`, `banner.manage`, `service_account.manage`, `breakglass.manage`, `access_review.manage`, `entitlement.view`, `entitlement.export`, `posture.view`, `posture.export`, `settings.change`, `settings.approve`, `profile.manage`, `profile.approve`, `exception.renew`, `drift.acknowledge`, `notification.manage`, `integration.manage`, `framework.manage` |
+| Platform Admin | `idp.view`, `idp.manage`, `scim.manage`, `user.view`, `user.manage`, `bu.view`, `bu.manage`, `bu.restrict`, `role.view`, `role.manage`, `access.view`, `access.assign`, `access.map_groups`, `access.approve`, `sod.manage`, `session.view`, `session.revoke`, `banner.manage`, `service_account.manage`, `breakglass.manage`, `access_review.manage`, `entitlement.view`, `entitlement.export`, `posture.view`, `posture.export`, `settings.change`, `settings.approve`, `profile.manage`, `profile.approve`, `exception.renew`, `drift.acknowledge`, `notification.manage`, `integration.manage`, `framework.manage`, `audit.hold` |
 | BU Admin | `bu.view`, `user.view`, `role.view`, `access.view`, `access.assign` |
 | Risk Analyst | `scenario.view`, `library.view`, `analysis.view`, `control.view`, `register.view`, `treatment.view`, `acceptance.view`, `report.view`, `library.edit`, `scenario.edit`, `analysis.edit`, `analysis.run`, `control.edit` |
 | Risk Owner | `scenario.view`, `library.view`, `analysis.view`, `control.view`, `register.view`, `treatment.view`, `acceptance.view`, `report.view`, `register.edit`, `treatment.edit`, `acceptance.request` |
@@ -114,3 +115,4 @@ Checked mechanically when this draft was generated:
 ## Change Log
 - 2026-10-25: Initial draft.
 - 2026-10-25: **Approved** by Robert Former with PC-1 (`risk_data` flag); PC-2 to PC-5 accepted as drafted.
+- 2026-11-05: Catalog version 2 (F-002 T-19, approved task): `audit.hold` (admin, privileged), for Platform Admin and not Auditor (F-002 requirements OQ4, AC-29).

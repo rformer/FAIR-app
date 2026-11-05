@@ -23,7 +23,7 @@ func TestPostureAPIUnknownIDs(t *testing.T) {
 		{"POST", "/exceptions/" + missing + "/renew", map[string]any{"justification": "x"}},
 		{"PATCH", "/profiles/no-such-profile", map[string]any{"version": "1", "key": "session.idle_timeout"}},
 		{"POST", "/profiles/no-such-profile/submit", map[string]any{"version": "1"}},
-		{"GET", "/profiles/no-such-profile/diff?version=1&against=enterprise-baseline@1.2.0", nil},
+		{"GET", "/profiles/no-such-profile/diff?version=1&against=enterprise-baseline@1.3.0", nil},
 		{"GET", "/profiles/no-such-profile/export?version=1", nil},
 		{"POST", "/switches/" + missing + "/conflicts/session.idle_timeout/resolve", map[string]any{"resolution": "conform"}},
 		{"POST", "/switches/" + missing + "/activate", nil},
@@ -46,7 +46,7 @@ func TestPostureAPIUnknownIDs(t *testing.T) {
 // optional reason, recorded on the events they cause (design §6).
 func TestPostureAPIOptionalReason(t *testing.T) {
 	ae := apiFixture(t, settings.ProfileEnterpriseBaseline)
-	r := ae.call(t, "admin", "POST", "/profiles", "auto", map[string]any{"base_id": settings.ProfileEnterpriseBaseline, "base_version": "1.2.0",
+	r := ae.call(t, "admin", "POST", "/profiles", "auto", map[string]any{"base_id": settings.ProfileEnterpriseBaseline, "base_version": "1.3.0",
 		"id": "acme", "name": "ACME", "reason": "client onboarding, ticket 7"})
 	if r.code != 201 {
 		t.Fatalf("create: %d %s", r.code, r.raw)
@@ -56,7 +56,7 @@ func TestPostureAPIOptionalReason(t *testing.T) {
 		t.Fatalf("profile.created: %+v", ev)
 	}
 	// Without one, as before.
-	if r := ae.call(t, "admin", "POST", "/profiles", "auto", map[string]any{"base_id": settings.ProfileEnterpriseBaseline, "base_version": "1.2.0",
+	if r := ae.call(t, "admin", "POST", "/profiles", "auto", map[string]any{"base_id": settings.ProfileEnterpriseBaseline, "base_version": "1.3.0",
 		"id": "acme2", "name": "ACME 2"}); r.code != 201 {
 		t.Fatalf("create without a reason: %d %s", r.code, r.raw)
 	}

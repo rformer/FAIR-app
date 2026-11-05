@@ -4,6 +4,9 @@ setting: audit.retention_total
 type: duration
 direction: higher_is_stricter
 bu_scopable: false
+# F-002 T-19 (AC-28): any shortening, even within the bound, needs an
+# explanation and a second approver.
+loosening_needs_approval: true
 params:
   - catalog: nist-sp-800-53-r5
     param: au-11_odp

@@ -232,6 +232,53 @@ test("an export the user may not make reports the refusal", async ({ page }) => 
   await expectAccessible(page, "a refused export");
 });
 
+test("legal holds: place by keyboard, list, release (F-002 T-19, AC-29), accessibly", async ({ page }) => {
+  // The search page links to the holds page with its filters.
+  await as(page, "auditor");
+  await page.goto(`/audit?view=search&target=${encodeURIComponent(target)}`);
+  await expect(section(page, "Legal hold").getByRole("link", { name: /place a legal hold/ })).toHaveAttribute(
+    "href",
+    `/audit/holds?target=${encodeURIComponent(target)}`,
+  );
+  // Without audit.hold at the root, the holds page says so.
+  await page.goto("/audit/holds");
+  await expect(page.getByRole("alert")).toContainText("You do not have access to legal holds");
+  await expectAccessible(page, "holds without access");
+
+  // A Platform Admin places one, from the filters the link carried.
+  await as(page, "admin");
+  await page.goto(`/audit/holds?target=${encodeURIComponent(target)}`);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Legal holds");
+  await expect(page).toHaveTitle("Legal holds · FAIR Risk Platform");
+  const place = section(page, "Place a legal hold");
+  await expect(place.getByLabel("Target")).toHaveValue(target);
+  await expectAccessible(page, "the holds page");
+  await place.getByRole("button", { name: "Place hold" }).click();
+  await expect(place.getByRole("alert")).toHaveText("Give a reason for the hold.");
+  await place.getByLabel("Reason").focus();
+  await page.keyboard.type("Litigation hold, matter 2026-17");
+  await place.getByRole("button", { name: "Place hold" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(place.getByRole("status")).toContainText(`Hold placed on target: ${target}`);
+  const row = section(page, "Holds").getByRole("row").filter({ hasText: "Litigation hold, matter 2026-17" });
+  await expect(row.getByRole("rowheader")).toHaveText(`Target: ${target}`);
+  await expect(row).toContainText("Active");
+  await expect(row).toContainText(/Admin [0-9a-f]{8}-/);
+  await expectAccessible(page, "a placed hold");
+
+  // Released with a reason, in a dialog.
+  await row.getByRole("button", { name: "Release" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await expectAccessible(page, "the release dialog");
+  await dialog.getByLabel("Reason for release").fill("Matter settled");
+  await dialog.getByRole("button", { name: "Release hold" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(row).toContainText("Released");
+  await expect(row).toContainText("Matter settled");
+  await expect(row.getByRole("button", { name: "Release" })).toHaveCount(0);
+});
+
 test("without audit.view the audit pages say so, accessibly", async ({ page }) => {
   await as(page, "nobody");
   for (const path of ["/audit", `/audit?target=${encodeURIComponent(target)}`]) {

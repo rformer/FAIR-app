@@ -87,11 +87,11 @@ func cloneRelease(c *catalog.Catalog, br *catalog.BuiltinRoles) (*catalog.Catalo
 func TestReleaseSyncSeedsCatalogAndBuiltinRoles(t *testing.T) {
 	e := setup(t)
 	c, br := release(t)
-	if r := e.install.Sync; r.Version != 1 || r.PreviousVersion != 0 || len(r.AddedPermissions) != len(c.Permissions) || len(r.CreatedRoles) != len(br.Roles) {
+	if r := e.install.Sync; r.Version != c.Version || r.PreviousVersion != 0 || len(r.AddedPermissions) != len(c.Permissions) || len(r.CreatedRoles) != len(br.Roles) {
 		t.Fatalf("install sync = %+v", r)
 	}
-	if out := e.mustOwner("SELECT count(*) FILTER (WHERE risk_data) || '/' || count(*) FILTER (WHERE privileged) || '/' || count(*) FROM iam.permission"); out != "19/30/56" {
-		t.Fatalf("risk/privileged/total = %s, want 19/30/56", out)
+	if out := e.mustOwner("SELECT count(*) FILTER (WHERE risk_data) || '/' || count(*) FILTER (WHERE privileged) || '/' || count(*) FROM iam.permission"); out != "19/31/57" {
+		t.Fatalf("risk/privileged/total = %s, want 19/31/57", out)
 	}
 	for _, role := range br.Roles {
 		ver, perms := e.rolePerms(role.Name)
@@ -178,8 +178,9 @@ func TestReleaseUpgrade(t *testing.T) {
 		SELECT id, 1, ARRAY['%s'], 'clone' FROM r`, strings.Join(viewer, "','")))
 
 	c2, br2 := cloneRelease(c1, br1)
-	c2.Version, br2.CatalogVersion = 2, 2
-	c2.Permissions = append(c2.Permissions, catalog.Permission{Key: "dashboard.view", ResourceType: "dashboard", Action: catalog.ActionRead, RiskData: true, IntroducedIn: 2})
+	next := c1.Version + 1
+	c2.Version, br2.CatalogVersion = next, next
+	c2.Permissions = append(c2.Permissions, catalog.Permission{Key: "dashboard.view", ResourceType: "dashboard", Action: catalog.ActionRead, RiskData: true, IntroducedIn: next})
 	for i := range br2.Roles {
 		if br2.Roles[i].Name == "Executive Viewer" {
 			br2.Roles[i].Permissions = append(br2.Roles[i].Permissions, "dashboard.view")
@@ -187,7 +188,7 @@ func TestReleaseUpgrade(t *testing.T) {
 		}
 	}
 	r := e.sync(t, c2, br2)
-	if r.PreviousVersion != 1 || !slices.Equal(r.AddedPermissions, []string{"dashboard.view"}) ||
+	if r.PreviousVersion != c1.Version || !slices.Equal(r.AddedPermissions, []string{"dashboard.view"}) ||
 		!slices.Equal(r.VersionedRoles, []string{"Executive Viewer"}) || len(r.CreatedRoles) != 0 {
 		t.Fatalf("upgrade result = %+v", r)
 	}
@@ -205,15 +206,15 @@ func TestReleaseUpgrade(t *testing.T) {
 
 	// A new key at the installed version (catalog changed, version not bumped),
 	// stamped with an old version, or stamped ahead of the release is refused.
-	for _, tc := range []struct{ version, introduced int }{{2, 2}, {3, 2}, {3, 4}} {
+	for _, tc := range []struct{ version, introduced int }{{next, next}, {next + 1, next}, {next + 1, next + 2}} {
 		bad, brB := cloneRelease(c2, br2)
 		bad.Version, brB.CatalogVersion = tc.version, tc.version
 		bad.Permissions = append(bad.Permissions, catalog.Permission{Key: "widget.view", ResourceType: "widget", Action: catalog.ActionRead, IntroducedIn: tc.introduced})
-		e.ownerFails(syncSQL(t, bad, brB), "must be introduced in (2, ")
+		e.ownerFails(syncSQL(t, bad, brB), fmt.Sprintf("must be introduced in (%d, ", next))
 	}
 
 	// A failed sync leaves no trace.
-	if out := e.mustOwner("SELECT version FROM iam.permission_catalog"); out != "2" {
+	if out := e.mustOwner("SELECT version FROM iam.permission_catalog"); out != strconv.Itoa(next) {
 		t.Fatalf("catalog version after refused syncs = %s", out)
 	}
 }

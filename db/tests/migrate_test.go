@@ -23,7 +23,7 @@ func TestMigrateSeedsReleaseCatalog(t *testing.T) {
 	e := setup(t)
 	c, br := release(t)
 	out := e.mustOwner("SELECT (SELECT version FROM iam.permission_catalog) || '/' || (SELECT count(*) FROM iam.permission) || '/' || (SELECT count(*) FROM iam.role WHERE builtin)")
-	if want := fmt.Sprintf("1/%d/%d", len(c.Permissions), len(br.Roles)); out != want {
+	if want := fmt.Sprintf("%d/%d/%d", c.Version, len(c.Permissions), len(br.Roles)); out != want {
 		t.Fatalf("catalog/permissions/built-in roles = %s, want %s", out, want)
 	}
 	if out := e.mustOwner("SELECT string_agg(version, ',' ORDER BY version) FROM fair_meta.schema_migrations"); !strings.HasPrefix(out, "0001_schemas,0002_bu,0003_bu_restrict,0004_roles") {
