@@ -105,9 +105,10 @@ spec:
             matchLabels: { app.kubernetes.io/name: gateway }
       ports: [{ port: 8443, protocol: TCP }]
 ---
-# Egress: PostgreSQL and DNS. Object storage (T-08) and SIEM destinations
-# (T-16, T-17) are added with the tasks that use them; narrow `to` once the
-# chart knows where they run.
+# Egress: PostgreSQL, DNS, NATS (scope changes for the audit API, T-12) and
+# object storage over TLS (write-once checkpoint copies, T-09; archives,
+# T-18). SIEM destinations (T-16, T-17) are added with those tasks; narrow
+# `to` once the chart knows where they run.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -120,3 +121,5 @@ spec:
   egress:
     - ports: [{ port: 5432, protocol: TCP }]
     - ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]
+    - ports: [{ port: 4222, protocol: TCP }]
+    - ports: [{ port: 443, protocol: TCP }]

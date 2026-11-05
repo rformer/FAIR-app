@@ -163,7 +163,7 @@ func (e *env) admin(db, sql string) {
 }
 
 func (e *env) psqlAs(vars map[string]string, db, sql string) error {
-	cmd := exec.CommandContext(context.Background(), "psql", "--no-psqlrc", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-d", db, "-c", sql)
+	cmd := exec.CommandContext(context.Background(), "psql", "--no-psqlrc", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-d", db, "-c", sql) // #nosec G702 -- a test helper running the tests' own SQL
 	cmd.Env = withVars(e.adminEnv, vars)
 	var buf bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &buf, &buf

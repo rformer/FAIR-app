@@ -1,0 +1,233 @@
+openapi: 3.1.0
+info:
+  title: FAIR Audit API
+  version: "1"
+  contact: { name: FAIR Risk Platform, url: "https://github.com/rformer/FAIR-app" }
+  description: |
+    F-002 design §5. Requests reach the audit service through the gateway, which
+    authenticates the session and forwards an internal JWT (ES256, audience `audit`, at
+    most 5 minutes) and the DB context token it was minted with (F-001 design §4, §5.2).
+
+    Every route needs `audit.view`; without it at any BU the API does not exist for the
+    caller (404, F-001 AC-25). Which records a caller sees is decided by the database
+    from the signed DB context (AC-19): a record is visible only to holders of
+    `audit.view` at its BU, a restricted BU's records only with an assignment there, and
+    records filed under the root (no BU) only with `audit.view` at the root. A record the
+    caller cannot see answers 404, like one that does not exist.
+
+    Every read is itself recorded in the trail (`audit.searched`, `audit.history_viewed`,
+    with the filter used and the number of results) in the same transaction; a read that
+    cannot be recorded is not answered (503; AC-20).
+
+    Each record carries `integrity`: `verified` (a passed verification run reached it),
+    `pending` (recorded after the last passed run) or `failed` (at or after the first
+    position a failed run named; F-002 T-11). `names` maps the user ids the record names
+    (actor, approved_by, decided_by) to their current display names (AC-18).
+
+    Proofs and checkpoints follow ADR-011: a record's `leaf_hash` is SHA-256(0x00 ‖ body),
+    its `path` is the RFC 9162 inclusion path in its segment, and the segment's signed
+    checkpoint statement holds the Merkle root. `fair-audit-verify` checks them offline.
+servers:
+  - url: /api/v1/audit
+security:
+  - internalJWT: []
+    dbContext: []
+components:
+  securitySchemes:
+    internalJWT: { type: http, scheme: bearer, bearerFormat: JWT }
+    dbContext: { type: apiKey, in: header, name: X-Fair-DB-Context }
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        detail: { type: string }
+    Record:
+      type: object
+      required: [seq, event_id, time, received_at, producer, type, category, severity, actor, bu_id, skew, segment, integrity, names, event]
+      properties:
+        seq: { type: integer, description: Position in the trail }
+        event_id: { type: string }
+        time: { type: string, format: date-time, description: The event's time as its producer gave it }
+        received_at: { type: string, format: date-time }
+        producer: { type: string, description: The database role that submitted the event }
+        type: { type: string }
+        category: { type: string }
+        severity: { enum: [info, low, high, critical] }
+        actor: { type: string }
+        target: { type: [string, "null"] }
+        bu_id: { type: string, format: uuid, description: The BU the record is filed under (the root when the event names none) }
+        request_id: { type: [string, "null"] }
+        source_ip: { type: [string, "null"] }
+        approval_id: { type: [string, "null"] }
+        skew: { type: boolean, description: The event's time is further from its receipt than audit.max_clock_skew }
+        segment: { type: integer }
+        integrity: { enum: [verified, pending, failed] }
+        names: { type: object, additionalProperties: { type: string } }
+        event: { type: object, description: The record's body as recorded }
+    Records:
+      type: object
+      required: [records]
+      properties:
+        records: { type: array, items: { $ref: "#/components/schemas/Record" } }
+        filter: { type: object, additionalProperties: { type: string }, description: The filter applied }
+        next_before: { type: [integer, "null"], description: Cursor for the next (older) page }
+        next_after: { type: [integer, "null"], description: Cursor for the next page }
+  responses:
+    Error: { description: Error, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+tags:
+  - { name: records, description: "Search, history and request views (AC-15 to AC-18)" }
+  - { name: verification, description: "Checkpoints, keys and status, for verifiers" }
+paths:
+  /records:
+    get:
+      operationId: search
+      tags: [records]
+      summary: Search the visible records, newest first; filters combine (AC-15)
+      x-permission: audit.view
+      x-audit-events: [audit.searched]
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date-time }, description: Event time from (inclusive) }
+        - { name: to, in: query, schema: { type: string, format: date-time }, description: Event time to (exclusive) }
+        - { name: type, in: query, schema: { type: string } }
+        - { name: category, in: query, schema: { type: string } }
+        - { name: severity, in: query, schema: { enum: [info, low, high, critical] } }
+        - { name: actor, in: query, schema: { type: string } }
+        - { name: target, in: query, schema: { type: string } }
+        - { name: bu, in: query, schema: { type: string, format: uuid } }
+        - { name: request_id, in: query, schema: { type: string } }
+        - { name: source_ip, in: query, schema: { type: string }, description: An address or a CIDR range }
+        - { name: before, in: query, schema: { type: integer, minimum: 1 }, description: Cursor (next_before of the previous page) }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200": { description: Records, content: { application/json: { schema: { $ref: "#/components/schemas/Records" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /records/{seq}:
+    get:
+      operationId: record
+      tags: [records]
+      summary: One record and, once its segment is closed, its proof
+      x-permission: audit.view
+      x-audit-events: [audit.searched]
+      parameters:
+        - { name: seq, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200":
+          description: The record and its proof (null while its segment is open)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [record, proof]
+                properties:
+                  record: { $ref: "#/components/schemas/Record" }
+                  proof:
+                    type: [object, "null"]
+                    properties:
+                      segment: { type: integer }
+                      leaf_index: { type: integer }
+                      tree_size: { type: integer }
+                      leaf_hash: { type: string }
+                      path: { type: array, items: { type: string } }
+                      statement: { type: string, description: The checkpoint statement, exactly as signed }
+                      signature: { type: string, description: Base64 ASN.1 ECDSA P-256 signature over SHA-256 of statement }
+        "404": { $ref: "#/components/responses/Error" }
+  /history:
+    get:
+      operationId: history
+      tags: [records]
+      summary: The history of a target or of an actor, in order (AC-16; the Posture page's audit links land here)
+      x-permission: audit.view
+      x-audit-events: [audit.history_viewed]
+      parameters:
+        - { name: target, in: query, schema: { type: string } }
+        - { name: actor, in: query, schema: { type: string } }
+        - { name: after, in: query, schema: { type: integer, minimum: 1 }, description: Cursor (next_after of the previous page) }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200": { description: Records, content: { application/json: { schema: { $ref: "#/components/schemas/Records" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /requests/{id}:
+    get:
+      operationId: request
+      tags: [records]
+      summary: Every visible record of one request, across services, in order (AC-17)
+      x-permission: audit.view
+      x-audit-events: [audit.searched]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: after, in: query, schema: { type: integer, minimum: 1 } }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200": { description: Records, content: { application/json: { schema: { $ref: "#/components/schemas/Records" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+  /checkpoints:
+    get:
+      operationId: checkpoints
+      tags: [verification]
+      summary: Signed checkpoints from a segment on, for verifiers
+      x-permission: audit.view
+      x-audit-events: [audit.searched]
+      parameters:
+        - { name: from, in: query, schema: { type: integer, minimum: 1 }, description: First segment }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200":
+          description: Checkpoints
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  checkpoints:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        segment: { type: integer }
+                        statement: { type: string }
+                        signature: { type: string }
+        "404": { $ref: "#/components/responses/Error" }
+  /keys:
+    get:
+      operationId: keys
+      tags: [verification]
+      summary: Every checkpoint public key, retired ones included
+      x-permission: audit.view
+      x-audit-events: [audit.searched]
+      responses:
+        "200":
+          description: Keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  keys:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key_id: { type: string }
+                        public_pem: { type: string }
+                        active_from: { type: string, format: date-time }
+                        retired_at: { type: [string, "null"], format: date-time }
+        "404": { $ref: "#/components/responses/Error" }
+  /status:
+    get:
+      operationId: status
+      tags: [verification]
+      summary: Verification status, as on the Posture page's Audit trail tile (audit.view at the root)
+      x-permission: audit.view
+      x-audit-events: [audit.searched]
+      responses:
+        "200": { description: Status (the Posture API's AuditTrailStatus) }
+        "404": { $ref: "#/components/responses/Error" }

@@ -51,6 +51,7 @@ cmd/audit/          audit trail service (F-002; connects as app_audit): sequence
 cmd/audit-verify/   fair-audit-verify, the offline evidence verifier (F-002 T-10; docs/operations/audit-verification.md)
 internal/audit      audit service: leader, sequencer, checkpointer; integrity/ (ADR-011) and evidence/ (formats, verification)
 internal/objstore   S3-compatible object storage with Object Lock (ADR-012)
+internal/auditapi   Audit API (F-002 T-12; api/openapi/audit.yaml), served by the audit service
 internal/config     environment config with secure-by-default validation
 internal/server     hardened HTTP/TLS server, health and readiness
 internal/migrate    embedded migration runner

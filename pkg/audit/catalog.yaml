@@ -93,6 +93,16 @@ events:
     severities: [critical]
     attributes: [payload]
     description: "An event that did not match this catalog, recorded instead of it (a defect; the original is attached)"
+  - type: audit.history_viewed
+    category: access
+    severities: [low]
+    attributes: [filter, result_count]
+    description: "Someone viewed the audit history of a target or an actor; the filter is attached (F-002 T-12, AC-20)"
+  - type: audit.searched
+    category: access
+    severities: [low]
+    attributes: [filter, result_count, view]
+    description: "Someone read the audit trail: a search, a record and its proof, a request's records, checkpoints, keys or status; view says which and the filter is attached (F-002 T-12, AC-20)"
   - type: audit.verification_failed
     category: system
     severities: [critical]

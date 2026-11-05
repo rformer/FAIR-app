@@ -24,6 +24,9 @@
 //	                                 FAIR_AUDIT_WORM_ENDPOINT, _REGION,
 //	                                 _ACCESS_KEY_FILE, _SECRET_KEY_FILE,
 //	                                 _CA_FILE (internal/objstore)
+//	FAIR_NATS_URL                    NATS, for scope changes (the API's grant
+//	                                 cache otherwise refreshes on its own);
+//	                                 FAIR_NATS_CREDS_FILE optional
 //	POD_NAME                         this replica's name, in leader logs
 package main
 
@@ -42,9 +45,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	auditsvc "github.com/rformer/fair-app/internal/audit"
+	"github.com/rformer/fair-app/internal/auditapi"
 	"github.com/rformer/fair-app/internal/config"
 	"github.com/rformer/fair-app/internal/dbconn"
 	"github.com/rformer/fair-app/internal/keys"
+	"github.com/rformer/fair-app/internal/natspub"
 	"github.com/rformer/fair-app/internal/objstore"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/audit"
@@ -107,10 +112,14 @@ func run() error {
 		}
 		worm = s
 	}
+	// The Audit API (T-12) verifies the gateway's internal JWTs.
+	var jwtKeys *authz.LocalKeys
 	if dir := os.Getenv("FAIR_JWT_KEYS_DIR"); dir != "" {
-		if _, err := authz.LoadLocalKeys(dir); err != nil {
+		k, err := authz.LoadLocalKeys(dir)
+		if err != nil {
 			return fmt.Errorf("FAIR_JWT_KEYS_DIR: %w", err)
 		}
+		jwtKeys = k
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -145,6 +154,14 @@ func run() error {
 	sc := settings.NewClient(settings.ClientOptions{Source: settings.DBSource{DB: pool}, Service: "audit", Instance: replica})
 	if err := sc.Register(settings.F002Defs()...); err != nil {
 		return err
+	}
+	// The API's step-up and network-binding checks read F-001's settings.
+	for _, d := range settings.F001Defs() {
+		if d.Key == settings.KeySessionNetworkBinding || d.Key == settings.KeyBUReauthMaxAge {
+			if err := sc.Register(d); err != nil {
+				return err
+			}
+		}
 	}
 	go registerF002(ctx, pool, logger)
 	if err := sc.Refresh(ctx); err != nil {
@@ -211,6 +228,29 @@ func run() error {
 	srv.AddReadinessCheck(server.ReadinessCheck{Name: "database", Check: func(ctx context.Context) error {
 		return schemaReady(ctx, pool)
 	}})
+
+	// The Audit API (T-12): every replica serves it.
+	if jwtKeys != nil {
+		grants := authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool),
+			NetworkBinding: func(bu string) (string, error) { return sc.Enum(settings.KeySessionNetworkBinding, bu) },
+			ReauthMaxAge:   sc.ReauthMaxAge})
+		if url := os.Getenv("FAIR_NATS_URL"); url != "" {
+			nc, err := natspub.Connect(ctx, natspub.Options{Env: cfg.Env, URL: url, CredsFile: os.Getenv("FAIR_NATS_CREDS_FILE"), Name: "fair-audit"})
+			if err != nil {
+				return err
+			}
+			defer nc.Close()
+			if _, err := nc.Subscribe(authz.SubjectScopeChanged, func(data []byte) {
+				if err := grants.HandleScopeChanged(data); err != nil {
+					logger.Warn("scope change event", "error", err.Error())
+				}
+			}); err != nil {
+				return fmt.Errorf("nats: %w", err)
+			}
+		}
+		api := &auditapi.API{DB: pool, Authz: grants, Audit: emitter}
+		srv.Mux().Handle(auditapi.Prefix+"/", server.SecurityHeaders(api.Handler(jwtKeys, nil)))
+	}
 
 	err = srv.Run(ctx, cfg.ShutdownTimeout)
 	_ = emitter.Emit(context.Background(), audit.Event{Type: "service.stopped", Severity: audit.SeverityInfo, Actor: "system:audit"})
