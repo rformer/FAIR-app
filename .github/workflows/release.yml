@@ -61,3 +61,25 @@ jobs:
         with:
           name: openapi-${{ github.ref_name }}
           path: openapi-dist/
+
+  # F-002 T-10 (design §11): fair-audit-verify for auditors' platforms, with
+  # the FIPS 140 module, and SHA256SUMS. The release publishing job (F-012)
+  # attaches this artifact to the release; the audit image carries the tool
+  # too, for air-gapped bundles.
+  audit-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        env:
+          GOFIPS140: ""
+        with:
+          go-version-file: go.mod
+      - name: Offline verifier tests (tamper corpus, no network)
+        run: go test -count=1 ./internal/audit/evidence/... ./cmd/audit-verify/
+      - name: Build
+        run: bash scripts/audit-verify-dist.sh "${GITHUB_REF_NAME}" audit-verify-dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: fair-audit-verify-${{ github.ref_name }}
+          path: audit-verify-dist/

@@ -184,14 +184,14 @@ The access model follows posture's (F-015 design §5):
    - `checkpoints.jsonl`: the chain from the first covered checkpoint to the closing one;
    - `keys.pem`;
    - `manifest.json`: the filter in words and as data, the BU scope, the count, the file digests, the requester, the time and the reason;
-   - `manifest.sig`: ECDSA P-256 over the manifest.
+   - `manifest.sig`: ECDSA P-256 over the manifest, by the checkpoint key (the manifest names its `key_id`).
 3. It emits `audit.exported` (high) with the filter, count and digest. Download emits `audit.export_fetched` (low).
 4. Archived ranges are read from their segment objects (AC-26).
 5. Throughput target: 1 million records in ≤ 5 minutes, streamed with batched reads.
 
 ### 6.7 Retention, archive, destruction, hold (AC-25 to AC-29)
 - **Archive (daily).** For each closed segment whose newest `event_time` is older than `audit.retention_online`:
-  1. write `segments/<instance>/<segment>.jsonl.zst` (bodies, leaf hashes, the signed checkpoint) with Object Lock until `destroy_after = archived_at + (retention_total − retention_online)`;
+  1. write `segments/<instance>/<segment>.jsonl.gz` (bodies, leaf and chain hashes, the signed checkpoint; gzip, so the verifier needs only the standard library) with Object Lock until `destroy_after = archived_at + (retention_total − retention_online)`;
   2. read the object back and verify its digest;
   3. record the result in `archive`;
   4. `audit.archive_segment` deletes the segment's rows;
@@ -264,8 +264,9 @@ The STRIDE rows join `TestSTRIDECatalog` (`db/tests/stride_f002_test.go`).
 | Non-functional requirements | Partitioned `record` with indexes on `(event_time)`, `(type, event_time)`, `(actor, event_time)`, `(target, event_time)`, `(request_id)`, `(bu_id, event_time)`; batched sequencing; streamed export. A benchmark gate, as F-001 T-11, at 200/s sustained and 2,000/s bursts |
 
 ## 11. The verifier (`fair-audit-verify`)
-- `verify-export <bundle.zip>`: checks the manifest signature, the file digests, each record's Merkle path to its checkpoint, and the checkpoint signatures and links.
-- `verify-archive <segment objects…> --checkpoints <file>`: recomputes the roots and chains.
+- `verify-export [-keys <trusted.pem>] <bundle.zip>`: checks the manifest signature, the file digests, each record's Merkle path to its checkpoint, and the checkpoint signatures and links.
+- `verify-archive -checkpoints <file> -keys <trusted.pem> <segment objects…>`: recomputes the roots and chains.
+- **Trusted keys.** `-keys` names public keys obtained separately from the evidence; every signature must be by one of them. A bundle's own `keys.pem` vouches only for itself: without `-keys`, `verify-export` uses it, prints the signing key ids and warns that the result is not pinned.
 - `compare --platform <checkpoints> --external <SIEM export | WORM listing>`: reports the first segment where the copies differ, or one that is missing in either.
 - Exit codes: 0 intact, 1 failed (with the first failing position), 2 usage.
 - No network access. Its only dependencies are the standard library and the FIPS module.
@@ -421,6 +422,7 @@ The STRIDE rows join `TestSTRIDECatalog` (`db/tests/stride_f002_test.go`).
   - **Tests.** They run in FIPS mode and cover: retention enforced and then lapsing, versions, legal hold, delete markers, governance mode refused, a bounded read, and a plain or missing bucket refused. Unit tests cover the configuration refusals and the TLS floor (a TLS 1.1 server is not reached).
   - **Mutation testing.** 8 of 9 mutants were caught. The survivor lowers the client's TLS floor, which is equivalent while Go's own client default is TLS 1.2; the explicit floor stays.
   - **Not yet wired.** The audit service's stores (archive, WORM, exports) are wired with T-09, T-15 and T-18.
+- 2026-11-04: T-10 decisions (Robert Former): archives are gzip (`.jsonl.gz`, §6.7), not zstd, so the verifier stays standard-library only (§11); the verifier pins trust with `-keys` and warns when it is not pinned (§11); export manifests are signed by the checkpoint key (§6.6).
 - 2026-11-04: T-09 implementation notes (migration 0072, `internal/audit/checkpoint.go`):
   - **Who checks what.** The leader builds the statement, signs it with the checkpoint key (which never enters the database) and passes both to `audit.checkpoint_close`. The database cannot verify the signature, so it checks the statement against the trail instead (PF014 otherwise): version, instance, the open segment, the record range and count, the chain hash at its end, the link to the previous statement (the genesis for segment 1), the Merkle root (recomputed in SQL by `audit.merkle_root`, which a test holds equal to `integrity.Root` for 0 to 33 leaves), a registered and unretired key, an issue time within 60 s, and a signature present. All comparisons are NULL-safe, so a missing field fails. The offline verifier (T-10, T-11) checks the signature.
   - **One transaction.** The close, the opening of the next segment and the `audit.checkpoint` event (statement and signature as attributes, the SIEM copy of AC-10) commit together. The event is recorded in the next segment.
@@ -430,3 +432,16 @@ The STRIDE rows join `TestSTRIDECatalog` (`db/tests/stride_f002_test.go`).
   - **Without a key.** Outside production, with no `FAIR_AUDIT_CHECKPOINT_KEYS_DIR`, the service logs a warning and does not checkpoint; production requires the key (T-05).
   - **Tests.** `TestAuditCheckpoints` covers segments with and without records, the event, a key rotation (the retired key refused for closes and re-registration), and verification of all signatures, links and segments with `internal/audit/integrity`. `TestAuditCheckpointCadence` runs the loop, empty segments included. `TestAuditCheckpointCloseRefusesForgeries` covers 26 forged or malformed statements (a retired key among them), malformed key registrations, the write-once key set once, and other roles refused. `TestAuditCheckpointWORMCopies` (with `FAIR_TEST_S3=1`) covers copies made after a store outage, their content, compliance retention and a refused delete.
   - **Mutation testing.** 14 of 15 mutants were caught; one test case was added for the second survivor (a key id that is neither the key's nor registered). The remaining survivor drops the record-count check in `checkpoint_close`, which is equivalent: the range comes from the head and the last checkpoint, and the sequencer assigns every record to the open segment, so the count cannot differ while the root and chain checks hold. The check stays as defence in depth.
+- 2026-11-04: T-10 implementation notes (`internal/audit/evidence`, `cmd/audit-verify`):
+  - **Formats.** `internal/audit/evidence` defines every evidence file, and holds the writers the audit service will use (T-15 exports, T-18 archives), so what the service writes is what the verifier reads:
+    - a checkpoint, in a checkpoints file or as a write-once copy, is `{"statement", "signature"}` (both base64, `integrity.Checkpoint`);
+    - a segment archive is gzip of JSON lines: a header with the format and the segment's checkpoint, then `{"seq", "leaf", "chain", "body"}` per record, the body inline with its exact bytes;
+    - an export bundle is a ZIP whose canonical, signed `manifest.json` lists every other file's SHA-256 (nothing unlisted is allowed); proof lines are `{"seq", "segment", "path"}` in record order.
+  - **Verification order.** For exports, digests are compared last, so a changed record is reported at its position rather than as a changed file. Records must be in strictly increasing sequence order.
+  - **Positions.** Archives report the first failing record (changed, missing, out of order) or the segment (truncated, rehashed, swapped object, checkpoint not the trusted one). Exports report the first failing record or checkpoint. A record removed together with its proof line, or a truncated tail, cannot be placed (the manifest lists no sequence numbers), so it is reported as the count against the signed manifest.
+  - **Anchoring.** A checkpoint run starting after segment 1 is anchored on its first statement's signature, and the tool says so. A segment whose previous checkpoint is not given is "insufficient input" (exit 2), not a failure.
+  - **compare.** It reads a checkpoints file, a SIEM export (JSON lines of events; `audit.checkpoint` events' statement and signature attributes, other events skipped, repeats tolerated, conflicting repeats refused) or a directory of write-once copies (each must be named for its segment). It reports the first segment, from `-from` to `-to`, missing in one or both copies or with a different statement (naming the fields) or signature.
+  - **No network.** `TestNoNetwork` holds the dependencies to the standard library plus `evidence` and `integrity`, with no `net/http`, `crypto/tls`, `os/exec` or similar. It builds the binary and checks its symbol table for anything that opens a socket (dialers, listeners, resolvers, socket system calls, TLS). `net` is linked only for `crypto/x509`'s address parsing.
+  - **Shipping.** `scripts/audit-verify-dist.sh` builds six platforms (Linux, macOS and Windows; amd64 and arm64) with the FIPS module, plus `SHA256SUMS`; the release workflow's `audit-verify` job runs the tests and uploads them. The audit image carries `/fair-audit-verify`, so air-gapped bundles have it. `version` prints whether the FIPS module is on.
+  - **Tests.** Tamper corpus for archives and exports: altered body (with and without recomputed hashes), removed record, reordered records, truncated tail, forged and removed checkpoints, swapped archive object, a changed manifest, added and missing files, replaced keys, pinning to the wrong keys, duplicate ZIP entries. `TestAuditEvidenceFromTheTrail` builds archives, an export and the SIEM comparison from a real trail (SQL sequencer and checkpointer, with a key rotation), and they verify. The guide for auditors is `docs/operations/audit-verification.md`.
+  - **Mutation testing.** 22 mutants: 21 caught, after tests were added for four gaps the first run found (the manifest's instance, segment 1's genesis link, the PEM block type, strict fields). Two of the caught ones add a dialer or an HTTP client to the command, and `TestNoNetwork` fails on each. The survivor drops the export's "not in segment" check, which is equivalent: the inclusion proof refuses an index outside the segment. The check stays for its clearer message.

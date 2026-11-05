@@ -47,6 +47,10 @@ Next up is **Phase 1, the authorization core**: the BU closure table, the signed
 ```
 cmd/iam/            iam service entrypoint (`iam migrate` runs migrations)
 cmd/posture/        posture service entrypoint (F-015; connects as app_posture)
+cmd/audit/          audit trail service (F-002; connects as app_audit): sequencer, checkpoints
+cmd/audit-verify/   fair-audit-verify, the offline evidence verifier (F-002 T-10; docs/operations/audit-verification.md)
+internal/audit      audit service: leader, sequencer, checkpointer; integrity/ (ADR-011) and evidence/ (formats, verification)
+internal/objstore   S3-compatible object storage with Object Lock (ADR-012)
 internal/config     environment config with secure-by-default validation
 internal/server     hardened HTTP/TLS server, health and readiness
 internal/migrate    embedded migration runner

@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -13,6 +14,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -26,6 +28,7 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 
 	auditsvc "github.com/rformer/fair-app/internal/audit"
+	"github.com/rformer/fair-app/internal/audit/evidence"
 	"github.com/rformer/fair-app/internal/audit/integrity"
 	"github.com/rformer/fair-app/internal/objstore"
 	"github.com/rformer/fair-app/pkg/audit"
@@ -513,7 +516,7 @@ func TestAuditCheckpointWORMCopies(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		var copyOf auditsvc.CheckpointCopy
+		var copyOf integrity.Checkpoint
 		if err := json.Unmarshal(data, &copyOf); err != nil || string(copyOf.Statement) != string(cp.statement) || string(copyOf.Signature) != string(cp.signature) {
 			t.Fatalf("segment %d copy %s (%v)", cp.segment, data, err)
 		}
@@ -527,4 +530,114 @@ func TestAuditCheckpointWORMCopies(t *testing.T) {
 		}
 	}
 	e.verifyCheckpoints(t)
+}
+
+// T-10 (AC-11): evidence built from a real trail verifies offline with
+// fair-audit-verify's code: segment archives, an export of a filtered set,
+// and the platform's checkpoints against the checkpoint events forwarded to
+// a SIEM (the trail's own audit.checkpoint record bodies).
+func TestAuditEvidenceFromTheTrail(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	pool := e.auditPool()
+	seq := auditsvc.Sequencer{DB: pool}
+	c := checkpointer(t, pool, newCheckpointKey(t))
+	for i, n := range []int{4, 0, 6, 3} {
+		submitN(t, e, fmt.Sprintf("s%d", i), n)
+		drainTrail(t, seq)
+		if i == 2 { // rotate the key mid-trail
+			c = checkpointer(t, pool, newCheckpointKey(t))
+		}
+		if _, err := c.Close(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	keys := evidence.Keys(e.signingKeys())
+	stored := e.checkpoints()
+	cps := make([]integrity.Checkpoint, len(stored))
+	for i, s := range stored {
+		cps[i] = integrity.Checkpoint{Statement: s.statement, Signature: s.signature}
+	}
+	chain, err := evidence.VerifyChain(cps, keys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recs := e.trailRecords()
+	bySeg := map[uint64][]integrity.Record{}
+	segOf := map[uint64]uint64{}
+	for _, st := range chain.Statements {
+		for _, r := range recs {
+			if r.seq >= st.SeqFrom && r.seq <= st.SeqTo {
+				var l, ch integrity.Hash
+				copy(l[:], r.leaf)
+				copy(ch[:], r.chain)
+				bySeg[st.Segment] = append(bySeg[st.Segment], integrity.Record{Seq: r.seq, Body: r.body, Leaf: l, Chain: ch})
+				segOf[r.seq] = st.Segment
+			}
+		}
+	}
+
+	// Archives of every closed segment.
+	var archives []evidence.NamedArchive
+	for i, st := range chain.Statements {
+		var buf bytes.Buffer
+		if err := evidence.WriteSegment(&buf, evidence.Segment{Checkpoint: cps[i], Records: bySeg[st.Segment]}); err != nil {
+			t.Fatal(err)
+		}
+		b := buf.Bytes()
+		archives = append(archives, evidence.NamedArchive{Name: evidence.SegmentKey(st.Instance, st.Segment),
+			Open: func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(b)), nil }})
+	}
+	res, err := evidence.VerifyArchives(archives, cps, keys)
+	if err != nil || len(res.Segments) != len(cps) || !res.Anchored {
+		t.Fatalf("archives: %+v %v", res, err)
+	}
+
+	// An export of every other covered record, signed with the current key.
+	in := evidence.ExportInput{Manifest: evidence.Manifest{Instance: chain.Instance(), ExportID: "x", CreatedAt: time.Now().UTC(),
+		RequestedBy: "auditor", Reason: "test", Filter: evidence.Filter{Description: "every other record"}}, Checkpoints: cps, Keys: keys}
+	for _, r := range recs {
+		seg, ok := segOf[r.seq]
+		if !ok || r.seq%2 == 0 {
+			continue
+		}
+		st, _ := chain.Segment(seg)
+		var leaves []integrity.Hash
+		for _, x := range bySeg[seg] {
+			leaves = append(leaves, x.Leaf)
+		}
+		path, err := integrity.NewTree(leaves).Path(r.seq - st.SeqFrom)
+		if err != nil {
+			t.Fatal(err)
+		}
+		in.Bodies = append(in.Bodies, r.body)
+		in.Proofs = append(in.Proofs, evidence.Proof{Seq: r.seq, Segment: seg, Path: path})
+	}
+	var bundle bytes.Buffer
+	if err := evidence.WriteExport(&bundle, in, c.Key); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := evidence.VerifyExport(bytes.NewReader(bundle.Bytes()), int64(bundle.Len()), keys); err != nil || res.Records != len(in.Bodies) || res.Records == 0 {
+		t.Fatalf("export: %+v %v", res, err)
+	}
+
+	// The SIEM's copy: the checkpoint events as recorded in the trail
+	// (each close's event is sequenced after it; the drain records the
+	// last one).
+	drainTrail(t, seq)
+	var siem bytes.Buffer
+	for _, r := range e.trailRecords() {
+		siem.Write(append(r.body, '\n'))
+	}
+	ext, err := evidence.ReadCheckpointStream(&siem, "trail")
+	if err != nil {
+		t.Fatal(err)
+	}
+	platform := evidence.CheckpointSet{}
+	for i, st := range chain.Statements {
+		platform[st.Segment] = cps[i]
+	}
+	if d := evidence.Compare(platform, ext, 1, uint64(len(cps))); d != nil { // #nosec G115 -- test count
+		t.Fatalf("SIEM copy: %v", d)
+	}
 }

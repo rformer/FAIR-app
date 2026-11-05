@@ -5,7 +5,7 @@
 #   docker build --target posture .         posture service (F-015)
 #   docker build --target posture-scanner . deployment drift scanner (F-015 T-27)
 #   docker build --target fips-probe .      node FIPS probe (F-015 T-29)
-#   docker build --target audit .           audit trail service (F-002 T-05)
+#   docker build --target audit .           audit trail service (F-002 T-05), with /fair-audit-verify (T-10)
 # - FIPS 140-3: built with GOFIPS140=v1.0.0; go.mod sets fips140=on at runtime.
 # - Static, CGO-free binary on distroless: no shell, no package manager.
 # - Runs as non-root (65532) and works with a read-only root filesystem.
@@ -32,7 +32,8 @@ COPY third_party/oscal/schemas/oscal_complete_schema.json ./third_party/oscal/sc
 ARG VERSION=dev
 RUN for c in iam posture posture-scanner fips-probe gateway audit; do \
       go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/$c ./cmd/$c || exit 1; \
-    done
+    done && \
+    go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/fair-audit-verify ./cmd/audit-verify
 
 FROM gcr.io/distroless/static-debian12:nonroot AS fips-probe
 COPY --from=build /out/fips-probe /fips-probe
@@ -52,6 +53,9 @@ ENTRYPOINT ["/posture"]
 
 FROM gcr.io/distroless/static-debian12:nonroot AS audit
 COPY --from=build /out/audit /audit
+# The offline verifier (F-002 T-10), so air-gapped bundles carry it:
+#   docker run --rm --entrypoint /fair-audit-verify -v "$PWD:/e:ro" <image> verify-export /e/bundle.zip
+COPY --from=build /out/fair-audit-verify /fair-audit-verify
 USER 65532:65532
 EXPOSE 8443
 ENTRYPOINT ["/audit"]

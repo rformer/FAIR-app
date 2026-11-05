@@ -37,13 +37,6 @@ type Checkpointer struct {
 	Now    func() time.Time
 }
 
-// CheckpointCopy is the write-once copy of a checkpoint: the statement's
-// exact bytes and its signature.
-type CheckpointCopy struct {
-	Statement []byte `json:"statement"`
-	Signature []byte `json:"signature"`
-}
-
 // KeyID is the checkpoint key's id (hex SHA-256 of its PKIX encoding).
 func (c Checkpointer) KeyID() (string, error) { return integrity.KeyID(&c.Key.PublicKey) }
 
@@ -160,7 +153,7 @@ func (c Checkpointer) SaveCopies(ctx context.Context) (int, error) {
 	}
 	n := 0
 	for _, u := range pending {
-		body, err := json.Marshal(CheckpointCopy{Statement: u.stmt, Signature: u.sig})
+		body, err := json.Marshal(integrity.Checkpoint{Statement: u.stmt, Signature: u.sig}) // the evidence format
 		if err != nil {
 			return n, err
 		}

@@ -96,10 +96,12 @@ func VerifySignature(pub *ecdsa.PublicKey, statement, sig []byte) bool {
 	return ecdsa.VerifyASN1(pub, d[:], sig)
 }
 
-// Checkpoint is a signed statement as stored and exported.
+// Checkpoint is a signed statement as stored and exported. Its JSON form
+// (both fields base64) is the write-once copy and a line of a checkpoints
+// file (internal/audit/evidence).
 type Checkpoint struct {
-	Statement []byte // serialized, canonical
-	Signature []byte
+	Statement []byte `json:"statement"` // serialized, canonical
+	Signature []byte `json:"signature"`
 }
 
 // VerifyCheckpoints checks a run of consecutive checkpoints of one instance:
