@@ -570,9 +570,9 @@ func verifyExport(pubFile, docFile, stFile, sigFile string) error {
 }
 
 // auditSink is the service's security event emitter (F-001 T-37, AC-50):
-// JSON lines on stdout and, when FAIR_AUDIT_SYSLOG_ADDR is set, syslog over
-// TLS; every event checked against the catalog. The F-002 audit trail
-// replaces it.
+// JSON lines on stdout, every event checked against the catalog, and the
+// F-002 audit trail. SIEM forwarding is the audit service's (F-002 T-16):
+// a leftover FAIR_AUDIT_SYSLOG_ADDR refuses startup.
 func auditSink(db audit.Beginner) (audit.Emitter, error) {
 	env := os.Getenv("FAIR_ENV")
 	if env == "" {

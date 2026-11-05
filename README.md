@@ -10,7 +10,7 @@ The project follows a **spec-driven workflow**: nothing is built without approve
 
 | Task | What | Where |
 |---|---|---|
-| T-00a | Audit event contract and stub sinks (JSON lines, RFC 5424 syslog over TCP/TLS, memory, fan-out). Sink failures are always surfaced, never dropped. | `pkg/audit` |
+| T-00a | Audit event contract and stub sinks (JSON lines, RFC 5424 syslog over TCP/TLS (retired by F-002 T-16), memory, fan-out). Sink failures are always surfaced, never dropped. | `pkg/audit` |
 | T-00b | Settings registry implementing the F-015 contract (see below) | `pkg/settings` |
 | T-00c | CI pipeline (see below) | `.github/workflows/ci.yml`, `Dockerfile` |
 | T-01 | `iam` service skeleton (see below) | `cmd/iam`, `internal/` |
@@ -199,9 +199,13 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_DB_PASSWORD_FILE=<app_posture passwor
 # The bundled Keycloak (F-001 T-36): import deploy/keycloak/fair-realm.json and connect
 # it as an IdP of kind keycloak (docs/install/keycloak.md).
 # Security events (F-001 T-37): every service writes them as JSON lines to stdout (for an
-# OpenTelemetry collector or log shipper) and, with FAIR_AUDIT_SYSLOG_ADDR=host:port
-# (and FAIR_AUDIT_SYSLOG_CA_FILE for a private CA), as RFC 5424 syslog over TLS. The
-# event types are pkg/audit/catalog.yaml; the envelope is pkg/audit/event.schema.json.
+# OpenTelemetry collector or log shipper) and to the audit trail. The audit service
+# forwards the trail to a SIEM (F-002 T-16): set the destination with the setting
+# audit.syslog_destination (host:port; RFC 5424 over TLS 1.2+, structured data
+# [fair@32473 seq chain segment], each record's body as recorded) and its CA with
+# FAIR_AUDIT_SYSLOG_CA_FILE on the audit service. FAIR_AUDIT_SYSLOG_ADDR is retired:
+# a service that still has it refuses to start. The event types are
+# pkg/audit/catalog.yaml; the envelope is pkg/audit/event.schema.json.
 # Logins must show MFA evidence (F-001 T-18) while auth.mfa_required_all is on (the
 # default), and always for privileged users; each IdP's rule is set with
 # PATCH /api/v1/idps/{id} (mfa_evidence_rule), with standards defaults otherwise.

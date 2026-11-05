@@ -1,13 +1,10 @@
 package audit
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"net"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -63,45 +60,6 @@ func TestMultiReportsFailures(t *testing.T) {
 	}
 	if len(m.Events()) != 1 {
 		t.Fatal("healthy sinks must still receive the event")
-	}
-}
-
-func TestSyslogRFC5424OverTCP(t *testing.T) {
-	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = ln.Close() }()
-	got := make(chan string, 1)
-	go func() {
-		c, err := ln.Accept()
-		if err != nil {
-			return
-		}
-		defer func() { _ = c.Close() }()
-		r := bufio.NewReader(c)
-		lenStr, _ := r.ReadString(' ')
-		n, _ := strconv.Atoi(strings.TrimSpace(lenStr))
-		buf := make([]byte, n)
-		_, _ = r.Read(buf)
-		got <- string(buf)
-	}()
-
-	s := NewSyslog(ln.Addr().String(), "fair-iam", nil)
-	defer func() { _ = s.Close() }()
-	if err := s.Emit(context.Background(), Event{Type: "authn.login.success", Severity: SeverityCritical, Actor: "u1"}); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case msg := <-got:
-		if !strings.HasPrefix(msg, "<82>1 ") { // facility 10*8 + critical(2)
-			t.Fatalf("bad PRI/version: %q", msg[:12])
-		}
-		if !strings.Contains(msg, " fair-iam - authn.login.success - {") {
-			t.Fatalf("bad header: %q", msg)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("no syslog message received")
 	}
 }
 

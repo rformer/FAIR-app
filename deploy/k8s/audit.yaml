@@ -57,6 +57,10 @@ spec:
             # Export bundles are spooled here before upload (the root file
             # system is read-only).
             - { name: TMPDIR, value: /spool }
+            # The SIEM's CA for syslog over TLS (F-002 T-16; the destination
+            # is the setting audit.syslog_destination). Without it, the
+            # system roots.
+            # - { name: FAIR_AUDIT_SYSLOG_CA_FILE, value: /secrets/siem/ca.crt }
             # SaaS: write-once storage for checkpoint copies (F-002 AC-10).
             # The bucket must have versioning and Object Lock (the service
             # refuses one without); credentials are files (internal/objstore).
@@ -125,9 +129,11 @@ spec:
       ports: [{ port: 8443, protocol: TCP }]
 ---
 # Egress: PostgreSQL, DNS, NATS (scope changes for the audit API, T-12) and
-# object storage over TLS (write-once checkpoint copies, T-09; archives,
-# T-18). SIEM destinations (T-16, T-17) are added with those tasks; narrow
-# `to` once the chart knows where they run.
+# object storage over TLS (write-once checkpoint copies, T-09; exports,
+# T-15; archives, T-18), and the SIEM: syslog over TLS on 6514 (T-16, the
+# setting audit.syslog_destination; change the port here if the SIEM listens
+# elsewhere). OTLP (T-17) is added with that task; narrow `to` once the
+# chart knows where they run.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -142,3 +148,4 @@ spec:
     - ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]
     - ports: [{ port: 4222, protocol: TCP }]
     - ports: [{ port: 443, protocol: TCP }]
+    - ports: [{ port: 6514, protocol: TCP }]

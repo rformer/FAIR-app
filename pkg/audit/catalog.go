@@ -3,8 +3,6 @@ package audit
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	_ "embed"
 	"encoding/json"
 	"errors"
@@ -370,40 +368,23 @@ func FromOutbox(id int64, payload []byte) (Event, error) {
 }
 
 // FromEnv builds a service's emitter (AC-50): JSON lines on stdout (for an
-// OpenTelemetry collector's filelog receiver or any log shipper) and, when
-// FAIR_AUDIT_SYSLOG_ADDR is set, RFC 5424 syslog over TLS (RFC 5425; the
-// server's CA in FAIR_AUDIT_SYSLOG_CA_FILE, or the system roots). Plain TCP
-// syslog (FAIR_AUDIT_SYSLOG_PLAINTEXT=true, a local relay) is refused outside
-// development. Every event is checked against the catalog first, and an
-// event is accepted only when every sink took it.
+// OpenTelemetry collector's filelog receiver or any log shipper). Every
+// event is checked against the catalog first. SIEM forwarding is the audit
+// service's (F-002 T-16): the trail is sent to the destination set in
+// audit.syslog_destination, so a service still configured with
+// FAIR_AUDIT_SYSLOG_ADDR refuses to start rather than silently lose the
+// feed it was given.
 func FromEnv(env, appName string, getenv func(string) string) (Emitter, error) {
+	_, _ = env, appName
+	if getenv("FAIR_AUDIT_SYSLOG_ADDR") != "" {
+		return nil, errors.New("FAIR_AUDIT_SYSLOG_ADDR is retired (F-002 T-16): the audit service forwards the audit trail to the destination " +
+			"in the setting audit.syslog_destination; set it there and remove FAIR_AUDIT_SYSLOG_ADDR")
+	}
 	c, err := DefaultCatalog()
 	if err != nil {
 		return nil, err
 	}
-	sinks := Multi{NewJSONLines(os.Stdout)}
-	if addr := getenv("FAIR_AUDIT_SYSLOG_ADDR"); addr != "" {
-		var tc *tls.Config
-		if getenv("FAIR_AUDIT_SYSLOG_PLAINTEXT") == "true" {
-			if env != "development" {
-				return nil, errors.New("audit: plain TCP syslog is for development only; give FAIR_AUDIT_SYSLOG_ADDR a TLS listener")
-			}
-		} else {
-			tc = &tls.Config{MinVersion: tls.VersionTLS12}
-			if f := getenv("FAIR_AUDIT_SYSLOG_CA_FILE"); f != "" {
-				pem, err := os.ReadFile(f) // #nosec G304 -- operator-supplied CA file
-				if err != nil {
-					return nil, fmt.Errorf("FAIR_AUDIT_SYSLOG_CA_FILE: %w", err)
-				}
-				tc.RootCAs = x509.NewCertPool()
-				if !tc.RootCAs.AppendCertsFromPEM(pem) {
-					return nil, errors.New("FAIR_AUDIT_SYSLOG_CA_FILE holds no certificate")
-				}
-			}
-		}
-		sinks = append(sinks, NewSyslog(addr, appName, tc))
-	}
-	return Validating{Next: sinks, Catalog: c}, nil
+	return Validating{Next: Multi{NewJSONLines(os.Stdout)}, Catalog: c}, nil
 }
 
 // CheckDeclaredEvents checks one API operation's x-audit-events (T-37):

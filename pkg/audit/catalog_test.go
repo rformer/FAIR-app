@@ -331,14 +331,12 @@ func TestFromOutbox(t *testing.T) {
 
 func TestFromEnv(t *testing.T) {
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
-	if _, err := FromEnv("production", "x", env(map[string]string{"FAIR_AUDIT_SYSLOG_ADDR": "siem:6514", "FAIR_AUDIT_SYSLOG_PLAINTEXT": "true"})); err == nil {
-		t.Fatal("plain TCP syslog accepted in production")
-	}
-	if _, err := FromEnv("development", "x", env(map[string]string{"FAIR_AUDIT_SYSLOG_ADDR": "relay:514", "FAIR_AUDIT_SYSLOG_PLAINTEXT": "true"})); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := FromEnv("production", "x", env(map[string]string{"FAIR_AUDIT_SYSLOG_ADDR": "siem:6514", "FAIR_AUDIT_SYSLOG_CA_FILE": "/nonexistent"})); err == nil {
-		t.Fatal("a missing CA file accepted")
+	// F-002 T-16: per-service syslog is retired; a leftover address refuses.
+	for _, e := range []string{"production", "development"} {
+		if _, err := FromEnv(e, "x", env(map[string]string{"FAIR_AUDIT_SYSLOG_ADDR": "siem:6514"})); err == nil ||
+			!strings.Contains(err.Error(), "audit.syslog_destination") {
+			t.Fatalf("%s with FAIR_AUDIT_SYSLOG_ADDR: %v", e, err)
+		}
 	}
 	e, err := FromEnv("production", "x", env(nil))
 	if err != nil {

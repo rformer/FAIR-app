@@ -434,15 +434,26 @@ function AuditTrailSection({ status }: { status: Loaded<AuditTrailStatus> }) {
                   <table className="data">
                     <caption>Forwarding destinations</caption>
                     <thead>
-                      <tr><th scope="col">Destination</th><th scope="col">Backlog</th><th scope="col">Last sent</th><th scope="col">Last error</th></tr>
+                      <tr>
+                        <th scope="col">Destination</th>
+                        <th scope="col">Address</th>
+                        <th scope="col">Backlog</th>
+                        <th scope="col">Oldest waiting</th>
+                        <th scope="col">Last sent</th>
+                        <th scope="col">Last error</th>
+                      </tr>
                     </thead>
                     <tbody>
                       {s.destinations.map((d) => (
                         <tr key={d.name}>
                           <th scope="row">{d.name} <span className="muted">({d.kind})</span></th>
-                          <td>{d.backlog}</td>
+                          <td className="mono">{d.address ?? "not configured"}</td>
+                          <td>
+                            {d.backlog} {d.backlog_alert ? <Badge tone="bad">Over threshold</Badge> : null}
+                          </td>
+                          <td>{d.oldest_waiting_at ? date(d.oldest_waiting_at) : "none"}</td>
                           <td>{d.last_sent_at ? date(d.last_sent_at) : "never"}</td>
-                          <td>{d.last_error ?? "none"}</td>
+                          <td className="wrap">{d.last_error ?? "none"}</td>
                         </tr>
                       ))}
                     </tbody>

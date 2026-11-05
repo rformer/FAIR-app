@@ -105,6 +105,18 @@ events:
     severities: [critical]
     attributes: [payload]
     description: "An event that did not match this catalog, recorded instead of it (a defect; the original is attached)"
+  - type: audit.forward_backlog
+    category: system
+    severities: [high]
+    requires: [target]
+    attributes: [address, destination, kind, last_error, oldest_waiting_at, threshold_age, threshold_records, waiting]
+    description: "A SIEM destination's backlog crossed audit.forward_backlog_records or audit.forward_backlog_age; recorded once per crossing (F-002 T-16, AC-23)"
+  - type: audit.forward_recovered
+    category: system
+    severities: [info]
+    requires: [target]
+    attributes: [address, destination, kind, waiting]
+    description: "A SIEM destination's backlog is back under both thresholds (F-002 T-16, AC-23)"
   - type: audit.history_viewed
     category: access
     severities: [low]

@@ -130,6 +130,17 @@ export interface AuditTrailStatus {
   open_segment: number | null;
   intake_waiting: number;
   checkpoint_copies_waiting: number;
-  destinations: { name: string; kind: string; last_seq: number; backlog: number; last_sent_at: string | null; last_error: string | null }[];
+  /** SIEM destinations (F-002 T-16, AC-23): address null once cleared. */
+  destinations: {
+    name: string;
+    kind: string;
+    address: string | null;
+    last_seq: number;
+    backlog: number;
+    oldest_waiting_at: string | null;
+    backlog_alert: boolean;
+    last_sent_at: string | null;
+    last_error: string | null;
+  }[];
   storage: unknown;
 }

@@ -7,7 +7,8 @@
 // database pool as app_audit, the install checks of design §7, and leader
 // election (one replica leads). The leader sequences the trail (T-07),
 // closes segments with signed checkpoints every 15 minutes (T-09), and
-// verifies the trail every 15 minutes and in full daily (T-11). Every
+// verifies the trail every 15 minutes and in full daily (T-11), and
+// forwards it to the syslog destination (T-16). Every
 // replica serves the Audit API (T-12) and works the evidence export queue
 // (T-15, River in schema audit_river).
 //
@@ -33,6 +34,11 @@
 //	                                 _SECRET_KEY_FILE, _CA_FILE (versioning
 //	                                 and Object Lock, as for the WORM bucket);
 //	                                 bundles are spooled in TMPDIR first
+//	FAIR_AUDIT_SYSLOG_CA_FILE        the syslog destination's CA (T-16; else the
+//	                                 system roots). The destination itself is
+//	                                 the setting audit.syslog_destination
+//	                                 (F-015); FAIR_AUDIT_SYSLOG_PLAINTEXT=true
+//	                                 (plain TCP) is for development only
 //	FAIR_NATS_URL                    NATS, for scope changes (the API's grant
 //	                                 cache otherwise refreshes on its own);
 //	                                 FAIR_NATS_CREDS_FILE optional
@@ -46,6 +52,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -60,6 +67,7 @@ import (
 	"github.com/rformer/fair-app/internal/keys"
 	"github.com/rformer/fair-app/internal/natspub"
 	"github.com/rformer/fair-app/internal/objstore"
+	"github.com/rformer/fair-app/internal/scanner"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
@@ -129,6 +137,12 @@ func run() error {
 			return fmt.Errorf("FAIR_AUDIT_STORE: %w", err)
 		}
 		store = s
+	}
+	// The syslog forwarder's TLS (T-16): TLS 1.2 or later; plain TCP only in
+	// development.
+	syslogTLS, err := auditsvc.SyslogTLS(cfg.Env, os.Getenv)
+	if err != nil {
+		return err
 	}
 	// The Audit API (T-12) verifies the gateway's internal JWTs.
 	var jwtKeys *authz.LocalKeys
@@ -219,7 +233,34 @@ func run() error {
 	}}
 	// ...and verifies the trail continuously (T-11).
 	ver := auditsvc.Verifier{DB: pool, Audit: emitter, WORM: worm}
+	// ...and forwards it to the syslog destination (T-16), named by the
+	// setting audit.syslog_destination; air-gapped installs send inside the
+	// enclave only (design §7).
+	host, _ := os.Hostname()
+	fwd := &auditsvc.SyslogForwarder{DB: pool, Audit: emitter, TLS: syslogTLS, Hostname: host,
+		Address: func() (string, error) { return sc.Enum(settings.KeyAuditSyslogDestination, "") },
+		Thresholds: func() (int, time.Duration) {
+			n, err := sc.Int(settings.KeyAuditBacklogRecords, "")
+			if err != nil {
+				n = 10_000 // the default of every built-in profile
+			}
+			d, err := sc.Duration(settings.KeyAuditBacklogAge, "")
+			if err != nil {
+				d = 15 * time.Minute
+			}
+			return n, d
+		}}
+	if cfg.DeploymentMode == config.ModeAirGapped {
+		fwd.Check = func(ctx context.Context, addr string) error {
+			return scanner.InternalOnly(ctx, []string{addr}, func(ctx context.Context, host string) ([]net.IP, error) {
+				return net.DefaultResolver.LookupIP(ctx, "ip", host)
+			})
+		}
+	}
 	loops := []func(context.Context) error{
+		func(ctx context.Context) error {
+			return fwd.Run(ctx, 0, func(err error) { logger.Error("forwarding", "error", err.Error()) })
+		},
 		func(ctx context.Context) error {
 			return seq.Run(ctx, 0, func(err error) { logger.Error("sequencer", "error", err.Error()) })
 		},

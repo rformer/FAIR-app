@@ -135,6 +135,13 @@ test("the Audit trail tile shows the last verification and its result (F-002 AC-
   await expect(trail.getByRole("alert")).toContainText(/failed at record \d+/);
   await expect(trail.getByRole("row", { name: /Last full run/ })).toContainText("failed");
   await expect(trail.getByRole("link", { name: "Audit history" })).toHaveAttribute("href", "/audit?target=audit-trail");
+  // F-002 T-16 (AC-23): a SIEM destination that is down, its backlog over
+  // the threshold.
+  const dest = trail.getByRole("table", { name: "Forwarding destinations" }).getByRole("row", { name: /syslog/ });
+  await expect(dest.getByRole("cell", { name: "127.0.0.1:1", exact: true })).toBeVisible();
+  await expect(dest).toContainText("Over threshold");
+  await expect(dest).toContainText("never");
+  await expect(dest).toContainText(/refused|connect/);
   // The finding it opened, and the controls it affects (AU-9, AU-6).
   await expect(section(page, "Drift findings").getByRole("row", { name: /audit_integrity/ })).toContainText("critical");
   await expect(section(page, "Per-control status").getByRole("row", { name: /^AU-9\b/ })).toContainText("Open finding");
