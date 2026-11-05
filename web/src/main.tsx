@@ -1,6 +1,7 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, getMe, send, type Me } from "./api";
+import { AuditPage } from "./audit/AuditPage";
 import { BannerPage } from "./banner";
 import { PosturePage } from "./posture/PosturePage";
 import "./styles.css";
@@ -43,8 +44,9 @@ function App() {
       />
     );
   }
-  // The platform shell's routing arrives with later features; T-32 serves
-  // the Posture page.
+  // The platform shell's routing arrives with later features: the path
+  // chooses the page (the gateway serves the app for every route).
+  const audit = window.location.pathname.startsWith("/audit");
   return (
     <>
       <a className="skip-link" href="#main">
@@ -53,13 +55,22 @@ function App() {
       <header className="app">
         <span className="brand">FAIR Risk Platform</span>
         <nav aria-label="Primary">
-          <a href="/posture" aria-current="page">
-            Security posture
-          </a>
+          <ul>
+            <li>
+              <a href="/posture" aria-current={audit ? undefined : "page"}>
+                Security posture
+              </a>
+            </li>
+            <li>
+              <a href="/audit" aria-current={audit ? "page" : undefined}>
+                Audit trail
+              </a>
+            </li>
+          </ul>
         </nav>
       </header>
       <main id="main" tabIndex={-1}>
-        <PosturePage />
+        {audit ? <AuditPage /> : <PosturePage />}
       </main>
     </>
   );

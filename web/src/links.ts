@@ -8,6 +8,26 @@ export function auditHref(target: string): string {
   return `/audit?target=${encodeURIComponent(target)}`;
 }
 
+/** The audit history of an actor (F-002 AC-16). */
+export function actorHref(actor: string): string {
+  return `/audit?actor=${encodeURIComponent(actor)}`;
+}
+
+/** Every visible record of one request (F-002 AC-17). */
+export function requestHref(id: string): string {
+  return `/audit?request=${encodeURIComponent(id)}`;
+}
+
+/** One approval's evidence in the audit trail (F-002 AC-35). */
+export function evidenceHref(id: string): string {
+  return `/audit?approval=${encodeURIComponent(id)}`;
+}
+
+/** One record with its proof (F-002 T-12). */
+export function recordHref(seq: number): string {
+  return `/audit?record=${seq}`;
+}
+
 /** An approval request in the F-001 approvals inbox. */
 export function approvalHref(id: string): string {
   return `/approvals/${encodeURIComponent(id)}`;

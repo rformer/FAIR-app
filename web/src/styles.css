@@ -67,6 +67,8 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
 
 header.app { border-bottom: 1px solid var(--border); padding: 0.75rem 1.5rem; display: flex; gap: 1rem; align-items: baseline; }
 header.app .brand { font-weight: 700; }
+header.app nav ul { display: flex; gap: 1rem; list-style: none; margin: 0; padding: 0; }
+header.app nav a[aria-current="page"] { font-weight: 700; }
 main { padding: 1.5rem; max-width: 80rem; margin: 0 auto; }
 h1 { font-size: 1.75rem; margin: 0 0 0.25rem; }
 h2 { font-size: 1.3rem; margin: 2rem 0 0.75rem; }
@@ -122,3 +124,21 @@ button.btn:disabled { opacity: 0.6; cursor: not-allowed; }
 [role="status"].loading { color: var(--text-muted); }
 .muted { color: var(--text-muted); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* The audit trail (F-002 T-14). */
+nav.crumbs { margin-bottom: 0.5rem; }
+form.filters { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: 0.75rem 1rem; align-items: end; }
+form.filters .field { display: flex; flex-direction: column; gap: 0.25rem; }
+form.filters .actions, form.filters [role="alert"] { grid-column: 1 / -1; }
+form.filters input, form.filters select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.3rem 0.4rem; }
+a.btn { display: inline-block; text-decoration: none; color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.3rem 0.8rem; background: var(--bg); }
+table.records th[scope="row"] { font-weight: 600; }
+.nowrap { white-space: nowrap; }
+.wrap { overflow-wrap: anywhere; }
+.mono.id { color: var(--text-muted); font-size: 0.8em; }
+dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; margin: 0 0 1rem; }
+dl.facts dt { font-weight: 600; }
+dl.facts dd { margin: 0; min-width: 0; }
+ol.path { margin: 0; padding-left: 1.5rem; }
+pre.json { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.75rem; overflow: auto; max-height: 24rem; font-family: var(--mono); font-size: 0.85rem; }
+p.legend .badge { margin: 0 0.15rem; }

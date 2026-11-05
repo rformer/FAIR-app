@@ -214,7 +214,7 @@ func run() error {
 		}
 	}
 	if dir := os.Getenv("FAIR_UI_DIR"); dir != "" {
-		g.UI = http.FileServer(http.Dir(dir))
+		g.UI = gateway.StaticUI(dir) // index.html for the app's routes (F-002 T-14)
 	}
 
 	mtlsAddr := os.Getenv("FAIR_MTLS_LISTEN_ADDR")

@@ -132,7 +132,7 @@ test("the Audit trail tile shows the last verification and its result (F-002 AC-
   const trail = section(page, "Audit trail");
   await expect(trail).toContainText("Verification failed");
   await expect(trail).toContainText(/Last verified .*, through record \d+\./);
-  await expect(trail.getByRole("alert")).toContainText("failed at record 2");
+  await expect(trail.getByRole("alert")).toContainText(/failed at record \d+/);
   await expect(trail.getByRole("row", { name: /Last full run/ })).toContainText("failed");
   await expect(trail.getByRole("link", { name: "Audit history" })).toHaveAttribute("href", "/audit?target=audit-trail");
   // The finding it opened, and the controls it affects (AU-9, AU-6).

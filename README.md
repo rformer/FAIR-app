@@ -242,6 +242,9 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_DB_PASSWORD_FILE=<app_posture passwor
 #   ./bin/posture verify-export -pub export.pub -document ar.json -statement st.json -signature sig.txt
 # STRIDE suite (F-015 T-36, design §8; needs the DB test containers): make test-stride
 # Web UI (T-32): web/ (React + TypeScript, Vite; cd web && npm ci && npm run build).
+# The gateway serves it from FAIR_UI_DIR (web/dist), index.html for the app's
+# routes: /posture (F-015 T-32) and /audit (F-002 T-14: search, history,
+# request view, approval evidence, record proofs).
 # End to end against the real API and database: scripts/ui-e2e.sh (Playwright
 # with axe WCAG 2.1 AA scans; needs the DB test containers and node).
 # After changing a .proto in api/proto: scripts/gen-proto.sh (see its header).

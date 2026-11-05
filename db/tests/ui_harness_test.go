@@ -11,12 +11,12 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/rformer/fair-app/internal/approvals"
 	auditsvc "github.com/rformer/fair-app/internal/audit"
+	"github.com/rformer/fair-app/internal/auditapi"
 	"github.com/rformer/fair-app/internal/gateway"
 	"github.com/rformer/fair-app/internal/posture"
 	"github.com/rformer/fair-app/internal/postureapi"
@@ -39,6 +39,9 @@ func TestPostureUIHarness(t *testing.T) {
 	ctx := context.Background()
 	ae := apiFixture(t, settings.ProfileEnterpriseBaseline) // admin, admin2, auditor, nobody
 	e := ae.e
+	// F-002 T-14: the posture scenario's events go to the trail too, so the
+	// Posture page's audit links open populated histories (AC-37).
+	ae.set.Evaluator.Audit = audit.WithTrail(ae.set.Evaluator.Audit, audit.Trail{DB: ae.set.Evaluator.DB})
 	seedPostureScenario(t, ae)
 
 	pool := e.posturePool()
@@ -49,22 +52,22 @@ func TestPostureUIHarness(t *testing.T) {
 	posture := httptest.NewServer(apiHandler)
 	defer posture.Close()
 	up, _ := url.Parse(posture.URL)
+	// F-002 T-14: the Audit API, as the audit service serves it.
+	ap := e.auditPool()
+	auditAPI := &auditapi.API{DB: ap, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(ap), MaxAge: time.Second}),
+		Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: ap})}
+	auditSrv := httptest.NewServer(auditAPI.Handler(ae.keys, nil))
+	defer auditSrv.Close()
+	auditUp, _ := url.Parse(auditSrv.URL)
 	// The UI: built assets, and index.html for the app's routes.
-	files := http.FileServer(http.Dir(dist))
-	ui := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/assets/") {
-			files.ServeHTTP(w, r)
-			return
-		}
-		http.ServeFile(w, r, filepath.Join(dist, "index.html"))
-	})
+	ui := gateway.StaticUI(dist)
 	g := &gateway.Gateway{
 		Sessions: gateway.Sessions{DB: e.gatewayPool(), Pepper: []byte("harness-pepper-0123456789abcdef-0123"),
 			Timeouts: func() (time.Duration, time.Duration, error) { return 30 * time.Minute, 12 * time.Hour, nil }},
 		ContextKey: ctxKey1,
 		JWT:        ae.keys,
 		Origin:     "http://localhost:8099",
-		Upstreams:  map[string]*url.URL{"posture": up},
+		Upstreams:  map[string]*url.URL{"posture": up, "audit": auditUp},
 		UI:         ui,
 	}
 
@@ -175,10 +178,22 @@ func seedPostureScenario(t *testing.T, ae apiEnv) {
 	if r, err := ver.Full(ctx); err != nil || !r.OK {
 		t.Fatalf("seed verification: %+v %v", r, err)
 	}
-	e.tamper("UPDATE audit.record SET body = convert_to('{}', 'UTF8') WHERE seq = 2")
-	if r, err := ver.Full(ctx); err != nil || r.OK || r.FailedSeq != 2 {
+	// The last record of the closed segment is the one altered, so the
+	// posture events before it stay verified on the audit pages (T-14).
+	bad := e.adminQuery("SELECT seq FROM audit.record WHERE event_id = 'ui-2'")
+	e.tamper("UPDATE audit.record SET body = convert_to('{}', 'UTF8') WHERE seq = " + bad)
+	if r, err := ver.Full(ctx); err != nil || r.OK || fmt.Sprint(r.FailedSeq) != bad {
 		t.Fatalf("seed failed verification: %+v %v", r, err)
 	}
+	// F-002 T-14: more than a page of records (search paging), and one
+	// request recorded by two services (the request view).
+	submitN(t, e, "ui-page", 60)
+	adminID := e.adminQuery("SELECT id FROM iam.app_user WHERE email = 'admin@example.test'")
+	for i, role := range []string{"app_rw", "app_posture"} {
+		submitAs(t, e, role, map[string]any{"id": fmt.Sprintf("ui-req-%d", i), "type": "setting.change_requested", "severity": "high",
+			"actor": adminID, "target": "test:ui-request", "request_id": "req-ui-1", "reason": "two services, one request"})
+	}
+	drainTrail(t, auditsvc.Sequencer{DB: ap})
 
 	var n int
 	if err := e.posturePool().QueryRow(ctx, "SELECT count(*) FROM posture.drift_findings()").Scan(&n); err != nil || n == 0 {
