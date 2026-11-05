@@ -36,7 +36,7 @@ type Verifier struct {
 	WORM *objstore.Store
 	// Archive holds archived segments (T-18). A full run needs it once
 	// segments have been archived.
-	Archive *objstore.Store
+	Archive ArchiveSource
 	Batch   int // records per read; default 5000
 }
 

@@ -122,6 +122,12 @@ events:
     severities: [low]
     attributes: [filter, result_count]
     description: "Someone viewed the audit history of a target or an actor; the filter is attached (F-002 T-12, AC-20)"
+  - type: audit.records_archived
+    category: system
+    severities: [info]
+    requires: [target]
+    attributes: [destroy_after, digest, object_key, record_count, segment, seq_from, seq_to, version_id]
+    description: "A segment past the online retention was written to the archive, read back and checked, and its records removed from the database (F-002 T-18, AC-25, AC-26)"
   - type: audit.searched
     category: access
     severities: [low]

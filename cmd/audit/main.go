@@ -8,7 +8,8 @@
 // election (one replica leads). The leader sequences the trail (T-07),
 // closes segments with signed checkpoints every 15 minutes (T-09), and
 // verifies the trail every 15 minutes and in full daily (T-11), and
-// forwards it to the syslog (T-16) and OTLP (T-17) destinations. Every
+// forwards it to the syslog (T-16) and OTLP (T-17) destinations, and
+// archives segments past the online retention (T-18). Every
 // replica serves the Audit API (T-12) and works the evidence export queue
 // (T-15, River in schema audit_river).
 //
@@ -241,6 +242,9 @@ func run() error {
 	}}
 	// ...and verifies the trail continuously (T-11).
 	ver := auditsvc.Verifier{DB: pool, Audit: emitter, WORM: worm}
+	if store != nil {
+		ver.Archive = store // archived segments (T-18)
+	}
 	// ...and forwards it to the SIEM destinations named by the settings
 	// audit.syslog_destination (T-16) and audit.otlp_destination (T-17);
 	// air-gapped installs send inside the enclave only (design §7).
@@ -294,6 +298,25 @@ func run() error {
 			return cp.Run(ctx, 0, func(err error) { logger.Error("checkpoint", "error", err.Error()) })
 		})
 	}
+	// ...and moves segments past the online retention to the archive (T-18).
+	if store != nil {
+		arc := auditsvc.Archiver{DB: pool, Store: store, Audit: emitter, Retention: func() (time.Duration, time.Duration) {
+			online, err := sc.Duration(settings.KeyAuditRetentionOnline, "")
+			if err != nil {
+				online = 365 * 24 * time.Hour // the default of every built-in profile
+			}
+			total, err := sc.Duration(settings.KeyAuditRetentionTotal, "")
+			if err != nil {
+				total = 2557 * 24 * time.Hour
+			}
+			return online, total
+		}}
+		loops = append(loops, func(ctx context.Context) error {
+			return arc.Run(ctx, 0, func(err error) { logger.Error("archive", "error", err.Error()) })
+		})
+	} else {
+		logger.Warn("archiving is off: it needs the audit store (FAIR_AUDIT_STORE_BUCKET)")
+	}
 	go leader.Run(ctx, func(ctx context.Context) error { return runAll(ctx, loops) },
 		func(err error) { logger.Error("leader", "error", err.Error()) })
 
@@ -330,7 +353,7 @@ func run() error {
 		api := &auditapi.API{DB: pool, Authz: grants, Audit: emitter}
 		// Evidence exports (T-15): with a checkpoint key and the audit store.
 		if cp != nil && store != nil {
-			exporter := &auditsvc.Exporter{DB: pool, Checkpointer: cp, Store: store, Audit: emitter}
+			exporter := &auditsvc.Exporter{DB: pool, Checkpointer: cp, Store: store, Archives: store, Audit: emitter}
 			rc, err := auditsvc.NewExportClient(pool, exporter, logger)
 			if err != nil {
 				return fmt.Errorf("export jobs: %w", err)

@@ -35,13 +35,18 @@ import (
 type memStore struct {
 	mu      sync.Mutex
 	objects map[objstore.Version][]byte
+	locks   map[objstore.Version]time.Time
 	n       int
 	fail    error
+	// corrupt makes reads return other bytes than were written.
+	corrupt bool
 }
 
-func newMemStore() *memStore { return &memStore{objects: map[objstore.Version][]byte{}} }
+func newMemStore() *memStore {
+	return &memStore{objects: map[objstore.Version][]byte{}, locks: map[objstore.Version]time.Time{}}
+}
 
-func (s *memStore) PutStream(_ context.Context, key string, r io.Reader, size int64, _ time.Time) (objstore.Version, error) {
+func (s *memStore) PutStream(_ context.Context, key string, r io.Reader, size int64, until time.Time) (objstore.Version, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.fail != nil {
@@ -56,16 +61,37 @@ func (s *memStore) PutStream(_ context.Context, key string, r io.Reader, size in
 	}
 	s.n++
 	v := objstore.Version{Key: key, VersionID: fmt.Sprint(s.n)}
-	s.objects[v] = b
+	s.objects[v], s.locks[v] = b, until
 	return v, nil
+}
+
+func (s *memStore) read(v objstore.Version) ([]byte, error) {
+	b, ok := s.objects[v]
+	if !ok {
+		return nil, errors.New("no such object")
+	}
+	if s.corrupt {
+		b = append(bytes.Clone(b), 0)
+	}
+	return b, nil
+}
+
+func (s *memStore) Digest(_ context.Context, v objstore.Version) ([32]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b, err := s.read(v)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	return sha256.Sum256(b), nil
 }
 
 func (s *memStore) Open(_ context.Context, v objstore.Version) (io.ReadCloser, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	b, ok := s.objects[v]
-	if !ok {
-		return nil, errors.New("no such object")
+	b, err := s.read(v)
+	if err != nil {
+		return nil, err
 	}
 	return io.NopCloser(bytes.NewReader(b)), nil
 }
@@ -84,7 +110,7 @@ func newExportEnv(t *testing.T, ae auditAPIEnv) *exportEnv {
 	t.Helper()
 	cp := checkpointer(t, ae.pool, newCheckpointKey(t))
 	xe := &exportEnv{auditAPIEnv: ae, store: newMemStore()}
-	xe.exporter = &auditsvc.Exporter{DB: ae.pool, Checkpointer: &cp, Store: xe.store,
+	xe.exporter = &auditsvc.Exporter{DB: ae.pool, Checkpointer: &cp, Store: xe.store, Archives: xe.store,
 		Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: ae.pool}), TempDir: t.TempDir()}
 	xe.api(t, func(_ context.Context, _ pgx.Tx, id string) error {
 		xe.mu.Lock()

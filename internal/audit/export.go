@@ -1,12 +1,14 @@
 package audit
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -25,6 +27,11 @@ import (
 // FAIR_AUDIT_STORE_*).
 type ExportStore interface {
 	PutStream(ctx context.Context, key string, r io.Reader, size int64, retainUntil time.Time) (objstore.Version, error)
+	Open(ctx context.Context, v objstore.Version) (io.ReadCloser, error)
+}
+
+// ArchiveReader reads archived segments by version (objstore.Store).
+type ArchiveReader interface {
 	Open(ctx context.Context, v objstore.Version) (io.ReadCloser, error)
 }
 
@@ -56,9 +63,11 @@ type Exporter struct {
 	DB           *pgxpool.Pool // app_audit
 	Checkpointer *Checkpointer // closes the export's segment; its key signs the manifest
 	Store        ExportStore
-	Audit        events.Emitter
-	TempDir      string // "" for the system's
-	Now          func() time.Time
+	// Archives reads archived segments (T-18; the audit store).
+	Archives ArchiveReader
+	Audit    events.Emitter
+	TempDir  string // "" for the system's
+	Now      func() time.Time
 }
 
 // ExportResult describes a finished export.
@@ -184,37 +193,100 @@ func (x Exporter) Run(ctx context.Context, id string) (ExportResult, error) {
 	return res, nil
 }
 
-// records writes the export's records with their proofs and returns the
-// first segment they are in (0: none).
+// exportRow is one record an export includes, with its CSV columns.
+type exportRow struct {
+	Seq                                                                          int64
+	EventID                                                                      string
+	Segment                                                                      int64
+	Body                                                                         []byte
+	Time, Received                                                               time.Time
+	Producer, Type, Category, Severity, Actor, Target, BU, Request, IP, Approval string
+	Skew                                                                         *bool // unknown for archived records
+}
+
+const exportCols = `seq, event_id, segment, body, event_time, received_at, producer, type, coalesce(category, ''), severity, actor,
+	coalesce(target, ''), bu_id::text, coalesce(request_id, ''), coalesce(source_ip, ''), coalesce(approval_id, ''), skew`
+
+// archiveRef is an archived segment an export covers.
+type archiveRef struct {
+	Segment, SeqFrom, SeqTo int64
+	Key, Version            string
+	Digest                  []byte
+	Count                   int64
+}
+
+// records writes the export's records with their proofs, online and
+// archived (T-18) merged in sequence order, and returns the first segment
+// they are in (0: none).
 func (x Exporter) records(ctx context.Context, id string, st integrity.Statement, withCSV bool, w *evidence.ExportWriter) (uint64, error) {
 	var first, curSeg, segFrom uint64
 	var tree *integrity.Tree
+	add := func(r exportRow, t *integrity.Tree, from uint64) error {
+		seq, seg := uint64(r.Seq), uint64(r.Segment) // #nosec G115 -- positions
+		if first == 0 {
+			first = seg
+		}
+		path, err := t.Path(seq - from)
+		if err != nil {
+			return fmt.Errorf("audit export: record %d: %w", seq, err)
+		}
+		var csvRow []string
+		if withCSV {
+			var body struct {
+				Reason string `json:"reason"`
+			}
+			_ = json.Unmarshal(r.Body, &body) // bodies are JSON (ADR-011); a missing reason is empty
+			skew := ""
+			if r.Skew != nil {
+				skew = strconv.FormatBool(*r.Skew)
+			}
+			csvRow = []string{strconv.FormatInt(r.Seq, 10), r.EventID, r.Time.UTC().Format(time.RFC3339Nano), r.Received.UTC().Format(time.RFC3339Nano),
+				r.Producer, r.Type, r.Category, r.Severity, r.Actor, r.Target, r.BU, r.Request, r.IP, r.Approval, skew,
+				strconv.FormatInt(r.Segment, 10), csvSafe(body.Reason)}
+			for i := range csvRow[:len(csvRow)-1] {
+				csvRow[i] = csvSafe(csvRow[i])
+			}
+		}
+		return w.AddRecord(r.Body, evidence.Proof{Seq: seq, Segment: seg, Path: path}, csvRow)
+	}
+
+	// The archived segments the export covers, merged in before the online
+	// records that follow them.
+	rows, err := x.DB.Query(ctx, "SELECT segment, seq_from, seq_to, object_key, version_id, digest, record_count FROM audit.export_archives($1, $2)",
+		id, int64(st.SeqTo)) // #nosec G115 -- positions
+	if err != nil {
+		return 0, fmt.Errorf("audit export: archives: %w", err)
+	}
+	archives, err := pgx.CollectRows(rows, pgx.RowToStructByPos[archiveRef])
+	if err != nil {
+		return 0, fmt.Errorf("audit export: archives: %w", err)
+	}
+	next := 0
+	archivedBefore := func(seq int64) error {
+		for next < len(archives) && archives[next].SeqFrom < seq {
+			if err := x.archived(ctx, id, archives[next], add); err != nil {
+				return err
+			}
+			next++
+		}
+		return nil
+	}
+
 	after := int64(0)
 	for {
-		rows, err := x.DB.Query(ctx, `SELECT seq, event_id, segment, body, event_time, received_at, producer, type, category, severity, actor,
-			coalesce(target, ''), bu_id::text, coalesce(request_id, ''), coalesce(source_ip, ''), coalesce(approval_id, ''), skew
-			FROM audit.export_rows($1, $2, $3, $4)`, id, after, int64(st.SeqTo), exportBatch) // #nosec G115 -- positions
+		rows, err := x.DB.Query(ctx, "SELECT "+exportCols+" FROM audit.export_rows($1, $2, $3, $4)", id, after, int64(st.SeqTo), exportBatch) // #nosec G115 -- positions
 		if err != nil {
 			return 0, fmt.Errorf("audit export: read: %w", err)
 		}
-		type row struct {
-			Seq                                                                          int64
-			EventID                                                                      string
-			Segment                                                                      int64
-			Body                                                                         []byte
-			Time, Received                                                               time.Time
-			Producer, Type, Category, Severity, Actor, Target, BU, Request, IP, Approval string
-			Skew                                                                         bool
-		}
-		batch, err := pgx.CollectRows(rows, pgx.RowToStructByPos[row])
+		batch, err := pgx.CollectRows(rows, pgx.RowToStructByPos[exportRow])
 		if err != nil {
 			return 0, fmt.Errorf("audit export: read: %w", err)
 		}
 		for _, r := range batch {
-			seq, seg := uint64(r.Seq), uint64(r.Segment) // #nosec G115 -- positions
-			if first == 0 {
-				first = seg
+			if err := archivedBefore(r.Seq); err != nil {
+				return 0, err
 			}
+			seg := uint64(r.Segment) // #nosec G115 -- positions
 			if tree == nil || seg != curSeg {
 				var from int64
 				var leaves [][]byte
@@ -227,32 +299,76 @@ func (x Exporter) records(ctx context.Context, id string, st integrity.Statement
 				}
 				tree, curSeg, segFrom = integrity.NewTree(hs), seg, uint64(from) // #nosec G115
 			}
-			path, err := tree.Path(seq - segFrom)
-			if err != nil {
-				return 0, fmt.Errorf("audit export: record %d: %w", seq, err)
-			}
-			var csvRow []string
-			if withCSV {
-				var body struct {
-					Reason string `json:"reason"`
-				}
-				_ = json.Unmarshal(r.Body, &body) // bodies are JSON (ADR-011); a missing reason is empty
-				csvRow = []string{strconv.FormatInt(r.Seq, 10), r.EventID, r.Time.UTC().Format(time.RFC3339Nano), r.Received.UTC().Format(time.RFC3339Nano),
-					r.Producer, r.Type, r.Category, r.Severity, r.Actor, r.Target, r.BU, r.Request, r.IP, r.Approval, strconv.FormatBool(r.Skew),
-					strconv.FormatInt(r.Segment, 10), csvSafe(body.Reason)}
-				for i := range csvRow[:len(csvRow)-1] {
-					csvRow[i] = csvSafe(csvRow[i])
-				}
-			}
-			if err := w.AddRecord(r.Body, evidence.Proof{Seq: seq, Segment: seg, Path: path}, csvRow); err != nil {
+			if err := add(r, tree, segFrom); err != nil {
 				return 0, err
 			}
 		}
 		if len(batch) < exportBatch {
-			return first, nil
+			break
 		}
 		after = batch[len(batch)-1].Seq
 	}
+	if err := archivedBefore(math.MaxInt64); err != nil {
+		return 0, err
+	}
+	return first, nil
+}
+
+// archived adds the records of one archived segment that the export
+// includes: the object is read by its recorded version and must match the
+// digest recorded at archive time; the database applies the export's
+// filter and scope to its bodies (audit.export_archived).
+func (x Exporter) archived(ctx context.Context, id string, a archiveRef, add func(exportRow, *integrity.Tree, uint64) error) error {
+	if x.Archives == nil {
+		return fmt.Errorf("audit export: segment %d is archived but no archive store is configured", a.Segment)
+	}
+	rc, err := x.Archives.Open(ctx, objstore.Version{Key: a.Key, VersionID: a.Version})
+	if err != nil {
+		return fmt.Errorf("audit export: archive of segment %d: %w", a.Segment, err)
+	}
+	data, err := io.ReadAll(rc)
+	_ = rc.Close()
+	if err != nil {
+		return fmt.Errorf("audit export: archive of segment %d: %w", a.Segment, err)
+	}
+	if sum := sha256.Sum256(data); !bytes.Equal(sum[:], a.Digest) {
+		return fmt.Errorf("audit export: the archive of segment %d does not match its recorded digest", a.Segment)
+	}
+	seg, err := evidence.ReadSegment(bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("audit export: archive of segment %d: %w", a.Segment, err)
+	}
+	if int64(len(seg.Records)) != a.Count {
+		return fmt.Errorf("audit export: archive of segment %d holds %d records, %d recorded", a.Segment, len(seg.Records), a.Count)
+	}
+	hs := make([]integrity.Hash, len(seg.Records))
+	for i, r := range seg.Records {
+		hs[i] = r.Leaf
+	}
+	tree := integrity.NewTree(hs)
+	for lo := 0; lo < len(seg.Records); lo += exportBatch {
+		hi := min(lo+exportBatch, len(seg.Records))
+		seqs := make([]int64, 0, hi-lo)
+		bodies := make([][]byte, 0, hi-lo)
+		for _, r := range seg.Records[lo:hi] {
+			seqs = append(seqs, int64(r.Seq)) // #nosec G115 -- positions
+			bodies = append(bodies, r.Body)
+		}
+		rows, err := x.DB.Query(ctx, "SELECT "+exportCols+" FROM audit.export_archived($1, $2, $3, $4)", id, a.Segment, seqs, bodies)
+		if err != nil {
+			return fmt.Errorf("audit export: archive of segment %d: %w", a.Segment, err)
+		}
+		batch, err := pgx.CollectRows(rows, pgx.RowToStructByPos[exportRow])
+		if err != nil {
+			return fmt.Errorf("audit export: archive of segment %d: %w", a.Segment, err)
+		}
+		for _, r := range batch {
+			if err := add(r, tree, uint64(a.SeqFrom)); err != nil { // #nosec G115
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // csvSafe keeps a spreadsheet from reading a value as a formula (values
@@ -365,7 +481,7 @@ func DescribeFilter(filter []byte) string {
 	}
 	scope := "in the BUs where the requester could read audit records and held audit.export when the export was requested (bu_scope)"
 	if len(parts) == 0 {
-		return "Every audit record " + scope + ", up to the export's closing checkpoint. Archived records are not included."
+		return "Every audit record " + scope + ", online or archived, up to the export's closing checkpoint."
 	}
-	return "The audit records " + strings.Join(parts, ", ") + ", " + scope + ", up to the export's closing checkpoint. Archived records are not included."
+	return "The audit records " + strings.Join(parts, ", ") + ", " + scope + ", online or archived, up to the export's closing checkpoint."
 }
