@@ -62,8 +62,10 @@ const (
 	BUOptional = "optional"
 )
 
-// ReservedAttributes may appear on any event: FromOutbox adds event_id.
-var ReservedAttributes = []string{"event_id"}
+// ReservedAttributes may appear on any event: FromOutbox adds event_id, and
+// the trail adds approval_id to events recorded in the transaction that
+// consumed an approval (F-002 T-13, AC-35; producers may also set it).
+var ReservedAttributes = []string{"event_id", "approval_id"}
 
 // deniedNames are attribute-name fragments that would carry a secret
 // (F-002-AC-06): the catalog refuses such names.

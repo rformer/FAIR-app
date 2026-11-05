@@ -59,23 +59,7 @@ func auditAPIFixture(t *testing.T) auditAPIEnv {
 	e.mustOwner(grant("admin", "user:raud", "Auditor", "R"))
 	e.mustOwner(grant("admin", "user:nobody", "Executive Viewer", "ENTERPRISE"))
 	e.drain()
-
-	pool := e.auditPool()
-	dir := t.TempDir()
-	k, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	der, _ := x509.MarshalECPrivateKey(k)
-	if err := os.WriteFile(filepath.Join(dir, "gw-1.pem"), pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der}), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	keys, err := authz.LoadLocalKeys(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	api := &auditapi.API{DB: pool, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool)}),
-		Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: pool})}
-	srv := httptest.NewServer(api.Handler(keys, nil))
-	t.Cleanup(srv.Close)
-	ae := auditAPIEnv{e: e, pool: pool, url: srv.URL, keys: keys, seq: auditsvc.Sequencer{DB: pool}}
+	ae := newAuditAPI(t, e)
 
 	a, r, root := e.adminQuery("SELECT id FROM iam.bu WHERE code = 'A'"), e.adminQuery("SELECT id FROM iam.bu WHERE code = 'R'"),
 		e.adminQuery("SELECT id FROM iam.bu WHERE code = 'ENTERPRISE'")
@@ -102,6 +86,28 @@ func auditAPIFixture(t *testing.T) auditAPIEnv {
 		"target": "test:breakglass", "bu_id": root, "attributes": map[string]any{"approved_by": admin2, "reason": "drill"}})
 	drainTrail(t, ae.seq)
 	return ae
+}
+
+// newAuditAPI serves the Audit API over e's database as app_audit, with a
+// gateway key for minting the internal JWT.
+func newAuditAPI(t *testing.T, e *env) auditAPIEnv {
+	t.Helper()
+	pool := e.auditPool()
+	dir := t.TempDir()
+	k, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	der, _ := x509.MarshalECPrivateKey(k)
+	if err := os.WriteFile(filepath.Join(dir, "gw-1.pem"), pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	keys, err := authz.LoadLocalKeys(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := &auditapi.API{DB: pool, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool)}),
+		Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: pool})}
+	srv := httptest.NewServer(api.Handler(keys, nil))
+	t.Cleanup(srv.Close)
+	return auditAPIEnv{e: e, pool: pool, url: srv.URL, keys: keys, seq: auditsvc.Sequencer{DB: pool}}
 }
 
 // get calls the API as user ("" = unauthenticated).

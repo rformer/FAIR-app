@@ -79,10 +79,38 @@ components:
         filter: { type: object, additionalProperties: { type: string }, description: The filter applied }
         next_before: { type: [integer, "null"], description: Cursor for the next (older) page }
         next_after: { type: [integer, "null"], description: Cursor for the next page }
+    Party:
+      type: [object, "null"]
+      required: [id]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, description: The user's current display name }
+    ApprovalEvidence:
+      type: object
+      required: [approval_id, changes]
+      description: >-
+        One approval as the trail records it (AC-35). `request`, `decision` and `applied` are the
+        approval's own events (target `approval:<id>`); `changes` are the records naming it in
+        `approval_id`: the change it was requested for and the change it applied, which the trail
+        stamps on every event recorded in the transaction that consumed the approval. Summary
+        fields come from the latest approval event on the page; anything not visible is null.
+      properties:
+        approval_id: { type: string, format: uuid }
+        kind: { type: [string, "null"] }
+        target_ref: { type: [string, "null"] }
+        status: { type: [string, "null"], description: "pending, approved, rejected or expired" }
+        requested_by: { $ref: "#/components/schemas/Party" }
+        decided_by: { $ref: "#/components/schemas/Party" }
+        request: { oneOf: [{ $ref: "#/components/schemas/Record" }, { type: "null" }] }
+        decision: { oneOf: [{ $ref: "#/components/schemas/Record" }, { type: "null" }] }
+        applied: { oneOf: [{ $ref: "#/components/schemas/Record" }, { type: "null" }] }
+        changes: { type: array, items: { $ref: "#/components/schemas/Record" } }
+        next_after: { type: [integer, "null"], description: Cursor for the next page }
   responses:
     Error: { description: Error, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
 tags:
   - { name: records, description: "Search, history and request views (AC-15 to AC-18)" }
+  - { name: approvals, description: "Approval evidence for change management (AC-35)" }
   - { name: verification, description: "Checkpoints, keys and status, for verifiers" }
 paths:
   /records:
@@ -168,6 +196,20 @@ paths:
         - { $ref: "#/components/parameters/Limit" }
       responses:
         "200": { description: Records, content: { application/json: { schema: { $ref: "#/components/schemas/Records" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+  /approvals/{id}:
+    get:
+      operationId: approval
+      tags: [approvals]
+      summary: One approval's evidence in order - request, decision, both parties and the applied change (AC-35)
+      x-permission: audit.view
+      x-audit-events: [audit.searched]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: after, in: query, schema: { type: integer, minimum: 1 } }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200": { description: The evidence, content: { application/json: { schema: { $ref: "#/components/schemas/ApprovalEvidence" } } } }
         "404": { $ref: "#/components/responses/Error" }
   /checkpoints:
     get:

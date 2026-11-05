@@ -19,6 +19,7 @@ import (
 	"net/netip"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -68,6 +69,7 @@ var routes = []route{
 	{"GET", "/records/{seq}", (*API).record},
 	{"GET", "/history", (*API).history},
 	{"GET", "/requests/{id}", (*API).request},
+	{"GET", "/approvals/{id}", (*API).approval},
 	{"GET", "/checkpoints", (*API).checkpoints},
 	{"GET", "/keys", (*API).keys},
 	{"GET", "/status", (*API).status},
@@ -477,6 +479,114 @@ func (a *API) request(w http.ResponseWriter, r *http.Request, p authz.Principal)
 		next = &recs[len(recs)-1].Seq
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"request_id": id, "records": nonNil(recs), "next_after": next})
+}
+
+// Party is a user named by an approval.
+type Party struct {
+	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
+}
+
+// approval: GET /approvals/{id} (AC-35): one approval's evidence from the
+// trail, in order: the request, the decision, its use, and the records
+// naming it (the change requested and the change applied). 404 when none is
+// visible.
+func (a *API) approval(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	if !a.viewer(w, r, p) {
+		return
+	}
+	id := strings.ToLower(r.PathValue("id"))
+	if !isUUID(id) {
+		notFound(w)
+		return
+	}
+	n, ok := limit(w, r)
+	if !ok {
+		return
+	}
+	after, ok := cursor(w, r, "after")
+	if !ok {
+		return
+	}
+	fj, _ := json.Marshal(map[string]string{"approval_id": id})
+	var recs []Record
+	err := a.read(r.Context(), p, audit.Event{Type: "audit.searched", Target: "audit:approval:" + id,
+		Attributes: map[string]string{"view": "approval", "filter": string(fj)}},
+		func(tx pgx.Tx) (int, error) {
+			rows, err := tx.Query(r.Context(), "SELECT "+recordCols+" FROM audit.approval_evidence($1, $2, $3)", id, after, n)
+			if err != nil {
+				return 0, err
+			}
+			recs, err = scanRecords(rows)
+			return len(recs), err
+		})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if len(recs) == 0 && after == nil {
+		notFound(w)
+		return
+	}
+	out := map[string]any{"approval_id": id, "kind": nil, "target_ref": nil, "status": nil, "requested_by": nil, "decided_by": nil,
+		"request": nil, "decision": nil, "applied": nil}
+	changes := []Record{}
+	for i := range recs {
+		rec := &recs[i]
+		if rec.Target == nil || *rec.Target != "approval:"+id || !strings.HasPrefix(rec.Type, "approval.") {
+			changes = append(changes, *rec)
+			continue
+		}
+		switch rec.Type {
+		case "approval.requested":
+			out["request"] = rec
+		case "approval.consumed":
+			out["applied"] = rec
+		default: // approved, rejected, expired
+			out["decision"] = rec
+		}
+		// The latest approval event states the approval as it stands.
+		var body struct {
+			Attributes map[string]string `json:"attributes"`
+		}
+		if json.Unmarshal(rec.Event, &body) != nil {
+			continue
+		}
+		for _, k := range []string{"kind", "target_ref", "status"} {
+			if v := body.Attributes[k]; v != "" {
+				out[k] = v
+			}
+		}
+		for _, k := range []string{"requested_by", "decided_by"} {
+			if v := body.Attributes[k]; v != "" {
+				out[k] = Party{ID: v, Name: rec.Names[v]}
+			}
+		}
+	}
+	out["changes"] = changes
+	var next *int64
+	if len(recs) == n {
+		next = &recs[len(recs)-1].Seq
+	}
+	out["next_after"] = next
+	writeJSON(w, http.StatusOK, out)
+}
+
+func isUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i, c := range s {
+		switch {
+		case i == 8 || i == 13 || i == 18 || i == 23:
+			if c != '-' {
+				return false
+			}
+		case (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F'):
+			return false
+		}
+	}
+	return true
 }
 
 // checkpoints: GET /checkpoints?from=&limit= (for verifiers).

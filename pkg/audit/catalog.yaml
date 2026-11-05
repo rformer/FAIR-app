@@ -393,7 +393,7 @@ events:
     category: configuration
     severities: [high]
     requires: [target]
-    attributes: [approval_id, change_id, controls, default, direction, key, previous, value]
+    attributes: [change_id, controls, default, direction, key, previous, value]
     description: "A Restricted BU overlay change was requested (F-015 T-23)"
   - type: overlay.changed
     category: configuration
@@ -542,7 +542,7 @@ events:
     category: configuration
     severities: [info, high]
     requires: [target]
-    attributes: [approval_id, conflicts, loosening, switch_id]
+    attributes: [conflicts, loosening, switch_id]
     description: "A profile switch was requested"
   - type: profile.switched
     category: configuration
@@ -752,7 +752,7 @@ events:
     category: configuration
     severities: [high]
     requires: [target]
-    attributes: [approval_id, bound, bu_id, change_id, controls, direction, key, previous, value]
+    attributes: [bound, bu_id, change_id, controls, direction, key, previous, value]
     description: "A posture setting change awaits approval (F-015)"
   - type: setting.changed
     category: configuration
@@ -776,7 +776,7 @@ events:
     category: configuration
     severities: [high]
     requires: [target]
-    attributes: [approval_id, exception_id, renewal_id]
+    attributes: [exception_id, renewal_id]
     description: "A posture exception renewal was requested"
   - type: setting.exception_renewed
     category: configuration
