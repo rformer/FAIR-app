@@ -127,6 +127,20 @@ test("an action the user may not take reports the refusal", async ({ page }) => 
   await expect(dialog.getByRole("alert")).toContainText("You do not hold the permission");
   await expectAccessible(page, "the dialog with an error");
 });
+test("the Audit trail tile shows the last verification and its result (F-002 AC-14), accessibly", async ({ page }) => {
+  await as(page, "auditor");
+  const trail = section(page, "Audit trail");
+  await expect(trail).toContainText("Verification failed");
+  await expect(trail).toContainText(/Last verified .*, through record \d+\./);
+  await expect(trail.getByRole("alert")).toContainText("failed at record 2");
+  await expect(trail.getByRole("row", { name: /Last full run/ })).toContainText("failed");
+  await expect(trail.getByRole("link", { name: "Audit history" })).toHaveAttribute("href", "/audit?target=audit-trail");
+  // The finding it opened, and the controls it affects (AU-9, AU-6).
+  await expect(section(page, "Drift findings").getByRole("row", { name: /audit_integrity/ })).toContainText("critical");
+  await expect(section(page, "Per-control status").getByRole("row", { name: /^AU-9\b/ })).toContainText("Open finding");
+  await trail.scrollIntoViewIfNeeded();
+  await expectAccessible(page, "the Audit trail tile");
+});
 
 test("without posture.view the page says so, accessibly", async ({ page }) => {
   // The registry answers last, so the page must decide from whichever

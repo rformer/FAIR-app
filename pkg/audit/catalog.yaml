@@ -93,6 +93,18 @@ events:
     severities: [critical]
     attributes: [payload]
     description: "An event that did not match this catalog, recorded instead of it (a defect; the original is attached)"
+  - type: audit.verification_failed
+    category: system
+    severities: [critical]
+    requires: [target]
+    attributes: [failed_at_segment, failed_at_seq, kind, reason, verification_id]
+    description: "A verification run found the audit trail altered, incomplete or diverging from its external copies; the audit_integrity finding is open (F-002 T-11, AC-13)"
+  - type: audit.verification_recovered
+    category: system
+    severities: [high]
+    requires: [target]
+    attributes: [kind, to_segment, to_seq, verification_id]
+    description: "A full verification passed after a failure, resolving the audit_integrity finding (F-002 T-11, AC-13)"
   - type: authn.client_credentials
     category: token
     severities: [info]

@@ -108,3 +108,28 @@ export interface K8sAccess {
   warning: string;
   checks: CheckAssessment[];
 }
+
+/** F-002 T-11 (AC-14): the audit trail's verification status (GET /audit-trail). */
+export interface AuditTrailStatus {
+  state: "never" | "failed" | "overdue" | "ok";
+  last_run: {
+    id: number;
+    kind: "incremental" | "full";
+    finished_at: string;
+    ok: boolean;
+    to_seq: number | null;
+    to_segment: number | null;
+    failed_at_seq: number | null;
+    failed_at_segment: number | null;
+    detail: string | null;
+  } | null;
+  last_full: { id: number; finished_at: string; ok: boolean; to_seq: number | null; to_segment: number | null } | null;
+  last_verified_at: string | null;
+  verified_through_seq: number | null;
+  head_seq: number;
+  open_segment: number | null;
+  intake_waiting: number;
+  checkpoint_copies_waiting: number;
+  destinations: { name: string; kind: string; last_seq: number; backlog: number; last_sent_at: string | null; last_error: string | null }[];
+  storage: unknown;
+}

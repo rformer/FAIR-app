@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/rformer/fair-app/internal/approvals"
+	auditsvc "github.com/rformer/fair-app/internal/audit"
 	"github.com/rformer/fair-app/internal/gateway"
 	"github.com/rformer/fair-app/internal/posture"
 	"github.com/rformer/fair-app/internal/postureapi"
@@ -162,6 +163,23 @@ func seedPostureScenario(t *testing.T, ae apiEnv) {
 	if _, err := (posture.Drift{DB: e.posturePool(), Audit: audit.NewMemory()}).Scan(ctx); err != nil {
 		t.Fatal(err)
 	}
+	// F-002 T-11: a full verification that found record 2 altered, after one
+	// that passed (the Audit trail tile and the audit_integrity finding).
+	ap := e.auditPool()
+	submitN(t, e, "ui", 3)
+	drainTrail(t, auditsvc.Sequencer{DB: ap})
+	if _, err := checkpointer(t, ap, newCheckpointKey(t)).Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	ver := auditsvc.Verifier{DB: ap, Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: ap})}
+	if r, err := ver.Full(ctx); err != nil || !r.OK {
+		t.Fatalf("seed verification: %+v %v", r, err)
+	}
+	e.tamper("UPDATE audit.record SET body = convert_to('{}', 'UTF8') WHERE seq = 2")
+	if r, err := ver.Full(ctx); err != nil || r.OK || r.FailedSeq != 2 {
+		t.Fatalf("seed failed verification: %+v %v", r, err)
+	}
+
 	var n int
 	if err := e.posturePool().QueryRow(ctx, "SELECT count(*) FROM posture.drift_findings()").Scan(&n); err != nil || n == 0 {
 		t.Fatalf("seed drift: %d %v", n, err)

@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	auditsvc "github.com/rformer/fair-app/internal/audit"
 	"github.com/rformer/fair-app/internal/postureapi"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/audit"
@@ -260,5 +261,48 @@ func TestPostureAPIRestrictedBUHidden(t *testing.T) {
 	// The instance-wide views need posture.view at the root.
 	if r := ae.call(t, "rauditor", "GET", "/registry", "", nil); r.code != 404 {
 		t.Fatalf("rauditor registry: %d", r.code)
+	}
+}
+
+// F-002 T-11 (AC-14): the Audit trail tile's data, for posture.view
+// holders; a failed verification shows as failed and as the critical
+// audit_integrity finding in /drift.
+func TestPostureAPIAuditTrail(t *testing.T) {
+	ae := apiFixture(t, settings.ProfileEnterpriseBaseline)
+	e := ae.e
+	r := ae.call(t, "auditor", "GET", "/audit-trail", "", nil)
+	if r.code != 200 || r.body["state"] != "never" {
+		t.Fatalf("before verification: %d %s", r.code, r.raw)
+	}
+	if r := ae.call(t, "nobody", "GET", "/audit-trail", "", nil); r.code != 404 {
+		t.Fatalf("without posture.view: %d", r.code)
+	}
+	pool := e.auditPool()
+	seq := auditsvc.Sequencer{DB: pool}
+	submitN(t, e, "api", 3)
+	drainTrail(t, seq)
+	c := checkpointer(t, pool, newCheckpointKey(t))
+	if _, err := c.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	v := auditsvc.Verifier{DB: pool, Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: pool})}
+	if res, err := v.Full(context.Background()); err != nil || !res.OK {
+		t.Fatalf("%+v %v", res, err)
+	}
+	r = ae.call(t, "auditor", "GET", "/audit-trail", "", nil)
+	if r.code != 200 || r.body["state"] != "ok" || r.body["last_verified_at"] == nil {
+		t.Fatalf("verified: %s", r.raw)
+	}
+	e.tamper("UPDATE audit.record SET body = convert_to('{}', 'UTF8') WHERE seq = 1")
+	if res, err := v.Full(context.Background()); err != nil || res.OK {
+		t.Fatalf("%+v %v", res, err)
+	}
+	r = ae.call(t, "auditor", "GET", "/audit-trail", "", nil)
+	if last, _ := r.body["last_run"].(map[string]any); r.body["state"] != "failed" || last == nil || last["failed_at_seq"] != 1.0 {
+		t.Fatalf("failed: %s", r.raw)
+	}
+	r = ae.call(t, "auditor", "GET", "/drift", "", nil)
+	if !strings.Contains(r.raw, `"check_id":"audit_integrity"`) || !strings.Contains(r.raw, `"severity":"critical"`) {
+		t.Fatalf("drift: %s", r.raw)
 	}
 }

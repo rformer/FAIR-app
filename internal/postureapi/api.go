@@ -87,6 +87,7 @@ var routes = []route{
 	{"POST", "/drift/{id}/acknowledge", (*API).acknowledgeDrift},
 	{"GET", "/k8s-access", (*API).k8sAccess},
 	{"POST", "/k8s-access/acknowledge-grant", (*API).acknowledgeGrant},
+	{"GET", "/audit-trail", (*API).auditTrail},
 	{"GET", "/exports", (*API).listExports},
 	{"POST", "/exports", (*API).createExport},
 	{"GET", "/exports/{id}", (*API).getExport},
@@ -978,4 +979,20 @@ func (a *API) acknowledgeGrant(w http.ResponseWriter, r *http.Request, p authz.P
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"state": posture.AccessGranted})
+}
+
+// auditTrail is the Audit trail tile's data (F-002 T-11, AC-14): the
+// verification status the audit service records, as audit.status() gives it.
+func (a *API) auditTrail(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	if !a.view(w, r, p, "") {
+		return
+	}
+	var status json.RawMessage
+	if err := a.DB.QueryRow(r.Context(), "SELECT audit.status()").Scan(&status); err != nil {
+		fail(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(status)
 }

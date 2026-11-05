@@ -5,6 +5,7 @@ import { approvalHref, auditHref, date, daysUntil, show } from "../links";
 import { controlStatuses } from "./controls";
 import {
   API,
+  type AuditTrailStatus,
   type ExceptionRow,
   type Finding,
   type K8sAccess,
@@ -37,11 +38,12 @@ export function PosturePage() {
   const [since] = useState(() => new Date(Date.now() - 30 * 86_400_000).toISOString());
   const drift = useApi<{ findings: Finding[] }>(`${API}/drift?resolved_since=${encodeURIComponent(since)}`);
   const k8s = useApi<K8sAccess>(`${API}/k8s-access`);
+  const auditTrail = useApi<AuditTrailStatus>(`${API}/audit-trail`);
 
   // Every posture route needs posture.view and none of these URLs names an
   // id, so a 404 from any of them means no access. Whichever answers first
   // decides, so sections never show their own "not found" alerts meanwhile.
-  const loads: Loaded<unknown>[] = [registry, profiles, exceptions, switches, drift, k8s];
+  const loads: Loaded<unknown>[] = [registry, profiles, exceptions, switches, drift, k8s, auditTrail];
   if (loads.some((l) => l.error instanceof ApiError && l.error.status === 404)) {
     return (
       <>
@@ -62,6 +64,7 @@ export function PosturePage() {
           <li><a href="#expiries">Expiries and reverts</a></li>
           <li><a href="#switch">Profile switch</a></li>
           <li><a href="#drift">Drift findings</a></li>
+          <li><a href="#audit-trail">Audit trail</a></li>
           <li><a href="#k8s">Kubernetes access</a></li>
           <li><a href="#controls">Controls</a></li>
         </ul>
@@ -72,6 +75,7 @@ export function PosturePage() {
       <ExpiriesSection exceptions={exceptions} />
       <SwitchSection switches={switches} />
       <DriftSection drift={drift} />
+      <AuditTrailSection status={auditTrail} />
       <K8sSection k8s={k8s} />
       <ControlsSection registry={registry} drift={drift} k8s={k8s} />
     </>
@@ -370,6 +374,82 @@ function DriftSection({ drift }: { drift: Loaded<{ findings: Finding[] }> }) {
                 </tbody>
               </table>
             </div>
+          );
+        }}
+      </Status>
+    </Section>
+  );
+}
+
+const trailState: Record<AuditTrailStatus["state"], [string, Tone]> = {
+  ok: ["Verified", "ok"],
+  failed: ["Verification failed", "bad"],
+  overdue: ["Verification overdue", "warn"],
+  never: ["Not yet verified", "muted"],
+};
+
+/** F-002 T-11 (AC-14): when the audit trail was last verified, and the result. */
+function AuditTrailSection({ status }: { status: Loaded<AuditTrailStatus> }) {
+  return (
+    <Section
+      id="audit-trail"
+      title="Audit trail"
+      intro="The audit trail is verified every 15 minutes since the last verified checkpoint, and in full every day, archives and external copies included."
+    >
+      <Status loaded={status}>
+        {(s) => {
+          const [label, tone] = trailState[s.state];
+          const run = s.last_run;
+          const position = run && !run.ok
+            ? run.failed_at_seq != null ? `record ${run.failed_at_seq}` : run.failed_at_segment != null ? `segment ${run.failed_at_segment}` : "the trail as a whole"
+            : null;
+          return (
+            <>
+              <p>
+                <Badge tone={tone}>{label}</Badge>{" "}
+                {s.last_verified_at ? <>Last verified {date(s.last_verified_at)}, through record {s.verified_through_seq}.</> : <>No verification has passed yet.</>}{" "}
+                <a href={auditHref("audit-trail")}>Audit history</a>
+              </p>
+              {position ? (
+                <p role="alert" className="banner">
+                  The {run?.kind} verification of {date(run?.finished_at)} failed at {position}: {run?.detail}. The critical{" "}
+                  <span className="mono">audit_integrity</span> finding (see <a href="#drift">Drift findings</a>) stays open until a full verification
+                  passes.
+                </p>
+              ) : null}
+              <div className="table-wrap">
+                <table className="data">
+                  <caption className="sr-only">Audit trail verification status</caption>
+                  <tbody>
+                    <tr><th scope="row">Last run</th><td>{run ? <>{run.kind}, {date(run.finished_at)}: {run.ok ? "passed" : "failed"}</> : "none"}</td></tr>
+                    <tr><th scope="row">Last full run</th><td>{s.last_full ? <>{date(s.last_full.finished_at)}: {s.last_full.ok ? "passed" : "failed"}</> : "none"}</td></tr>
+                    <tr><th scope="row">Records in the trail</th><td>{s.head_seq} (open segment {s.open_segment ?? "none"})</td></tr>
+                    <tr><th scope="row">Waiting to be recorded</th><td>{s.intake_waiting}</td></tr>
+                    <tr><th scope="row">Checkpoints waiting for their write-once copy</th><td>{s.checkpoint_copies_waiting}</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              {s.destinations.length > 0 ? (
+                <div className="table-wrap">
+                  <table className="data">
+                    <caption>Forwarding destinations</caption>
+                    <thead>
+                      <tr><th scope="col">Destination</th><th scope="col">Backlog</th><th scope="col">Last sent</th><th scope="col">Last error</th></tr>
+                    </thead>
+                    <tbody>
+                      {s.destinations.map((d) => (
+                        <tr key={d.name}>
+                          <th scope="row">{d.name} <span className="muted">({d.kind})</span></th>
+                          <td>{d.backlog}</td>
+                          <td>{d.last_sent_at ? date(d.last_sent_at) : "never"}</td>
+                          <td>{d.last_error ?? "none"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+            </>
           );
         }}
       </Status>

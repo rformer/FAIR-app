@@ -5,8 +5,9 @@
 // T-05 scaffold: hardened server with health and readiness, FIPS
 // enforcement, structured logging, audit emission of lifecycle events, a
 // database pool as app_audit, the install checks of design §7, and leader
-// election (one replica leads). The leader sequences the trail (T-07) and
-// closes segments with signed checkpoints every 15 minutes (T-09).
+// election (one replica leads). The leader sequences the trail (T-07),
+// closes segments with signed checkpoints every 15 minutes (T-09), and
+// verifies the trail every 15 minutes and in full daily (T-11).
 //
 // Environment: as for every service (FAIR_ENV, FAIR_DEPLOYMENT_MODE,
 // FAIR_LISTEN_ADDR, FAIR_TLS_CERT_FILE, FAIR_TLS_KEY_FILE, FAIR_REQUIRE_FIPS,
@@ -176,24 +177,29 @@ func run() error {
 	leader := auditsvc.Leader{Pool: pool, OnChange: func(leading bool) {
 		logger.Info("leader", "leading", leading, "replica", replica)
 	}}
-	go leader.Run(ctx, func(ctx context.Context) error {
-		// Both stop when leadership ends; the first to stop stops the other.
-		ctx, cancel := context.WithCancel(ctx)
-		defer cancel()
-		done := make(chan error, 1)
-		go func() {
-			defer cancel()
-			if cp == nil {
-				<-ctx.Done()
-				done <- nil
-				return
-			}
-			done <- cp.Run(ctx, 0, func(err error) { logger.Error("checkpoint", "error", err.Error()) })
-		}()
-		err := seq.Run(ctx, 0, func(err error) { logger.Error("sequencer", "error", err.Error()) })
-		cancel()
-		return errors.Join(err, <-done)
-	}, func(err error) { logger.Error("leader", "error", err.Error()) })
+	// ...and verifies the trail continuously (T-11).
+	ver := auditsvc.Verifier{DB: pool, Audit: emitter, WORM: worm}
+	loops := []func(context.Context) error{
+		func(ctx context.Context) error {
+			return seq.Run(ctx, 0, func(err error) { logger.Error("sequencer", "error", err.Error()) })
+		},
+		func(ctx context.Context) error {
+			return ver.Run(ctx, 0, 0, func(r auditsvc.VerifyResult) {
+				if r.OK {
+					logger.Info("audit trail verified", "kind", r.Kind, "to_seq", r.ToSeq, "to_segment", r.ToSegment, "finding", r.Finding)
+				} else {
+					logger.Error("audit trail verification failed", "kind", r.Kind, "seq", r.FailedSeq, "segment", r.FailedSegment, "reason", r.Reason)
+				}
+			}, func(err error) { logger.Error("verification", "error", err.Error()) })
+		},
+	}
+	if cp != nil {
+		loops = append(loops, func(ctx context.Context) error {
+			return cp.Run(ctx, 0, func(err error) { logger.Error("checkpoint", "error", err.Error()) })
+		})
+	}
+	go leader.Run(ctx, func(ctx context.Context) error { return runAll(ctx, loops) },
+		func(err error) { logger.Error("leader", "error", err.Error()) })
 
 	srv := server.New(server.Options{
 		Addr:        cfg.ListenAddr,
@@ -209,6 +215,25 @@ func run() error {
 	err = srv.Run(ctx, cfg.ShutdownTimeout)
 	_ = emitter.Emit(context.Background(), audit.Event{Type: "service.stopped", Severity: audit.SeverityInfo, Actor: "system:audit"})
 	return err
+}
+
+// runAll runs loops until ctx ends or one of them stops, which stops the
+// others (leadership lost or the database gone: the leader retries).
+func runAll(ctx context.Context, loops []func(context.Context) error) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	done := make(chan error, len(loops))
+	for _, l := range loops {
+		go func() {
+			defer cancel()
+			done <- l(ctx)
+		}()
+	}
+	errs := make([]error, 0, len(loops))
+	for range loops {
+		errs = append(errs, <-done)
+	}
+	return errors.Join(errs...)
 }
 
 // schemaReady checks that the database is reachable, the audit schema is

@@ -61,6 +61,54 @@ components:
         document: { type: string, description: The OSCAL JSON document, exactly as signed }
         statement: { type: string, description: The signed statement, exactly as signed }
         signature: { type: string, description: Base64 ECDSA P-256 signature over SHA-256 of statement }
+    AuditTrailStatus:
+      type: object
+      description: >
+        F-002 design §6.5. state is never (no verification yet), failed (a run failed since the last
+        passed full run; the audit_integrity finding is open), overdue (no passed incremental run in 30
+        minutes or full run in 26 hours) or ok. Forwarding destinations arrive with F-002 T-16 and T-17,
+        storage with T-20.
+      required: [state, head_seq, destinations]
+      properties:
+        state: { enum: [never, failed, overdue, ok] }
+        last_run:
+          type: [object, "null"]
+          properties:
+            id: { type: integer }
+            kind: { enum: [incremental, full] }
+            finished_at: { type: string, format: date-time }
+            ok: { type: boolean }
+            to_seq: { type: [integer, "null"] }
+            to_segment: { type: [integer, "null"] }
+            failed_at_seq: { type: [integer, "null"] }
+            failed_at_segment: { type: [integer, "null"] }
+            detail: { type: [string, "null"] }
+        last_full:
+          type: [object, "null"]
+          properties:
+            id: { type: integer }
+            finished_at: { type: string, format: date-time }
+            ok: { type: boolean }
+            to_seq: { type: [integer, "null"] }
+            to_segment: { type: [integer, "null"] }
+        last_verified_at: { type: [string, "null"], format: date-time }
+        verified_through_seq: { type: [integer, "null"] }
+        head_seq: { type: integer }
+        open_segment: { type: [integer, "null"] }
+        intake_waiting: { type: integer, description: Events accepted and not yet sequenced }
+        checkpoint_copies_waiting: { type: integer, description: Checkpoints not yet copied to write-once storage }
+        destinations:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              kind: { enum: [syslog, otlp] }
+              last_seq: { type: integer }
+              backlog: { type: integer }
+              last_sent_at: { type: [string, "null"], format: date-time }
+              last_error: { type: [string, "null"] }
+        storage: { type: [object, "null"] }
     ChangeOutcome:
       type: object
       properties:
@@ -72,6 +120,7 @@ components:
   responses:
     Error: { description: Error, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
 tags:
+  - { name: audit-trail, description: "Audit trail verification status (F-002)" }
   - { name: changes, description: "Setting change history" }
   - { name: drift, description: "Drift findings" }
   - { name: exceptions, description: "Exceptions and renewals" }
@@ -333,6 +382,14 @@ paths:
       parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [permissions_digest], properties: { permissions_digest: { type: string }, reason: { type: string } } } } } }
       responses: { "200": { description: Granted } }
+  /audit-trail:
+    get:
+      operationId: auditTrail
+      tags: [audit-trail]
+      summary: The audit trail's verification status, for the Audit trail tile (F-002 T-11, AC-14)
+      x-permission: posture.view
+      responses:
+        "200": { description: Status, content: { application/json: { schema: { $ref: "#/components/schemas/AuditTrailStatus" } } } }
   /exports:
     get:
       operationId: listExports
