@@ -173,6 +173,65 @@ test("one request across services (AC-17), with integrity after a failed verific
   await expect(page.getByRole("alert")).toContainText("Not found, or not visible to you.");
 });
 
+test("exporting the matching records, by keyboard (F-002 T-15, AC-32 to AC-34), accessibly", async ({ page }) => {
+  await as(page, "auditor");
+  await page.goto("/audit?view=search&category=approval");
+  // What the search shows (one page: no older records) is what is exported.
+  await expect(section(page, "Matching records").getByRole("rowheader").first()).toBeVisible();
+  const shown = await section(page, "Matching records").getByRole("rowheader").count();
+  expect(shown).toBeGreaterThan(1);
+  await expect(page.getByRole("link", { name: "Older records" })).toHaveCount(0);
+  const exp = section(page, "Export");
+  await expect(exp).toContainText("the records matching category approval");
+  await expectAccessible(page, "the export action");
+
+  // A reason is required.
+  await exp.getByRole("button", { name: "Export these records" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(exp.getByRole("alert")).toHaveText("Give a reason for the export.");
+
+  // By keyboard: CSV, a reason, export.
+  await exp.getByLabel("CSV (a table, with the records as recorded alongside)").focus();
+  await page.keyboard.press("Space");
+  await expect(exp.getByLabel("CSV (a table, with the records as recorded alongside)")).toBeChecked();
+  await exp.getByLabel("Reason").focus();
+  await page.keyboard.type("Change-management evidence for Q4");
+  await exp.getByRole("button", { name: "Export these records" }).focus();
+  await page.keyboard.press("Enter");
+  const status = exp.getByRole("status");
+  await expect(status).toContainText(new RegExp(`The export is ready: ${shown} records, up to checkpoint \\d+\\.`), { timeout: 30_000 });
+  await expect(status).toContainText(/SHA-256 [0-9a-f]{64}/);
+  await expect(exp.getByRole("alert")).toHaveCount(0);
+  await expectAccessible(page, "a ready export");
+
+  // The bundle downloads as a ZIP in the chosen format (entry names are
+  // stored uncompressed).
+  const [download] = await Promise.all([page.waitForEvent("download"), status.getByRole("link", { name: "Download the export (ZIP)" }).click()]);
+  expect(download.suggestedFilename()).toMatch(/^fair-audit-export-[0-9a-f-]{36}\.zip$/);
+  const chunks: Buffer[] = [];
+  for await (const c of await download.createReadStream()) chunks.push(c as Buffer);
+  const zip = Buffer.concat(chunks).toString("latin1");
+  expect(zip.startsWith("PK")).toBe(true);
+  for (const name of ["records.csv", "bodies.jsonl", "proofs.jsonl", "checkpoints.jsonl", "manifest.json", "manifest.sig"]) {
+    expect(zip, name).toContain(name);
+  }
+  expect(zip).not.toContain("records.jsonl");
+});
+
+test("an export the user may not make reports the refusal", async ({ page }) => {
+  await as(page, "auditor");
+  await page.route("**/api/v1/audit/exports", (route) =>
+    route.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify({ error: "forbidden", detail: "audit.export is required" }) }),
+  );
+  await page.goto("/audit");
+  const exp = section(page, "Export");
+  await exp.getByLabel("Reason").fill("seen");
+  await exp.getByRole("button", { name: "Export these records" }).click();
+  await expect(exp.getByRole("alert")).toHaveText("You do not hold the permission this action needs.");
+  await expect(exp.getByRole("status")).toBeEmpty();
+  await expectAccessible(page, "a refused export");
+});
+
 test("without audit.view the audit pages say so, accessibly", async ({ page }) => {
   await as(page, "nobody");
   for (const path of ["/audit", `/audit?target=${encodeURIComponent(target)}`]) {

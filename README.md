@@ -244,7 +244,12 @@ PGDATABASE=fair PGSSLMODE=verify-full FAIR_DB_PASSWORD_FILE=<app_posture passwor
 # Web UI (T-32): web/ (React + TypeScript, Vite; cd web && npm ci && npm run build).
 # The gateway serves it from FAIR_UI_DIR (web/dist), index.html for the app's
 # routes: /posture (F-015 T-32) and /audit (F-002 T-14: search, history,
-# request view, approval evidence, record proofs).
+# request view, approval evidence, record proofs; T-15: evidence exports).
+# Evidence exports (F-002 T-15) need the audit store: FAIR_AUDIT_STORE_BUCKET with
+# _ENDPOINT, _REGION, _ACCESS_KEY_FILE, _SECRET_KEY_FILE (_CA_FILE), an S3 bucket with
+# versioning and Object Lock, required in production in every mode. Bundles are spooled
+# in TMPDIR, then stored locked for 30 days; check them with fair-audit-verify
+# verify-export (docs/operations/audit-verification.md).
 # End to end against the real API and database: scripts/ui-e2e.sh (Playwright
 # with axe WCAG 2.1 AA scans; needs the DB test containers and node).
 # After changing a .proto in api/proto: scripts/gen-proto.sh (see its header).

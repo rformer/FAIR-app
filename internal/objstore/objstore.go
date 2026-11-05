@@ -170,12 +170,18 @@ type Version struct {
 // S3-compatible store accepts. It checks transport only (ADR-012): the
 // trail's integrity is SHA-256, and callers read archives back with Digest.
 func (s *Store) Put(ctx context.Context, key string, data []byte, retainUntil time.Time) (Version, error) {
+	return s.PutStream(ctx, key, bytes.NewReader(data), int64(len(data)), retainUntil)
+}
+
+// PutStream is Put for size bytes read from r (an export bundle spooled to
+// a file, F-002 T-15); large objects are uploaded in parts.
+func (s *Store) PutStream(ctx context.Context, key string, r io.Reader, size int64, retainUntil time.Time) (Version, error) {
 	opts := minio.PutObjectOptions{ContentType: "application/octet-stream", SendContentMd5: true}
 	if !retainUntil.IsZero() {
 		opts.Mode = minio.Compliance
 		opts.RetainUntilDate = retainUntil.UTC()
 	}
-	info, err := s.c.PutObject(ctx, s.bucket, key, bytes.NewReader(data), int64(len(data)), opts)
+	info, err := s.c.PutObject(ctx, s.bucket, key, r, size, opts)
 	if err != nil {
 		return Version{}, fmt.Errorf("objstore: put %s: %w", key, err)
 	}

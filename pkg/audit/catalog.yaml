@@ -88,6 +88,18 @@ events:
     requires: [target]
     attributes: [key_id, segment, seq_from, seq_to, signature, statement]
     description: "A segment of the audit trail was closed with a signed checkpoint, copied to the SIEM through this event (F-002 T-09, AC-09, AC-10)"
+  - type: audit.export_fetched
+    category: access
+    severities: [low]
+    requires: [target]
+    attributes: [digest, export_id]
+    description: "Someone downloaded an evidence export's bundle (F-002 T-15, design §6.6)"
+  - type: audit.exported
+    category: access
+    severities: [high]
+    requires: [target]
+    attributes: [bu_scope_count, checkpoint_segment, digest, export_id, failure, filter, format, record_count, status]
+    description: "An evidence export of the audit trail was made (status ready: its filter, record count, bundle digest and closing checkpoint) or could not be made (status failed); the actor is the requester and the reason theirs (F-002 T-15, AC-32 to AC-34)"
   - type: audit.invalid_event
     category: system
     severities: [critical]

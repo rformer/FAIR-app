@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { ApiError } from "../api";
 import { Badge, Section, Status, useApi, type Loaded, type Tone } from "../components";
 import { actorHref, auditHref, evidenceHref, recordHref, requestHref } from "../links";
+import { ExportAction } from "./ExportAction";
 import {
   AUDIT_API,
   CATEGORIES,
@@ -22,7 +23,8 @@ import {
 //   ?request=             every visible record of one request (AC-17)
 //   ?approval=            one approval's evidence (AC-35)
 //   ?record=              one record and its proof
-//   otherwise             search, newest first (?view=search&<filters>)
+//   otherwise             search, newest first (?view=search&<filters>),
+//                         with the export action (T-15)
 // What a user sees is decided by the API (AC-19); every read is recorded
 // there (AC-20).
 
@@ -358,6 +360,9 @@ function SearchView({ view }: { view: Extract<View, { kind: "search" }> }) {
             </>
           )}
         </Status>
+      </Section>
+      <Section id="export" title="Export">
+        <ExportAction filter={view.filter} />
       </Section>
     </>
   );

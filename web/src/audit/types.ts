@@ -64,6 +64,23 @@ export interface ApprovalEvidence {
   next_after: number | null;
 }
 
+/** An evidence export (F-002 T-15, AC-32 to AC-34). */
+export interface Export {
+  export_id: string;
+  requested_by: string;
+  filter: Record<string, string>;
+  format: "jsonl" | "csv";
+  reason: string;
+  bu_scope: string[];
+  status: "pending" | "ready" | "failed";
+  record_count: number | null;
+  digest: string | null;
+  checkpoint_segment: number | null;
+  failure: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
 /** The search filters (AC-15), in the order the form shows them. */
 export const FILTERS = ["from", "to", "type", "category", "severity", "actor", "target", "bu", "request_id", "source_ip"] as const;
 export type FilterKey = (typeof FILTERS)[number];

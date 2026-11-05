@@ -34,7 +34,7 @@ func TestStaticUI(t *testing.T) {
 		{"/assets/app.js", 200, "js"},
 		{"/favicon.svg", 200, "svg"},
 		{"/assets/missing.js", 404, ""},
-		{"/assets", 200, "app"}, // a directory is not served as a listing
+		{"/assets", 200, "app"},     // a directory is not served as a listing
 		{"/../index.html", 301, ""}, // cleaned to /index.html, which FileServer sends to /
 	} {
 		rec := httptest.NewRecorder()

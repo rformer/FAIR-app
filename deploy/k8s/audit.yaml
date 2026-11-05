@@ -46,6 +46,17 @@ spec:
             - { name: PGSSLMODE, value: verify-full }
             - { name: PGSSLROOTCERT, value: /db-ca/ca.crt }
             - { name: FAIR_DB_PASSWORD_FILE, value: /secrets/db/password }
+            # The audit store (F-002 T-15): evidence export bundles and, from
+            # T-18, archives. Required in every mode; the bucket must have
+            # versioning and Object Lock; credentials are files.
+            - { name: FAIR_AUDIT_STORE_BUCKET, value: REPLACE_WITH_BUCKET }
+            - { name: FAIR_AUDIT_STORE_ENDPOINT, value: REPLACE_WITH_HOST_PORT }
+            - { name: FAIR_AUDIT_STORE_REGION, value: us-east-1 }
+            - { name: FAIR_AUDIT_STORE_ACCESS_KEY_FILE, value: /secrets/store/access-key }
+            - { name: FAIR_AUDIT_STORE_SECRET_KEY_FILE, value: /secrets/store/secret-key }
+            # Export bundles are spooled here before upload (the root file
+            # system is read-only).
+            - { name: TMPDIR, value: /spool }
             # SaaS: write-once storage for checkpoint copies (F-002 AC-10).
             # The bucket must have versioning and Object Lock (the service
             # refuses one without); credentials are files (internal/objstore).
@@ -73,7 +84,15 @@ spec:
             - { name: tls, mountPath: /tls, readOnly: true }
             - { name: db, mountPath: /secrets/db, readOnly: true }
             - { name: db-ca, mountPath: /db-ca, readOnly: true }
+            - { name: store, mountPath: /secrets/store, readOnly: true }
+            - { name: spool, mountPath: /spool }
       volumes:
+        - name: store
+          secret: { secretName: audit-store, defaultMode: 0400 }
+        # Two exports at a time, each up to a few GiB spooled (1 million
+        # records with proofs is about 1.5 GiB).
+        - name: spool
+          emptyDir: { sizeLimit: 8Gi }
         - name: tls
           secret: { secretName: audit-tls }
         - name: db

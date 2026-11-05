@@ -56,6 +56,20 @@ func TestPostureUIHarness(t *testing.T) {
 	ap := e.auditPool()
 	auditAPI := &auditapi.API{DB: ap, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(ap), MaxAge: time.Second}),
 		Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: ap})}
+	// F-002 T-15: evidence exports, made by the River job; bundles in memory.
+	cp := checkpointer(t, ap, newCheckpointKey(t))
+	bundles := newMemStore()
+	exporter := &auditsvc.Exporter{DB: ap, Checkpointer: &cp, Store: bundles, Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: ap}),
+		TempDir: t.TempDir()}
+	rc, err := auditsvc.NewExportClient(ap, exporter, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rc.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rc.Stop(context.Background()) }()
+	auditAPI.Enqueue, auditAPI.Bundles = auditsvc.Enqueuer(rc), bundles
 	auditSrv := httptest.NewServer(auditAPI.Handler(ae.keys, nil))
 	defer auditSrv.Close()
 	auditUp, _ := url.Parse(auditSrv.URL)

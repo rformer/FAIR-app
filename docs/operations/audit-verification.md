@@ -11,6 +11,13 @@
 
 `fair-audit-verify version` prints the release, the formats it reads and whether the FIPS 140 module is on.
 
+## Getting an export
+An export bundle holds the records matching a search, each with its Merkle proof, the signed checkpoints that cover them, the public keys and a signed manifest (F-002 AC-32 to AC-34). To make one:
+- **In the web UI:** open **Audit trail**, apply the filters, then use **Export** on the same page: choose JSON lines or CSV, give a reason, and download the ZIP when it is ready. The page shows the bundle's SHA-256.
+- **Through the API:** `POST /api/v1/audit/exports` with `{"filter": {...}, "format": "jsonl", "reason": "..."}` and an `Idempotency-Key`; follow `GET /api/v1/audit/exports/{id}` until `status` is `ready`; download `GET /api/v1/audit/exports/{id}/bundle` (its `Content-Digest` is the SHA-256).
+
+Exports need `audit.export`. They include only what the requester could see and export when they asked (the manifest's `bu_scope`), up to a checkpoint closed for the export, and the manifest states the filter in words and as data. Each export is recorded in the trail (`audit.exported`, high), and so is each download (`audit.export_fetched`). Archived records are added to exports by F-002 T-18.
+
 ## Trusted keys
 Checkpoints and export manifests are signed with the platform's checkpoint key (ECDSA P-256). A key is named by its key id, the SHA-256 of its public key.
 

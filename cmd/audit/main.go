@@ -7,7 +7,9 @@
 // database pool as app_audit, the install checks of design §7, and leader
 // election (one replica leads). The leader sequences the trail (T-07),
 // closes segments with signed checkpoints every 15 minutes (T-09), and
-// verifies the trail every 15 minutes and in full daily (T-11).
+// verifies the trail every 15 minutes and in full daily (T-11). Every
+// replica serves the Audit API (T-12) and works the evidence export queue
+// (T-15, River in schema audit_river).
 //
 // Environment: as for every service (FAIR_ENV, FAIR_DEPLOYMENT_MODE,
 // FAIR_LISTEN_ADDR, FAIR_TLS_CERT_FILE, FAIR_TLS_KEY_FILE, FAIR_REQUIRE_FIPS,
@@ -24,6 +26,13 @@
 //	                                 FAIR_AUDIT_WORM_ENDPOINT, _REGION,
 //	                                 _ACCESS_KEY_FILE, _SECRET_KEY_FILE,
 //	                                 _CA_FILE (internal/objstore)
+//	FAIR_AUDIT_STORE_BUCKET          the audit store: evidence export bundles
+//	                                 (T-15) and, from T-18, archives; required
+//	                                 in production, with FAIR_AUDIT_STORE_
+//	                                 ENDPOINT, _REGION, _ACCESS_KEY_FILE,
+//	                                 _SECRET_KEY_FILE, _CA_FILE (versioning
+//	                                 and Object Lock, as for the WORM bucket);
+//	                                 bundles are spooled in TMPDIR first
 //	FAIR_NATS_URL                    NATS, for scope changes (the API's grant
 //	                                 cache otherwise refreshes on its own);
 //	                                 FAIR_NATS_CREDS_FILE optional
@@ -112,6 +121,15 @@ func run() error {
 		}
 		worm = s
 	}
+	// The audit store (T-15): export bundles.
+	var store *objstore.Store
+	if os.Getenv("FAIR_AUDIT_STORE_BUCKET") != "" {
+		s, err := objstore.New(objstore.FromEnv("FAIR_AUDIT_STORE", cfg.Env, os.Getenv))
+		if err != nil {
+			return fmt.Errorf("FAIR_AUDIT_STORE: %w", err)
+		}
+		store = s
+	}
 	// The Audit API (T-12) verifies the gateway's internal JWTs.
 	var jwtKeys *authz.LocalKeys
 	if dir := os.Getenv("FAIR_JWT_KEYS_DIR"); dir != "" {
@@ -136,6 +154,11 @@ func run() error {
 	if worm != nil {
 		if err := worm.CheckBucket(ctx); err != nil {
 			return fmt.Errorf("FAIR_AUDIT_WORM_BUCKET: %w", err) // not write-once: refuse (AC-10)
+		}
+	}
+	if store != nil {
+		if err := store.CheckBucket(ctx); err != nil {
+			return fmt.Errorf("FAIR_AUDIT_STORE_BUCKET: %w", err)
 		}
 	}
 
@@ -249,6 +272,25 @@ func run() error {
 			}
 		}
 		api := &auditapi.API{DB: pool, Authz: grants, Audit: emitter}
+		// Evidence exports (T-15): with a checkpoint key and the audit store.
+		if cp != nil && store != nil {
+			exporter := &auditsvc.Exporter{DB: pool, Checkpointer: cp, Store: store, Audit: emitter}
+			rc, err := auditsvc.NewExportClient(pool, exporter, logger)
+			if err != nil {
+				return fmt.Errorf("export jobs: %w", err)
+			}
+			if err := rc.Start(ctx); err != nil {
+				return fmt.Errorf("export jobs: %w", err)
+			}
+			defer func() {
+				sctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				_ = rc.Stop(sctx)
+			}()
+			api.Enqueue, api.Bundles = auditsvc.Enqueuer(rc), store
+		} else {
+			logger.Warn("evidence exports are off: they need the checkpoint key and the audit store (FAIR_AUDIT_STORE_BUCKET)")
+		}
 		srv.Mux().Handle(auditapi.Prefix+"/", server.SecurityHeaders(api.Handler(jwtKeys, nil)))
 	}
 

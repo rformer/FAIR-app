@@ -27,6 +27,14 @@ info:
     Proofs and checkpoints follow ADR-011: a record's `leaf_hash` is SHA-256(0x00 ‖ body),
     its `path` is the RFC 9162 inclusion path in its segment, and the segment's signed
     checkpoint statement holds the Merkle root. `fair-audit-verify` checks them offline.
+
+    Evidence exports (F-002 T-15, AC-32 to AC-34) also need `audit.export` (403 without it).
+    An export includes the records matching its filter in the BUs where the requester could
+    read audit records and held `audit.export` when they asked (AC-33); the audit service
+    builds the bundle in the background (status `pending`, then `ready` or `failed`) and
+    records `audit.exported` (high) with the filter, record count and digest (AC-34).
+    Downloading the bundle records `audit.export_fetched`. An export is visible to its
+    requester and to holders of `audit.export` at the root.
 servers:
   - url: /api/v1/audit
 security:
@@ -41,6 +49,11 @@ components:
       name: limit
       in: query
       schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 8, maxLength: 128 }
   schemas:
     Error:
       type: object
@@ -106,12 +119,41 @@ components:
         applied: { oneOf: [{ $ref: "#/components/schemas/Record" }, { type: "null" }] }
         changes: { type: array, items: { $ref: "#/components/schemas/Record" } }
         next_after: { type: [integer, "null"], description: Cursor for the next page }
+    ExportRequest:
+      type: object
+      required: [format, reason]
+      additionalProperties: false
+      properties:
+        filter:
+          type: object
+          description: The search filters (as GET /records takes them, plus approval_id); none exports every visible record
+          additionalProperties: { type: string, minLength: 1 }
+        format: { enum: [jsonl, csv], description: "jsonl: records.jsonl; csv: records.csv (a view) plus bodies.jsonl" }
+        reason: { type: string, minLength: 1, maxLength: 1000, description: Why the export is made; recorded with it and in the manifest }
+    Export:
+      type: object
+      required: [export_id, requested_by, filter, format, reason, bu_scope, status, created_at]
+      properties:
+        export_id: { type: string, format: uuid }
+        requested_by: { type: string, format: uuid }
+        filter: { type: object, additionalProperties: { type: string } }
+        format: { enum: [jsonl, csv] }
+        reason: { type: string }
+        bu_scope: { type: array, items: { type: string, format: uuid }, description: The BUs the export may include, captured at request (AC-33) }
+        status: { enum: [pending, ready, failed] }
+        record_count: { type: [integer, "null"] }
+        digest: { type: [string, "null"], description: Hex SHA-256 of the bundle }
+        checkpoint_segment: { type: [integer, "null"], description: The checkpoint closed for the export; it covers every record in it }
+        failure: { type: [string, "null"] }
+        created_at: { type: string, format: date-time }
+        completed_at: { type: [string, "null"], format: date-time }
   responses:
     Error: { description: Error, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
 tags:
   - { name: records, description: "Search, history and request views (AC-15 to AC-18)" }
   - { name: approvals, description: "Approval evidence for change management (AC-35)" }
   - { name: verification, description: "Checkpoints, keys and status, for verifiers" }
+  - { name: exports, description: "Evidence exports, verifiable offline with fair-audit-verify (AC-32 to AC-34)" }
 paths:
   /records:
     get:
@@ -273,3 +315,46 @@ paths:
       responses:
         "200": { description: Status (the Posture API's AuditTrailStatus) }
         "404": { $ref: "#/components/responses/Error" }
+  /exports:
+    post:
+      operationId: createExport
+      tags: [exports]
+      summary: Export the records matching a search, with proofs, checkpoints, keys and a signed manifest (AC-32 to AC-34)
+      x-permission: audit.export
+      x-audit-events: [audit.exported, audit.checkpoint]
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ExportRequest" } } } }
+      responses:
+        "202": { description: Accepted; the bundle is being built, content: { application/json: { schema: { $ref: "#/components/schemas/Export" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { description: audit.export is required, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+        "503": { description: "Exports are not configured, or the request could not be recorded", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+  /exports/{id}:
+    get:
+      operationId: getExport
+      tags: [exports]
+      summary: One export and its status (its requester, or audit.export at the root)
+      x-permission: audit.export
+      x-audit-events: [audit.searched]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        "200": { description: The export, content: { application/json: { schema: { $ref: "#/components/schemas/Export" } } } }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /exports/{id}/bundle:
+    get:
+      operationId: exportBundle
+      tags: [exports]
+      summary: Download a ready export's bundle (a ZIP for fair-audit-verify verify-export)
+      x-permission: audit.export
+      x-audit-events: [audit.export_fetched]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        "200":
+          description: The bundle; Content-Digest carries its SHA-256
+          content: { application/zip: { schema: { type: string, contentMediaType: application/zip } } }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { description: The export is not ready (pending or failed), content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        "503": { $ref: "#/components/responses/Error" }

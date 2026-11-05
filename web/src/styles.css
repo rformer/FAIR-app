@@ -131,6 +131,14 @@ form.filters { display: grid; grid-template-columns: repeat(auto-fill, minmax(14
 form.filters .field { display: flex; flex-direction: column; gap: 0.25rem; }
 form.filters .actions, form.filters [role="alert"] { grid-column: 1 / -1; }
 form.filters input, form.filters select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.3rem 0.4rem; }
+/* Evidence exports (F-002 T-15). */
+form.export { display: flex; flex-direction: column; gap: 0.75rem; max-width: 40rem; }
+form.export fieldset { border: 1px solid var(--border); border-radius: var(--radius); padding: 0.5rem 0.75rem; margin: 0; }
+form.export .choice { display: flex; gap: 0.5rem; align-items: center; }
+form.export .field { display: flex; flex-direction: column; gap: 0.25rem; }
+form.export .field p { margin: 0; }
+form.export textarea { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.3rem 0.4rem; }
+.export-status { margin-top: 0.75rem; }
 a.btn { display: inline-block; text-decoration: none; color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.3rem 0.8rem; background: var(--bg); }
 table.records th[scope="row"] { font-weight: 600; }
 .nowrap { white-space: nowrap; }

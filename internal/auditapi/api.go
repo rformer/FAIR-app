@@ -3,7 +3,9 @@
 // service.
 //
 // Every route needs audit.view: without it anywhere the API does not exist
-// for the caller (404, F-001 AC-25), and /status needs it at the root. The
+// for the caller (404, F-001 AC-25), and /status needs it at the root.
+// Exports (T-15) also need audit.export; an export is visible to its
+// requester and to holders of audit.export at the root. The
 // records a caller sees are chosen by the database, from the signed DB
 // context (audit.search and the other read functions; AC-19). Every read is
 // recorded in the trail in the same transaction as the read, so a read that
@@ -53,6 +55,11 @@ type API struct {
 	DB    *pgxpool.Pool // app_audit
 	Authz Authorizer
 	Audit audit.Emitter
+	// Enqueue queues an export job in the request's transaction (the audit
+	// service's River client, audit.Enqueuer); Bundles reads stored
+	// bundles. Without them exports answer 503 (T-15).
+	Enqueue func(ctx context.Context, tx pgx.Tx, id string) error
+	Bundles BundleOpener
 
 	rootOnce sync.Once
 	root     string
@@ -73,6 +80,9 @@ var routes = []route{
 	{"GET", "/checkpoints", (*API).checkpoints},
 	{"GET", "/keys", (*API).keys},
 	{"GET", "/status", (*API).status},
+	{"POST", "/exports", (*API).createExport},
+	{"GET", "/exports/{id}", (*API).getExport},
+	{"GET", "/exports/{id}/bundle", (*API).exportBundle},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).
@@ -86,7 +96,8 @@ func Routes() []string {
 }
 
 // Handler returns the API with authentication in front (the gateway's
-// internal JWT, audience "audit", and the DB context it carries).
+// internal JWT, audience "audit", and the DB context it carries) and
+// Idempotency-Key on every mutation (server.Idempotent).
 func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {
 	mux := http.NewServeMux()
 	for _, rt := range routes {
@@ -96,7 +107,7 @@ func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {
 			h(a, w, r, p)
 		})
 	}
-	return server.Authenticate(kp, "audit", now)(mux)
+	return server.Authenticate(kp, "audit", now)(server.Idempotent(IdempotencyStore{DB: a.DB})(mux))
 }
 
 // --- helpers --------------------------------------------------------------

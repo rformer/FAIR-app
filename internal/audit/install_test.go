@@ -7,9 +7,11 @@ import (
 	"github.com/rformer/fair-app/internal/config"
 )
 
-// F-002 T-05 (design §7): what each environment and mode needs at startup.
+// F-002 T-05, T-15 (design §7): what each environment and mode needs at
+// startup.
 func TestCheckInstall(t *testing.T) {
-	full := map[string]string{"FAIR_AUDIT_CHECKPOINT_KEYS_DIR": "/keys/checkpoint", "FAIR_JWT_KEYS_DIR": "/keys/jwt", "FAIR_AUDIT_WORM_BUCKET": "s3://worm"}
+	full := map[string]string{"FAIR_AUDIT_CHECKPOINT_KEYS_DIR": "/keys/checkpoint", "FAIR_JWT_KEYS_DIR": "/keys/jwt", "FAIR_AUDIT_WORM_BUCKET": "s3://worm",
+		"FAIR_AUDIT_STORE_BUCKET": "fair-audit"}
 	check := func(env, mode string, drop ...string) error {
 		v := map[string]string{}
 		for k, x := range full {
@@ -24,12 +26,12 @@ func TestCheckInstall(t *testing.T) {
 		if err := check("production", mode); err != nil {
 			t.Errorf("%s complete: %v", mode, err)
 		}
-		for _, k := range []string{"FAIR_AUDIT_CHECKPOINT_KEYS_DIR", "FAIR_JWT_KEYS_DIR"} {
+		for _, k := range []string{"FAIR_AUDIT_CHECKPOINT_KEYS_DIR", "FAIR_JWT_KEYS_DIR", "FAIR_AUDIT_STORE_BUCKET"} {
 			if err := check("production", mode, k); err == nil || !strings.Contains(err.Error(), k) {
 				t.Errorf("%s without %s: %v", mode, k, err)
 			}
 		}
-		if err := check("development", mode, "FAIR_AUDIT_CHECKPOINT_KEYS_DIR", "FAIR_JWT_KEYS_DIR", "FAIR_AUDIT_WORM_BUCKET"); err != nil {
+		if err := check("development", mode, "FAIR_AUDIT_CHECKPOINT_KEYS_DIR", "FAIR_JWT_KEYS_DIR", "FAIR_AUDIT_WORM_BUCKET", "FAIR_AUDIT_STORE_BUCKET"); err != nil {
 			t.Errorf("%s in development: %v", mode, err)
 		}
 	}

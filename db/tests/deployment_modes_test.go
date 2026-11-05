@@ -67,9 +67,10 @@ func deploymentMode(t *testing.T, mode string) {
 		t.Errorf("a SecOps webhook in %s mode: %v", mode, err)
 	}
 
-	// F-002 T-05 (design §7): the audit service's keys in every mode, and
-	// write-once checkpoint storage in SaaS.
-	auditVars := map[string]string{"FAIR_AUDIT_CHECKPOINT_KEYS_DIR": "/keys/checkpoint", "FAIR_JWT_KEYS_DIR": "/keys/jwt"}
+	// F-002 T-05, T-15 (design §7): the audit service's keys and the audit
+	// store in every mode, and write-once checkpoint storage in SaaS.
+	auditVars := map[string]string{"FAIR_AUDIT_CHECKPOINT_KEYS_DIR": "/keys/checkpoint", "FAIR_JWT_KEYS_DIR": "/keys/jwt",
+		"FAIR_AUDIT_STORE_BUCKET": "fair-audit"}
 	auditCheck := func(v map[string]string) error {
 		return auditsvc.CheckInstall(auditsvc.InstallCheck{Env: "production", Mode: mode, Getenv: func(k string) string { return v[k] }})
 	}
@@ -84,6 +85,12 @@ func deploymentMode(t *testing.T, mode string) {
 	delete(withWORM, "FAIR_AUDIT_CHECKPOINT_KEYS_DIR")
 	if err := auditCheck(withWORM); err == nil {
 		t.Errorf("audit without its checkpoint key in %s mode", mode)
+	}
+	noStore := maps.Clone(auditVars)
+	noStore["FAIR_AUDIT_WORM_BUCKET"] = "s3://fair-audit-worm"
+	delete(noStore, "FAIR_AUDIT_STORE_BUCKET")
+	if err := auditCheck(noStore); err == nil {
+		t.Errorf("audit without its store in %s mode", mode)
 	}
 
 	// Profile packages: the release's packages load at migrate in every
