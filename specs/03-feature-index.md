@@ -9,7 +9,7 @@ Every feature spec includes **Deployment modes** (SaaS, self-hosted, air-gapped)
 |---|---|---|---|
 | F-001 | Identity, BU hierarchy & RBAC (SAML/OIDC, MFA, SCIM, custom roles, restricted BUs, RLS) | F-015 (bounds) | **Done** apart from T-25 (blocked: SCIM vendor tenants) |
 | F-002 | Tamper-evident audit trail service | F-001 | **Done** (2026-11-06) |
-| F-003 | FAIR data model (scenarios, assets, threat communities, loss forms, controls) | F-001 | Requirements and design **Approved** (2026-11-06); tasks **Draft** |
+| F-003 | FAIR data model (scenarios, assets, threat communities, loss forms, controls) | F-001 | Requirements, design and tasks **Approved** (2026-11-06); in progress |
 | F-004 | Calibrated estimate capture | F-003 | Not started |
 | F-005 | Monte Carlo simulation engine (Python; versioned, reproducible) | F-003, F-004 | Not started |
 | F-006 | Results & visualization (LEC, ALE distribution, comparisons) | F-005 | Not started |

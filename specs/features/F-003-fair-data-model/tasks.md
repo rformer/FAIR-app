@@ -1,5 +1,5 @@
 # F-003 FAIR Data Model — Tasks
-Status: **Draft** | Design: Approved 2026-11-06
+Status: **Approved** (Robert Former, 2026-11-06) | Design: Approved 2026-11-06
 
 Sizing: S ≤ 1 day · M = 2–3 days · L = up to 1 week (split when picked up).
 Prerequisites: F-001 (BU hierarchy, RBAC, RLS, the risk-data permission keys) and F-002 (audit trail, secrets refusal). Both are done.
@@ -45,3 +45,4 @@ Every task that adds a migration follows the immutability rule. Every new event 
 
 ## Change Log
 - 2026-11-06: Initial draft.
+- 2026-11-06: **Approved** by Robert Former.
