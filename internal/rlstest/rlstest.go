@@ -41,6 +41,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -63,7 +64,14 @@ type Fixture struct {
 	Missing string
 	// Touch is a harmless SET clause for update checks, e.g. "title = title".
 	Touch string
+	// Refused lists the writes the table refuses for every row, whatever
+	// the scope, by privileges or triggers: "update", "delete" and "move"
+	// (changing bu_id). Append-only tables refuse all three. For these the
+	// harness requires a refusal, not RLS's answer.
+	Refused []string
 }
+
+func (fx Fixture) refuses(op string) bool { return slices.Contains(fx.Refused, op) }
 
 // Finding is one way the table's protection falls short.
 type Finding struct {
@@ -168,8 +176,13 @@ func (r *run) setup() error {
 	if err := a.QueryRow(r.ctx, "INSERT INTO iam.app_user (email) VALUES ('rlsh-' || $1 || '@harness.test') RETURNING id::text", tag).Scan(&r.userID); err != nil {
 		return err
 	}
-	read := fmt.Sprintf(`{%q: [%q, %q]}`, r.rt, r.in.id, r.ro.id)
-	write := fmt.Sprintf(`{%q: [%q]}`, r.rt, r.in.id)
+	// The same BUs for every resource type: a fixture may build its row
+	// from rows of other types (a scenario pins library entries).
+	var read, write string
+	if err := a.QueryRow(r.ctx, `SELECT jsonb_object_agg(t, jsonb_build_array($1::text, $2::text))::text, jsonb_object_agg(t, jsonb_build_array($1::text))::text
+		FROM (SELECT DISTINCT resource_type AS t FROM iam.permission UNION SELECT $3::text) x`, r.in.id, r.ro.id, r.rt).Scan(&read, &write); err != nil {
+		return err
+	}
 	if err := a.QueryRow(r.ctx, `INSERT INTO authz.user_scope (user_id, scope_version, read_bus, write_bus, rollup_aggregate_bus)
 		VALUES ($1, nextval('authz.scope_version_seq'), $2::jsonb, $3::jsonb, '{}') RETURNING scope_version`,
 		r.userID, read, write).Scan(&r.version); err != nil {
@@ -179,6 +192,21 @@ func (r *run) setup() error {
 	if _, err := a.Exec(r.ctx, "INSERT INTO authz.ctx_key (key_id, secret) VALUES ($1, $2)", r.key.ID, r.key.Secret); err != nil {
 		return err
 	}
+	// The superuser bypasses RLS, but tables that attribute writes to the
+	// signed context's user need one, and SECURITY DEFINER triggers run
+	// under RLS: a seeding user who can write every harness BU.
+	all := []string{r.in.id, r.ro.id, r.out.id}
+	for _, b := range r.tree {
+		all = append(all, b.id)
+	}
+	seed, err := r.scopeToken(all, true)
+	if err != nil {
+		return err
+	}
+	if _, err := a.Exec(r.ctx, "SELECT set_config('authz.ctx', $1, false)", seed); err != nil {
+		return err
+	}
+	defer func() { _, _ = a.Exec(context.WithoutCancel(r.ctx), "RESET authz.ctx") }()
 	for _, b := range []*bu{&r.in, &r.ro, &r.out, r.tree["root"], r.tree["anc"], r.tree["sib"], r.tree["rst"], r.tree["rkid"]} {
 		if err := a.QueryRow(r.ctx, r.fx.Insert(b.id)).Scan(&b.pk); err != nil {
 			return fmt.Errorf("fixture insert: %w", err)
@@ -187,18 +215,39 @@ func (r *run) setup() error {
 	return nil
 }
 
+// noRows reports whether a write's outcome is right: for an operation
+// the table refuses, any error or no row; otherwise none and no error.
+func (r *run) noRows(op string, n int64, err error) bool {
+	if r.fx.refuses(op) {
+		return err != nil || n == 0
+	}
+	return err == nil && n == 0
+}
+
+// refusedMove reports whether moving a row was refused: by RLS, or for a
+// table that refuses moves, by anything.
+func (r *run) refusedMove(err error) bool {
+	if r.fx.refuses("move") {
+		return err != nil
+	}
+	return isRLSViolation(err)
+}
+
 // scopeToken creates another harness user whose read and write scope is
-// the given BU and returns a context token for it.
-func (r *run) scopeToken(buID string) (string, error) {
+// the given BUs, for the table's resource type (or every type), and returns
+// a context token for it.
+func (r *run) scopeToken(buIDs []string, allTypes bool) (string, error) {
 	tag := randHex(4)
 	var user string
 	if err := r.env.Admin.QueryRow(r.ctx, "INSERT INTO iam.app_user (email) VALUES ('rlsh-' || $1 || '@harness.test') RETURNING id::text", tag).Scan(&user); err != nil {
 		return "", err
 	}
-	set := fmt.Sprintf(`{%q: [%q]}`, r.rt, buID)
 	var version int64
 	if err := r.env.Admin.QueryRow(r.ctx, `INSERT INTO authz.user_scope (user_id, scope_version, read_bus, write_bus, rollup_aggregate_bus)
-		VALUES ($1, nextval('authz.scope_version_seq'), $2::jsonb, $2::jsonb, '{}') RETURNING scope_version`, user, set).Scan(&version); err != nil {
+		SELECT $1, nextval('authz.scope_version_seq'), s, s, '{}'
+		FROM (SELECT jsonb_object_agg(t, to_jsonb($2::text[])) AS s
+		      FROM (SELECT $3::text AS t UNION SELECT DISTINCT resource_type FROM iam.permission WHERE $4) x) y
+		RETURNING scope_version`, user, buIDs, r.rt, allTypes).Scan(&version); err != nil {
 		return "", err
 	}
 	return authz.MintDBContext(r.key, user, version, time.Minute, time.Now())
@@ -396,20 +445,20 @@ func (r *run) inherited() {
 		"update": fmt.Sprintf("UPDATE %s SET %s WHERE %s::text = $1", r.fx.Table, r.fx.Touch, r.fx.PK),
 		"delete": fmt.Sprintf("DELETE FROM %s WHERE %s::text = $1", r.fx.Table, r.fx.PK),
 	} {
-		if n, err := r.affected(&tok, q, anc.pk); err != nil || n != 0 {
+		if n, err := r.affected(&tok, q, anc.pk); !r.noRows(op, n, err) {
 			r.fail("inherited", "%s of an inherited row: affected=%d err=%v; want 0", op, n, err)
 		}
 	}
 	if _, err := r.affected(&tok, r.fx.Insert(anc.id)); !isRLSViolation(err) {
 		r.fail("inherited", "inserting into an ancestor BU: err=%v; want an RLS violation", err)
 	}
-	if n, err := r.affected(&tok, fmt.Sprintf("UPDATE %s SET bu_id = $1 WHERE %s::text = $2", r.fx.Table, r.fx.PK), anc.id, r.in.pk); !isRLSViolation(err) {
+	if n, err := r.affected(&tok, fmt.Sprintf("UPDATE %s SET bu_id = $1 WHERE %s::text = $2", r.fx.Table, r.fx.PK), anc.id, r.in.pk); !r.refusedMove(err) {
 		r.fail("inherited", "moving a writable row into an ancestor BU: affected=%d err=%v; want an RLS violation", n, err)
 	}
 	// Inside a restricted subtree: rkid inherits rst and nothing above it;
 	// rst itself inherits nothing.
 	for _, c := range []struct{ user, want string }{{"rkid", want("rst")}, {"rst", ""}} {
-		t, err := r.scopeToken(r.tree[c.user].id)
+		t, err := r.scopeToken([]string{r.tree[c.user].id}, false)
 		if err != nil {
 			r.fail("inherited", "setting up a user at %s: %v", c.user, err)
 			continue
@@ -531,19 +580,23 @@ func (r *run) writes() {
 	del := fmt.Sprintf("DELETE FROM %s WHERE %s::text = $1", r.fx.Table, r.fx.PK)
 
 	for _, target := range []bu{r.ro, r.out} {
-		if n, err := r.affected(&tok, move, target.id, r.in.pk); !isRLSViolation(err) {
+		if n, err := r.affected(&tok, move, target.id, r.in.pk); !r.refusedMove(err) {
 			r.fail("writes", "moving a writable row into the %s BU: affected=%d err=%v; want an RLS violation", target.name, n, err)
 		}
 		if _, err := r.affected(&tok, r.fx.Insert(target.id)); !isRLSViolation(err) {
 			r.fail("writes", "inserting into the %s BU: err=%v; want an RLS violation", target.name, err)
 		}
 		for op, q := range map[string]string{"update": touch, "delete": del} {
-			if n, err := r.affected(&tok, q, target.pk); err != nil || n != 0 {
+			if n, err := r.affected(&tok, q, target.pk); !r.noRows(op, n, err) {
 				r.fail("writes", "%s of the %s row: affected=%d err=%v; want 0", op, target.name, n, err)
 			}
 		}
 	}
-	if n, err := r.affected(&tok, touch, r.in.pk); err != nil || n != 1 {
+	if n, err := r.affected(&tok, touch, r.in.pk); r.fx.refuses("update") {
+		if err == nil {
+			r.fail("writes", "updating the writable row of a table that refuses updates: affected=%d; want a refusal", n)
+		}
+	} else if err != nil || n != 1 {
 		r.fail("writes", "updating the writable row: affected=%d err=%v; want 1", n, err)
 	}
 	if _, err := r.affected(&tok, r.fx.Insert(r.in.id)); err != nil {

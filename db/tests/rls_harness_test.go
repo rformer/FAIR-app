@@ -20,6 +20,10 @@ import (
 // platform's migrations, keyed by table name.
 var rlsFixtures = map[string]rlstest.Fixture{}
 
+// rlsFixtureSetups prepare the database for the fixtures (helper functions
+// that build valid rows), run before the harness.
+var rlsFixtureSetups []func(*env)
+
 // docRowFixture creates rows in a table shaped like iam.sample_doc.
 func docRowFixture(table string) rlstest.Fixture {
 	return rlstest.Fixture{
@@ -82,6 +86,9 @@ func TestRLSHarnessEveryBUOwnedTable(t *testing.T) {
 	if registered == "" {
 		t.Log("no BU-owned tables registered yet")
 		return
+	}
+	for _, f := range rlsFixtureSetups {
+		f(e)
 	}
 	for _, table := range strings.Split(registered, ",") {
 		fx, ok := rlsFixtures[table]

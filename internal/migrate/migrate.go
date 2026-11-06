@@ -112,6 +112,10 @@ func Run(ctx context.Context, conn *pgx.Conn, migrations fs.FS, rel Release) (Re
 	if len(rel.Events) == 0 {
 		return res, errors.New("migrate: the release has no security event catalog")
 	}
+	types, err := resourceTypes(rel.Catalog)
+	if err != nil {
+		return res, err
+	}
 	slices.Sort(names)
 	for _, n := range names {
 		if !nameRE.MatchString(n) {
@@ -158,6 +162,12 @@ REVOKE ALL ON fair_meta.schema_migrations FROM PUBLIC;`).ReadAll()
 				}
 				return nil
 			case !errors.Is(err, pgx.ErrNoRows):
+				return err
+			}
+			// The release's resource types, which authz.apply_bu_rls accepts
+			// before iam.sync_release records them (on a fresh install, or
+			// for a type new in this release).
+			if _, err := tx.Exec(ctx, "SELECT set_config('fair.release_resource_types', $1, true)", types); err != nil {
 				return err
 			}
 			if _, err := tx.Conn().PgConn().Exec(ctx, string(body)).ReadAll(); err != nil {
@@ -211,4 +221,25 @@ func asOwner(ctx context.Context, conn *pgx.Conn, fn func(pgx.Tx) error) error {
 		}
 		return fn(tx)
 	})
+}
+
+// resourceTypes lists the permission catalog's resource types, comma
+// separated, from the sync payload.
+func resourceTypes(payload []byte) (string, error) {
+	var c struct {
+		Permissions []struct {
+			ResourceType string `json:"resource_type"`
+		} `json:"permissions"`
+	}
+	if err := json.Unmarshal(payload, &c); err != nil {
+		return "", fmt.Errorf("migrate: release catalog: %w", err)
+	}
+	var types []string
+	for _, p := range c.Permissions {
+		if !slices.Contains(types, p.ResourceType) {
+			types = append(types, p.ResourceType)
+		}
+	}
+	slices.Sort(types)
+	return strings.Join(types, ","), nil
 }

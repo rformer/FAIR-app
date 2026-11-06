@@ -23,7 +23,7 @@ F-003 adds a `risk` service and a `risk` schema holding the Open FAIR model: los
 | `web/src/risk` | UI | Scenario list, editor with the taxonomy view, version diff, library and control pages |
 | `deploy/k8s/risk.yaml` | Deployment | Same hardening as the other services; keys `risk/jwt` (`keys.Mounts`) |
 
-The risk service is stateless (A5) and connects as `app_rw`, like iam: it needs no role of its own because every table is under RLS and the checks are in triggers, not in definer functions. Its one SECURITY DEFINER function is the pinned-version read (§4.4).
+The risk service is stateless (A5) and connects as `app_rw`, like iam: it needs no role of its own because every table is under RLS and the checks are in triggers, not in definer functions. Its SECURITY DEFINER code is the schema's trigger functions, owned by `risk_definer` (§4.2).
 
 ## 3. The model
 
@@ -90,7 +90,7 @@ This is an installation setting of the risk service, not an F-015 posture settin
 | `risk.library_version` | yes (`library`) | As scenario_version |
 | `risk.control` | yes (`control`, inactive `archived_at`) | Head |
 | `risk.control_version` | yes (`control`) | As scenario_version |
-| `risk.pin` | yes (`scenario`) | Filled by trigger from each new scenario or asset-group version: (from kind, id, version) → (to kind, id, version). Drives "newer version available" (AC-10), visibility flags (AC-20) and reference counts |
+| `risk.scenario_pin`, `risk.library_pin` | yes (`scenario`; `library`, shared down) | Filled by trigger from each new scenario version (asset or group, threat community, controls) and asset-group version (members): (version, JSON pointer) → (to kind, id, version). Drive "newer version available" (AC-10), visibility flags (AC-20) and reference counts |
 | `risk.starter_entry` | no | The shipped starter library (§6.6). Read-only; synced by `iam migrate` |
 | `risk.instance` | no | The currency |
 
@@ -104,12 +104,12 @@ All BU-owned tables are created with `authz.apply_bu_rls` and get `rlstest` fixt
 - **Parity.** `TestRiskValidationParity` runs a generated corpus of valid and invalid documents through the Go validator and `risk.check_document` and requires identical verdicts, as F-015 T-13 does for setting values.
 
 ### 4.3 Retention
-Versions are kept for the life of the head. Nothing is deleted in v1: scenarios, entries and controls are archived and restored (AC-22). Deletion, if ever added, will check `risk.pin` and the referring features' tables (F-005 runs, F-007 register, F-008 acceptance).
+Versions are kept for the life of the head. Nothing is deleted in v1: scenarios, entries and controls are archived and restored (AC-22). Deletion, if ever added, will check the pin tables and the referring features' tables (F-005 runs, F-007 register, F-008 acceptance).
 
 ### 4.4 Access model
 - `app_rw`: `SELECT`, `INSERT` on heads, versions and pins; `UPDATE` of heads (current version, archived_at) under RLS. No `DELETE`.
 - **Inherited read** (ADR-007 amendment 2): the `SELECT` policy on `library_entry`, `library_version`, `control` and `control_version` admits `bu_id = ANY(authz.inherited_bus(type))` in addition to the scope form. Writes are unchanged: an entry is edited only where the caller holds `library.edit` (or `control.edit`).
-- **Pinned versions** (`risk.pinned_versions(scenario_version_id)`, SECURITY DEFINER, owned by `risk_definer`, a bootstrap role): returns the library and control versions a scenario version pins, if the caller can see that scenario version (checked through the scenario's own policy first). This is how a scenario reader without `library.view`, or a scenario moved away from the entry's BU (AC-20), still sees exactly what the scenario uses. It returns only pinned versions, never heads or other versions.
+- **Pinned versions**: each pin row holds the pinned version's digest and canonical document, copied by the version trigger (which checks the copy against the pinned version, visible to the writer at write time). Versions never change, so the copy cannot drift. A scenario reader therefore sees exactly what the scenario uses under the scenario's own policy, without `library.view` and after a move (AC-20); no privileged reader exists. (Changed from a SECURITY DEFINER `risk.pinned_versions`: RLS policies depend on the signed context, not the role, so a definer function could not read past them.)
 - **Starter library**: read by any caller holding `library.view` anywhere (`risk.starter_entries()`); copied into a BU by `library.edit` there.
 
 ## 5. API (`api/openapi/risk.yaml`)
@@ -142,7 +142,7 @@ Conventions of F-001 T-42: `Idempotency-Key` on mutations, `reason` where the ch
 3. In one transaction inside `WithDBContext`: insert the version, advance the head (`expected_version`), triggers re-check, pins are filled, and the audit event (`scenario.version_saved`, with BU, version, digest and change note) is recorded through `audit.WithTx`. Any failure rolls back everything (audit fails closed).
 
 ### 6.2 Newer library versions (AC-10)
-On read, the service joins `risk.pin` with the pinned heads' `current_version` (inherited read applies) and reports each pin with a newer version. `adopt` compares the old and new entry versions (§6.3 diff) and saves a scenario version with the new pins; nothing changes otherwise (AC-09).
+On read, the service joins the pin tables with the pinned heads' `current_version` (inherited read applies) and reports each pin with a newer version. `adopt` compares the old and new entry versions (§6.3 diff) and saves a scenario version with the new pins; nothing changes otherwise (AC-09).
 
 ### 6.3 Diff (AC-17)
 A structural diff of two canonical documents: added, removed and changed paths, with estimates shown as old and new triples. Pins are shown as entry name and version changes. Computed in Go; no stored state.
@@ -151,11 +151,11 @@ A structural diff of two canonical documents: added, removed and changed paths, 
 1. The caller needs `scenario.edit` at the source and the destination BU.
 2. Refused if the source is inside a restricted subtree and the destination is not inside the same restricted subtree (the nearest restricted ancestor-or-self of each, from `iam.bu_closure`, must be the same; a new `iam.restricted_root(bu)` computes it), so a restricted BU's scenario never leaves it.
 3. In one transaction: `risk.moving()` is set, the head and all its versions and pins get the new `bu_id`, and `scenario.moved` is recorded with both BUs and the reason. Versions are otherwise untouched (their digests do not include `bu_id`).
-4. Afterwards, any pin whose entry's BU is neither the scenario's BU nor one it inherits from is flagged on the scenario (AC-20). The scenario keeps its recorded versions, readable through `risk.pinned_versions`, until the analyst replaces them.
+4. Afterwards, any pin whose entry's BU is neither the scenario's BU nor one it inherits from is flagged on the scenario (AC-20). The scenario keeps its recorded versions, held in its pin rows, until the analyst replaces them.
 
 ### 6.5 Export and import (AC-24, AC-25)
 - Format `fair.risk.v1`: `{format, currency, exported_at, scenarios: [{head, versions}], library: [...], controls: [...]}`, every document in canonical form with its digest. Documented in `docs/formats/fair-risk-v1.md` with a JSON Schema.
-- Export takes a selection (ids, or a BU subtree) and includes, for each scenario, the library and control versions it pins. It contains only what the requester can see (RLS); pinned versions the requester can read only through `risk.pinned_versions` are included as those pinned versions. Recorded as `risk.exported` with counts and the file's digest.
+- Export takes a selection (ids, or a BU subtree) and includes, for each scenario, the library and control versions it pins. It contains only what the requester can see (RLS); pinned versions the requester can read only through the scenario's pin rows are included from those rows. Recorded as `risk.exported` with counts and the file's digest.
 - Import into one target BU: the importer needs the edit permission for every kind included. The file's currency must equal the installation's. Every document is validated as in §6.1; pins resolve to entries in the same file (re-mapped to the new ids) or to existing entries the importer can see, by id and digest. Dry run returns the plan (created and changed items) and every failure; a real import is one transaction, all or nothing, recorded as `risk.imported` plus the per-item creation events.
 
 ### 6.6 Starter library (AC-11)
@@ -245,3 +245,5 @@ Performance (requirements NFR): `TestBenchmarkGateRiskScenarios` (10,000 scenari
 - 2026-11-06: Initial draft (decisions: new `risk` service; inherited read through ADR-007 amendment 2; canonical JSON versions).
 - 2026-11-06: **Approved** by Robert Former, with ADR-007 amendment 2.
 - 2026-11-06: T-02: the `fraction` unit for control reductions (§3.2); schema files and the validator's authority stated (§3.3; decided by Robert Former).
+- 2026-11-06: T-03: pins in two tables (`scenario_pin` under the scenario's scope, `library_pin` shared down with the group); error codes PF016 (invalid document or pin, missing context), PF017 (stale version, archived or unwritable head), PF018 (append-only); `iam migrate` passes the release's resource types to migrations (`fair.release_resource_types`) so `apply_bu_rls` accepts types the catalog records only after them.
+- 2026-11-06: T-03: pinned versions are copied into the pin rows (digest and document) instead of read through a definer function (§4.4; decided by Robert Former).

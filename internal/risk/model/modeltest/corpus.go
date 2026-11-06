@@ -270,6 +270,7 @@ func Corpus() []Case {
 			{"confidence 1", "/lef/tef/contact_frequency/confidence", "1", "", false},
 			{"confidence 0", "/lef/tef/contact_frequency/confidence", "0", "", false},
 			{"not a decimal", "/lef/tef/contact_frequency/ml", "six", "", true},
+			{"more than 34 digits", "/lef/tef/contact_frequency/max", "1" + strings.Repeat("0", 34), "", false},
 			{"decimal with exponent text", "/lef/tef/contact_frequency/ml", "6e0x", "", true},
 			{"no rationale", "/lef/tef/contact_frequency/rationale", "", "", false},
 			{"no sources", "/lef/tef/contact_frequency/sources", []any{}, "", true},
