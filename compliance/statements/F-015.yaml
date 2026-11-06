@@ -254,18 +254,24 @@ controls:
 
   - id: au-6
     responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    # Amended 2026-11-06 with F-002 T-22 (the audit trail and its pages),
+    # pending re-sign-off.
     statement: >-
       Posture events carry the actor, target, severity and reason, and
       critical events (tampering, hard-floor violations, failed reverts,
-      unreproducible exports) are marked as such for review. The Posture page
-      links every item to its audit history (shown by the audit service,
-      F-002), and acknowledging a finding
-      requires a stated reason, which is recorded.
+      unreproducible exports) are marked as such for review. Every posture
+      event is recorded in the tamper-evident audit trail (F-002) in the
+      transaction of the change it reports. The Posture page links every
+      item to its audit history on the audit pages, which also show each
+      approval's evidence; acknowledging a finding requires a stated reason,
+      which is recorded. An exception's expiry is checked against the expiry
+      the trail recorded when it was approved or renewed.
     customer: >-
       Review and analyze the platform's audit records and report findings.
     evidence:
-      code: [internal/posture/drift_events.go, web/src/links.ts]
-      tests: ["db/tests:TestDriftLifecycleAndEventSchema", "db/tests:TestExportsSignedRecordedReproducible"]
+      code: [internal/posture/drift_events.go, web/src/links.ts, web/src/audit/AuditPage.tsx, db/migrations/0083_exception_expiry_trail.sql]
+      tests: ["db/tests:TestDriftLifecycleAndEventSchema", "db/tests:TestExportsSignedRecordedReproducible",
+              "db/tests:TestAuditApprovalEvidencePosture", "db/tests:TestDriftExceptionExpiryAgainstTrail"]
 
   - id: pl-2
     responsibility: { saas: provider, self-hosted: customer, air-gapped: customer }

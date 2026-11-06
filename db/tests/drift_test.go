@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/rformer/fair-app/internal/approvals"
+	auditsvc "github.com/rformer/fair-app/internal/audit"
 	"github.com/rformer/fair-app/internal/posture"
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/settings"
@@ -322,4 +323,47 @@ END $$`)
 	if took > 30*time.Second {
 		t.Fatalf("drift scan took %v, requirement 30 s", took)
 	}
+}
+
+// F-002 T-22 (F-015 design §8, §15): an exception's expiry is checked
+// against the audit trail. Someone who can act as posture_definer (and so
+// re-sign the row MAC) extends an approved exception; the MAC agrees, the
+// trail does not.
+func TestDriftExceptionExpiryAgainstTrail(t *testing.T) {
+	ctx := context.Background()
+	de := driftFixture(t)
+	e := de.e
+	de.set.Evaluator.Audit = audit.WithTrail(de.set.Evaluator.Audit, audit.Trail{DB: de.set.Evaluator.DB})
+	res, err := de.set.Set(ctx, e.principal("admin"), settings.Request{Key: settings.KeySessionIdleTimeout, Value: json.RawMessage(`"30m0s"`), Explanation: "call centre"})
+	if err != nil || res.Outcome != settings.PendingApproval {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if _, err := (approvals.Service{DB: e.appPool()}).Decide(ctx, e.principal("admin2"), res.ApprovalID, true, ""); err != nil {
+		t.Fatal(err)
+	}
+	x, err := de.set.ApplyApproved(ctx, res.ChangeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	drainTrail(t, auditsvc.Sequencer{DB: e.auditPool()})
+	wantIDs(t, "as approved", ids(de.scan(t).Findings))
+
+	// Extended by a year as posture_definer: the MAC is re-signed.
+	e.timeTravel("UPDATE posture.exception SET expires_at = expires_at + interval '365 days' WHERE id = '" + x.ID + "'")
+	scan := de.scan(t)
+	wantIDs(t, "expiry extended", ids(scan.Opened), "exception_expiry_mismatch exception:"+x.ID)
+	for _, f := range scan.Opened {
+		if f.Severity != "critical" {
+			t.Fatalf("finding %+v", f)
+		}
+	}
+	// Put back as recorded: resolved.
+	e.timeTravel("UPDATE posture.exception SET expires_at = expires_at - interval '365 days' WHERE id = '" + x.ID + "'")
+	wantIDs(t, "expiry restored", ids(de.scan(t).Resolved), "exception_expiry_mismatch exception:"+x.ID)
+
+	// Without a record in the trail (not yet sequenced, or archived) the
+	// exception is not compared.
+	e.admin(e.db, "SET session_replication_role = replica; DELETE FROM audit.record WHERE type = 'setting.exception_created'")
+	e.timeTravel("UPDATE posture.exception SET expires_at = expires_at + interval '1 day' WHERE id = '" + x.ID + "'")
+	wantIDs(t, "no record", ids(de.scan(t).Opened))
 }

@@ -25,10 +25,13 @@ import (
 
 // Drift checks this engine owns. revert_failed belongs to the revert loop.
 const (
-	CheckRowMAC         = "row_mac_mismatch"
-	CheckHardFloor      = "hard_floor_violation"
-	CheckDeviation      = "unapproved_deviation"
-	CheckMissedRevert   = "missed_revert"
+	CheckRowMAC       = "row_mac_mismatch"
+	CheckHardFloor    = "hard_floor_violation"
+	CheckDeviation    = "unapproved_deviation"
+	CheckMissedRevert = "missed_revert"
+	// CheckExpiryTrail compares an exception's expiry with the audit trail
+	// (F-002 T-22, migration 0083).
+	CheckExpiryTrail    = "exception_expiry_mismatch"
 	CheckSettingsMatch  = "settings_mismatch"
 	CheckStaleCache     = "stale_settings_cache"
 	DriftActor          = "system:posture-drift"
@@ -38,7 +41,7 @@ const (
 	defaultFullScanEach = 15 * time.Minute
 )
 
-var driftChecks = []string{CheckRowMAC, CheckHardFloor, CheckDeviation, CheckMissedRevert, CheckSettingsMatch, CheckStaleCache}
+var driftChecks = []string{CheckRowMAC, CheckHardFloor, CheckDeviation, CheckMissedRevert, CheckExpiryTrail, CheckSettingsMatch, CheckStaleCache}
 
 // Drift scans for application drift.
 type Drift struct {

@@ -418,32 +418,39 @@ controls:
 
   - id: au-2
     responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    # Amended 2026-11-06 with F-002 T-22 (the catalog is enforced by the
+    # audit trail), pending re-sign-off.
     statement: >-
       The security events are defined in a catalog (pkg/audit/catalog.yaml):
-      each type has its category, severities and required fields, and a JSON
-      schema defines the envelope (actor, target, reason, before and after,
-      request id, source address). A test keeps the catalog and the code in
-      step.
+      each type has its category, severities, required fields and
+      attributes, and a JSON schema defines the envelope (actor, target,
+      reason, before and after, request id, source address, business unit).
+      A test keeps the catalog and the code in step, and each release loads
+      the catalog into the audit trail, which refuses events it does not
+      define.
     customer: >-
       Decide which events the SIEM alerts on.
     evidence:
-      code: [pkg/audit/catalog.yaml, pkg/audit/event.schema.json]
-      tests: ["pkg/audit:TestCatalogMatchesCode", "pkg/audit:TestCatalogCoverage", "pkg/audit:TestValidate"]
+      code: [pkg/audit/catalog.yaml, pkg/audit/event.schema.json, db/migrations/0066_audit_schema.sql]
+      tests: ["pkg/audit:TestCatalogMatchesCode", "pkg/audit:TestCatalogCoverage", "pkg/audit:TestValidate", "db/tests:TestAuditSubmit",
+              "db/tests:TestAuditEventTypeSync"]
 
   - id: au-12
     responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
     # Amended 2026-11-05 with F-002 T-16 (per-service syslog retired; the
-    # audit service forwards the trail), pending re-sign-off.
+    # audit service forwards the trail) and 2026-11-06 with T-22 (OTLP; the
+    # trail's producers), pending re-sign-off.
     statement: >-
       Every service generates its events itself, as JSON lines on standard
-      output and into the audit trail in the same transaction, validated
-      against the catalog; a failure to record an event fails the
-      operation. The audit service forwards the trail to the SIEM over
-      syslog with TLS.
+      output and into the audit trail in the same transaction (database
+      changes through their outbox trigger), validated against the catalog;
+      a failure to record an event fails the operation. The audit service
+      forwards the trail to the SIEM over syslog or OTLP with TLS.
     customer: >-
       Collect the services' output, or set the SIEM destination
-      (audit.syslog_destination), into the SIEM.
+      (audit.syslog_destination or audit.otlp_destination).
     evidence:
-      code: [pkg/audit/audit.go, pkg/audit/trail.go, internal/audit/forward.go, internal/scope]
-      tests: ["db/tests:TestAuditForwardSyslog", "pkg/audit:TestFromEnv", "db/tests:TestWorkerAuditFailsClosed",
+      code: [pkg/audit/audit.go, pkg/audit/trail.go, internal/audit/forward.go, internal/audit/otlp.go, internal/scope]
+      tests: ["db/tests:TestAuditTrailFromSQLProducers", "db/tests:TestAuditTrailFromGo", "db/tests:TestAuditForwardSyslog",
+              "db/tests:TestAuditForwardOTLP", "pkg/audit:TestFromEnv", "db/tests:TestWorkerAuditFailsClosed",
               "pkg/audit:TestValidatingRecordsInvalidEvents"]

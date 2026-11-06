@@ -38,10 +38,10 @@ var strideSuite = map[string][]string{
 		"db/tests:TestPostureNoDirectWrites", "db/tests:TestPostureDirectEditDetected", "db/tests:TestDriftDetectsDirectDBEdit",
 	},
 	"Tampering | Exception expiry extended by editing the DB": {
-		"db/tests:TestPostureNoDirectWrites", "db/tests:TestSTRIDEExceptionExtension",
+		"db/tests:TestPostureNoDirectWrites", "db/tests:TestSTRIDEExceptionExtension", "db/tests:TestDriftExceptionExpiryAgainstTrail",
 	},
 	`Repudiation | "I didn't approve that loosening"`: {
-		"db/tests:TestApprovalLifecycle", "db/tests:TestSTRIDERepudiationAndCollusion",
+		"db/tests:TestApprovalLifecycle", "db/tests:TestSTRIDERepudiationAndCollusion", "db/tests:TestAuditApprovalEvidencePosture",
 	},
 	"Information disclosure | Scanner reads Secrets": {
 		"internal/scanner:TestScannerRBACIsReadOnlyAndMatchesAccess", "internal/scanner:TestPermissionManifest",
