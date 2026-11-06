@@ -1,5 +1,5 @@
 # F-003 FAIR Data Model — Requirements
-Status: **Draft** | Owner: Robert Former | Last updated: 2026-11-06
+Status: **Approved** | Owner: Robert Former | Last updated: 2026-11-06
 
 ## Summary
 F-003 defines the risk data every later feature works on: loss scenarios built from Open FAIR (O-RT) concepts — assets, threat communities, threat effects, loss events, the six forms of loss, primary and secondary stakeholders — and the controls that affect them. Analysts build scenarios from reusable library entries, decompose them as far down the FAIR taxonomy as their data supports, and keep every estimate's source and rationale with it. The model is business-unit owned (F-001 row-level security), versioned so any later result can be traced to the exact inputs it used (constitution P3), recorded in the audit trail (F-002), and the basis for estimate capture (F-004), simulation (F-005), the risk register (F-007) and control frameworks (F-013).
@@ -140,4 +140,4 @@ None.
 - OQ8: import and export use the platform's own JSON format only (AC-24, AC-25) (2026-11-06)
 
 ## Change Log
-- 2026-11-06: Initial draft. OQ1 to OQ8 resolved by Robert Former.
+- 2026-11-06: Initial draft. OQ1 to OQ8 resolved. **Approved** by Robert Former.
