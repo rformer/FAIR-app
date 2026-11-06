@@ -19,6 +19,11 @@
 //   - writes: write scope, not read scope, governs inserts, updates and
 //     deletes, and no row can be moved into a BU the user cannot write;
 //   - AC-25: an out-of-scope row is indistinguishable from a missing one;
+//   - inherited read (ADR-007 amendment 2; F-003): "in" and "ro" sit under
+//     an ancestor BU "anc". A table registered shared_down shows the rows of
+//     anc and the root, never writable, and never a sibling's, a restricted
+//     BU's from outside, or anything above a restricted BU to a user inside
+//     it; any other table shows none of them;
 //   - SQL injection: arbitrary SQL run as the application role cannot switch
 //     RLS off, change role, read keys or scope, forge context, or get rows out
 //     through COPY, TRUNCATE or DDL.
@@ -86,12 +91,14 @@ type run struct {
 	env      Env
 	fx       Fixture
 	rt       string
+	shared   bool // registered shared_down (inherited read)
 	key      authz.ContextKey
 	userID   string
 	version  int64
 	in       bu
 	ro       bu
 	out      bu
+	tree     map[string]*bu // the inherited-read BUs: anc, root, sib, rst, rkid
 	findings []Finding
 }
 
@@ -114,6 +121,7 @@ func Check(ctx context.Context, env Env, fx Fixture) ([]Finding, error) {
 	r.badContexts()
 	r.writes()
 	r.indistinguishable()
+	r.inherited()
 	r.injection()
 	return r.findings, nil
 }
@@ -126,7 +134,7 @@ func randHex(n int) string {
 
 func (r *run) setup() error {
 	a := r.env.Admin
-	if err := a.QueryRow(r.ctx, "SELECT resource_type FROM iam.bu_owned_tables WHERE table_name = $1::regclass", r.fx.Table).Scan(&r.rt); err != nil {
+	if err := a.QueryRow(r.ctx, "SELECT resource_type, shared_down FROM iam.bu_owned_tables WHERE table_name = $1::regclass", r.fx.Table).Scan(&r.rt, &r.shared); err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
@@ -134,10 +142,26 @@ func (r *run) setup() error {
 		r.rt = "unregistered"
 	}
 	tag := randHex(4)
-	for _, b := range []*bu{&r.in, &r.ro, &r.out} {
+	// root, and under it: anc (with in, ro, sib and the restricted rst, with
+	// rkid under rst) and out.
+	r.tree = map[string]*bu{}
+	for _, n := range []string{"root", "anc", "sib", "rst", "rkid"} {
+		r.tree[n] = &bu{name: n}
+	}
+	if err := a.QueryRow(r.ctx, "SELECT id::text FROM iam.bu WHERE parent_id IS NULL").Scan(&r.tree["root"].id); err != nil {
+		return err
+	}
+	for _, c := range []struct {
+		b          *bu
+		parent     string
+		restricted bool
+	}{
+		{r.tree["anc"], "root", false}, {&r.in, "anc", false}, {&r.ro, "anc", false}, {&r.out, "root", false},
+		{r.tree["sib"], "anc", false}, {r.tree["rst"], "anc", true}, {r.tree["rkid"], "rst", false},
+	} {
 		if err := a.QueryRow(r.ctx, `INSERT INTO iam.bu (name, code, parent_id, restricted)
-			SELECT 'rls harness', $1, id, false FROM iam.bu WHERE parent_id IS NULL RETURNING id::text`,
-			"RLSH_"+strings.ToUpper(b.name)+"_"+tag).Scan(&b.id); err != nil {
+			VALUES ('rls harness', $1, $2, $3) RETURNING id::text`,
+			"RLSH_"+strings.ToUpper(c.b.name)+"_"+tag, r.tree[c.parent].id, c.restricted).Scan(&c.b.id); err != nil {
 			return err
 		}
 	}
@@ -155,12 +179,29 @@ func (r *run) setup() error {
 	if _, err := a.Exec(r.ctx, "INSERT INTO authz.ctx_key (key_id, secret) VALUES ($1, $2)", r.key.ID, r.key.Secret); err != nil {
 		return err
 	}
-	for _, b := range []*bu{&r.in, &r.ro, &r.out} {
+	for _, b := range []*bu{&r.in, &r.ro, &r.out, r.tree["root"], r.tree["anc"], r.tree["sib"], r.tree["rst"], r.tree["rkid"]} {
 		if err := a.QueryRow(r.ctx, r.fx.Insert(b.id)).Scan(&b.pk); err != nil {
 			return fmt.Errorf("fixture insert: %w", err)
 		}
 	}
 	return nil
+}
+
+// scopeToken creates another harness user whose read and write scope is
+// the given BU and returns a context token for it.
+func (r *run) scopeToken(buID string) (string, error) {
+	tag := randHex(4)
+	var user string
+	if err := r.env.Admin.QueryRow(r.ctx, "INSERT INTO iam.app_user (email) VALUES ('rlsh-' || $1 || '@harness.test') RETURNING id::text", tag).Scan(&user); err != nil {
+		return "", err
+	}
+	set := fmt.Sprintf(`{%q: [%q]}`, r.rt, buID)
+	var version int64
+	if err := r.env.Admin.QueryRow(r.ctx, `INSERT INTO authz.user_scope (user_id, scope_version, read_bus, write_bus, rollup_aggregate_bus)
+		VALUES ($1, nextval('authz.scope_version_seq'), $2::jsonb, $2::jsonb, '{}') RETURNING scope_version`, user, set).Scan(&version); err != nil {
+		return "", err
+	}
+	return authz.MintDBContext(r.key, user, version, time.Minute, time.Now())
 }
 
 func (r *run) token() string {
@@ -262,6 +303,12 @@ func (r *run) structure() {
 			mode = "read"
 		}
 		for _, expr := range []string{qual, check} {
+			if name == "bu_select" && r.shared {
+				if expr != "" && !inheritedForm(expr, r.rt) {
+					r.fail("structure", "policy bu_select expression %q is not the shared-down read form for %s (ADR-007 amendment 2)", expr, r.rt)
+				}
+				continue
+			}
 			if expr != "" && !scopeForm(expr, r.rt, mode) {
 				r.fail("structure", "policy %s expression %q is not the %s scope form for %s (ADR-007 amendment 1)", name, expr, mode, r.rt)
 			}
@@ -291,10 +338,95 @@ func (r *run) structure() {
 // exclude form over scope_hides or the include form over visible_bus
 // (ADR-007 amendment 1).
 func scopeForm(expr, rt, mode string) bool {
-	want := fmt.Sprintf("CASE WHEN ( SELECT authz.scope_excludes('%[1]s'::text, '%[2]s'::text) AS scope_excludes)"+
+	return strings.Join(strings.Fields(expr), " ") == scopeExpr(rt, mode)
+}
+
+// inheritedForm reports whether a SELECT policy expression is exactly
+// authz.bu_inherited_expr(rt): the read scope form, or a BU in
+// authz.inherited_bus(rt) (ADR-007 amendment 2).
+func inheritedForm(expr, rt string) bool {
+	want := fmt.Sprintf("( %s OR (bu_id = ANY (( SELECT authz.inherited_bus('%s'::text) AS inherited_bus)::uuid[])))", scopeExpr(rt, "read"), rt)
+	if expr == "" {
+		return false
+	}
+	return strings.Join(strings.Fields(expr), " ") == want
+}
+
+func scopeExpr(rt, mode string) string {
+	return fmt.Sprintf("CASE WHEN ( SELECT authz.scope_excludes('%[1]s'::text, '%[2]s'::text) AS scope_excludes)"+
 		" THEN (bu_id <> ALL (( SELECT authz.scope_hides('%[1]s'::text, '%[2]s'::text) AS scope_hides)::uuid[]))"+
 		" ELSE (bu_id = ANY (( SELECT authz.visible_bus('%[1]s'::text, '%[2]s'::text) AS visible_bus)::uuid[])) END", rt, mode)
-	return strings.Join(strings.Fields(expr), " ") == want
+}
+
+// treeSet returns which of the inherited-read rows (anc, root, sib, rst,
+// rkid) the context can see, in that order.
+func (r *run) treeSet(tok *string) (string, error) {
+	var got []string
+	err := r.asApp(tok, func(tx pgx.Tx) error {
+		for _, n := range []string{"anc", "root", "sib", "rst", "rkid"} {
+			var c int
+			if err := tx.QueryRow(r.ctx, fmt.Sprintf("SELECT count(*) FROM %s WHERE %s::text = $1", r.fx.Table, r.fx.PK), r.tree[n].pk).Scan(&c); err != nil {
+				return err
+			}
+			if c > 0 {
+				got = append(got, n)
+			}
+		}
+		return nil
+	})
+	return strings.Join(got, ","), err
+}
+
+// inherited checks the inherited read of shared-down tables, and its
+// absence everywhere else.
+func (r *run) inherited() {
+	want := func(shared string) string {
+		if r.shared {
+			return shared
+		}
+		return ""
+	}
+	tok := r.token()
+	if got, err := r.treeSet(&tok); err != nil || got != want("anc,root") {
+		r.fail("inherited", "a user at in and ro sees [%s] (err=%v); want [%s]: ancestors only, no sibling, no restricted BU", got, err, want("anc,root"))
+	}
+	// Inherited rows are never writable.
+	anc := r.tree["anc"]
+	for op, q := range map[string]string{
+		"update": fmt.Sprintf("UPDATE %s SET %s WHERE %s::text = $1", r.fx.Table, r.fx.Touch, r.fx.PK),
+		"delete": fmt.Sprintf("DELETE FROM %s WHERE %s::text = $1", r.fx.Table, r.fx.PK),
+	} {
+		if n, err := r.affected(&tok, q, anc.pk); err != nil || n != 0 {
+			r.fail("inherited", "%s of an inherited row: affected=%d err=%v; want 0", op, n, err)
+		}
+	}
+	if _, err := r.affected(&tok, r.fx.Insert(anc.id)); !isRLSViolation(err) {
+		r.fail("inherited", "inserting into an ancestor BU: err=%v; want an RLS violation", err)
+	}
+	if n, err := r.affected(&tok, fmt.Sprintf("UPDATE %s SET bu_id = $1 WHERE %s::text = $2", r.fx.Table, r.fx.PK), anc.id, r.in.pk); !isRLSViolation(err) {
+		r.fail("inherited", "moving a writable row into an ancestor BU: affected=%d err=%v; want an RLS violation", n, err)
+	}
+	// Inside a restricted subtree: rkid inherits rst and nothing above it;
+	// rst itself inherits nothing.
+	for _, c := range []struct{ user, want string }{{"rkid", want("rst")}, {"rst", ""}} {
+		t, err := r.scopeToken(r.tree[c.user].id)
+		if err != nil {
+			r.fail("inherited", "setting up a user at %s: %v", c.user, err)
+			continue
+		}
+		got, err := r.treeSet(&t)
+		// The user's own row is visible through the scope form.
+		got = strings.Trim(strings.ReplaceAll(","+got+",", ","+c.user+",", ","), ",")
+		if err != nil || got != c.want {
+			r.fail("inherited", "a user at %s sees [%s] besides its own row (err=%v); want [%s]", c.user, got, err, c.want)
+		}
+	}
+	// No context, no inherited rows.
+	for name, bad := range r.badTokens() {
+		if got, err := r.treeSet(bad); err != nil || got != "" {
+			r.fail("inherited", "context %s sees [%s] (err=%v); want none", name, got, err)
+		}
+	}
 }
 
 // visibleSet returns which of the harness rows the context can see, e.g. "in,ro".
