@@ -116,3 +116,4 @@ Checked mechanically when this draft was generated:
 - 2026-10-25: Initial draft.
 - 2026-10-25: **Approved** by Robert Former with PC-1 (`risk_data` flag); PC-2 to PC-5 accepted as drafted.
 - 2026-11-05: Catalog version 2 (F-002 T-19, approved task): `audit.hold` (admin, privileged), for Platform Admin and not Auditor (F-002 requirements OQ4, AC-29).
+- 2026-11-06: Catalog version 2 **approved** by Robert Former.

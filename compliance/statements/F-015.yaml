@@ -13,7 +13,7 @@
 # or customer. Evidence tests are "<package dir>:<test name>".
 feature: F-015
 title: Security posture profiles
-status: approved # signed off by Robert Former, 2026-10-28
+status: approved # signed off by Robert Former, 2026-10-28; AU-6 amendment re-signed 2026-11-06
 controls:
   - id: cm-2
     responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
@@ -255,7 +255,7 @@ controls:
   - id: au-6
     responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
     # Amended 2026-11-06 with F-002 T-22 (the audit trail and its pages),
-    # pending re-sign-off.
+    # re-signed by Robert Former 2026-11-06.
     statement: >-
       Posture events carry the actor, target, severity and reason, and
       critical events (tampering, hard-floor violations, failed reverts,

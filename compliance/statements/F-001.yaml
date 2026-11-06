@@ -13,7 +13,7 @@
 # or customer. Evidence tests are "<package dir>:<test name>".
 feature: F-001
 title: Identity, BU hierarchy and RBAC
-status: approved # signed off by Robert Former, 2026-11-03
+status: approved # signed off by Robert Former, 2026-11-03; AU-2 and AU-12 amendments re-signed 2026-11-06
 controls:
   - id: ac-2
     responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
@@ -419,7 +419,7 @@ controls:
   - id: au-2
     responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
     # Amended 2026-11-06 with F-002 T-22 (the catalog is enforced by the
-    # audit trail), pending re-sign-off.
+    # audit trail), re-signed by Robert Former 2026-11-06.
     statement: >-
       The security events are defined in a catalog (pkg/audit/catalog.yaml):
       each type has its category, severities, required fields and
@@ -439,7 +439,7 @@ controls:
     responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
     # Amended 2026-11-05 with F-002 T-16 (per-service syslog retired; the
     # audit service forwards the trail) and 2026-11-06 with T-22 (OTLP; the
-    # trail's producers), pending re-sign-off.
+    # trail's producers), re-signed by Robert Former 2026-11-06.
     statement: >-
       Every service generates its events itself, as JSON lines on standard
       output and into the audit trail in the same transaction (database
