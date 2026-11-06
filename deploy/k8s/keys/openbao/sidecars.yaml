@@ -224,3 +224,56 @@ spec:
           projected:
             sources:
               - serviceAccountToken: { audience: openbao, expirationSeconds: 600, path: token }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: risk
+  namespace: fair-platform
+spec:
+  template:
+    spec:
+      securityContext:
+        fsGroup: 65532
+      initContainers:
+        - name: openbao-agent
+          image: quay.io/openbao/openbao:2.2.0@sha256:19612d67a4a95d05a7b77c6ebc6c2ac5dac67a8712d8df2e4c31ad28bee7edaa
+          restartPolicy: Always
+          command: ["bao", "agent", "-config=/etc/openbao/risk.hcl"]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+            seccompProfile: { type: RuntimeDefault }
+          startupProbe:
+            exec: { command: ["test", "-s", "/keys/.rendered"] }
+            periodSeconds: 2
+            failureThreshold: 60
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 64Mi }
+          volumeMounts:
+            - { name: keys, mountPath: /keys }
+            - { name: openbao-agent, mountPath: /etc/openbao, readOnly: true }
+            - { name: openbao-ca, mountPath: /etc/openbao/ca, readOnly: true }
+            - { name: openbao-token, mountPath: /var/run/secrets/openbao, readOnly: true }
+      containers:
+        - name: risk
+          env:
+            - { name: FAIR_JWT_KEYS_DIR, value: /keys/jwt }
+          volumeMounts:
+            - { name: keys, mountPath: /keys, readOnly: true }
+      volumes:
+        - name: keys
+          emptyDir: { medium: Memory, sizeLimit: 1Mi }
+        - name: openbao-agent
+          configMap: { name: fair-openbao-agent }
+        - name: openbao-ca
+          configMap: { name: openbao-ca }
+        - name: openbao-token
+          projected:
+            sources:
+              - serviceAccountToken: { audience: openbao, expirationSeconds: 600, path: token }

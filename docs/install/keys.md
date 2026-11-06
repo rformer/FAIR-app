@@ -1,6 +1,6 @@
 # Installation keys
 
-F-001 T-41 (design §10), extended by F-002 T-05. This guide covers the keys and secrets that F-001's services and the audit service (F-002) hold: where they come from in each deployment mode, how to install them, and how to rotate them. F-015's own keys (the posture MAC key and the export signing key) are covered in the README.
+F-001 T-41 (design §10), extended by F-002 T-05 and F-003 T-04. This guide covers the keys and secrets that F-001's services, the audit service (F-002) and the risk service (F-003) hold: where they come from in each deployment mode, how to install them, and how to rotate them. F-015's own keys (the posture MAC key and the export signing key) are covered in the README.
 
 ## The rule
 
@@ -29,8 +29,9 @@ In production every service refuses to start if a key or secret file it is given
 | `posture/jwt` | the gateway's JWT keys, public | `FAIR_JWT_KEYS_DIR=/keys/jwt` |
 | `audit/jwt` | the gateway's JWT keys, public | `FAIR_JWT_KEYS_DIR=/keys/jwt` |
 | `audit/checkpoint` | `<kid>.pem`: the audit trail's checkpoint signing key (ECDSA P-256, F-002 design §6.3), plus earlier keys, public | `FAIR_AUDIT_CHECKPOINT_KEYS_DIR=/keys/checkpoint` |
+| `risk/jwt` | the gateway's JWT keys, public | `FAIR_JWT_KEYS_DIR=/keys/jwt` |
 
-A key directory made before F-002 has no `audit/`: `iam keys upgrade -dir DIR` adds it, with the gateway's current JWT public keys and a new checkpoint key, and changes nothing else. Load `audit/jwt` and `audit/checkpoint` into the store as below.
+A key directory made before F-002 has no `audit/`, and one made before F-003 no `risk/`: `iam keys upgrade -dir DIR` adds what is missing (`audit/` with the gateway's JWT public keys and a new checkpoint key, `risk/` with the JWT public keys) and changes nothing else. Load the new directories into the store as below.
 
 `iam keys check -dir DIR` checks a whole set:
 - every file is present;
@@ -57,7 +58,7 @@ A key directory made before F-002 has no `audit/`: `iam keys upgrade -dir DIR` a
 
      ```sh
      umask 077
-     for d in gateway/jwt gateway/login-ticket gateway/secrets iam/jwt iam/login-ticket iam/secrets posture/jwt audit/jwt audit/checkpoint; do
+     for d in gateway/jwt gateway/login-ticket gateway/secrets iam/jwt iam/login-ticket iam/secrets posture/jwt audit/jwt audit/checkpoint risk/jwt; do
        echo '{}' > entry.json
        for f in ./fair-keys/$d/*; do
          jq --arg k "$(basename "$f")" --rawfile v "$f" '. + {($k): $v}' entry.json > next.json && mv next.json entry.json
@@ -73,11 +74,11 @@ A key directory made before F-002 has no `audit/`: `iam keys upgrade -dir DIR` a
    - **OpenBao or Vault.** Load each directory as one KV v2 entry, then apply the policies and enable Kubernetes auth:
 
      ```sh
-     for d in gateway/jwt gateway/login-ticket gateway/secrets iam/jwt iam/login-ticket iam/secrets posture/jwt audit/jwt audit/checkpoint; do
+     for d in gateway/jwt gateway/login-ticket gateway/secrets iam/jwt iam/login-ticket iam/secrets posture/jwt audit/jwt audit/checkpoint risk/jwt; do
        args=""; for f in ./fair-keys/$d/*; do args="$args $(basename "$f")=@$f"; done
        bao kv put "secret/fair/$d" $args
      done
-     for s in gateway iam posture audit; do
+     for s in gateway iam posture audit risk; do
        bao policy write "fair-$s" deploy/k8s/keys/openbao/policy-$s.hcl
        bao write "auth/kubernetes/role/fair-$s" bound_service_account_names="$s" \
          bound_service_account_namespaces=fair-platform audience=openbao token_policies="fair-$s" token_ttl=10m
@@ -88,7 +89,7 @@ A key directory made before F-002 has no `audit/`: `iam keys upgrade -dir DIR` a
    - **Kubernetes Secrets** (air-gapped, or self-hosted without OpenBao):
 
      ```sh
-     for d in gateway/jwt gateway/login-ticket gateway/secrets iam/jwt iam/login-ticket iam/secrets posture/jwt audit/jwt audit/checkpoint; do
+     for d in gateway/jwt gateway/login-ticket gateway/secrets iam/jwt iam/login-ticket iam/secrets posture/jwt audit/jwt audit/checkpoint risk/jwt; do
        kubectl -n fair-platform create secret generic "fair-${d%%/*}-${d#*/}" --from-file="./fair-keys/$d"
      done
      ```
@@ -103,7 +104,7 @@ Work on a copy of the key directory, taken from the store. Rotation adds a key; 
 
 | Kind | Command | Then |
 |---|---|---|
-| Internal JWT | `iam keys rotate -dir DIR -kind jwt` | Reload `gateway/jwt`, `iam/jwt`, `posture/jwt` and `audit/jwt`. The old signing key becomes public, and the new key signs once the gateway picks it up. With OpenBao, all four refresh within a minute. With Secrets, roll out iam, posture and audit before the gateway. |
+| Internal JWT | `iam keys rotate -dir DIR -kind jwt` | Reload `gateway/jwt`, `iam/jwt`, `posture/jwt`, `audit/jwt` and `risk/jwt`. The old signing key becomes public, and the new key signs once the gateway picks it up. With OpenBao, all five refresh within a minute. With Secrets, roll out iam, posture, audit and risk before the gateway. |
 | Login ticket | `iam keys rotate -dir DIR -kind login-ticket` | Reload `iam/login-ticket` and `gateway/login-ticket`. With Secrets, roll out the gateway before iam. |
 | Audit checkpoint | `iam keys rotate -dir DIR -kind checkpoint` | Reload `audit/checkpoint` and roll out the audit service. The old key becomes public; the service records every key's public half, so checkpoints signed before stay verifiable. Never delete an old checkpoint key from the store. |
 | DB context | `iam keys rotate -dir DIR -kind db-context` | `iam keys register -dir DIR`, reload `gateway/secrets` and roll out the gateway. Then `iam keys retire-db-context -id <old>`: contexts the old key signed stay valid for ten minutes, and the last active key cannot be retired. |

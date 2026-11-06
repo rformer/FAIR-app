@@ -20,7 +20,7 @@ import (
 
 const keysUsage = `usage:
   iam keys init -dir DIR                      create every key (never overwrites)
-  iam keys upgrade -dir DIR                   add the keys of services newer than DIR (F-002: audit/)
+  iam keys upgrade -dir DIR                   add the keys of services newer than DIR (F-002: audit/; F-003: risk/)
   iam keys rotate -dir DIR -kind KIND         add a key: jwt, login-ticket, db-context or checkpoint
   iam keys check -dir DIR                     check a key directory as a whole
   iam keys register -dir DIR                  add the gateway's DB-context key to the database

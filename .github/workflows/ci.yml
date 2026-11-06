@@ -299,6 +299,7 @@ jobs:
           - { component: fips-probe, smoke: "check" }
           - { component: gateway, smoke: "" }
           - { component: audit, smoke: "" }
+          - { component: risk, smoke: "" }
     permissions:
       contents: read
       packages: write   # push to GHCR (main only)

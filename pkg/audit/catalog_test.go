@@ -117,6 +117,9 @@ func scan(t *testing.T) map[string][]string {
 		}
 		s, name := string(b), filepath.Base(f)
 		for _, m := range typeKey.FindAllStringIndex(s, -1) {
+			if notEvent(s, m[0]) {
+				continue
+			}
 			a := args(s[m[1]:])
 			if len(a) == 0 {
 				continue
@@ -621,6 +624,9 @@ func TestCatalogAttributesMatchCode(t *testing.T) {
 		// Direct payloads: the attributes object after a literal type, within
 		// the same statement.
 		for _, m := range typeKey.FindAllStringIndex(s, -1) {
+			if notEvent(s, m[0]) {
+				continue
+			}
 			a := args(s[m[1]:])
 			if len(a) == 0 {
 				continue
@@ -762,4 +768,16 @@ type fakeExecer struct{}
 
 func (fakeExecer) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
 	return pgconn.CommandTag{}, nil
+}
+
+// notEvent reports whether the 'type' at s[at:] is not an event's type key:
+// a JSON member read (x -> 'type') or a name in an array literal
+// (ARRAY['type', ...]), as F-003's document checks (migration 0085) have.
+func notEvent(s string, at int) bool {
+	before := strings.TrimRight(s[max(0, at-200):at], " \t")
+	if strings.HasSuffix(before, "->") || strings.HasSuffix(before, "->>") {
+		return true
+	}
+	open := strings.LastIndex(before, "ARRAY[")
+	return open >= 0 && open > strings.LastIndex(before, "]")
 }

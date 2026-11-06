@@ -117,7 +117,7 @@ func checkEnv(t *testing.T, file string, d map[string]any, svc string) {
 // TestDeployManifests ties deploy/k8s/keys to the layout (F-001 T-41):
 // every mode delivers the same directories at the same paths.
 func TestDeployManifests(t *testing.T) {
-	services := []string{Gateway, IAM, Posture, Audit}
+	services := []string{Gateway, IAM, Posture, Audit, Risk}
 
 	t.Run("secret-mounts", func(t *testing.T) {
 		ds := docs(t, "secret-mounts.yaml")

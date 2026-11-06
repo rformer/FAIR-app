@@ -23,6 +23,7 @@ import (
 	"github.com/rformer/fair-app/internal/migrate"
 	"github.com/rformer/fair-app/internal/posture"
 	"github.com/rformer/fair-app/internal/profilepkg"
+	risksvc "github.com/rformer/fair-app/internal/risk"
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
 	"github.com/rformer/fair-app/pkg/settings"
@@ -92,6 +93,19 @@ func deploymentMode(t *testing.T, mode string) {
 	delete(noStore, "FAIR_AUDIT_STORE_BUCKET")
 	if err := auditCheck(noStore); err == nil {
 		t.Errorf("audit without its store in %s mode", mode)
+	}
+
+	// F-003 T-04 (design §7): the risk service needs the gateway's JWT
+	// keys in production, the same in every mode (it makes no outbound
+	// connections).
+	riskCheck := func(v map[string]string) error {
+		return risksvc.CheckInstall(risksvc.InstallCheck{Env: "production", Mode: mode, Getenv: func(k string) string { return v[k] }})
+	}
+	if err := riskCheck(map[string]string{"FAIR_JWT_KEYS_DIR": "/keys/jwt"}); err != nil {
+		t.Errorf("a complete %s risk install refused: %v", mode, err)
+	}
+	if err := riskCheck(map[string]string{}); err == nil {
+		t.Errorf("risk without its JWT keys in %s mode", mode)
 	}
 
 	// F-002 T-21 (design §7): air-gapped installs forward the audit trail

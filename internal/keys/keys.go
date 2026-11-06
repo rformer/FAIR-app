@@ -53,6 +53,7 @@ const (
 	IAM     = "iam"
 	Posture = "posture"
 	Audit   = "audit" // F-002 T-05
+	Risk    = "risk"  // F-003 T-04
 )
 
 // Files and directories in a service's key directory.
@@ -94,6 +95,7 @@ var Mounts = []Mount{
 	{Posture, JWTDir, map[string]string{"FAIR_JWT_KEYS_DIR": MountRoot + "/jwt"}},
 	{Audit, JWTDir, map[string]string{"FAIR_JWT_KEYS_DIR": MountRoot + "/jwt"}},
 	{Audit, CheckpointDir, map[string]string{"FAIR_AUDIT_CHECKPOINT_KEYS_DIR": MountRoot + "/checkpoint"}},
+	{Risk, JWTDir, map[string]string{"FAIR_JWT_KEYS_DIR": MountRoot + "/jwt"}},
 }
 
 // SecretLen is the random bytes in each pepper and the DB-context secret.
@@ -108,7 +110,7 @@ const (
 )
 
 // jwtVerifiers hold the gateway's internal-JWT public keys.
-var jwtVerifiers = []string{IAM, Posture, Audit}
+var jwtVerifiers = []string{IAM, Posture, Audit, Risk}
 
 var kidRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
@@ -120,7 +122,7 @@ type Set struct {
 // Init creates every key into dir (one subdirectory per service). It never
 // overwrites: an existing file is an error and nothing is written over it.
 func Init(dir string, now time.Time) (Set, error) {
-	for _, p := range []string{Gateway, IAM, Posture, Audit} {
+	for _, p := range []string{Gateway, IAM, Posture, Audit, Risk} {
 		if _, err := os.Stat(filepath.Join(dir, p)); err == nil {
 			return Set{}, fmt.Errorf("keys: %s already exists; keys are never overwritten (use rotate, or upgrade to add a new service's keys)", filepath.Join(dir, p))
 		}
@@ -155,17 +157,24 @@ func Init(dir string, now time.Time) (Set, error) {
 	return s, w.err
 }
 
-// Upgrade adds the key directories of services newer than a key directory
-// (F-002 T-05: audit/, with the gateway's internal-JWT public keys and a new
-// checkpoint signing key). It returns the services it added; nothing when
-// the directory is complete. It never overwrites.
+// Upgrade adds the key directories of services newer than a key directory:
+// audit/ (F-002 T-05: the gateway's internal-JWT public keys and a new
+// checkpoint signing key) and risk/ (F-003 T-04: the internal-JWT public
+// keys). It returns the services it added; nothing when the directory is
+// complete. It never overwrites.
 func Upgrade(dir string, now time.Time) ([]string, error) {
 	for _, p := range []string{Gateway, IAM, Posture} {
 		if _, err := os.Stat(filepath.Join(dir, p)); err != nil {
 			return nil, fmt.Errorf("keys: %s is not a key directory (no %s/; use init)", dir, p)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(dir, Audit)); err == nil {
+	var missing []string
+	for _, p := range []string{Audit, Risk} {
+		if _, err := os.Stat(filepath.Join(dir, p)); err != nil {
+			missing = append(missing, p)
+		}
+	}
+	if len(missing) == 0 {
 		return nil, nil
 	}
 	signers, err := privateKeys(filepath.Join(dir, Gateway, JWTDir))
@@ -180,27 +189,33 @@ func Upgrade(dir string, now time.Time) ([]string, error) {
 		return nil, err
 	}
 	w := &writer{}
-	for _, f := range pubs {
-		id := strings.TrimSuffix(filepath.Base(f), ".pem")
-		if k, ok := signers[id]; ok {
-			w.public(filepath.Join(dir, Audit, JWTDir, id+".pem"), &k.PublicKey)
-			continue
+	for _, svc := range missing {
+		// Every key the gateway holds, as a public key: the signing key and
+		// the ones it signed with before.
+		for _, f := range pubs {
+			id := strings.TrimSuffix(filepath.Base(f), ".pem")
+			if k, ok := signers[id]; ok {
+				w.public(filepath.Join(dir, svc, JWTDir, id+".pem"), &k.PublicKey)
+				continue
+			}
+			k, err := publicKey(f)
+			if err != nil {
+				return nil, err
+			}
+			w.public(filepath.Join(dir, svc, JWTDir, id+".pem"), k)
 		}
-		k, err := publicKey(f)
-		if err != nil {
-			return nil, err
+		if svc == Audit {
+			checkpoint, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+			if err != nil {
+				return nil, err
+			}
+			w.private(filepath.Join(dir, Audit, CheckpointDir, kid("checkpoint", now)+".pem"), checkpoint)
 		}
-		w.public(filepath.Join(dir, Audit, JWTDir, id+".pem"), k)
 	}
-	checkpoint, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return nil, err
-	}
-	w.private(filepath.Join(dir, Audit, CheckpointDir, kid("checkpoint", now)+".pem"), checkpoint)
 	if w.err != nil {
 		return nil, w.err
 	}
-	return []string{Audit}, nil
+	return missing, nil
 }
 
 // CheckpointKey reads the audit trail's checkpoint signing key: the one

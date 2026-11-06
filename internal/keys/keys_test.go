@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -348,5 +349,42 @@ func TestAuditKeys(t *testing.T) {
 	}
 	if _, err := Upgrade(t.TempDir(), t1); err == nil {
 		t.Fatal("upgrade of an empty directory")
+	}
+
+	// A directory made before F-003 (and one before F-002) gets risk/ with
+	// every public key the gateway holds, after a rotation too.
+	for _, gone := range [][]string{{Risk}, {Audit, Risk}} {
+		d := t.TempDir()
+		s, err := Init(d, t0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rotated, err := Rotate(d, KindJWT, t1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, g := range gone {
+			if err := os.RemoveAll(filepath.Join(d, g)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := Check(d); err == nil {
+			t.Fatalf("a directory without %v passed", gone)
+		}
+		added, err := Upgrade(d, t1)
+		if err != nil || !slices.Equal(added, gone) {
+			t.Fatalf("upgrade: %v %v, want %v", added, err, gone)
+		}
+		for _, id := range []string{s.JWT, rotated} {
+			if _, err := publicKey(filepath.Join(d, Risk, JWTDir, id+".pem")); err != nil {
+				t.Errorf("risk/ lacks the gateway's key %s: %v", id, err)
+			}
+		}
+		if p, _ := privateKeys(filepath.Join(d, Risk, JWTDir)); len(p) != 0 {
+			t.Error("risk/ holds a private key")
+		}
+		if err := Check(d); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

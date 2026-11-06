@@ -621,6 +621,12 @@ events:
     requires: [target]
     attributes: [from_version, profile]
     description: "A custom profile got a new version"
+  - type: risk.currency_set
+    category: configuration
+    severities: [high]
+    requires: [target]
+    attributes: [currency, previous]
+    description: "The installation currency for every risk amount was set at install (risk currency set; F-003 T-04, AC-07); it cannot change once amounts are stored"
   - type: role.cloned
     category: role_permission
     severities: [info]

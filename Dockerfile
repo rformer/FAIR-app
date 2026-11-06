@@ -6,6 +6,7 @@
 #   docker build --target posture-scanner . deployment drift scanner (F-015 T-27)
 #   docker build --target fips-probe .      node FIPS probe (F-015 T-29)
 #   docker build --target audit .           audit trail service (F-002 T-05), with /fair-audit-verify (T-10)
+#   docker build --target risk .            risk data service (F-003 T-04)
 # - FIPS 140-3: built with GOFIPS140=v1.0.0; go.mod sets fips140=on at runtime.
 # - Static, CGO-free binary on distroless: no shell, no package manager.
 # - Runs as non-root (65532) and works with a read-only root filesystem.
@@ -30,7 +31,7 @@ COPY profiles/packages ./profiles/packages
 COPY third_party/oscal/oscal.go third_party/oscal/MANIFEST.json ./third_party/oscal/
 COPY third_party/oscal/schemas/oscal_complete_schema.json ./third_party/oscal/schemas/
 ARG VERSION=dev
-RUN for c in iam posture posture-scanner fips-probe gateway audit; do \
+RUN for c in iam posture posture-scanner fips-probe gateway audit risk; do \
       go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/$c ./cmd/$c || exit 1; \
     done && \
     go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/fair-audit-verify ./cmd/audit-verify
@@ -59,6 +60,12 @@ COPY --from=build /out/fair-audit-verify /fair-audit-verify
 USER 65532:65532
 EXPOSE 8443
 ENTRYPOINT ["/audit"]
+
+FROM gcr.io/distroless/static-debian12:nonroot AS risk
+COPY --from=build /out/risk /risk
+USER 65532:65532
+EXPOSE 8443
+ENTRYPOINT ["/risk"]
 
 FROM gcr.io/distroless/static-debian12:nonroot AS gateway
 COPY --from=build /out/gateway /gateway
