@@ -124,7 +124,7 @@ AC-3, AC-6, AU-2, AU-12, CM-3, RA-3, RA-7, SI-10. Crosswalks to other frameworks
 ## Dependencies
 - F-001 (BU hierarchy, RBAC and data-layer visibility; the permission keys).
 - F-002 (audit trail; secrets refusal).
-- F-015 (installation settings, for the currency).
+- The risk service's installation setting, for the currency (design §3.4; not an F-015 setting).
 
 ## Open Questions
 None.
@@ -141,3 +141,4 @@ None.
 
 ## Change Log
 - 2026-11-06: Initial draft. OQ1 to OQ8 resolved. **Approved** by Robert Former.
+- 2026-11-06: Dependency on F-015 for the currency replaced by the risk service's installation setting (design §3.4, §12).

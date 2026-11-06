@@ -51,3 +51,17 @@ Status: Accepted (Robert Former, 2026-11-03; F-001 T-11d)
 - The policy is no longer an indexable `bu_id = ANY(...)` predicate, so the planner does not use the `bu_id` index for the policy alone. List queries over BU-owned tables use the T-11c helper (`authz.NewestQuery`), which supplies its own per-BU predicate when the caller sees few BUs. Lookups by key and queries filtered by BU use their own indexes as before.
 - Each statement verifies the context twice (the chooser and the chosen set) and counts `iam.bu`; the exclude form adds a set difference over the BU ids. The T-11b gate measures this.
 - The RLS harness (T-10) requires the form on every BU policy and exercises both forms.
+
+## Amendment 2: inherited read (2026-11-06)
+Status: Accepted (Robert Former, 2026-11-06; F-003 design §11)
+
+**Context.** F-003's library entries and controls are shared down the BU tree (F-003 OQ4): an analyst in a child BU uses entries owned by its ancestors. The BU policies admit only the caller's own scope (the BUs where they hold the permission, and their descendants), so a child BU cannot read its parent's entries.
+
+**Decision.**
+- `authz.inherited_bus(type)` returns the ancestors of the BUs where the caller holds `<type>.view`, excluding BUs already visible. It walks up `iam.bu_closure` and stops at restricted BUs: a restricted BU inherits nothing from above, and nothing above a restricted BU is inherited through it. It is `SECURITY DEFINER STABLE`, owned by `authz_definer`, and evaluated once per statement. Without a valid context it returns NULL, so it admits nothing.
+- Tables registered as *shared down* (`authz.apply_bu_rls(..., shared_down => true)`) add `OR bu_id = ANY(inherited_bus(type))` to their `SELECT` policy only. Insert, update and delete policies are unchanged: an inherited row is never writable.
+- The set is small: at most the tree depth for each top of the caller's scope.
+
+**Consequences.**
+- The RLS harness (T-10) exercises every shared-down table, including the restricted cases: a sibling's entries, a restricted BU's entries seen from outside, and a restricted BU's own view of its ancestors are all refused.
+- Only F-003's `library` and `control` tables use it in v1.

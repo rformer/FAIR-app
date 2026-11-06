@@ -1,6 +1,6 @@
 # F-003 FAIR Data Model — Design
-Status: **Draft** | Requirements: approved 2026-11-06 | Last updated: 2026-11-06
-Constitution refs: P1, P2, P3, A2, A3, A5, A6, S0, S4, Q1, Q3, Q5 | ADRs: 003, 006, 007 (amendment 2 proposed with this design)
+Status: **Approved** (Robert Former, 2026-11-06) | Requirements: approved 2026-11-06 | Last updated: 2026-11-06
+Constitution refs: P1, P2, P3, A2, A3, A5, A6, S0, S4, Q1, Q3, Q5 | ADRs: 003, 006, 007 (amendment 2, accepted with this design)
 
 ## 1. Overview
 F-003 adds a `risk` service and a `risk` schema holding the Open FAIR model: loss scenarios, the library (assets, asset groups, threat communities, loss-form profiles) and controls.
@@ -221,7 +221,7 @@ No outbound connections in any mode.
 
 Performance (requirements NFR): `TestBenchmarkGateRiskScenarios` (10,000 scenarios in a subtree, list ≤ 500 ms p95, load with pins ≤ 300 ms p95) in the bench gate.
 
-## 11. ADR-007 amendment 2: inherited read (proposed)
+## 11. ADR-007 amendment 2: inherited read (accepted)
 - `authz.inherited_bus(type)`: the ancestors of the BUs where the caller holds `<type>.view`, excluding BUs already in the visible set, walking up `iam.bu_closure` and stopping at a restricted BU: a restricted BU inherits nothing from above, and nothing above a restricted BU is inherited through it. SECURITY DEFINER, STABLE, owned by `authz_definer`, evaluated once per statement; fail closed (NULL without a valid context).
 - The set is small: at most the depth of the tree for each top of the caller's scope.
 - Used only by `SELECT` policies of tables registered as *shared down* (`authz.apply_bu_rls(..., shared_down => true)`); the RLS harness exercises it for every such table, including the restricted cases.
@@ -239,7 +239,8 @@ Performance (requirements NFR): `TestBenchmarkGateRiskScenarios` (10,000 scenari
 - **Currency as an F-015 setting.** Rejected: it has no security ordering, and changing it after data exists must be refused rather than bounded.
 
 ## 14. Open items
-- The starter library's text is drafted in T-xx and reviewed by Robert before release.
+- The starter library's text is drafted in T-10 and reviewed by Robert before release.
 
 ## Change Log
 - 2026-11-06: Initial draft (decisions: new `risk` service; inherited read through ADR-007 amendment 2; canonical JSON versions).
+- 2026-11-06: **Approved** by Robert Former, with ADR-007 amendment 2.
