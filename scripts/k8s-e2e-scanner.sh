@@ -173,7 +173,9 @@ none platform_rbac          # RBAC as applied from deploy/k8s, matching the sign
 finds "tls_endpoints endpoint/e2e-bad.$NS.svc:8443 high"
 finds "node_fips node/$NODE high"
 finds "signature_admission cluster/admission high"
-finds "storage_encryption storageclass/standard high"
+# The default class has no encryption parameter: kind's "standard", k3s's "local-path".
+SC=$($K get storageclass -o jsonpath='{.items[?(@.metadata.annotations.storageclass\.kubernetes\.io/is-default-class=="true")].metadata.name}')
+finds "storage_encryption storageclass/${SC:-standard} high"
 finds "pod_hardening workload/$NS/Deployment/e2e-bad high"
 finds "plaintext_secrets workload/$NS/Deployment/e2e-bad high"
 finds "image_digests workload/$NS/Deployment/posture-scanner high"
