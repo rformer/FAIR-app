@@ -1,0 +1,265 @@
+# NIST SP 800-53 Rev 5 control implementation statements for F-002
+# (Tamper-evident audit trail), task T-23. Source for the platform's OSCAL
+# component definition (F-014 assembles the features' files); checked by
+# internal/compliance tests: the controls are exactly F-002's control
+# mapping, every evidence path and test exists, and the OSCAL output
+# validates against the pinned schema.
+#
+# responsibility, per deployment mode (ADR-005):
+#   provider  the platform (and, in SaaS, the vendor operating it) meets it
+#   shared    the platform provides the mechanism; the customer operates it
+#   customer  the customer meets it
+# customer: what the customer does wherever the responsibility is shared
+# or customer. Evidence tests are "<package dir>:<test name>".
+feature: F-002
+title: Tamper-evident audit trail
+status: draft # awaiting sign-off by Robert Former
+controls:
+  - id: au-2
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      The events the platform logs are the security event catalog
+      (pkg/audit/catalog.yaml), loaded into the audit trail with each
+      release. The trail records only catalogued types, with the severities
+      and fields their entries allow; an unknown type or a missing required
+      field is refused, so the producing operation fails rather than
+      logging something unreviewed.
+    customer: >-
+      Review the catalog against the organization's event-logging
+      requirements and choose which events the SIEM alerts on.
+    evidence:
+      code: [pkg/audit/catalog.yaml, db/migrations/0066_audit_schema.sql, db/migrations/0067_audit_envelope_bu.sql]
+      tests: ["db/tests:TestAuditSubmit", "db/tests:TestAuditEventTypeSync", "pkg/audit:TestCatalogMatchesCode"]
+
+  - id: au-3
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Every record carries the event type and category, its time as the
+      producer gave it and the time the trail received it, the producing
+      service (the database role that submitted it, not a field the
+      producer can set), the actor, the target, the business unit, the
+      outcome in its type, the request id and source address where there
+      is one, and the reason the user gave.
+    evidence:
+      code: [pkg/audit/event.schema.json, db/migrations/0071_audit_sequencer.sql]
+      tests: ["db/tests:TestAuditSequencer", "db/tests:TestSTRIDEF002ProducerSpoofing", "pkg/audit:TestValidate"]
+
+  - id: au-3.1
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Records also carry the values before and after a change, catalogued
+      attributes per type, the approval that authorized a change (stamped
+      by the trail on every event recorded in the transaction that consumed
+      the approval), and a flag when the event's time and its receipt
+      differ by more than the allowed clock skew. Values that look like
+      secrets are refused.
+    evidence:
+      code: [db/migrations/0075_audit_approval_evidence.sql, db/migrations/0067_audit_envelope_bu.sql]
+      tests: ["db/tests:TestAuditApprovalEvidence", "pkg/audit:TestNoSecretsInEvents", "db/tests:TestAuditSequencerLateAndConcurrent"]
+
+  - id: au-4
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Audit storage is allocated by the install's quota
+      (FAIR_AUDIT_STORAGE_QUOTA, required in production) and measured
+      against it every five minutes. Segments past the online retention move
+      to archive storage in object storage, which keeps the online database
+      within its allocation.
+    customer: >-
+      Size the quota and the database storage behind it, and the object
+      storage for the archive.
+    evidence:
+      code: [internal/audit/capacity.go, internal/audit/archive.go, db/migrations/0082_audit_capacity.sql]
+      tests: ["db/tests:TestAuditCapacity", "db/tests:TestAuditArchive"]
+
+  - id: au-5
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      If an event can be neither recorded nor held durably, the operation
+      that would emit it fails; no event is dropped to keep running. At
+      100% of the storage quota the trail refuses events from every other
+      service, so their operations fail, while the audit service keeps
+      recording its own checkpoints and verification results. A failed
+      verification opens a critical finding and alerts.
+    customer: >-
+      Respond to capacity and integrity alerts.
+    evidence:
+      code: [pkg/audit/trail.go, db/migrations/0082_audit_capacity.sql, internal/audit/verify.go]
+      tests: ["db/tests:TestAuditCapacity", "db/tests:TestWorkerAuditFailsClosed", "db/tests:TestAuditVerificationFindsTampering"]
+
+  - id: au-5.1
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      At 75% of the storage quota the platform records a high-severity
+      warning, and at 90% a critical event; the Posture page shows the
+      storage use, its warning and the audit_capacity finding.
+    customer: >-
+      Act on the warning: raise the quota or shorten the online retention
+      (a change that needs a second approver).
+    evidence:
+      code: [internal/audit/capacity.go, web/src/posture/PosturePage.tsx]
+      tests: ["db/tests:TestAuditCapacity"]
+
+  - id: au-6
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      The audit pages let authorized reviewers search the trail by time,
+      type, category, severity, actor, target, business unit, request and
+      source address; follow a target's or an actor's history; see one
+      request across services and one approval's request, decision and
+      applied change; and check any record's proof against its signed
+      checkpoint. Every review is itself recorded.
+    customer: >-
+      Review and analyze audit records for indications of inappropriate or
+      unusual activity, and report findings.
+    evidence:
+      code: [internal/auditapi/api.go, web/src/audit/AuditPage.tsx]
+      tests: ["db/tests:TestAuditReadFilters", "db/tests:TestAuditReadsAreRecorded", "db/tests:TestAuditApprovalEvidence"]
+
+  - id: au-6.1
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Review is integrated with automated processes: the trail is forwarded
+      to the customer's SIEM over syslog or OTLP with TLS, with each
+      record's position and integrity data, in order and without loss;
+      integrity failures, forwarding backlogs and capacity are raised as
+      findings on the Posture page and, in SaaS, alerted to vendor SecOps.
+    customer: >-
+      Configure the SIEM destination and its alerting.
+    evidence:
+      code: [internal/audit/forward.go, internal/audit/otlp.go]
+      tests: ["db/tests:TestAuditForwardSyslog", "db/tests:TestAuditForwardOTLP", "db/tests:TestAuditForwardBacklogAlert"]
+
+  - id: au-6.3
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Records from every service share one trail and one request id, so a
+      request can be followed across services, and the SIEM receives them
+      with that id to correlate with other repositories.
+    customer: >-
+      Correlate the platform's records with other audit repositories in the
+      SIEM.
+    evidence:
+      code: [internal/auditapi/api.go, internal/audit/forward.go]
+      tests: ["db/tests:TestAuditReadVisibility", "db/tests:TestAuditForwardSyslog"]
+
+  - id: au-7
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Records can be reduced by search filters and exported, as JSON lines
+      or CSV, for reports and after-the-fact investigation, without changing
+      the records: exports carry the exact bodies as recorded.
+    evidence:
+      code: [internal/audit/export.go, internal/auditapi/exports.go]
+      tests: ["db/tests:TestAuditExportBundle", "db/tests:TestAuditExportCSV"]
+
+  - id: au-7.1
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Search and export apply the same filter conditions, so an export holds
+      exactly the records the same search shows (archived records included),
+      in the requester's business-unit scope, and its signed manifest states
+      the filter in words and as data.
+    evidence:
+      code: [db/migrations/0078_audit_exports.sql, db/migrations/0080_audit_archive.sql]
+      tests: ["db/tests:TestAuditExportScope", "db/tests:TestAuditArchive"]
+
+  - id: au-8
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Every record holds the event's time and its receipt time, in UTC to
+      the microsecond; a record whose time differs from its receipt by more
+      than audit.max_clock_skew is flagged.
+    customer: >-
+      Synchronize the hosts' clocks (NTP) in self-hosted and air-gapped
+      installs.
+    evidence:
+      code: [db/migrations/0071_audit_sequencer.sql]
+      tests: ["db/tests:TestAuditSequencerLateAndConcurrent", "db/tests:TestAuditSequencer"]
+
+  - id: au-9
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      The trail is append-only: no application role can change or delete
+      records, and triggers refuse it for every role but the archive step.
+      Each record is hash-chained to the one before, segments are closed
+      every 15 minutes with Merkle roots in checkpoints signed outside the
+      database, and the trail is verified incrementally every 15 minutes and
+      in full daily. Readers see only records in their business-unit scope.
+    customer: >-
+      Restrict database superuser access; investigate integrity findings.
+    evidence:
+      code: [db/migrations/0066_audit_schema.sql, internal/audit/integrity/integrity.go, internal/audit/verify.go]
+      tests: ["db/tests:TestAuditAppendOnly", "db/tests:TestAuditVerificationFindsTampering", "db/tests:TestAuditReadVisibility"]
+
+  - id: au-9.3
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Integrity is protected cryptographically with the FIPS 140 module:
+      SHA-256 hash chains, RFC 9162 Merkle trees per segment, and ECDSA P-256
+      checkpoint signatures by a key held outside the database. Exports and
+      archives can be verified offline with fair-audit-verify against
+      separately obtained keys.
+    customer: >-
+      Protect the checkpoint key (key store per mode) and keep a copy of the
+      public keys for verification.
+    evidence:
+      code: [internal/audit/integrity/checkpoint.go, cmd/audit-verify/main.go, internal/audit/evidence/export.go]
+      tests: ["internal/audit/integrity:TestTamperingIsDetected", "internal/audit/evidence:TestExportTamperCorpus",
+              "db/tests:TestAuditCheckpointCloseRefusesForgeries"]
+
+  - id: au-9.4
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Reading the trail needs audit.view, exporting it audit.export, and
+      placing legal holds audit.hold at the root; all three are privileged,
+      reviewed in access reviews, and given by built-in roles to the
+      Auditor (view, export) and Platform Admin (hold) only.
+    customer: >-
+      Grant these permissions to a limited set of privileged users and
+      review them.
+    evidence:
+      code: [internal/access/catalog/release/catalog.json, internal/access/catalog/release/builtin_roles.json]
+      tests: ["db/tests:TestSTRIDEF002HoldPrivilege", "db/tests:TestAuditExportScope", "internal/access/catalog:TestReleaseMatchesApprovedSpec"]
+
+  - id: au-11
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Records stay searchable for audit.retention_online (12 months by
+      default, never under 90 days) and are then archived to object storage
+      under compliance-mode Object Lock until the end of audit.retention_total
+      (7 years by default). Shortening either needs a second approver.
+      Destruction happens only after the total retention, is recorded, and
+      never touches records under a legal hold.
+    customer: >-
+      Set the retention periods to the organization's records schedule and
+      provide object storage with Object Lock.
+    evidence:
+      code: [internal/audit/archive.go, internal/audit/retain.go, bindings/audit.retention_online.yaml]
+      tests: ["db/tests:TestAuditArchive", "db/tests:TestAuditHoldAndDestruction", "db/tests:TestAuditRetentionFloorAndBounds"]
+
+  - id: au-12
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Every service generates audit records for the catalogued events in
+      the transaction of the change they report, into one trail, so a change
+      without its record cannot commit; the trail sequences them in a single
+      order across services.
+    customer: >-
+      Decide which catalogued events to forward and alert on.
+    evidence:
+      code: [pkg/audit/trail.go, db/migrations/0070_audit_outbox_redirect.sql, internal/audit/sequencer.go]
+      tests: ["db/tests:TestAuditTrailFromSQLProducers", "db/tests:TestAuditTrailFromGo", "db/tests:TestSTRIDEF002ServiceDown"]
+
+  - id: si-4
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      The platform monitors its own audit trail: tampering is detected by
+      verification and by comparing the platform's checkpoints with the SIEM
+      and write-once copies; exception expiries are checked against the
+      trail; forwarding backlogs and storage capacity raise findings.
+    customer: >-
+      Monitor the forwarded trail and the platform's findings in the SIEM.
+    evidence:
+      code: [internal/audit/verify.go, internal/audit/evidence/compare.go, db/migrations/0083_exception_expiry_trail.sql]
+      tests: ["db/tests:TestAuditVerificationCopiesAndArchives", "db/tests:TestDriftExceptionExpiryAgainstTrail", "internal/audit/evidence:TestCompare"]

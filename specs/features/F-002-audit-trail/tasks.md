@@ -54,7 +54,7 @@ Every task that adds a migration follows the immutability rule. Every new event 
 |---|---|---|---|---|---|
 | T-21 | STRIDE suite for design §8 (`db/tests/stride_f002_test.go`, rows in `TestSTRIDECatalog`). Deployment-mode matrix: air-gapped destinations internal only; SaaS requires WORM | Q5, §7, §8 | `make test-stride` covers every §8 row; `TestDeploymentModeMatrix` and the CI `deployment-modes` jobs pass | M | Done (2026-11-05) |
 | T-22 | Close the cross-feature items: F-015 design §15 ("expiry is checked against the audit trail", "every step goes to the hash-chained audit"); F-001 AU-2 and AU-12 statements and the F-015 AU-6 statement updated to the trail | F-001-AC-50; F-015 design §15 | Tests named in the updated statements pass; the compliance checks pass | S | Done (2026-11-06) |
-| T-23 | Control implementation statements `compliance/statements/F-002.yaml` (AU-2, AU-3, AU-3(1), AU-4, AU-5, AU-5(1), AU-6, AU-6(1), AU-6(3), AU-7, AU-7(1), AU-8, AU-9, AU-9(3), AU-9(4), AU-11, AU-12, SI-4), built into the OSCAL component definition; Robert Former signs off | S1, Q1 | `internal/compliance` checks pass; sign-off recorded | S | Todo |
+| T-23 | Control implementation statements `compliance/statements/F-002.yaml` (AU-2, AU-3, AU-3(1), AU-4, AU-5, AU-5(1), AU-6, AU-6(1), AU-6(3), AU-7, AU-7(1), AU-8, AU-9, AU-9(3), AU-9(4), AU-11, AU-12, SI-4), built into the OSCAL component definition; Robert Former signs off | S1, Q1 | `internal/compliance` checks pass; sign-off recorded | S | Awaiting sign-off (statements drafted 2026-11-06) |
 
 ## Definition of Done
 - All linked acceptance criteria have passing automated tests.

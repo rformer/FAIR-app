@@ -63,12 +63,15 @@ func TestF015Statements(t *testing.T) { checkFeature(t, "F-015", "F-015-security
 // F-001 T-43: the same for F-001.
 func TestF001Statements(t *testing.T) { checkFeature(t, "F-001", "F-001-identity-bu-rbac") }
 
-// Both features build one valid component definition: one control
+// F-002 T-23: the same for F-002.
+func TestF002Statements(t *testing.T) { checkFeature(t, "F-002", "F-002-audit-trail") }
+
+// The features build one valid component definition: one control
 // implementation per feature, so a control both state (CM-6, CM-7) appears
 // once in each.
 func TestComponentDefinitionAllFeatures(t *testing.T) {
-	f001, f015 := load(t, "F-001"), load(t, "F-015")
-	b, err := ComponentDefinition(platformComponent, "0.1.0", time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC), f001, f015)
+	f001, f002, f015 := load(t, "F-001"), load(t, "F-002"), load(t, "F-015")
+	b, err := ComponentDefinition(platformComponent, "0.1.0", time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC), f001, f002, f015)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,15 +80,15 @@ func TestComponentDefinitionAllFeatures(t *testing.T) {
 		t.Fatalf("%v %v", kind, err)
 	}
 	impls := *(*doc.ComponentDefinition.Components)[0].ControlImplementations
-	if len(impls) != 2 {
+	if len(impls) != 3 {
 		t.Fatalf("%d control implementations", len(impls))
 	}
 	n := 0
 	for _, im := range impls {
 		n += len(im.ImplementedRequirements)
 	}
-	if n != len(f001.Controls)+len(f015.Controls) {
-		t.Fatalf("%d implemented requirements, want %d", n, len(f001.Controls)+len(f015.Controls))
+	if n != len(f001.Controls)+len(f002.Controls)+len(f015.Controls) {
+		t.Fatalf("%d implemented requirements, want %d", n, len(f001.Controls)+len(f002.Controls)+len(f015.Controls))
 	}
 }
 
