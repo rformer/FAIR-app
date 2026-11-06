@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:fair:risk:library:1",
+  "title": "FAIR library entries and controls",
+  "description": "F-003 design §3.3: assets, asset groups, threat communities, loss profiles and controls. Each kind is a definition here: urn:fair:risk:library:1#/$defs/<kind>.",
+  "$defs": {
+    "asset": {
+      "type": "object",
+      "required": ["kind", "schema_version", "name", "asset_type"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "asset" },
+        "schema_version": { "$ref": "urn:fair:risk:common:1#/$defs/schema_version" },
+        "name": { "$ref": "urn:fair:risk:common:1#/$defs/name" },
+        "asset_type": { "$ref": "urn:fair:risk:common:1#/$defs/name" },
+        "description": { "$ref": "urn:fair:risk:common:1#/$defs/text" },
+        "value": { "$ref": "urn:fair:risk:common:1#/$defs/estimate_currency" },
+        "value_basis": { "$ref": "urn:fair:risk:common:1#/$defs/text", "minLength": 1 }
+      },
+      "oneOf": [
+        { "required": ["value"], "not": { "required": ["value_basis"] } },
+        { "required": ["value_basis"], "not": { "required": ["value"] } }
+      ]
+    },
+    "asset_group": {
+      "type": "object",
+      "required": ["kind", "schema_version", "name", "members", "valuation"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "asset_group" },
+        "schema_version": { "$ref": "urn:fair:risk:common:1#/$defs/schema_version" },
+        "name": { "$ref": "urn:fair:risk:common:1#/$defs/name" },
+        "description": { "$ref": "urn:fair:risk:common:1#/$defs/text" },
+        "members": { "type": "array", "minItems": 1, "maxItems": 1000, "items": { "$ref": "urn:fair:risk:common:1#/$defs/pin" } },
+        "valuation": { "enum": ["whole", "members"] },
+        "value": { "$ref": "urn:fair:risk:common:1#/$defs/estimate_currency" }
+      },
+      "if": { "properties": { "valuation": { "const": "whole" } } },
+      "then": { "required": ["value"] },
+      "else": { "properties": { "value": false } }
+    },
+    "threat_community": {
+      "type": "object",
+      "required": ["kind", "schema_version", "name", "threat_capability"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "threat_community" },
+        "schema_version": { "$ref": "urn:fair:risk:common:1#/$defs/schema_version" },
+        "name": { "$ref": "urn:fair:risk:common:1#/$defs/name" },
+        "description": { "$ref": "urn:fair:risk:common:1#/$defs/text" },
+        "threat_capability": { "$ref": "urn:fair:risk:common:1#/$defs/estimate_percentile" }
+      }
+    },
+    "loss_profile": {
+      "type": "object",
+      "required": ["kind", "schema_version", "name", "magnitudes"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "loss_profile" },
+        "schema_version": { "$ref": "urn:fair:risk:common:1#/$defs/schema_version" },
+        "name": { "$ref": "urn:fair:risk:common:1#/$defs/name" },
+        "description": { "$ref": "urn:fair:risk:common:1#/$defs/text" },
+        "magnitudes": { "$ref": "urn:fair:risk:common:1#/$defs/loss_map" }
+      }
+    },
+    "control": {
+      "type": "object",
+      "required": ["kind", "schema_version", "name", "effects"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "control" },
+        "schema_version": { "$ref": "urn:fair:risk:common:1#/$defs/schema_version" },
+        "name": { "$ref": "urn:fair:risk:common:1#/$defs/name" },
+        "description": { "$ref": "urn:fair:risk:common:1#/$defs/text" },
+        "references": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "required": ["framework", "identifier"],
+            "additionalProperties": false,
+            "properties": { "framework": { "$ref": "urn:fair:risk:common:1#/$defs/name" }, "identifier": { "$ref": "urn:fair:risk:common:1#/$defs/name" } }
+          }
+        },
+        "effects": { "$ref": "urn:fair:risk:common:1#/$defs/effects" }
+      }
+    }
+  }
+}

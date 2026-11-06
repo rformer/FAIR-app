@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:fair:risk:scenario:1",
+  "title": "FAIR loss scenario",
+  "description": "F-003 design §3.1, §3.3, §3.5: a loss scenario in Open FAIR terms, estimated at the level chosen for each branch of the taxonomy.",
+  "type": "object",
+  "required": ["kind", "schema_version", "name", "scope", "analysis_period", "owner", "asset", "threat_community", "threat_effects", "loss_event", "lef", "primary_loss", "control_sets"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": { "const": "scenario" },
+    "schema_version": { "$ref": "urn:fair:risk:common:1#/$defs/schema_version" },
+    "name": { "$ref": "urn:fair:risk:common:1#/$defs/name" },
+    "description": { "$ref": "urn:fair:risk:common:1#/$defs/text" },
+    "scope": {
+      "type": "object",
+      "required": ["in"],
+      "additionalProperties": false,
+      "properties": {
+        "in": { "$ref": "urn:fair:risk:common:1#/$defs/text", "minLength": 1 },
+        "out": { "$ref": "urn:fair:risk:common:1#/$defs/text" }
+      }
+    },
+    "analysis_period": {
+      "type": "object",
+      "required": ["start", "end"],
+      "additionalProperties": false,
+      "properties": { "start": { "$ref": "urn:fair:risk:common:1#/$defs/date" }, "end": { "$ref": "urn:fair:risk:common:1#/$defs/date" } }
+    },
+    "owner": { "$ref": "urn:fair:risk:common:1#/$defs/uuid" },
+    "asset": {
+      "type": "object",
+      "required": ["kind", "id", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "enum": ["asset", "asset_group"] },
+        "id": { "$ref": "urn:fair:risk:common:1#/$defs/uuid" },
+        "version": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "threat_community": { "$ref": "urn:fair:risk:common:1#/$defs/pin" },
+    "threat_effects": { "type": "array", "minItems": 1, "maxItems": 3, "uniqueItems": true, "items": { "enum": ["confidentiality", "integrity", "availability"] } },
+    "loss_event": { "$ref": "urn:fair:risk:common:1#/$defs/text", "minLength": 1 },
+    "lef": { "$ref": "#/$defs/lef" },
+    "primary_loss": { "$ref": "urn:fair:risk:common:1#/$defs/loss_map" },
+    "secondary_risk": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "required": ["stakeholder", "slef", "loss"],
+        "additionalProperties": false,
+        "properties": {
+          "stakeholder": { "$ref": "urn:fair:risk:common:1#/$defs/name" },
+          "slef": { "$ref": "urn:fair:risk:common:1#/$defs/estimate_probability" },
+          "loss": { "$ref": "urn:fair:risk:common:1#/$defs/loss_map" }
+        }
+      }
+    },
+    "control_sets": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "required": ["name", "current", "controls"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "$ref": "urn:fair:risk:common:1#/$defs/name" },
+          "current": { "type": "boolean" },
+          "controls": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "type": "object",
+              "required": ["id", "version", "status"],
+              "additionalProperties": false,
+              "properties": {
+                "id": { "$ref": "urn:fair:risk:common:1#/$defs/uuid" },
+                "version": { "type": "integer", "minimum": 1 },
+                "status": { "enum": ["in_place", "proposed"] },
+                "effects": { "$ref": "urn:fair:risk:common:1#/$defs/effects" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "lef": {
+      "description": "Loss event frequency: entered directly, or from threat event frequency and Vulnerability.",
+      "type": "object",
+      "required": ["level"],
+      "additionalProperties": false,
+      "properties": { "level": { "enum": ["lef", "tef_vuln"] }, "estimate": true, "tef": true, "vulnerability": true },
+      "if": { "properties": { "level": { "const": "lef" } } },
+      "then": {
+        "required": ["estimate"],
+        "properties": { "estimate": { "$ref": "urn:fair:risk:common:1#/$defs/estimate_events_per_year" }, "tef": false, "vulnerability": false }
+      },
+      "else": {
+        "required": ["tef", "vulnerability"],
+        "properties": { "estimate": false, "tef": { "$ref": "#/$defs/tef" }, "vulnerability": { "$ref": "#/$defs/vulnerability" } }
+      }
+    },
+    "tef": {
+      "type": "object",
+      "required": ["level"],
+      "additionalProperties": false,
+      "properties": { "level": { "enum": ["tef", "cf_poa"] }, "estimate": true, "contact_frequency": true, "probability_of_action": true },
+      "if": { "properties": { "level": { "const": "tef" } } },
+      "then": {
+        "required": ["estimate"],
+        "properties": { "estimate": { "$ref": "urn:fair:risk:common:1#/$defs/estimate_events_per_year" }, "contact_frequency": false, "probability_of_action": false }
+      },
+      "else": {
+        "required": ["contact_frequency", "probability_of_action"],
+        "properties": {
+          "estimate": false,
+          "contact_frequency": { "$ref": "urn:fair:risk:common:1#/$defs/estimate_events_per_year" },
+          "probability_of_action": { "$ref": "urn:fair:risk:common:1#/$defs/estimate_probability" }
+        }
+      }
+    },
+    "vulnerability": {
+      "description": "Vulnerability: a probability entered directly, or derived from threat capability against resistance strength (F-003-AC-29).",
+      "type": "object",
+      "required": ["level"],
+      "additionalProperties": false,
+      "properties": { "level": { "enum": ["direct", "derived"] }, "estimate": true, "threat_capability": true, "resistance_strength": true },
+      "if": { "properties": { "level": { "const": "direct" } } },
+      "then": {
+        "required": ["estimate"],
+        "properties": { "estimate": { "$ref": "urn:fair:risk:common:1#/$defs/estimate_probability" }, "threat_capability": false, "resistance_strength": false }
+      },
+      "else": {
+        "required": ["threat_capability", "resistance_strength"],
+        "properties": {
+          "estimate": false,
+          "threat_capability": { "$ref": "#/$defs/threat_capability" },
+          "resistance_strength": { "$ref": "urn:fair:risk:common:1#/$defs/estimate_percentile" }
+        }
+      }
+    },
+    "threat_capability": {
+      "type": "object",
+      "required": ["source"],
+      "additionalProperties": false,
+      "properties": { "source": { "enum": ["threat_community", "scenario"] }, "estimate": true },
+      "if": { "properties": { "source": { "const": "scenario" } } },
+      "then": { "required": ["estimate"], "properties": { "estimate": { "$ref": "urn:fair:risk:common:1#/$defs/estimate_percentile" } } },
+      "else": { "properties": { "estimate": false } }
+    }
+  }
+}

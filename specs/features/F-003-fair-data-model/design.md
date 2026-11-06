@@ -50,13 +50,13 @@ The scenario document holds a tree mirroring O-RT. Each branch states the level 
 {"min": 0.5, "ml": 2, "max": 6, "unit": "events_per_year", "confidence": 0.9,
  "rationale": "...", "sources": [{"type": "document", "ref": "IR report 2026-03", "note": "..."}]}
 ```
-- `unit` must fit the factor: `events_per_year` (LEF, TEF, contact frequency), `probability` (probability of action, Vulnerability, SLEF), `currency` (magnitudes; the installation currency, §3.4), `percentile` (threat capability, resistance strength; 0 to 100 against the threat community continuum).
+- `unit` must fit the factor: `events_per_year` (LEF, TEF, contact frequency), `probability` (probability of action, Vulnerability, SLEF), `currency` (magnitudes; the installation currency, §3.4), `percentile` (threat capability, resistance strength; 0 to 100 against the threat community continuum), `fraction` (a control's reduction of a factor or form of loss, 0 to 1; §3.5).
 - `min ≤ ml ≤ max`; probabilities in [0, 1]; frequencies and magnitudes ≥ 0; `confidence` in (0, 1).
 - `rationale` is required and non-empty; at least one source, of type `person`, `document`, `dataset` or `integration`.
 - Numbers are JSON numbers kept as decimal strings in the canonical form, so the digest never depends on float formatting.
 
 ### 3.3 Documents
-One JSON Schema (2020-12) per kind, in `internal/risk/schema/`, with `schema_version` in every document:
+JSON Schemas (2020-12) in `internal/risk/model/schema/` (`common.json`, `scenario.json`, and `library.json` with one definition per library kind and controls), with `schema_version` in every document. The Go validator (`internal/risk/model`) is the runtime authority; a test runs the schemas over the shared corpus (`modeltest`) so they agree with it:
 
 | Kind | Holds |
 |---|---|
@@ -244,3 +244,4 @@ Performance (requirements NFR): `TestBenchmarkGateRiskScenarios` (10,000 scenari
 ## Change Log
 - 2026-11-06: Initial draft (decisions: new `risk` service; inherited read through ADR-007 amendment 2; canonical JSON versions).
 - 2026-11-06: **Approved** by Robert Former, with ADR-007 amendment 2.
+- 2026-11-06: T-02: the `fraction` unit for control reductions (§3.2); schema files and the validator's authority stated (§3.3; decided by Robert Former).
