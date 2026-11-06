@@ -82,6 +82,18 @@ events:
     bu: required
     attributes: [bu, group, mapping, role, user]
     description: "A group mapping could not give a member its role (inactive, or a rule conflict)"
+  - type: audit.capacity_critical
+    category: system
+    severities: [critical]
+    requires: [target]
+    attributes: [level, percent, quota_bytes, used_bytes]
+    description: "Audit storage reached 90% of its quota (level critical), or 100% (level full: events from other services are refused until there is room) (F-002 T-20, AC-30, AC-31)"
+  - type: audit.capacity_warning
+    category: system
+    severities: [high]
+    requires: [target]
+    attributes: [level, percent, quota_bytes, used_bytes]
+    description: "Audit storage reached 75% of its quota (F-002 T-20, AC-30)"
   - type: audit.checkpoint
     category: system
     severities: [info]

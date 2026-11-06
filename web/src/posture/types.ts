@@ -142,5 +142,6 @@ export interface AuditTrailStatus {
     last_sent_at: string | null;
     last_error: string | null;
   }[];
-  storage: unknown;
+  /** Audit storage against its quota (F-002 T-20, AC-30); null until measured. */
+  storage: { quota: number; used: number; percent: number; level: "ok" | "warning" | "critical" | "full"; measured_at: string } | null;
 }

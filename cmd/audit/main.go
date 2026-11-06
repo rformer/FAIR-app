@@ -45,6 +45,10 @@
 //	                                 destination is audit.otlp_destination);
 //	                                 FAIR_AUDIT_OTLP_PLAINTEXT=true for
 //	                                 development only
+//	FAIR_AUDIT_STORAGE_QUOTA         the audit trail's storage quota (T-20; e.g.
+//	                                 200GiB): alerts at 75% and 90%, and at
+//	                                 100% other services' events are refused;
+//	                                 required in production
 //	FAIR_NATS_URL                    NATS, for scope changes (the API's grant
 //	                                 cache otherwise refreshes on its own);
 //	                                 FAIR_NATS_CREDS_FILE optional
@@ -143,6 +147,13 @@ func run() error {
 			return fmt.Errorf("FAIR_AUDIT_STORE: %w", err)
 		}
 		store = s
+	}
+	// The storage quota (T-20; required in production, CheckInstall).
+	var quota int64
+	if q := os.Getenv("FAIR_AUDIT_STORAGE_QUOTA"); q != "" {
+		if quota, err = auditsvc.ParseSize(q); err != nil {
+			return fmt.Errorf("FAIR_AUDIT_STORAGE_QUOTA: %w", err)
+		}
 	}
 	// The syslog forwarder's TLS (T-16): TLS 1.2 or later; plain TCP only in
 	// development.
@@ -298,6 +309,15 @@ func run() error {
 		loops = append(loops, func(ctx context.Context) error {
 			return cp.Run(ctx, 0, func(err error) { logger.Error("checkpoint", "error", err.Error()) })
 		})
+	}
+	// ...and measures audit storage against the quota (T-20).
+	if quota > 0 {
+		capm := auditsvc.CapacityMonitor{DB: pool, Audit: emitter, Quota: quota}
+		loops = append(loops, func(ctx context.Context) error {
+			return capm.Run(ctx, 0, func(err error) { logger.Error("capacity", "error", err.Error()) })
+		})
+	} else {
+		logger.Warn("audit storage is not measured: set FAIR_AUDIT_STORAGE_QUOTA")
 	}
 	// ...and moves segments past the online retention to the archive (T-18).
 	if store != nil {

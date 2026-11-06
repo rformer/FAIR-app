@@ -217,6 +217,16 @@ func seedPostureScenario(t *testing.T, ae apiEnv) {
 	if _, err := fwd.Step(ctx); err == nil {
 		t.Fatal("seed forwarding: sent to a closed port")
 	}
+	// F-002 T-20: audit storage at about 80% of its quota (a warning).
+	capm := auditsvc.CapacityMonitor{DB: ap, Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: ap}), Quota: 1 << 50}
+	r, err := capm.Step(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capm.Quota = r.Used * 100 / 80
+	if r, err := capm.Step(ctx); err != nil || r.Level != "warning" {
+		t.Fatalf("seed capacity: %+v %v", r, err)
+	}
 	drainTrail(t, auditsvc.Sequencer{DB: ap})
 
 	var n int

@@ -410,6 +410,15 @@ function AuditTrailSection({ status }: { status: Loaded<AuditTrailStatus> }) {
                 {s.last_verified_at ? <>Last verified {date(s.last_verified_at)}, through record {s.verified_through_seq}.</> : <>No verification has passed yet.</>}{" "}
                 <a href={auditHref("audit-trail")}>Audit history</a>
               </p>
+              {s.storage && s.storage.level !== "ok" ? (
+                <p className="banner">
+                  <strong>{storageLabel[s.storage.level]}:</strong> audit storage is at {s.storage.percent}% of its quota.{" "}
+                  {s.storage.level === "full"
+                    ? "Every operation that records an audit event is refused until there is room."
+                    : "At 100% every operation that records an audit event is refused."}{" "}
+                  Raise the quota, or shorten the online retention so more is archived.
+                </p>
+              ) : null}
               {position ? (
                 <p role="alert" className="banner">
                   The {run?.kind} verification of {date(run?.finished_at)} failed at {position}: {run?.detail}. The critical{" "}
@@ -426,6 +435,19 @@ function AuditTrailSection({ status }: { status: Loaded<AuditTrailStatus> }) {
                     <tr><th scope="row">Records in the trail</th><td>{s.head_seq} (open segment {s.open_segment ?? "none"})</td></tr>
                     <tr><th scope="row">Waiting to be recorded</th><td>{s.intake_waiting}</td></tr>
                     <tr><th scope="row">Checkpoints waiting for their write-once copy</th><td>{s.checkpoint_copies_waiting}</td></tr>
+                    <tr>
+                      <th scope="row">Storage</th>
+                      <td>
+                        {s.storage ? (
+                          <>
+                            {bytes(s.storage.used)} of {bytes(s.storage.quota)} ({s.storage.percent}%){" "}
+                            {s.storage.level !== "ok" ? <Badge tone={s.storage.level === "warning" ? "warn" : "bad"}>{storageLabel[s.storage.level]}</Badge> : null}
+                          </>
+                        ) : (
+                          "not measured"
+                        )}
+                      </td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
@@ -466,6 +488,20 @@ function AuditTrailSection({ status }: { status: Loaded<AuditTrailStatus> }) {
       </Status>
     </Section>
   );
+}
+
+// F-002 T-20: audit storage levels.
+const storageLabel = { ok: "OK", warning: "Storage warning", critical: "Storage critical", full: "Storage full" } as const;
+
+function bytes(n: number): string {
+  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+  let i = 0;
+  let v = n;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${i === 0 ? v : v.toFixed(1)} ${units[i]}`;
 }
 
 function K8sSection({ k8s }: { k8s: Loaded<K8sAccess> }) {

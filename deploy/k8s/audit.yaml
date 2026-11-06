@@ -54,6 +54,10 @@ spec:
             - { name: FAIR_AUDIT_STORE_REGION, value: us-east-1 }
             - { name: FAIR_AUDIT_STORE_ACCESS_KEY_FILE, value: /secrets/store/access-key }
             - { name: FAIR_AUDIT_STORE_SECRET_KEY_FILE, value: /secrets/store/secret-key }
+            # The audit trail's storage quota (F-002 T-20; sized by F-014):
+            # alerts at 75% and 90%; at 100% every other service's operation
+            # that records an event is refused until there is room.
+            - { name: FAIR_AUDIT_STORAGE_QUOTA, value: 200GiB }
             # Export bundles are spooled here before upload (the root file
             # system is read-only).
             - { name: TMPDIR, value: /spool }

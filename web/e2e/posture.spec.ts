@@ -142,6 +142,9 @@ test("the Audit trail tile shows the last verification and its result (F-002 AC-
   await expect(dest).toContainText("Over threshold");
   await expect(dest).toContainText("never");
   await expect(dest).toContainText(/refused|connect/);
+  // F-002 T-20 (AC-30): storage at about 80% of its quota, with a warning.
+  await expect(trail.getByRole("row", { name: /^Storage/ })).toContainText(/of .* \(\d+(\.\d)?%\) Storage warning/);
+  await expect(trail).toContainText(/Storage warning: audit storage is at \d+(\.\d)?% of its quota\./);
   // The finding it opened, and the controls it affects (AU-9, AU-6).
   await expect(section(page, "Drift findings").getByRole("row", { name: /audit_integrity/ })).toContainText("critical");
   await expect(section(page, "Per-control status").getByRole("row", { name: /^AU-9\b/ })).toContainText("Open finding");
