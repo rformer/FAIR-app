@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"maps"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -91,6 +92,24 @@ func deploymentMode(t *testing.T, mode string) {
 	delete(noStore, "FAIR_AUDIT_STORE_BUCKET")
 	if err := auditCheck(noStore); err == nil {
 		t.Errorf("audit without its store in %s mode", mode)
+	}
+
+	// F-002 T-21 (design §7): air-gapped installs forward the audit trail
+	// inside the enclave only; other modes may name any SIEM.
+	lookup := func(_ context.Context, host string) ([]net.IP, error) {
+		return map[string][]net.IP{"siem.internal": {net.ParseIP("10.20.0.5")}, "siem.example.com": {net.ParseIP("203.0.113.9")}}[host], nil
+	}
+	dest := auditsvc.DestinationCheck(mode, lookup)
+	if (dest == nil) == (mode == config.ModeAirGapped) {
+		t.Fatalf("SIEM destination check in %s mode: %v", mode, dest != nil)
+	}
+	if dest != nil {
+		for addr, internal := range map[string]bool{"10.1.2.3:6514": true, "siem.internal:6514": true, "203.0.113.7:6514": false,
+			"siem.example.com:4317": false, "unresolvable.test:6514": false} {
+			if err := dest(context.Background(), addr); (err == nil) != internal {
+				t.Errorf("air-gapped SIEM destination %s: %v", addr, err)
+			}
+		}
 	}
 
 	// Profile packages: the release's packages load at migrate in every

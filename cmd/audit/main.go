@@ -62,7 +62,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -77,7 +76,6 @@ import (
 	"github.com/rformer/fair-app/internal/keys"
 	"github.com/rformer/fair-app/internal/natspub"
 	"github.com/rformer/fair-app/internal/objstore"
-	"github.com/rformer/fair-app/internal/scanner"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
@@ -272,14 +270,7 @@ func run() error {
 		}
 		return n, d
 	}
-	var internalOnly func(ctx context.Context, addr string) error
-	if cfg.DeploymentMode == config.ModeAirGapped {
-		internalOnly = func(ctx context.Context, addr string) error {
-			return scanner.InternalOnly(ctx, []string{addr}, func(ctx context.Context, host string) ([]net.IP, error) {
-				return net.DefaultResolver.LookupIP(ctx, "ip", host)
-			})
-		}
-	}
+	internalOnly := auditsvc.DestinationCheck(cfg.DeploymentMode, nil)
 	forwarders := []*auditsvc.Forwarder{
 		{DB: pool, Audit: emitter, Name: auditsvc.SyslogDestination, Transport: &auditsvc.SyslogTransport{TLS: syslogTLS, Hostname: host},
 			Address: func() (string, error) { return sc.Enum(settings.KeyAuditSyslogDestination, "") }, Thresholds: thresholds, Check: internalOnly},

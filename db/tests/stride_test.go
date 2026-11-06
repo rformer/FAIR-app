@@ -65,6 +65,42 @@ var strideSuite = map[string][]string{
 // strideF001 maps each F-001 design §7 row to its tests (F-001 T-40): the
 // TestSTRIDEF001* attacks in stride_f001_test.go and earlier tests that
 // attack the same mitigation.
+// strideF002 maps F-002 design §8 (T-21) to the tests that attack each
+// mitigation.
+var strideF002 = map[string][]string{
+	"Spoofing | A service submits events as another producer": {
+		"db/tests:TestSTRIDEF002ProducerSpoofing", "db/tests:TestAuditSubmit", "db/tests:TestAuditSequenceAppendRefusesForgeries",
+	},
+	"Tampering | A DBA edits or deletes a record": {
+		"db/tests:TestAuditAppendOnly", "db/tests:TestAuditSchemaAccess", "db/tests:TestAuditVerificationFindsTampering",
+		"internal/audit/integrity:TestTamperingIsDetected",
+	},
+	"Tampering | Truncating the tail and re-signing": {
+		"db/tests:TestAuditCheckpointCloseRefusesForgeries", "db/tests:TestAuditCheckpointWORMCopies", "db/tests:TestAuditVerificationCopiesAndArchives",
+		"db/tests:TestAuditForwardSyslog", "internal/audit/evidence:TestCompare",
+	},
+	"Tampering | Swapping an archive object": {
+		"db/tests:TestAuditArchive", "db/tests:TestAuditArchiveS3", "db/tests:TestAuditVerificationCopiesAndArchives",
+		"internal/audit/evidence:TestArchiveTamperCorpus",
+	},
+	`Repudiation | "I never exported that"`: {
+		"db/tests:TestAuditExportBundle", "db/tests:TestAuditReadsAreRecorded", "db/tests:TestAuditHoldAPI",
+	},
+	"Information disclosure | An auditor reads restricted-BU before and after values": {
+		"db/tests:TestAuditReadVisibility", "db/tests:TestAuditExportScope", "pkg/audit:TestNoSecretsInEvents",
+	},
+	"Information disclosure | Display names leak through the audit API": {
+		"db/tests:TestSTRIDEF002NameLeak", "db/tests:TestAuditReadVisibility",
+	},
+	"Denial of service | Event flood, or audit service down": {
+		"db/tests:TestSTRIDEF002ServiceDown", "db/tests:TestAuditIntakeWaitsForTheSequencer", "db/tests:TestAuditCapacity",
+		"db/tests:TestAuditForwardBacklogAlert",
+	},
+	"Elevation of privilege | Using `audit.hold` to keep records forever": {
+		"db/tests:TestSTRIDEF002HoldPrivilege", "db/tests:TestAuditHoldAPI", "db/tests:TestAccessReviews",
+	},
+}
+
 var strideF001 = map[string][]string{
 	"Spoofing | Forged or replayed SAML assertion; XML signature wrapping": {
 		"internal/authn/saml:TestNegativeCorpus", "internal/authn/saml:TestNameIDCommentInjection", "internal/authn/saml:TestReplayAndRequestSingleUse",
@@ -131,6 +167,7 @@ func TestSTRIDECatalog(t *testing.T) {
 	}{
 		{"F-015-security-posture-profiles", "## 8.", 9, strideSuite},
 		{"F-001-identity-bu-rbac", "## 7.", 11, strideF001},
+		{"F-002-audit-trail", "## 8.", 9, strideF002},
 	} {
 		rows := threatRows(t, filepath.Join(root, "specs", "features", c.feature, "design.md"), c.section)
 		if len(rows) < c.min {

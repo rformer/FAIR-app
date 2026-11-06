@@ -19,6 +19,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/rformer/fair-app/internal/config"
+	"github.com/rformer/fair-app/internal/scanner"
 	events "github.com/rformer/fair-app/pkg/audit"
 )
 
@@ -77,6 +79,25 @@ func forwardTLS(prefix, what, env string, getenv func(string) string) (*tls.Conf
 		}
 	}
 	return tc, nil
+}
+
+// DestinationCheck is what a deployment mode requires of SIEM destinations
+// (design §7): air-gapped installs send inside the enclave only (every
+// address the destination resolves to is private, loopback or link-local;
+// scanner.InternalOnly). Other modes return nil (no check). lookup resolves
+// host names (net.DefaultResolver.LookupIP when nil).
+func DestinationCheck(mode string, lookup func(ctx context.Context, host string) ([]net.IP, error)) func(ctx context.Context, addr string) error {
+	if mode != config.ModeAirGapped {
+		return nil
+	}
+	if lookup == nil {
+		lookup = func(ctx context.Context, host string) ([]net.IP, error) {
+			return net.DefaultResolver.LookupIP(ctx, "ip", host)
+		}
+	}
+	return func(ctx context.Context, addr string) error {
+		return scanner.InternalOnly(ctx, []string{addr}, lookup)
+	}
 }
 
 // ForwardRecord is one record as the trail holds it.
