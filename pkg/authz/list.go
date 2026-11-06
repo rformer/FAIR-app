@@ -27,6 +27,11 @@ type NewestQuery struct {
 	Columns      []string // the columns returned; must include OrderBy
 	OrderBy      string   // a unique column, newest = largest (e.g. "id")
 	Limit        int      // rows per page, 1 to MaxListLimit
+	// Filter is an optional further condition on the table's rows, written
+	// against the alias t (e.g. "t.archived_at IS NULL AND t.owner = $2"),
+	// with parameters from $2. It must be a constant of the caller's code,
+	// never built from input: values go in parameters.
+	Filter string
 }
 
 // MaxListLimit bounds a page.
@@ -73,6 +78,12 @@ func (q NewestQuery) SQL() (string, error) {
 	excludes := fmt.Sprintf("authz.scope_excludes('%s', 'read')", q.ResourceType)
 	// The cursor comparison comes first so that $1 takes the column's type.
 	cursor := fmt.Sprintf("(t.%s < $1 OR $1 IS NULL)", q.OrderBy)
+	if q.Filter != "" {
+		if strings.ContainsAny(q.Filter, ";") || strings.Contains(q.Filter, "--") || strings.Contains(q.Filter, "/*") {
+			return "", fmt.Errorf("%w: the filter must be one condition", ErrInvalidListQuery)
+		}
+		cursor += " AND (" + q.Filter + ")"
+	}
 	// The form is chosen once (a materialized CTE) and gates both branches;
 	// the branch not taken is never executed.
 	return fmt.Sprintf(`WITH f AS MATERIALIZED (SELECT %[9]s AS excludes)

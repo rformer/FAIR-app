@@ -37,6 +37,7 @@ var eventSchemaJSON []byte
 var Categories = []string{
 	"authentication", "session", "role_permission", "bu_restriction", "breakglass", "token", "scim", "configuration",
 	"access", "approval", "service_account", "system",
+	"risk_data", // F-003: changes to scenarios, the library and controls
 }
 
 // CatalogEntry describes one event type.

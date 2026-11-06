@@ -1,0 +1,282 @@
+openapi: 3.1.0
+info:
+  title: FAIR Risk API
+  version: "1"
+  contact: { name: FAIR Risk Platform, url: "https://github.com/rformer/FAIR-app" }
+  description: |
+    F-003 design §5. Requests reach the risk service through the gateway, which
+    authenticates the session and forwards an internal JWT (ES256, audience `risk`, at most
+    5 minutes) and the DB context token it was minted with (F-001 design §4, §5.2).
+
+    Scenarios need `scenario.view` at some BU; without it the routes do not exist for the
+    caller (404, F-001 AC-25). Which scenarios a caller sees is decided by the database from
+    the signed DB context (row-level security, AC-18); one the caller cannot see answers 404,
+    like one that does not exist. Creating needs `scenario.edit` at the scenario's BU and
+    saving a version needs it at the scenario's BU: 403 for a caller who can see there, 404
+    otherwise.
+
+    A scenario is a document (design §3; JSON Schema `urn:fair:risk:scenario:1`, published
+    with the release). Every save is a new version; earlier versions never change (AC-15). A
+    save names the version it was made from (`expected_version`): if another version was
+    saved since, it is refused (409 `stale_version`). An invalid document is refused with
+    every problem, each at its JSON pointer (422 `invalid_document`); the database checks
+    the same rules again. Stored documents are canonical (RFC 8785 subset: decimals as
+    strings) and identified by their SHA-256 `digest`. A document holding amounts cannot be
+    saved until the installation currency is set (409 `currency_not_set`).
+
+    Every change is recorded in the audit trail in its own transaction, with the BU and the
+    change note (AC-21); a change that cannot be recorded is not made (503).
+servers:
+  - url: /
+security:
+  - internalJWT: []
+    dbContext: []
+tags:
+  - { name: scenarios, description: "Loss scenarios (F-003 R-01, R-02, R-05)" }
+  - { name: settings, description: Installation settings of the risk service }
+components:
+  securitySchemes:
+    internalJWT: { type: http, scheme: bearer, bearerFormat: JWT }
+    dbContext: { type: apiKey, in: header, name: X-Fair-DB-Context }
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 8, maxLength: 128 }
+    ScenarioID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    Error:
+      description: An error
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Invalid:
+      description: The document is invalid; every problem is listed
+      content: { application/json: { schema: { $ref: "#/components/schemas/Invalid" } } }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        detail: { type: string }
+    Invalid:
+      type: object
+      required: [error, problems]
+      properties:
+        error: { const: invalid_document }
+        problems:
+          type: array
+          items:
+            type: object
+            required: [pointer, message]
+            properties:
+              pointer: { type: string, description: "RFC 6901 JSON pointer into the document (empty: the whole document)" }
+              message: { type: string }
+    Document:
+      type: object
+      description: A scenario document (JSON Schema urn:fair:risk:scenario:1, internal/risk/model/schema/scenario.json)
+    Scenario:
+      type: object
+      required: [id, bu_id, current_version, created_at, created_by]
+      properties:
+        id: { type: string, format: uuid }
+        bu_id: { type: string, format: uuid }
+        name: { type: [string, "null"] }
+        owner: { type: [string, "null"], format: uuid }
+        asset_id: { type: [string, "null"], format: uuid }
+        threat_community_id: { type: [string, "null"], format: uuid }
+        current_version: { type: integer }
+        archived_at: { type: [string, "null"], format: date-time }
+        created_at: { type: string, format: date-time }
+        created_by: { type: string, format: uuid }
+    Version:
+      type: object
+      required: [version, digest, author, created_at, change_note]
+      properties:
+        version: { type: integer }
+        digest: { type: string, description: SHA-256 of the canonical document, hex }
+        author: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        change_note: { type: string }
+        document: { $ref: "#/components/schemas/Document" }
+    Pin:
+      type: object
+      required: [pointer, kind, id, version, digest]
+      description: A library entry or control version the scenario version uses (AC-09)
+      properties:
+        pointer: { type: string }
+        kind: { enum: [asset, asset_group, threat_community, control] }
+        id: { type: string, format: uuid }
+        version: { type: integer }
+        digest: { type: string }
+    Node:
+      type: object
+      required: [factor, status]
+      description: One factor of the FAIR taxonomy as the scenario estimates it (AC-28)
+      properties:
+        factor: { type: string }
+        parent: { type: string }
+        status: { enum: [entered, derived, library, not_used] }
+        pointer: { type: string }
+    Saved:
+      type: object
+      required: [id, version, digest]
+      properties:
+        id: { type: string, format: uuid }
+        version: { type: integer }
+        digest: { type: string }
+paths:
+  /api/v1/scenarios:
+    get:
+      operationId: listScenarios
+      tags: [scenarios]
+      summary: Scenarios the caller can see, newest first
+      x-permission: scenario.view
+      parameters:
+        - { name: bu, in: query, schema: { type: string, format: uuid } }
+        - { name: owner, in: query, schema: { type: string, format: uuid } }
+        - { name: asset, in: query, schema: { type: string, format: uuid } }
+        - { name: threat_community, in: query, schema: { type: string, format: uuid } }
+        - { name: archived, in: query, schema: { enum: ["false", "true", all], default: "false" } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { name: cursor, in: query, schema: { type: string }, description: The next_cursor of the previous page }
+      responses:
+        "200":
+          description: A page of scenarios
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [scenarios]
+                properties:
+                  scenarios: { type: array, items: { $ref: "#/components/schemas/Scenario" } }
+                  next_cursor: { type: string }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createScenario
+      tags: [scenarios]
+      summary: Create a scenario with its first version (AC-01 to AC-06)
+      x-permission: scenario.edit
+      x-audit-events: [scenario.created]
+      x-reason-field: change_note
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bu_id, document, change_note]
+              additionalProperties: false
+              properties:
+                bu_id: { type: string, format: uuid }
+                document: { $ref: "#/components/schemas/Document" }
+                change_note: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Saved" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /api/v1/scenarios/{id}:
+    get:
+      operationId: getScenario
+      tags: [scenarios]
+      summary: A scenario's current version, its pins and its taxonomy view (AC-28)
+      x-permission: scenario.view
+      parameters: [{ $ref: "#/components/parameters/ScenarioID" }]
+      responses:
+        "200":
+          description: The scenario
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [scenario, version, pins, taxonomy, currency]
+                properties:
+                  scenario: { $ref: "#/components/schemas/Scenario" }
+                  version: { $ref: "#/components/schemas/Version" }
+                  pins: { type: array, items: { $ref: "#/components/schemas/Pin" } }
+                  taxonomy: { type: array, items: { $ref: "#/components/schemas/Node" } }
+                  currency: { type: [string, "null"], description: The installation currency of every amount (AC-07) }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      operationId: saveScenario
+      tags: [scenarios]
+      summary: Save a new version of a scenario (AC-15)
+      x-permission: scenario.edit
+      x-audit-events: [scenario.version_saved]
+      x-reason-field: change_note
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/ScenarioID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [document, expected_version, change_note]
+              additionalProperties: false
+              properties:
+                document: { $ref: "#/components/schemas/Document" }
+                expected_version: { type: integer, minimum: 1, description: The version the change was made from }
+                change_note: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "200": { description: Saved, content: { application/json: { schema: { $ref: "#/components/schemas/Saved" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /api/v1/scenarios/{id}/versions:
+    get:
+      operationId: listScenarioVersions
+      tags: [scenarios]
+      summary: A scenario's versions, newest first (without documents)
+      x-permission: scenario.view
+      parameters: [{ $ref: "#/components/parameters/ScenarioID" }]
+      responses:
+        "200":
+          description: Versions
+          content: { application/json: { schema: { type: object, required: [versions], properties: { versions: { type: array, items: { $ref: "#/components/schemas/Version" } } } } } }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/scenarios/{id}/versions/{version}:
+    get:
+      operationId: getScenarioVersion
+      tags: [scenarios]
+      summary: One version of a scenario, with its document and pins
+      x-permission: scenario.view
+      parameters:
+        - { $ref: "#/components/parameters/ScenarioID" }
+        - { name: version, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200":
+          description: The version
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [scenario_id, version, pins]
+                properties:
+                  scenario_id: { type: string, format: uuid }
+                  version: { $ref: "#/components/schemas/Version" }
+                  pins: { type: array, items: { $ref: "#/components/schemas/Pin" } }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/risk/settings:
+    get:
+      operationId: getSettings
+      tags: [settings]
+      summary: The installation currency (design §3.4)
+      x-permission: scenario.view, library.view or control.view
+      responses:
+        "200":
+          description: Settings
+          content: { application/json: { schema: { type: object, required: [currency], properties: { currency: { type: [string, "null"] } } } } }
+        "404": { $ref: "#/components/responses/Error" }

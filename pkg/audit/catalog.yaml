@@ -727,6 +727,20 @@ events:
     requires: [target]
     attributes: [active, idp, user_name, version]
     description: "SCIM changed a user"
+  - type: scenario.created
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [change_note, digest, version]
+    description: "A loss scenario was created with its first version (F-003 T-05, AC-01, AC-15, AC-21); digest identifies the document"
+  - type: scenario.version_saved
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [change_note, digest, version]
+    description: "A new version of a loss scenario was saved (F-003 T-05, AC-15, AC-21); earlier versions never change"
   - type: service.started
     category: system
     severities: [info]

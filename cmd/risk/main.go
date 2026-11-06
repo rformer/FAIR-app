@@ -4,8 +4,8 @@
 // T-04 scaffold: hardened server with health and readiness, FIPS
 // enforcement, structured logging, audit emission of lifecycle events, a
 // database pool as app_rw (every risk table is under row-level security;
-// design §2), and the install checks of design §7. The API arrives with
-// T-05.
+// design §2), and the install checks of design §7. Every replica serves
+// the risk API (internal/riskapi; T-05).
 //
 //	risk                                  run the service
 //	risk currency set CODE -operator NAME record the installation currency
@@ -23,6 +23,9 @@
 //	FAIR_DB_PASSWORD_FILE   app_rw's password (and the libpq variables)
 //	FAIR_JWT_KEYS_DIR       the gateway's internal-JWT public keys, for the
 //	                        risk API; required in production
+//	FAIR_NATS_URL           NATS, for scope changes (the API's grant cache
+//	                        otherwise refreshes on its own);
+//	                        FAIR_NATS_CREDS_FILE optional
 package main
 
 import (
@@ -45,7 +48,9 @@ import (
 	"github.com/rformer/fair-app/internal/dbconn"
 	"github.com/rformer/fair-app/internal/keys"
 	"github.com/rformer/fair-app/internal/migrate"
+	"github.com/rformer/fair-app/internal/natspub"
 	"github.com/rformer/fair-app/internal/risk"
+	"github.com/rformer/fair-app/internal/riskapi"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
@@ -163,10 +168,13 @@ func run() error {
 		return err
 	}
 	// The risk API (T-05) verifies the gateway's internal JWTs.
+	var jwtKeys *authz.LocalKeys
 	if dir := os.Getenv("FAIR_JWT_KEYS_DIR"); dir != "" {
-		if _, err := authz.LoadLocalKeys(dir); err != nil {
+		k, err := authz.LoadLocalKeys(dir)
+		if err != nil {
 			return fmt.Errorf("FAIR_JWT_KEYS_DIR: %w", err)
 		}
+		jwtKeys = k
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -207,6 +215,33 @@ func run() error {
 	srv.AddReadinessCheck(server.ReadinessCheck{Name: "database", Check: func(ctx context.Context) error {
 		return schemaReady(ctx, pool)
 	}})
+
+	// The risk API (T-05): every replica serves it.
+	if jwtKeys != nil {
+		grants := authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool)})
+		if url := os.Getenv("FAIR_NATS_URL"); url != "" {
+			nc, err := natspub.Connect(ctx, natspub.Options{Env: cfg.Env, URL: url, CredsFile: os.Getenv("FAIR_NATS_CREDS_FILE"), Name: "fair-risk"})
+			if err != nil {
+				return err
+			}
+			defer nc.Close()
+			if _, err := nc.Subscribe(authz.SubjectScopeChanged, func(data []byte) {
+				if err := grants.HandleScopeChanged(data); err != nil {
+					logger.Warn("scope change event", "error", err.Error())
+				}
+			}); err != nil {
+				return fmt.Errorf("nats: %w", err)
+			}
+		}
+		api := &riskapi.API{DB: pool, Authz: grants, Audit: emitter}
+		h := server.SecurityHeaders(api.Handler(jwtKeys, nil))
+		for _, prefix := range riskapi.Prefixes {
+			srv.Mux().Handle(prefix, h)
+			srv.Mux().Handle(prefix+"/", h)
+		}
+	} else {
+		logger.Warn("the risk API is off: it needs the gateway's JWT keys (FAIR_JWT_KEYS_DIR)")
+	}
 
 	err = srv.Run(ctx, cfg.ShutdownTimeout)
 	_ = emitter.Emit(context.Background(), audit.Event{Type: "service.stopped", Severity: audit.SeverityInfo, Actor: "system:risk"})
