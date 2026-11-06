@@ -13,7 +13,7 @@
 # or customer. Evidence tests are "<package dir>:<test name>".
 feature: F-002
 title: Tamper-evident audit trail
-status: draft # awaiting sign-off by Robert Former
+status: approved # signed off by Robert Former, 2026-11-06
 controls:
   - id: au-2
     responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
