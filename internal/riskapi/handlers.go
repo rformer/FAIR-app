@@ -81,3 +81,22 @@ func (a *API) diffControl(w http.ResponseWriter, r *http.Request, p authz.Princi
 func (a *API) getScenarioBundle(w http.ResponseWriter, r *http.Request, p authz.Principal) {
 	a.bundle(scenarios, w, r, p)
 }
+
+func (a *API) archiveScenario(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	a.setArchived(scenarios, true, w, r, p)
+}
+func (a *API) restoreScenario(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	a.setArchived(scenarios, false, w, r, p)
+}
+func (a *API) archiveLibraryEntry(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	a.setArchived(library, true, w, r, p)
+}
+func (a *API) restoreLibraryEntry(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	a.setArchived(library, false, w, r, p)
+}
+func (a *API) archiveControl(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	a.setArchived(controls, true, w, r, p)
+}
+func (a *API) restoreControl(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	a.setArchived(controls, false, w, r, p)
+}

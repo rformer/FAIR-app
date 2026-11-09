@@ -38,6 +38,8 @@ type resource struct {
 	event        string // scenario, library, control: event targets, response keys
 	createdType  string // the event recording a creation (catalogued)
 	savedType    string // the event recording a new version (catalogued)
+	archivedType string // ... archiving (catalogued)
+	restoredType string // ... restoring (catalogued)
 	resourceType string // as registered with apply_bu_rls
 	head         string // risk.<head>
 	versions     string // risk.<versions>
@@ -54,17 +56,17 @@ type resource struct {
 }
 
 var (
-	scenarios = resource{label: "scenario", event: "scenario", createdType: "scenario.created", savedType: "scenario.version_saved", resourceType: "scenario", head: "scenario", versions: "scenario_version",
+	scenarios = resource{label: "scenario", event: "scenario", createdType: "scenario.created", savedType: "scenario.version_saved", archivedType: "scenario.archived", restoredType: "scenario.restored", resourceType: "scenario", head: "scenario", versions: "scenario_version",
 		headColumn: "scenario_id", pins: "scenario_pin", memberCol: "p.member_of", view: permScenarioView, edit: permScenarioEdit, kinds: []string{model.KindScenario},
 		filters: []filter{{"bu", "bu_id"}, {"owner", "owner"}, {"asset", "asset_id"}, {"threat_community", "threat_community_id"}},
 		columns: []string{"id", "bu_id", "'scenario'::text AS kind", "name", "owner", "asset_id", "threat_community_id", "current_version", "archived_at", "created_at", "created_by", "seq"}}
-	library = resource{label: "library entry", event: "library", createdType: "library.created", savedType: "library.version_saved", resourceType: "library", head: "library_entry", versions: "library_version",
+	library = resource{label: "library entry", event: "library", createdType: "library.created", savedType: "library.version_saved", archivedType: "library.archived", restoredType: "library.restored", resourceType: "library", head: "library_entry", versions: "library_version",
 		headColumn: "entry_id", pins: "library_pin", memberCol: "NULL::text", view: "library.view", edit: "library.edit",
 		kinds:   []string{model.KindAsset, model.KindAssetGroup, model.KindThreatCommunity, model.KindLossProfile},
 		shared:  true,
 		filters: []filter{{"bu", "bu_id"}},
 		columns: []string{"id", "bu_id", "kind", "name", "NULL::uuid AS owner", "NULL::uuid AS asset_id", "NULL::uuid AS threat_community_id", "current_version", "archived_at", "created_at", "created_by", "seq"}}
-	controls = resource{label: "control", event: "control", createdType: "control.created", savedType: "control.version_saved", resourceType: "control", head: "control", versions: "control_version",
+	controls = resource{label: "control", event: "control", createdType: "control.created", savedType: "control.version_saved", archivedType: "control.archived", restoredType: "control.restored", resourceType: "control", head: "control", versions: "control_version",
 		headColumn: "control_id", view: "control.view", edit: "control.edit", kinds: []string{model.KindControl}, shared: true,
 		filters: []filter{{"bu", "bu_id"}},
 		columns: []string{"id", "bu_id", "'control'::text AS kind", "name", "NULL::uuid AS owner", "NULL::uuid AS asset_id", "NULL::uuid AS threat_community_id", "current_version", "archived_at", "created_at", "created_by", "seq"}}
@@ -118,6 +120,10 @@ type pinItem struct {
 	// MemberOf marks a member of a pinned asset group: copied with the
 	// group (T-08), not a pin of the document; adopt moves the group.
 	MemberOf *string `json:"member_of,omitempty"`
+	// Reachable says the scenario's BU reads the pinned entry's BU (itself
+	// or by inheritance); false after a move away from it (AC-20): the
+	// scenario keeps using its copy until the analyst replaces the pin.
+	Reachable *bool `json:"reachable,omitempty"`
 }
 
 // selectHead wraps a query returning the head table's columns with the
@@ -434,7 +440,7 @@ func (a *API) save(res resource, w http.ResponseWriter, r *http.Request, p authz
 	}
 	// The caller sees it (RLS answered): 403 without the edit permission,
 	// for an inherited entry too.
-	if !a.editAt(w, r, p, res.edit, h.BUID, true) || !checkNote(w, body.ChangeNote) {
+	if !a.editAt(w, r, p, res.edit, h.BUID, true) || !checkNote(w, body.ChangeNote) || !active(w, h) {
 		return
 	}
 	doc := validDocument(w, h.Kind, body.Document)
@@ -487,8 +493,29 @@ func (a *API) version(ctx context.Context, res resource, p authz.Principal, id s
 		if err != nil {
 			return err
 		}
-		pins, err = pgx.CollectRows(rows, pgx.RowToStructByPos[pinItem])
-		return err
+		pins, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (pinItem, error) {
+			var p pinItem
+			err := row.Scan(&p.Pointer, &p.Kind, &p.ID, &p.Version, &p.Digest, &p.CurrentVersion, &p.Newer, &p.MemberOf)
+			return p, err
+		})
+		if err != nil || res.event != "scenario" {
+			return err
+		}
+		reach := map[string]bool{}
+		rows, err = tx.Query(ctx, "SELECT pointer, reachable FROM risk.pin_reachable($1, $2)", id, v)
+		if err != nil {
+			return err
+		}
+		var ptr string
+		var ok bool
+		if _, err := pgx.ForEachRow(rows, []any{&ptr, &ok}, func() error { reach[ptr] = ok; return nil }); err != nil {
+			return err
+		}
+		for i := range pins {
+			r := reach[pins[i].Pointer]
+			pins[i].Reachable = &r
+		}
+		return nil
 	})
 	return out, pins, err
 }
@@ -665,7 +692,7 @@ func (a *API) adopt(res resource, w http.ResponseWriter, r *http.Request, p auth
 		problem(w, http.StatusBadRequest, "invalid_value", "expected_version (the version the adoption was reviewed against) is required", nil)
 		return
 	}
-	if !a.editAt(w, r, p, res.edit, h.BUID, true) || !checkNote(w, body.ChangeNote) {
+	if !a.editAt(w, r, p, res.edit, h.BUID, true) || !checkNote(w, body.ChangeNote) || !active(w, h) {
 		return
 	}
 	if *body.ExpectedVersion != h.CurrentVersion {
@@ -789,4 +816,118 @@ func (a *API) bundle(res resource, w http.ResponseWriter, r *http.Request, p aut
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"digest": b.Digest, "bundle": json.RawMessage(b.Canonical)})
+}
+
+// active answers 409 for an archived head: restore it before changing it
+// (AC-22).
+func active(w http.ResponseWriter, h headItem) bool {
+	if h.ArchivedAt != nil {
+		problem(w, http.StatusConflict, "archived", "restore it before changing it", nil)
+		return false
+	}
+	return true
+}
+
+// checkReason checks the reason of a move, archive or restore: 1 to 1,000
+// characters, nothing that looks like a secret.
+func checkReason(w http.ResponseWriter, reason string) bool {
+	reason = strings.TrimSpace(reason)
+	switch {
+	case reason == "" || utf8.RuneCountInString(reason) > 1000:
+		problem(w, http.StatusBadRequest, "invalid_value", "reason is required, at most 1,000 characters", nil)
+	case audit.LooksSecret(reason):
+		problem(w, http.StatusBadRequest, "invalid_value", "reason looks like a secret", nil)
+	default:
+		return true
+	}
+	return false
+}
+
+// setArchived archives or restores a head with its versions and pins
+// (AC-22; design §6.7), recorded with the reason.
+func (a *API) setArchived(res resource, archive bool, w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	if !a.viewAnywhere(w, r, p, res.view) || !decode(w, r, &body) {
+		return
+	}
+	h, err := a.head(r.Context(), res, p, r.PathValue("id"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if !a.editAt(w, r, p, res.edit, h.BUID, true) || !checkReason(w, body.Reason) {
+		return
+	}
+	if (h.ArchivedAt != nil) == archive {
+		state := "active"
+		if archive {
+			state = "archived"
+		}
+		problem(w, http.StatusConflict, "not_applicable", "it is "+state+" already", nil)
+		return
+	}
+	typ := res.restoredType
+	if archive {
+		typ = res.archivedType
+	}
+	err = authz.WithDBContext(r.Context(), a.DB, p.DBToken, func(tx pgx.Tx) error {
+		ctx := r.Context()
+		if _, err := tx.Exec(ctx, "SELECT risk.set_archived($1, $2, $3)", res.event, h.ID, archive); err != nil {
+			return err
+		}
+		return a.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: typ, Severity: audit.SeverityLow, Actor: p.UserID,
+			Target: res.event + ":" + h.ID, BUID: h.BUID, Attributes: map[string]string{"reason": strings.TrimSpace(body.Reason)}})
+	})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": h.ID, "archived": archive})
+}
+
+// moveScenario moves a scenario, its versions and pins to another BU
+// (AC-19; design §6.4): scenario.edit at both BUs, a reason, never out of a
+// restricted subtree (409 restricted_move). Pins no longer readable from
+// the new BU are flagged unreachable (AC-20); the scenario keeps its copies.
+func (a *API) moveScenario(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	res := scenarios
+	var body struct {
+		ToBUID string `json:"to_bu_id"`
+		Reason string `json:"reason"`
+	}
+	if !a.viewAnywhere(w, r, p, res.view) || !decode(w, r, &body) {
+		return
+	}
+	h, err := a.head(r.Context(), res, p, r.PathValue("id"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if !uuidRE.MatchString(body.ToBUID) {
+		problem(w, http.StatusBadRequest, "invalid_value", "to_bu_id (a UUID) is required", nil)
+		return
+	}
+	if !a.editAt(w, r, p, res.edit, h.BUID, true) || !checkReason(w, body.Reason) || !active(w, h) {
+		return
+	}
+	seen := a.Authz.Check(r.Context(), p, res.view, body.ToBUID) == nil
+	if !a.editAt(w, r, p, res.edit, body.ToBUID, seen) {
+		return
+	}
+	err = authz.WithDBContext(r.Context(), a.DB, p.DBToken, func(tx pgx.Tx) error {
+		ctx := r.Context()
+		if _, err := tx.Exec(ctx, "SELECT risk.move_scenario($1, $2)", h.ID, body.ToBUID); err != nil {
+			return err
+		}
+		return a.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "scenario.moved", Severity: audit.SeverityLow, Actor: p.UserID,
+			Target: "scenario:" + h.ID, BUID: body.ToBUID,
+			Attributes: map[string]string{"from_bu": h.BUID, "to_bu": body.ToBUID, "reason": strings.TrimSpace(body.Reason)}})
+	})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": h.ID, "bu_id": body.ToBUID, "from_bu_id": h.BUID})
 }

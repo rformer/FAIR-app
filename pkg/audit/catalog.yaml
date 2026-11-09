@@ -380,6 +380,20 @@ events:
     bu: required
     attributes: [change_note, digest, version]
     description: "A new version of a control was saved (F-003 T-06, AC-15, AC-21)"
+  - type: control.archived
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [reason]
+    description: "A control was archived with its versions (F-003 T-09, AC-22)"
+  - type: control.restored
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [reason]
+    description: "An archived control was restored (F-003 T-09, AC-22)"
   - type: db.migrated
     category: system
     severities: [info, high]
@@ -465,6 +479,20 @@ events:
     bu: required
     attributes: [change_note, digest, kind, version]
     description: "A new version of a library entry was saved (F-003 T-06, AC-15, AC-21)"
+  - type: library.archived
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [reason]
+    description: "A library entry was archived with its versions (F-003 T-09, AC-22)"
+  - type: library.restored
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [reason]
+    description: "An archived library entry was restored (F-003 T-09, AC-22)"
   - type: key.db_context_registered
     category: configuration
     severities: [high]
@@ -755,6 +783,13 @@ events:
     requires: [target]
     attributes: [active, idp, user_name, version]
     description: "SCIM changed a user"
+  - type: scenario.archived
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [reason]
+    description: "A loss scenario was archived with its versions: read-only and out of active lists (F-003 T-09, AC-22)"
   - type: scenario.created
     category: risk_data
     severities: [low]
@@ -762,6 +797,20 @@ events:
     bu: required
     attributes: [change_note, digest, version]
     description: "A loss scenario was created with its first version (F-003 T-05, AC-01, AC-15, AC-21); digest identifies the document"
+  - type: scenario.moved
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [from_bu, reason, to_bu]
+    description: "A loss scenario moved to another BU with its versions (F-003 T-09, AC-19); filed under the new BU"
+  - type: scenario.restored
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [reason]
+    description: "An archived loss scenario was restored (F-003 T-09, AC-22)"
   - type: scenario.version_saved
     category: risk_data
     severities: [low]

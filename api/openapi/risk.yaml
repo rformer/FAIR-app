@@ -126,6 +126,7 @@ components:
         current_version: { type: [integer, "null"], description: "The pinned entry's current version as the caller sees it; null when the caller cannot see it" }
         newer: { type: boolean, description: A later version exists (adopt it with /adopt; AC-10) }
         member_of: { type: string, description: "A member of a pinned asset group, copied with the group: not a pin of the document (adopt moves the group)" }
+        reachable: { type: boolean, description: "Scenarios: whether the scenario's BU reads the pinned entry's BU (itself or by inheritance); false after a move away from it (AC-20). The scenario keeps its copy." }
     Node:
       type: object
       required: [factor, status]
@@ -346,6 +347,95 @@ paths:
                       scenario: { type: object, required: [id, version, digest, document] }
                       pins: { type: array, items: { type: object, required: [pointer, kind, id, version, digest, document] } }
         "404": { $ref: "#/components/responses/Error" }
+  /api/v1/scenarios/{id}/move:
+    post:
+      operationId: moveScenario
+      tags: [scenarios]
+      summary: Move a scenario with its versions to another BU (AC-19)
+      description: >-
+        Needs scenario.edit at the scenario's BU and at the destination. A scenario inside a restricted
+        BU never leaves its subtree (409 restricted_move). Documents and digests do not change; pins the
+        new BU does not read are flagged reachable false (AC-20).
+      x-permission: scenario.edit
+      x-audit-events: [scenario.moved]
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/ID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to_bu_id, reason]
+              additionalProperties: false
+              properties:
+                to_bu_id: { type: string, format: uuid }
+                reason: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "200":
+          description: Moved
+          content: { application/json: { schema: { type: object, required: [id, bu_id, from_bu_id], properties: { id: { type: string, format: uuid }, bu_id: { type: string, format: uuid }, from_bu_id: { type: string, format: uuid } } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/scenarios/{id}/archive:
+    post:
+      operationId: archiveScenario
+      tags: [scenarios]
+      summary: "Archive a scenario with its versions: read-only, out of active lists (AC-22)"
+      x-permission: scenario.edit
+      x-audit-events: [scenario.archived]
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/ID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "200":
+          description: Done
+          content: { application/json: { schema: { type: object, required: [id, archived], properties: { id: { type: string, format: uuid }, archived: { type: boolean } } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/scenarios/{id}/restore:
+    post:
+      operationId: restoreScenario
+      tags: [scenarios]
+      summary: Restore an archived scenario (AC-22)
+      x-permission: scenario.edit
+      x-audit-events: [scenario.restored]
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/ID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "200":
+          description: Done
+          content: { application/json: { schema: { type: object, required: [id, archived], properties: { id: { type: string, format: uuid }, archived: { type: boolean } } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /api/v1/scenarios/{id}/diff:
     get:
       operationId: diffScenario
@@ -535,6 +625,62 @@ paths:
                   version: { $ref: "#/components/schemas/Version" }
                   pins: { type: array, items: { $ref: "#/components/schemas/Pin" } }
         "404": { $ref: "#/components/responses/Error" }
+  /api/v1/library/{id}/archive:
+    post:
+      operationId: archiveLibraryEntry
+      tags: [library]
+      summary: Archive a library entry with its versions (AC-22)
+      x-permission: library.edit
+      x-audit-events: [library.archived]
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/ID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "200":
+          description: Done
+          content: { application/json: { schema: { type: object, required: [id, archived], properties: { id: { type: string, format: uuid }, archived: { type: boolean } } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/library/{id}/restore:
+    post:
+      operationId: restoreLibraryEntry
+      tags: [library]
+      summary: Restore an archived library entry (AC-22)
+      x-permission: library.edit
+      x-audit-events: [library.restored]
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/ID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "200":
+          description: Done
+          content: { application/json: { schema: { type: object, required: [id, archived], properties: { id: { type: string, format: uuid }, archived: { type: boolean } } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /api/v1/library/{id}/diff:
     get:
       operationId: diffLibraryEntry
@@ -682,6 +828,62 @@ paths:
                   id: { type: string, format: uuid }
                   version: { $ref: "#/components/schemas/Version" }
         "404": { $ref: "#/components/responses/Error" }
+  /api/v1/controls/{id}/archive:
+    post:
+      operationId: archiveControl
+      tags: [controls]
+      summary: Archive a control with its versions (AC-22)
+      x-permission: control.edit
+      x-audit-events: [control.archived]
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/ID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "200":
+          description: Done
+          content: { application/json: { schema: { type: object, required: [id, archived], properties: { id: { type: string, format: uuid }, archived: { type: boolean } } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/controls/{id}/restore:
+    post:
+      operationId: restoreControl
+      tags: [controls]
+      summary: Restore an archived control (AC-22)
+      x-permission: control.edit
+      x-audit-events: [control.restored]
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/ID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "200":
+          description: Done
+          content: { application/json: { schema: { type: object, required: [id, archived], properties: { id: { type: string, format: uuid }, archived: { type: boolean } } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /api/v1/controls/{id}/diff:
     get:
       operationId: diffControl

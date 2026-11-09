@@ -21,6 +21,11 @@
 // T-08 adds GET /api/v1/scenarios/{id}/versions/{v}/bundle: the frozen,
 // self-contained input of a simulation, with its digest (AC-16).
 //
+// T-09 adds POST /api/v1/scenarios/{id}/move (scenario.edit at both BUs,
+// never out of a restricted subtree; AC-19) and .../{id}/archive and
+// /restore for the three kinds (AC-22); scenario pins say whether the
+// scenario's BU still reads them (reachable; AC-20).
+//
 // T-06 serves the library (assets, asset groups, threat communities, loss
 // profiles; library.view and library.edit) and controls (control.view and
 // control.edit) in the same shape under /api/v1/library and
@@ -84,6 +89,9 @@ var routes = []route{
 	{"GET", "/api/v1/scenarios/{id}/diff", (*API).diffScenario},
 	{"GET", "/api/v1/scenarios/{id}/versions/{version}/bundle", (*API).getScenarioBundle},
 	{"POST", "/api/v1/scenarios/{id}/adopt", (*API).adoptScenarioPins},
+	{"POST", "/api/v1/scenarios/{id}/move", (*API).moveScenario},
+	{"POST", "/api/v1/scenarios/{id}/archive", (*API).archiveScenario},
+	{"POST", "/api/v1/scenarios/{id}/restore", (*API).restoreScenario},
 	{"GET", "/api/v1/library", (*API).listLibrary},
 	{"POST", "/api/v1/library", (*API).createLibraryEntry},
 	{"GET", "/api/v1/library/{id}", (*API).getLibraryEntry},
@@ -91,6 +99,8 @@ var routes = []route{
 	{"GET", "/api/v1/library/{id}/versions", (*API).listLibraryVersions},
 	{"GET", "/api/v1/library/{id}/versions/{version}", (*API).getLibraryVersion},
 	{"GET", "/api/v1/library/{id}/diff", (*API).diffLibraryEntry},
+	{"POST", "/api/v1/library/{id}/archive", (*API).archiveLibraryEntry},
+	{"POST", "/api/v1/library/{id}/restore", (*API).restoreLibraryEntry},
 	{"GET", "/api/v1/controls", (*API).listControls},
 	{"POST", "/api/v1/controls", (*API).createControl},
 	{"GET", "/api/v1/controls/{id}", (*API).getControl},
@@ -98,6 +108,8 @@ var routes = []route{
 	{"GET", "/api/v1/controls/{id}/versions", (*API).listControlVersions},
 	{"GET", "/api/v1/controls/{id}/versions/{version}", (*API).getControlVersion},
 	{"GET", "/api/v1/controls/{id}/diff", (*API).diffControl},
+	{"POST", "/api/v1/controls/{id}/archive", (*API).archiveControl},
+	{"POST", "/api/v1/controls/{id}/restore", (*API).restoreControl},
 	{"GET", "/api/v1/risk/settings", (*API).getSettings},
 }
 
@@ -230,6 +242,8 @@ func fail(w http.ResponseWriter, err error) {
 			problems = model.Problems{{Pointer: "", Message: pg.Message}}
 		}
 		invalid(w, problems)
+	case errors.As(err, &pg) && pg.Code == "PF020":
+		problem(w, http.StatusConflict, "restricted_move", pg.Message, nil)
 	case errors.As(err, &pg) && pg.Code == "PF017":
 		problem(w, http.StatusConflict, "stale_version", pg.Message, nil)
 	case errors.As(err, &pg) && pg.Code == "42501":

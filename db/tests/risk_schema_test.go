@@ -44,8 +44,10 @@ func templateJSON(t *testing.T, kind string, doc map[string]any) string {
 // the same BU.
 func init() {
 	head := func(table, fn string) rlstest.Fixture {
+		// Heads change only through the service's functions (archive,
+		// move; T-09) and the version trigger.
 		return rlstest.Fixture{Table: table, PK: "id", Missing: "00000000-0000-0000-0000-000000000000", Touch: "archived_at = archived_at",
-			Refused: []string{"delete", "move"}, Insert: func(bu string) string { return fmt.Sprintf("SELECT (%s)::text", fmt.Sprintf(fn, bu)) }}
+			Refused: []string{"update", "delete", "move"}, Insert: func(bu string) string { return fmt.Sprintf("SELECT (%s)::text", fmt.Sprintf(fn, bu)) }}
 	}
 	child := func(table, pk, fn, suffix string) rlstest.Fixture {
 		return rlstest.Fixture{Table: table, PK: pk, Missing: "none", Touch: "bu_id = bu_id",
@@ -328,7 +330,7 @@ func TestRiskVersions(t *testing.T) {
 	}
 	// Archived heads refuse versions until restored.
 	if err := r.tx("analyst", func(tx pgx.Tx) error {
-		_, err := tx.Exec(context.Background(), "UPDATE risk.library_entry SET archived_at = now() WHERE id = $1", tc)
+		_, err := tx.Exec(context.Background(), "SELECT risk.set_archived('library', $1, true)", tc)
 		return err
 	}); err != nil {
 		t.Fatal(err)
