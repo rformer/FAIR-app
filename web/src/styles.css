@@ -152,3 +152,19 @@ dl.facts dd { margin: 0; min-width: 0; }
 ol.path { margin: 0; padding-left: 1.5rem; }
 pre.json { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.75rem; overflow: auto; max-height: 24rem; font-family: var(--mono); font-size: 0.85rem; }
 p.legend .badge { margin: 0 0.15rem; }
+
+/* F-003 T-12: the scenario pages. */
+dl.summary { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; margin: 0; }
+dl.summary div { display: contents; }
+dl.summary dt { font-weight: 600; }
+dl.summary dd { margin: 0; white-space: pre-wrap; }
+ul.tree, ul.tree ul { list-style: none; margin: 0; padding-left: 1.25rem; border-left: 1px solid var(--border); }
+ul.tree { padding-left: 0; border-left: none; }
+ul.tree li { margin: 0.35rem 0; }
+form.editor .field { display: flex; flex-direction: column; gap: 0.25rem; margin: 0.5rem 0; }
+form.editor input, form.editor select, form.editor textarea { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.3rem 0.4rem; }
+form.editor .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); gap: 0 1rem; align-items: end; }
+form.editor fieldset { border: 1px solid var(--border); border-radius: var(--radius); padding: 0.5rem 0.75rem; margin: 0.75rem 0; }
+form.editor fieldset.checks { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; }
+form.editor fieldset.checks legend { width: 100%; }
+form.editor fieldset.estimate legend, form.editor fieldset.group legend { font-weight: 600; }

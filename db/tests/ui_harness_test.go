@@ -20,6 +20,8 @@ import (
 	"github.com/rformer/fair-app/internal/gateway"
 	"github.com/rformer/fair-app/internal/posture"
 	"github.com/rformer/fair-app/internal/postureapi"
+	"github.com/rformer/fair-app/internal/risk/model/modeltest"
+	"github.com/rformer/fair-app/internal/riskapi"
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
 	"github.com/rformer/fair-app/pkg/settings"
@@ -43,6 +45,7 @@ func TestPostureUIHarness(t *testing.T) {
 	// Posture page's audit links open populated histories (AC-37).
 	ae.set.Evaluator.Audit = audit.WithTrail(ae.set.Evaluator.Audit, audit.Trail{DB: ae.set.Evaluator.DB})
 	seedPostureScenario(t, ae)
+	seedRiskScenario(t, e) // F-003 T-12
 
 	pool := e.posturePool()
 	api := &postureapi.API{DB: pool, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool), MaxAge: time.Second}), Audit: audit.NewMemory()}
@@ -73,6 +76,13 @@ func TestPostureUIHarness(t *testing.T) {
 	auditSrv := httptest.NewServer(auditAPI.Handler(ae.keys, nil))
 	defer auditSrv.Close()
 	auditUp, _ := url.Parse(auditSrv.URL)
+	// F-003 T-12: the risk API, as the risk service serves it (app_rw).
+	rp := e.appPool()
+	riskAPI := &riskapi.API{DB: rp, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(rp), MaxAge: time.Second}),
+		Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: rp})}
+	riskSrv := httptest.NewServer(riskAPI.Handler(ae.keys, nil))
+	defer riskSrv.Close()
+	riskUp, _ := url.Parse(riskSrv.URL)
 	// The UI: built assets, and index.html for the app's routes.
 	ui := gateway.StaticUI(dist)
 	g := &gateway.Gateway{
@@ -81,7 +91,7 @@ func TestPostureUIHarness(t *testing.T) {
 		ContextKey: ctxKey1,
 		JWT:        ae.keys,
 		Origin:     "http://localhost:8099",
-		Upstreams:  map[string]*url.URL{"posture": up, "audit": auditUp},
+		Upstreams:  map[string]*url.URL{"posture": up, "audit": auditUp, "risk": riskUp},
 		UI:         ui,
 	}
 
@@ -238,4 +248,39 @@ func seedPostureScenario(t *testing.T, ae apiEnv) {
 	if _, err := os.Stat(filepath.Join("..", "..", "web", "dist", "index.html")); errors.Is(err, os.ErrNotExist) {
 		t.Fatal(fmt.Errorf("web/dist is not built (npm run build in web/)"))
 	}
+}
+
+// seedRiskScenario builds what the scenario pages show (F-003 T-12): a risk
+// analyst at the root, the currency, a library (asset, threat community,
+// control) and a scenario with two versions whose threat community has a
+// newer version to adopt. "nobody" (Executive Viewer) can read, not edit.
+func seedRiskScenario(t *testing.T, e *env) {
+	t.Helper()
+	e.mustOwner("INSERT INTO iam.app_user (email, display_name) VALUES ('riskanalyst@example.test', 'Rae Analyst')")
+	e.mustOwner(grant("admin", "user:riskanalyst", "Risk Analyst", "ENTERPRISE"))
+	e.drain()
+	r := riskEnv{e, map[string]string{"ENTERPRISE": e.adminQuery("SELECT id FROM iam.bu WHERE code = 'ENTERPRISE'")}}
+	ra := &riskAPIEnv{riskEnv: r}
+	ra.setCurrency(t, "USD")
+	root := r.bu["ENTERPRISE"]
+	asset := r.create(t, "riskanalyst", "asset", root, modeltest.Asset())
+	tc := r.create(t, "riskanalyst", "threat_community", root, modeltest.ThreatCommunity())
+	ctl := r.create(t, "riskanalyst", "control", root, modeltest.Control())
+	d := modeltest.Scenario()
+	modeltest.Set(d, "/owner", e.adminQuery("SELECT id FROM iam.app_user WHERE email = 'riskanalyst@example.test'"))
+	modeltest.Set(d, "/asset", map[string]any{"kind": "asset", "id": asset, "version": 1})
+	modeltest.Set(d, "/threat_community", map[string]any{"id": tc, "version": 1})
+	modeltest.Set(d, "/control_sets", []any{map[string]any{"name": "Current", "current": true, "controls": []any{
+		map[string]any{"id": ctl, "version": 1, "status": "in_place"}}}})
+	s := r.create(t, "riskanalyst", "scenario", root, d)
+	modeltest.Set(d, "/scope/out", "Backups held offline, and the disaster recovery site.")
+	b, dg := canonicalDoc(t, "scenario", d)
+	if err := r.addVersion("riskanalyst", "scenario_version", s, 2, b, dg); err != nil {
+		t.Fatal(err)
+	}
+	b, dg = canonicalDoc(t, "threat_community", modeltest.Set(modeltest.ThreatCommunity(), "/name", "Organised cyber crime"))
+	if err := r.addVersion("riskanalyst", "library_version", tc, 2, b, dg); err != nil {
+		t.Fatal(err)
+	}
+	t.Log("risk scenario seeded")
 }

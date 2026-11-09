@@ -931,3 +931,40 @@ func (a *API) moveScenario(w http.ResponseWriter, r *http.Request, p authz.Princ
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": h.ID, "bu_id": body.ToBUID, "from_bu_id": h.BUID})
 }
+
+// listScopeBUs answers the BUs where the caller holds a risk permission
+// (?permission=scenario.edit and the like), with code and name (T-12).
+func (a *API) listScopeBUs(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	if !a.viewAnywhere(w, r, p, permScenarioView, library.view, controls.view) {
+		return
+	}
+	perm := r.URL.Query().Get("permission")
+	rt, action, _ := strings.Cut(perm, ".")
+	mode := map[string]string{"view": "read", "edit": "write"}[action]
+	if mode == "" || !slices.Contains([]string{"scenario", "library", "control"}, rt) {
+		problem(w, http.StatusBadRequest, "invalid_value", "permission is scenario, library or control, .view or .edit", nil)
+		return
+	}
+	type bu struct {
+		ID   string `json:"id"`
+		Code string `json:"code"`
+		Name string `json:"name"`
+	}
+	var out []bu
+	err := authz.WithDBContext(r.Context(), a.DB, p.DBToken, func(tx pgx.Tx) error {
+		rows, err := tx.Query(r.Context(), "SELECT id::text, code, name FROM risk.scope_bus($1, $2)", rt, mode)
+		if err != nil {
+			return err
+		}
+		out, err = pgx.CollectRows(rows, pgx.RowToStructByPos[bu])
+		return err
+	})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if out == nil {
+		out = []bu{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"bus": out})
+}

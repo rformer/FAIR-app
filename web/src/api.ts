@@ -8,6 +8,8 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code: string,
     readonly detail: string,
+    /** The error's body as the API sent it (e.g. a 422's problems). */
+    readonly body: unknown = undefined,
   ) {
     super(detail || code || `HTTP ${status}`);
   }
@@ -32,7 +34,7 @@ async function handle<T>(resp: Response): Promise<T> {
       login.searchParams.set("return", window.location.pathname + window.location.search);
       window.location.assign(login.pathname + login.search);
     }
-    throw new ApiError(resp.status, b.error ?? "", b.detail ?? "");
+    throw new ApiError(resp.status, b.error ?? "", b.detail ?? "", body);
   }
   return body as T;
 }
@@ -59,7 +61,7 @@ export async function getMe(): Promise<Me> {
   return me;
 }
 
-export async function send<T>(method: "POST" | "PATCH", path: string, body: unknown): Promise<T> {
+export async function send<T>(method: "POST" | "PATCH" | "PUT", path: string, body: unknown): Promise<T> {
   if (csrfToken === undefined) {
     await getMe();
   }

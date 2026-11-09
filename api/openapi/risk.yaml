@@ -1012,6 +1012,37 @@ paths:
           description: Settings
           content: { application/json: { schema: { type: object, required: [currency], properties: { currency: { type: [string, "null"] } } } } }
         "404": { $ref: "#/components/responses/Error" }
+  /api/v1/risk/bus:
+    get:
+      operationId: listScopeBUs
+      tags: [settings]
+      summary: The BUs where the caller holds a risk permission, with names
+      description: >-
+        For the pages' pickers and labels: risk roles hold no bu.view. Only BUs in the caller's own
+        scope for that permission, never archived ones.
+      x-permission: scenario.view, library.view or control.view
+      parameters:
+        - { name: permission, in: query, required: true, schema: { enum: [scenario.view, scenario.edit, library.view, library.edit, control.view, control.edit] } }
+      responses:
+        "200":
+          description: BUs
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [bus]
+                properties:
+                  bus:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, code, name]
+                      properties:
+                        id: { type: string, format: uuid }
+                        code: { type: string }
+                        name: { type: string }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /api/v1/risk/export:
     get:
       operationId: exportRisk

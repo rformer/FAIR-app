@@ -27,7 +27,7 @@ Every task that adds a migration follows the immutability rule. Every new event 
 ## Phase C — User interface
 | # | Task | Traces to | Verification | Size | Status |
 |---|---|---|---|---|---|
-| T-12 | Scenario pages in `web/src/risk`: list, editor (levels per branch, estimates with rationale and sources, control sets), taxonomy view, versions and diff, newer-version prompts and adopt | AC-27, AC-28, AC-17, AC-10; §5 | Playwright and axe (WCAG 2.1 AA) in `scripts/ui-e2e.sh` against the real API | L | Not started |
+| T-12 | Scenario pages in `web/src/risk`: list, editor (levels per branch, estimates with rationale and sources, control sets), taxonomy view, versions and diff, newer-version prompts and adopt | AC-27, AC-28, AC-17, AC-10; §5 | Playwright and axe (WCAG 2.1 AA) in `scripts/ui-e2e.sh` against the real API | L | Done (2026-11-09) |
 | T-13 | Library and control pages, starter library and copy, move, archive and restore, export and import with dry run | AC-27, AC-11, AC-19, AC-22, AC-24, AC-25 | Playwright and axe in `scripts/ui-e2e.sh` | M | Not started |
 
 ## Phase D — Assurance

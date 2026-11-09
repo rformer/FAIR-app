@@ -34,6 +34,10 @@
 // requester sees, recorded) and POST /api/v1/risk/imports[?dry_run=true]
 // (all or nothing into one BU; AC-24, AC-25).
 //
+// T-12 adds GET /api/v1/risk/bus?permission=: the BUs where the caller
+// holds a risk permission, with names (risk roles hold no bu.view), for the
+// pages' pickers and labels.
+//
 // T-06 serves the library (assets, asset groups, threat communities, loss
 // profiles; library.view and library.edit) and controls (control.view and
 // control.edit) in the same shape under /api/v1/library and
@@ -121,6 +125,7 @@ var routes = []route{
 	{"POST", "/api/v1/controls/{id}/archive", (*API).archiveControl},
 	{"POST", "/api/v1/controls/{id}/restore", (*API).restoreControl},
 	{"GET", "/api/v1/risk/settings", (*API).getSettings},
+	{"GET", "/api/v1/risk/bus", (*API).listScopeBUs},
 	{"GET", "/api/v1/risk/export", (*API).exportRisk},
 	{"POST", "/api/v1/risk/imports", (*API).importRisk},
 }
