@@ -67,6 +67,43 @@ var strideSuite = map[string][]string{
 // attack the same mitigation.
 // strideF002 maps F-002 design §8 (T-21) to the tests that attack each
 // mitigation.
+// strideF003 maps F-003's design §8 threats (T-15) to their tests.
+var strideF003 = map[string][]string{
+	"S: an analyst saves under another identity | Author from the signed DB context (ADR-007), never the body": {
+		"db/tests:TestSTRIDEF003Author", "db/tests:TestRiskVersions",
+	},
+	"T: a version is edited in the database | Append-only triggers; digest re-checked; the trail records each version's digest": {
+		"db/tests:TestSTRIDEF003VersionTamper", "db/tests:TestRiskAppendOnly", "db/tests:TestRiskBundle",
+	},
+	"T: an invalid document bypasses the service | Triggers re-check every invariant; parity test": {
+		"db/tests:TestRiskValidationParity",
+	},
+	"T: a pin points at an entry the analyst cannot see | Pin visibility checked by trigger at write": {
+		"db/tests:TestSTRIDEF003PinVisibility", "db/tests:TestRiskPins",
+	},
+	"R: a change cannot be attributed | Every change audited in its transaction with BU and change note": {
+		"db/tests:TestRiskAuditEvents", "db/tests:TestRiskScenariosAPI",
+	},
+	"I: a child BU reads a sibling's or a restricted BU's library | Inherited read only up the caller's own ancestors, stopping at restricted BUs; RLS harness fixtures": {
+		"db/tests:TestSTRIDEF003InheritedRead", "db/tests:TestInheritedRead", "db/tests:TestRLSHarnessEveryBUOwnedTable", "db/tests:TestRLSHarnessDetectsBrokenSharedTables",
+	},
+	"I: a move leaks a restricted scenario | Move refused out of a restricted subtree": {
+		"db/tests:TestSTRIDEF003RestrictedMove", "db/tests:TestRiskMoveAndArchive",
+	},
+	"I: an export leaks unseen data | Export built under the requester's RLS context": {
+		"db/tests:TestSTRIDEF003ExportScope", "db/tests:TestRiskExportImport",
+	},
+	"I: secrets pasted into free text | `looks_secret` in Go and the database": {
+		"db/tests:TestRiskSecretsRefused",
+	},
+	"D: huge documents or imports | Text limits, document size limit (1 MiB), import size limit (4 MiB, the mutation body limit; T-11), API body limits": {
+		"db/tests:TestRiskLimits",
+	},
+	"E: a reader without `library.edit` changes the library | Writes use the ordinary own-scope policy; inherited read is `SELECT` only": {
+		"db/tests:TestSTRIDEF003InheritedWrite", "db/tests:TestInheritedRead",
+	},
+}
+
 var strideF002 = map[string][]string{
 	"Spoofing | A service submits events as another producer": {
 		"db/tests:TestSTRIDEF002ProducerSpoofing", "db/tests:TestAuditSubmit", "db/tests:TestAuditSequenceAppendRefusesForgeries",
@@ -168,6 +205,7 @@ func TestSTRIDECatalog(t *testing.T) {
 		{"F-015-security-posture-profiles", "## 8.", 9, strideSuite},
 		{"F-001-identity-bu-rbac", "## 7.", 11, strideF001},
 		{"F-002-audit-trail", "## 8.", 9, strideF002},
+		{"F-003-fair-data-model", "## 8.", 11, strideF003},
 	} {
 		rows := threatRows(t, filepath.Join(root, "specs", "features", c.feature, "design.md"), c.section)
 		if len(rows) < c.min {
