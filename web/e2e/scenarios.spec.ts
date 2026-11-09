@@ -147,3 +147,36 @@ test("editing saves a new version (AC-15)", async ({ page }) => {
   await expect(page.getByText(/version 4/)).toBeVisible();
   await expect(page.getByRole("region", { name: "Versions" }).getByRole("row", { name: /Reviewed with the claims team/ })).toBeVisible();
 });
+
+// After the edit: move the scenario, then archive and restore it (AC-19, AC-22).
+test("moving, archiving and restoring a scenario (AC-19, AC-22), accessibly", async ({ page }) => {
+  await as(page, "riskanalyst");
+  await page.goto("/scenarios");
+  await page.getByRole("link", { name: "Ransomware on claims, reviewed" }).click();
+  await page.getByRole("button", { name: "Move" }).click();
+  const move = page.getByRole("dialog", { name: "Move this scenario" });
+  await expectAccessible(page, "the move dialog");
+  await move.getByLabel("Move to").selectOption({ label: "Claims" });
+  await move.getByLabel("Reason").fill("Owned by the claims team now");
+  await move.getByRole("button", { name: "Move" }).click();
+  await expect(move).toBeHidden();
+  await expect(page.getByText(/^Claims · version 4/)).toBeVisible();
+
+  await page.getByRole("button", { name: "Archive" }).click();
+  const archive = page.getByRole("dialog", { name: "Archive this scenario" });
+  await archive.getByLabel("Reason").fill("Superseded");
+  await archive.getByRole("button", { name: "Archive" }).click();
+  await expect(page.getByText("Archived", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Edit" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Move" })).toHaveCount(0);
+  await page.goto("/scenarios");
+  await expect(page.getByRole("link", { name: "Ransomware on claims, reviewed" })).toHaveCount(0);
+  await page.getByLabel("Show").selectOption("true");
+  await page.getByRole("button", { name: "Apply" }).click();
+  await page.getByRole("link", { name: "Ransomware on claims, reviewed" }).click();
+  await page.getByRole("button", { name: "Restore" }).click();
+  const restore = page.getByRole("dialog", { name: "Restore this scenario" });
+  await restore.getByLabel("Reason").fill("Still needed");
+  await restore.getByRole("button", { name: "Restore" }).click();
+  await expect(page.getByRole("link", { name: "Edit" })).toBeVisible();
+});

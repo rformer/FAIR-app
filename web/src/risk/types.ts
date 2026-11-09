@@ -197,3 +197,105 @@ export function at(doc: unknown, pointer: string): unknown {
   }
   return cur;
 }
+
+// F-003 T-13: library entries and controls.
+
+export const LIBRARY_KINDS = ["asset", "asset_group", "threat_community", "loss_profile"] as const;
+export type LibraryKind = (typeof LIBRARY_KINDS)[number];
+
+export const KIND_LABELS: Record<LibraryKind | "control", string> = {
+  asset: "Asset",
+  asset_group: "Asset group",
+  threat_community: "Threat community",
+  loss_profile: "Loss profile",
+  control: "Control",
+};
+
+export interface AssetDoc {
+  kind: "asset";
+  schema_version: 1;
+  name: string;
+  asset_type: string;
+  description?: string;
+  value?: Estimate;
+  value_basis?: string;
+}
+
+export interface AssetGroupDoc {
+  kind: "asset_group";
+  schema_version: 1;
+  name: string;
+  description?: string;
+  members: Pin[];
+  valuation: "whole" | "members";
+  value?: Estimate;
+}
+
+export interface ThreatCommunityDoc {
+  kind: "threat_community";
+  schema_version: 1;
+  name: string;
+  description?: string;
+  threat_capability: Estimate;
+}
+
+export interface LossProfileDoc {
+  kind: "loss_profile";
+  schema_version: 1;
+  name: string;
+  description?: string;
+  magnitudes: Partial<Record<Form, Estimate>>;
+}
+
+export const FACTORS = [
+  "contact_frequency",
+  "probability_of_action",
+  "threat_capability",
+  "resistance_strength",
+  ...FORMS.map((f) => `loss.${f}`),
+] as const;
+
+export interface Effect {
+  factor: string;
+  estimate: Estimate;
+}
+
+export interface ControlDoc {
+  kind: "control";
+  schema_version: 1;
+  name: string;
+  description?: string;
+  references?: { framework: string; identifier: string }[];
+  effects: Effect[];
+}
+
+export type EntryDoc = AssetDoc | AssetGroupDoc | ThreatCommunityDoc | LossProfileDoc | ControlDoc;
+
+export interface EntryView {
+  entry?: Head;
+  control?: Head;
+  version: Omit<Version, "document"> & { document?: EntryDoc };
+  pins?: PinItem[];
+  currency: string | null;
+}
+
+export interface StarterEntry {
+  key: string;
+  release: string;
+  kind: LibraryKind;
+  name: string;
+  illustrative: boolean;
+  guidance: string;
+  digest: string;
+  document: EntryDoc;
+}
+
+/** The unit a control's effect on a factor is estimated in. */
+export function effectUnit(factor: string): Unit {
+  return factor === "resistance_strength" ? "percentile" : "fraction";
+}
+
+export function factorName(factor: string): string {
+  if (factor.startsWith("loss.")) return `${FORM_LABELS[factor.slice(5) as Form] ?? factor.slice(5)} loss`;
+  return factorLabel(factor);
+}

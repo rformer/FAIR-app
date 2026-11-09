@@ -4,9 +4,11 @@ import { describe, getMe, send, type Me } from "./api";
 import { AuditPage } from "./audit/AuditPage";
 import { BannerPage } from "./banner";
 import { PosturePage } from "./posture/PosturePage";
+import { EntryEditor, EntryList, EntryPage, type EntrySection } from "./risk/Entries";
 import { ScenarioEditor } from "./risk/ScenarioEditor";
 import { ScenarioList } from "./risk/ScenarioList";
 import { ScenarioPage } from "./risk/ScenarioPage";
+import { TransferPage } from "./risk/Transfer";
 import "./styles.css";
 
 type SessionState = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; me: Me };
@@ -50,7 +52,15 @@ function App() {
   // The platform shell's routing arrives with later features: the path
   // chooses the page (the gateway serves the app for every route).
   const path = window.location.pathname;
-  const section = path.startsWith("/audit") ? "audit" : path.startsWith("/scenarios") ? "scenarios" : "posture";
+  const section = path.startsWith("/audit")
+    ? "audit"
+    : path.startsWith("/scenarios") || path.startsWith("/risk/")
+      ? "scenarios"
+      : path.startsWith("/library")
+        ? "library"
+        : path.startsWith("/controls")
+          ? "controls"
+          : "posture";
   const current = (s: string) => (section === s ? "page" : undefined);
   return (
     <>
@@ -67,6 +77,16 @@ function App() {
               </a>
             </li>
             <li>
+              <a href="/library" aria-current={current("library")}>
+                Library
+              </a>
+            </li>
+            <li>
+              <a href="/controls" aria-current={current("controls")}>
+                Controls
+              </a>
+            </li>
+            <li>
               <a href="/posture" aria-current={current("posture")}>
                 Security posture
               </a>
@@ -80,7 +100,15 @@ function App() {
         </nav>
       </header>
       <main id="main" tabIndex={-1}>
-        {section === "audit" ? <AuditPage /> : section === "scenarios" ? <ScenarioRoutes path={path} /> : <PosturePage />}
+        {section === "audit" ? (
+          <AuditPage />
+        ) : section === "scenarios" ? (
+          <ScenarioRoutes path={path} />
+        ) : section === "library" || section === "controls" ? (
+          <EntryRoutes section={section} path={path} />
+        ) : (
+          <PosturePage />
+        )}
       </main>
     </>
   );
@@ -88,12 +116,23 @@ function App() {
 
 // F-003 T-12: /scenarios, /scenarios/new, /scenarios/{id}, /scenarios/{id}/edit.
 function ScenarioRoutes({ path }: { path: string }) {
+  if (path === "/risk/transfer") return <TransferPage />;
   if (path === "/scenarios" || path === "/scenarios/") return <ScenarioList />;
   if (path === "/scenarios/new") return <ScenarioEditor />;
   const m = /^\/scenarios\/([0-9a-f-]{36})(\/edit)?$/.exec(path);
   if (!m) return <p role="alert">Not found.</p>;
   const id = m[1] ?? "";
   return m[2] ? <ScenarioEditor id={id} /> : <ScenarioPage id={id} />;
+}
+
+// F-003 T-13: /library and /controls, /new, /{id}, /{id}/edit.
+function EntryRoutes({ section, path }: { section: EntrySection; path: string }) {
+  if (path === `/${section}` || path === `/${section}/`) return <EntryList section={section} />;
+  if (path === `/${section}/new`) return <EntryEditor section={section} kind={new URLSearchParams(window.location.search).get("kind") ?? undefined} />;
+  const m = new RegExp(`^/${section}/([0-9a-f-]{36})(/edit)?$`).exec(path);
+  if (!m) return <p role="alert">Not found.</p>;
+  const id = m[1] ?? "";
+  return m[2] ? <EntryEditor section={section} id={id} /> : <EntryPage section={section} id={id} />;
 }
 
 const root = document.getElementById("root");

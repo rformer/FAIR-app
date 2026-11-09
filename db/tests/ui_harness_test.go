@@ -256,6 +256,8 @@ func seedPostureScenario(t *testing.T, ae apiEnv) {
 // newer version to adopt. "nobody" (Executive Viewer) can read, not edit.
 func seedRiskScenario(t *testing.T, e *env) {
 	t.Helper()
+	// A second BU under the root, for moves and imports (T-13).
+	e.mustOwner("INSERT INTO iam.bu (name, code, parent_id, restricted) SELECT 'Claims', 'CLAIMS', id, false FROM iam.bu WHERE parent_id IS NULL")
 	e.mustOwner("INSERT INTO iam.app_user (email, display_name) VALUES ('riskanalyst@example.test', 'Rae Analyst')")
 	e.mustOwner(grant("admin", "user:riskanalyst", "Risk Analyst", "ENTERPRISE"))
 	e.drain()

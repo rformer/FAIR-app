@@ -27,13 +27,14 @@ export function ScenarioList({ search = window.location.search }: { search?: str
     <>
       <h1>Scenarios</h1>
       <p className="lede">Loss scenarios in Open FAIR terms, in the business units you can see.</p>
-      {editable.data && editable.data.bus.length > 0 ? (
-        <p>
+      <p className="actions">
+        {editable.data && editable.data.bus.length > 0 ? (
           <a className="react-aria-Button primary" href="/scenarios/new">
             New scenario
           </a>
-        </p>
-      ) : null}
+        ) : null}
+        <a href="/risk/transfer">Export or import</a>
+      </p>
       <Section id="scenarios" title="Scenarios">
         <form
           className="filters"

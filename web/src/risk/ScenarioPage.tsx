@@ -1,8 +1,10 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { describe, getJSON, send } from "../api";
+import { useEffect, type ReactNode } from "react";
+import { send } from "../api";
 import { Badge, ReasonAction, Section, Status, useApi, type Tone } from "../components";
-import { auditHref, date, show } from "../links";
-import { at, factorLabel, showEstimate, type BU, type DiffView, type Estimate, type ScenarioView, type TaxonomyNode, type Version } from "./types";
+import { auditHref, date } from "../links";
+import { ArchiveAction, MoveAction } from "./Actions";
+import { History } from "./History";
+import { at, factorLabel, showEstimate, type BU, type Estimate, type ScenarioView, type TaxonomyNode } from "./types";
 
 // F-003 T-12 (AC-10, AC-15, AC-17, AC-27, AC-28): one scenario: what it
 // says, its FAIR taxonomy as estimated, the library versions it pins (with
@@ -31,7 +33,8 @@ export function ScenarioPage({ id }: { id: string }) {
         const bu = bus.data?.bus.find((b) => b.id === v.scenario.bu_id)?.name ?? v.scenario.bu_id;
         // Changes need scenario.edit at the scenario's BU; the API decides,
         // the page only offers what it would allow.
-        const canEdit = !v.scenario.archived_at && (editable.data?.bus.some((b) => b.id === v.scenario.bu_id) ?? false);
+        const mayEdit = editable.data?.bus.some((b) => b.id === v.scenario.bu_id) ?? false;
+        const canEdit = !v.scenario.archived_at && mayEdit;
         return (
           <>
             <nav aria-label="Breadcrumb" className="crumbs">
@@ -53,13 +56,15 @@ export function ScenarioPage({ id }: { id: string }) {
                   Edit
                 </a>
               ) : null}
+              {canEdit ? <MoveAction id={id} from={v.scenario.bu_id} bus={editable.data?.bus ?? []} onDone={view.reload} /> : null}
+              {mayEdit ? <ArchiveAction base={`/api/v1/scenarios/${id}`} archived={v.scenario.archived_at !== null} what="scenario" onDone={view.reload} /> : null}
               <a href={auditHref(`scenario:${id}`)}>Audit history of this scenario</a>
             </p>
             <Summary v={v} />
             <Taxonomy v={v} />
             <Pins v={v} id={id} canEdit={canEdit} onAdopted={view.reload} />
             {/* Remounted on a new version: its list and comparison follow. */}
-            <History key={v.scenario.current_version} id={id} current={v.scenario.current_version} />
+            <History key={v.scenario.current_version} base={`/api/v1/scenarios/${id}`} current={v.scenario.current_version} />
           </>
         );
       }}
@@ -179,127 +184,5 @@ function Pins({ v, id, canEdit, onAdopted }: { v: ScenarioView; id: string; canE
         </table>
       </div>
     </Section>
-  );
-}
-
-/** AC-15, AC-17: every version, and what changed between two. */
-function History({ id, current }: { id: string; current: number }) {
-  const versions = useApi<{ versions: Version[] }>(`/api/v1/scenarios/${id}/versions`);
-  const [from, setFrom] = useState(Math.max(1, current - 1));
-  const [to, setTo] = useState(current);
-  const [diff, setDiff] = useState<{ data?: DiffView; error?: string }>({});
-  return (
-    <Section id="history" title="Versions">
-      <Status loaded={versions}>
-        {(data) => (
-          <>
-            <div className="table-wrap">
-              <table className="data">
-                <caption className="sr-only">Versions, newest first</caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Version</th>
-                    <th scope="col">Saved</th>
-                    <th scope="col">Change note</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.versions.map((x) => (
-                    <tr key={x.version}>
-                      <td>{x.version}</td>
-                      <td>{date(x.created_at)}</td>
-                      <td>{x.change_note}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {current > 1 ? (
-              <form
-                className="filters"
-                aria-label="Compare versions"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  getJSON<DiffView>(`/api/v1/scenarios/${id}/diff?from=${from}&to=${to}`).then(
-                    (d) => setDiff({ data: d }),
-                    (err: unknown) => setDiff({ error: describe(err) }),
-                  );
-                }}
-              >
-                <div className="field">
-                  <label htmlFor="diff-from">From version</label>
-                  <select id="diff-from" value={from} onChange={(e) => setFrom(Number(e.target.value))}>
-                    {data.versions.map((x) => (
-                      <option key={x.version} value={x.version}>
-                        {x.version}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="field">
-                  <label htmlFor="diff-to">To version</label>
-                  <select id="diff-to" value={to} onChange={(e) => setTo(Number(e.target.value))}>
-                    {data.versions.map((x) => (
-                      <option key={x.version} value={x.version}>
-                        {x.version}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="actions">
-                  <button className="btn" type="submit">
-                    Compare
-                  </button>
-                </div>
-              </form>
-            ) : null}
-            {diff.error ? (
-              <p role="alert" className="error-text">
-                {diff.error}
-              </p>
-            ) : null}
-            {diff.data ? <DiffTable d={diff.data} /> : null}
-          </>
-        )}
-      </Status>
-    </Section>
-  );
-}
-
-function DiffTable({ d }: { d: DiffView }) {
-  const label = { added: "Added", removed: "Removed", changed: "Changed" };
-  return (
-    <div role="region" aria-label={`Changes from version ${d.from} to ${d.to}`} aria-live="polite">
-      <h3>
-        Changes from version {d.from} to {d.to}
-      </h3>
-      {d.changes.length === 0 ? (
-        <p>No differences.</p>
-      ) : (
-        <div className="table-wrap">
-          <table className="data">
-            <caption className="sr-only">Changes</caption>
-            <thead>
-              <tr>
-                <th scope="col">Where</th>
-                <th scope="col">Change</th>
-                <th scope="col">Before</th>
-                <th scope="col">After</th>
-              </tr>
-            </thead>
-            <tbody>
-              {d.changes.map((c) => (
-                <tr key={c.pointer}>
-                  <td className="mono">{c.pointer}</td>
-                  <td>{label[c.op]}</td>
-                  <td className="mono">{c.from === undefined ? "—" : show(c.from)}</td>
-                  <td className="mono">{c.to === undefined ? "—" : show(c.to)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
   );
 }
