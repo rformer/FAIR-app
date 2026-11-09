@@ -166,6 +166,44 @@ components:
               from_version: { type: integer }
               to_id: { type: string, format: uuid }
               to_version: { type: integer }
+    Transfer:
+      type: object
+      description: A fair.risk.v1 file (docs/formats/fair-risk-v1.md; JSON Schema docs/formats/fair-risk-v1.schema.json)
+      required: [format, currency, exported_at, scenarios, library, controls, pinned]
+      properties:
+        format: { const: fair.risk.v1 }
+        currency: { type: [string, "null"] }
+        exported_at: { type: string, format: date-time }
+        scenarios: { type: array, items: { type: object } }
+        library: { type: array, items: { type: object } }
+        controls: { type: array, items: { type: object } }
+        pinned: { type: array, items: { type: object } }
+    ImportResult:
+      type: object
+      properties:
+        dry_run: { type: boolean }
+        created:
+          type: array
+          items:
+            type: object
+            required: [section, kind, source_id, id, versions]
+            properties:
+              section: { enum: [scenarios, library, controls, pinned] }
+              kind: { type: string }
+              source_id: { type: string, format: uuid }
+              source_version: { type: integer }
+              id: { type: string, format: uuid }
+              versions: { type: integer }
+              reused: { type: boolean }
+        problems:
+          type: array
+          items:
+            type: object
+            required: [item, pointer, message]
+            properties:
+              item: { type: string, description: "section/id[/vN]" }
+              pointer: { type: string }
+              message: { type: string }
     Saved:
       type: object
       required: [id, version, digest]
@@ -974,3 +1012,69 @@ paths:
           description: Settings
           content: { application/json: { schema: { type: object, required: [currency], properties: { currency: { type: [string, "null"] } } } } }
         "404": { $ref: "#/components/responses/Error" }
+  /api/v1/risk/export:
+    get:
+      operationId: exportRisk
+      tags: [settings]
+      summary: A fair.risk.v1 file of the selected risk data (AC-24)
+      description: >-
+        The scenarios, library entries and controls named (comma-separated ids), or everything the
+        requester sees in a BU's subtree (bu; archived=true includes archived items), each with all
+        its versions, plus every version they pin that is not otherwise in the file, copied from the
+        pin rows. Only what the requester sees. The body is the file in canonical form;
+        X-Fair-Digest is its SHA-256. Recorded as risk.exported with the counts and the digest.
+        Format: docs/formats/fair-risk-v1.md.
+      x-permission: scenario.view, library.view or control.view, for what is included
+      x-audit-events: [risk.exported]
+      parameters:
+        - { name: scenarios, in: query, schema: { type: string }, description: "Scenario ids, comma-separated" }
+        - { name: library, in: query, schema: { type: string }, description: "Library entry ids, comma-separated" }
+        - { name: controls, in: query, schema: { type: string }, description: "Control ids, comma-separated" }
+        - { name: bu, in: query, schema: { type: string, format: uuid }, description: Everything the requester sees in this BU's subtree }
+        - { name: archived, in: query, schema: { enum: ["true", "false"], default: "false" } }
+      responses:
+        "200":
+          description: The file
+          headers:
+            X-Fair-Digest: { schema: { type: string }, description: "sha256=<hex> of the body" }
+          content: { application/json: { schema: { $ref: "#/components/schemas/Transfer" } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/risk/imports:
+    post:
+      operationId: importRisk
+      tags: [settings]
+      summary: Import a fair.risk.v1 file into one BU, all or nothing (AC-25)
+      description: >-
+        Every item becomes a new entry in the BU with its versions replayed in order, pins re-pointed
+        to the new entries; a pinned version reuses the importer's own when it has exactly that one
+        (same id, version and digest), else becomes a new entry at version 1. Needs the edit
+        permission at the BU for every kind included. The file's currency must be the
+        installation's when it holds amounts. Every problem is listed before anything is written
+        (422); dry_run=true runs the import and rolls it back. Recorded as risk.imported and each
+        created item's event.
+      x-permission: scenario.edit, library.edit and control.edit at the BU, for the kinds included
+      x-audit-events: [risk.imported, scenario.created, library.created, control.created]
+      x-reason-exempt: An import records its source file's digest; every item keeps its own change notes
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { name: dry_run, in: query, schema: { enum: ["true", "false"], default: "false" } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bu_id, file]
+              additionalProperties: false
+              properties:
+                bu_id: { type: string, format: uuid }
+                file: { $ref: "#/components/schemas/Transfer" }
+      responses:
+        "200": { description: "A dry run: nothing written", content: { application/json: { schema: { $ref: "#/components/schemas/ImportResult" } } } }
+        "201": { description: Imported, content: { application/json: { schema: { $ref: "#/components/schemas/ImportResult" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { description: "Refused: every problem is listed", content: { application/json: { schema: { $ref: "#/components/schemas/ImportResult" } } } }

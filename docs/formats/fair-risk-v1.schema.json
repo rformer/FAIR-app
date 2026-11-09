@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:fair:risk:transfer:1",
+  "title": "fair.risk.v1",
+  "description": "F-003 T-11: a risk data export (docs/formats/fair-risk-v1.md). Documents are described by urn:fair:risk:scenario:1 and urn:fair:risk:library:1.",
+  "type": "object",
+  "required": ["format", "currency", "exported_at", "scenarios", "library", "controls", "pinned"],
+  "additionalProperties": false,
+  "properties": {
+    "format": { "const": "fair.risk.v1" },
+    "currency": { "type": ["string", "null"], "pattern": "^[A-Z]{3}$" },
+    "exported_at": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$" },
+    "scenarios": { "type": "array", "items": { "$ref": "#/$defs/item" } },
+    "library": { "type": "array", "items": { "$ref": "#/$defs/item" } },
+    "controls": { "type": "array", "items": { "$ref": "#/$defs/item" } },
+    "pinned": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "id", "version", "digest", "document"],
+        "additionalProperties": false,
+        "properties": {
+          "kind": { "enum": ["asset", "asset_group", "threat_community", "loss_profile", "control"] },
+          "id": { "$ref": "#/$defs/uuid" },
+          "version": { "type": "integer", "minimum": 1 },
+          "digest": { "$ref": "#/$defs/digest" },
+          "document": { "type": "object" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "item": {
+      "type": "object",
+      "required": ["id", "kind", "versions"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "kind": { "enum": ["scenario", "asset", "asset_group", "threat_community", "loss_profile", "control"] },
+        "versions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["version", "digest", "change_note", "document"],
+            "additionalProperties": false,
+            "properties": {
+              "version": { "type": "integer", "minimum": 1 },
+              "digest": { "$ref": "#/$defs/digest" },
+              "change_note": { "type": "string", "minLength": 1, "maxLength": 1000 },
+              "document": { "type": "object" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

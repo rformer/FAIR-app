@@ -206,3 +206,44 @@ func SetPinVersion(doc []byte, pointer string, version int64) ([]byte, error) {
 	m["version"] = version
 	return canon.Marshal(v)
 }
+
+// RemapPins returns a valid document with every pin moved to the id and
+// version f gives for it (F-003 T-11: an import re-points pins to the
+// entries it creates). The result is canonical.
+func RemapPins(kind string, doc []byte, f func(PinRef) (string, int64, error)) (*Document, error) {
+	d, problems := Validate(kind, doc)
+	if problems != nil {
+		return nil, problems
+	}
+	v, err := canon.Parse(d.Canonical)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range d.Pins {
+		id, version, err := f(p)
+		if err != nil {
+			return nil, err
+		}
+		cur := v
+		for _, part := range strings.Split(strings.TrimPrefix(p.Pointer, "/"), "/") {
+			switch c := cur.(type) {
+			case map[string]any:
+				cur = c[part]
+			case []any:
+				i, _ := strconv.Atoi(part)
+				cur = c[i]
+			}
+		}
+		m := cur.(map[string]any)
+		m["id"], m["version"] = id, version
+	}
+	out, err := canon.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	nd, problems := Validate(kind, out)
+	if problems != nil {
+		return nil, problems
+	}
+	return nd, nil
+}

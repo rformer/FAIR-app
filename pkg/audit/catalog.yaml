@@ -690,6 +690,19 @@ events:
     requires: [target]
     attributes: [currency, previous]
     description: "The installation currency for every risk amount was set at install (risk currency set; F-003 T-04, AC-07); it cannot change once amounts are stored"
+  - type: risk.exported
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    attributes: [controls, digest, library, pinned, scenarios]
+    description: "Risk data was exported as a fair.risk.v1 file of what the requester sees; counts and the file's digest (F-003 T-11, AC-24); filed under the subtree exported, if one was"
+  - type: risk.imported
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [controls, library, pinned, scenarios, source_digest]
+    description: "A fair.risk.v1 file was imported into a BU, all or nothing; each created item is recorded too (F-003 T-11, AC-25)"
   - type: role.cloned
     category: role_permission
     severities: [info]

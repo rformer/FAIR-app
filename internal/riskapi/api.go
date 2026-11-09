@@ -30,6 +30,10 @@
 // somewhere) and POST /api/v1/library/starter/{key}/copy (library.edit at
 // the BU): a copy is an ordinary entry recording its origin (AC-11).
 //
+// T-11 adds GET /api/v1/risk/export (a fair.risk.v1 file of what the
+// requester sees, recorded) and POST /api/v1/risk/imports[?dry_run=true]
+// (all or nothing into one BU; AC-24, AC-25).
+//
 // T-06 serves the library (assets, asset groups, threat communities, loss
 // profiles; library.view and library.edit) and controls (control.view and
 // control.edit) in the same shape under /api/v1/library and
@@ -117,6 +121,8 @@ var routes = []route{
 	{"POST", "/api/v1/controls/{id}/archive", (*API).archiveControl},
 	{"POST", "/api/v1/controls/{id}/restore", (*API).restoreControl},
 	{"GET", "/api/v1/risk/settings", (*API).getSettings},
+	{"GET", "/api/v1/risk/export", (*API).exportRisk},
+	{"POST", "/api/v1/risk/imports", (*API).importRisk},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).

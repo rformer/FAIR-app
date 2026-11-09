@@ -2,7 +2,10 @@ package model_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
+
+	"github.com/rformer/fair-app/internal/risk/canon"
 
 	"github.com/rformer/fair-app/internal/risk/model"
 	"github.com/rformer/fair-app/internal/risk/model/modeltest"
@@ -29,7 +32,7 @@ func TestDiffDocuments(t *testing.T) {
 	modeltest.Set(b, "/primary_loss/reputation", b["primary_loss"].(map[string]any)["response"]) // added estimate
 	modeltest.Set(b, "/lef/tef/contact_frequency/max", "20")                                     // changed estimate: whole
 	modeltest.Set(b, "/threat_community/version", 3)                                             // a pin
-	b["control_sets"] = b["control_sets"].([]any)[:1] // a removed set (its pins too)
+	b["control_sets"] = b["control_sets"].([]any)[:1]                                            // a removed set (its pins too)
 	d, err := model.DiffDocuments("scenario", canonical(t, "scenario", a), canonical(t, "scenario", b))
 	if err != nil {
 		t.Fatal(err)
@@ -100,3 +103,34 @@ func TestSetPinVersion(t *testing.T) {
 		}
 	}
 }
+
+func TestRemapPins(t *testing.T) {
+	doc := canonical(t, "scenario", modeltest.Scenario())
+	moved := map[string]bool{}
+	d, err := model.RemapPins("scenario", doc, func(p model.PinRef) (string, int64, error) {
+		moved[p.Pointer] = true
+		if p.Kind == "control" {
+			return "99999999-9999-4999-8999-" + p.ID[24:], p.Version + 10, nil
+		}
+		return p.ID, p.Version, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(moved) != 5 {
+		t.Fatalf("pins visited: %v", moved)
+	}
+	for _, p := range d.Pins {
+		if p.Kind == "control" && (!strings.HasPrefix(p.ID, "99999999-9999-4999-8999-") || p.Version < 11) {
+			t.Errorf("control pin not moved: %+v", p)
+		}
+		if p.Kind == "threat_community" && p.Version != 2 {
+			t.Errorf("threat community pin changed: %+v", p)
+		}
+	}
+	if d.Digest == canonDigest(doc) {
+		t.Error("digest unchanged")
+	}
+}
+
+func canonDigest(b []byte) string { return canon.Digest(b) }
