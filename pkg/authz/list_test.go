@@ -39,6 +39,22 @@ func TestNewestQueryFilter(t *testing.T) {
 	}
 }
 
+// A shared-down table's include form also walks the inherited BUs.
+func TestNewestQuerySharedDown(t *testing.T) {
+	q := NewestQuery{Table: "risk.library_entry", ResourceType: "library", Columns: []string{"id", "seq"}, OrderBy: "seq", Limit: 20, SharedDown: true}
+	sql, err := q.SQL()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sql, "unnest(array_cat((SELECT authz.visible_bus('library', 'read'))::uuid[], coalesce((SELECT authz.inherited_bus('library'))::uuid[], '{}'))) AS v(bu)") {
+		t.Fatalf("no inherited BUs: %s", sql)
+	}
+	q.SharedDown = false
+	if sql, _ := q.SQL(); strings.Contains(sql, "inherited_bus") {
+		t.Fatalf("inherited BUs for a plain table: %s", sql)
+	}
+}
+
 func TestNewestQueryRefusesUnsafeInput(t *testing.T) {
 	ok := NewestQuery{Table: "iam.sample_doc", ResourceType: "register", Columns: []string{"id", "title"}, OrderBy: "id", Limit: 50}
 	for name, mut := range map[string]func(*NewestQuery){

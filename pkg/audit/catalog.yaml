@@ -366,6 +366,20 @@ events:
     requires: [target]
     attributes: [catalog_version]
     description: "A release retired a permission"
+  - type: control.created
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [change_note, digest, version]
+    description: "A control was created with its first version (F-003 T-06, AC-12, AC-14, AC-21); digest identifies the document"
+  - type: control.version_saved
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [change_note, digest, version]
+    description: "A new version of a control was saved (F-003 T-06, AC-15, AC-21)"
   - type: db.migrated
     category: system
     severities: [info, high]
@@ -437,6 +451,20 @@ events:
     severities: [high]
     attributes: [email_domains, enabled, kind, metadata_source, name]
     description: "An identity provider's settings changed"
+  - type: library.created
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [change_note, digest, kind, version]
+    description: "A library entry (asset, asset group, threat community or loss profile) was created with its first version (F-003 T-06, AC-08, AC-21)"
+  - type: library.version_saved
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [change_note, digest, kind, version]
+    description: "A new version of a library entry was saved (F-003 T-06, AC-15, AC-21)"
   - type: key.db_context_registered
     category: configuration
     severities: [high]

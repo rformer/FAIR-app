@@ -24,6 +24,12 @@ info:
     strings) and identified by their SHA-256 `digest`. A document holding amounts cannot be
     saved until the installation currency is set (409 `currency_not_set`).
 
+    Library entries (assets, asset groups, threat communities, loss profiles: `library.view`,
+    `library.edit`; AC-08) and controls (`control.view`, `control.edit`; AC-12, AC-14) have the
+    same shape. They are shared down the BU tree (ADR-007 amendment 2): a caller also reads the
+    entries of the BUs above their own, marked `inherited`, stopping at restricted BUs, and
+    cannot change them (403). An asset group's members must be assets the writer can see.
+
     Every change is recorded in the audit trail in its own transaction, with the BU and the
     change note (AC-21); a change that cannot be recorded is not made (503).
 servers:
@@ -33,6 +39,8 @@ security:
     dbContext: []
 tags:
   - { name: scenarios, description: "Loss scenarios (F-003 R-01, R-02, R-05)" }
+  - { name: library, description: "Assets, asset groups, threat communities and loss profiles (F-003 R-03)" }
+  - { name: controls, description: "Controls and their effects (F-003 R-04)" }
   - { name: settings, description: Installation settings of the risk service }
 components:
   securitySchemes:
@@ -44,7 +52,7 @@ components:
       in: header
       required: true
       schema: { type: string, minLength: 8, maxLength: 128 }
-    ScenarioID:
+    ID:
       name: id
       in: path
       required: true
@@ -78,21 +86,23 @@ components:
               message: { type: string }
     Document:
       type: object
-      description: A scenario document (JSON Schema urn:fair:risk:scenario:1, internal/risk/model/schema/scenario.json)
-    Scenario:
+      description: "A document: a scenario (JSON Schema urn:fair:risk:scenario:1), a library entry or a control (urn:fair:risk:library:1#/$defs/<kind>); internal/risk/model/schema"
+    Head:
       type: object
-      required: [id, bu_id, current_version, created_at, created_by]
+      required: [id, bu_id, kind, current_version, created_at, created_by, inherited]
       properties:
         id: { type: string, format: uuid }
         bu_id: { type: string, format: uuid }
+        kind: { enum: [scenario, asset, asset_group, threat_community, loss_profile, control] }
         name: { type: [string, "null"] }
-        owner: { type: [string, "null"], format: uuid }
-        asset_id: { type: [string, "null"], format: uuid }
-        threat_community_id: { type: [string, "null"], format: uuid }
+        owner: { type: [string, "null"], format: uuid, description: Scenarios only }
+        asset_id: { type: [string, "null"], format: uuid, description: Scenarios only }
+        threat_community_id: { type: [string, "null"], format: uuid, description: Scenarios only }
         current_version: { type: integer }
         archived_at: { type: [string, "null"], format: date-time }
         created_at: { type: string, format: date-time }
         created_by: { type: string, format: uuid }
+        inherited: { type: boolean, description: "Owned by a BU above the caller's, read by inheritance; not editable by the caller" }
     Version:
       type: object
       required: [version, digest, author, created_at, change_note]
@@ -134,7 +144,7 @@ paths:
     get:
       operationId: listScenarios
       tags: [scenarios]
-      summary: Scenarios the caller can see, newest first
+      summary: The scenarios the caller can see, newest first
       x-permission: scenario.view
       parameters:
         - { name: bu, in: query, schema: { type: string, format: uuid } }
@@ -146,21 +156,21 @@ paths:
         - { name: cursor, in: query, schema: { type: string }, description: The next_cursor of the previous page }
       responses:
         "200":
-          description: A page of scenarios
+          description: A page
           content:
             application/json:
               schema:
                 type: object
                 required: [scenarios]
                 properties:
-                  scenarios: { type: array, items: { $ref: "#/components/schemas/Scenario" } }
+                  scenarios: { type: array, items: { $ref: "#/components/schemas/Head" } }
                   next_cursor: { type: string }
         "400": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
     post:
       operationId: createScenario
       tags: [scenarios]
-      summary: Create a scenario with its first version (AC-01 to AC-06)
+      summary: Create a scenario with its first version
       x-permission: scenario.edit
       x-audit-events: [scenario.created]
       x-reason-field: change_note
@@ -188,9 +198,9 @@ paths:
     get:
       operationId: getScenario
       tags: [scenarios]
-      summary: A scenario's current version, its pins and its taxonomy view (AC-28)
+      summary: A scenario's current version
       x-permission: scenario.view
-      parameters: [{ $ref: "#/components/parameters/ScenarioID" }]
+      parameters: [{ $ref: "#/components/parameters/ID" }]
       responses:
         "200":
           description: The scenario
@@ -198,9 +208,9 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [scenario, version, pins, taxonomy, currency]
+                required: [scenario, version, currency, pins, taxonomy]
                 properties:
-                  scenario: { $ref: "#/components/schemas/Scenario" }
+                  scenario: { $ref: "#/components/schemas/Head" }
                   version: { $ref: "#/components/schemas/Version" }
                   pins: { type: array, items: { $ref: "#/components/schemas/Pin" } }
                   taxonomy: { type: array, items: { $ref: "#/components/schemas/Node" } }
@@ -215,7 +225,7 @@ paths:
       x-reason-field: change_note
       parameters:
         - { $ref: "#/components/parameters/IdempotencyKey" }
-        - { $ref: "#/components/parameters/ScenarioID" }
+        - { $ref: "#/components/parameters/ID" }
       requestBody:
         required: true
         content:
@@ -241,7 +251,7 @@ paths:
       tags: [scenarios]
       summary: A scenario's versions, newest first (without documents)
       x-permission: scenario.view
-      parameters: [{ $ref: "#/components/parameters/ScenarioID" }]
+      parameters: [{ $ref: "#/components/parameters/ID" }]
       responses:
         "200":
           description: Versions
@@ -251,10 +261,10 @@ paths:
     get:
       operationId: getScenarioVersion
       tags: [scenarios]
-      summary: One version of a scenario, with its document and pins
+      summary: One version of a scenario, with its document
       x-permission: scenario.view
       parameters:
-        - { $ref: "#/components/parameters/ScenarioID" }
+        - { $ref: "#/components/parameters/ID" }
         - { name: version, in: path, required: true, schema: { type: integer, minimum: 1 } }
       responses:
         "200":
@@ -263,11 +273,281 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [scenario_id, version, pins]
+                required: [id, version, pins]
                 properties:
-                  scenario_id: { type: string, format: uuid }
+                  id: { type: string, format: uuid }
                   version: { $ref: "#/components/schemas/Version" }
                   pins: { type: array, items: { $ref: "#/components/schemas/Pin" } }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/library:
+    get:
+      operationId: listLibrary
+      tags: [library]
+      summary: The library entrys the caller can see, newest first
+      x-permission: library.view
+      parameters:
+        - { name: bu, in: query, schema: { type: string, format: uuid } }
+        - { name: kind, in: query, schema: { enum: [asset, asset_group, threat_community, loss_profile] } }
+        - { name: archived, in: query, schema: { enum: ["false", "true", all], default: "false" } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { name: cursor, in: query, schema: { type: string }, description: The next_cursor of the previous page }
+      responses:
+        "200":
+          description: A page
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entries]
+                properties:
+                  entries: { type: array, items: { $ref: "#/components/schemas/Head" } }
+                  next_cursor: { type: string }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createLibraryEntry
+      tags: [library]
+      summary: Create a library entry with its first version
+      x-permission: library.edit
+      x-audit-events: [library.created]
+      x-reason-field: change_note
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bu_id, kind, document, change_note]
+              additionalProperties: false
+              properties:
+                bu_id: { type: string, format: uuid }
+                kind: { enum: [asset, asset_group, threat_community, loss_profile] }
+                document: { $ref: "#/components/schemas/Document" }
+                change_note: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Saved" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /api/v1/library/{id}:
+    get:
+      operationId: getLibraryEntry
+      tags: [library]
+      summary: A library entry's current version
+      x-permission: library.view
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: The library entry
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entry, version, currency, pins]
+                properties:
+                  entry: { $ref: "#/components/schemas/Head" }
+                  version: { $ref: "#/components/schemas/Version" }
+                  pins: { type: array, items: { $ref: "#/components/schemas/Pin" } }
+                  currency: { type: [string, "null"], description: The installation currency of every amount (AC-07) }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      operationId: saveLibraryEntry
+      tags: [library]
+      summary: Save a new version of a library entry (AC-15)
+      x-permission: library.edit
+      x-audit-events: [library.version_saved]
+      x-reason-field: change_note
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/ID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [document, expected_version, change_note]
+              additionalProperties: false
+              properties:
+                document: { $ref: "#/components/schemas/Document" }
+                expected_version: { type: integer, minimum: 1, description: The version the change was made from }
+                change_note: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "200": { description: Saved, content: { application/json: { schema: { $ref: "#/components/schemas/Saved" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /api/v1/library/{id}/versions:
+    get:
+      operationId: listLibraryVersions
+      tags: [library]
+      summary: A library entry's versions, newest first (without documents)
+      x-permission: library.view
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: Versions
+          content: { application/json: { schema: { type: object, required: [versions], properties: { versions: { type: array, items: { $ref: "#/components/schemas/Version" } } } } } }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/library/{id}/versions/{version}:
+    get:
+      operationId: getLibraryVersion
+      tags: [library]
+      summary: One version of a library entry, with its document
+      x-permission: library.view
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { name: version, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200":
+          description: The version
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, version, pins]
+                properties:
+                  id: { type: string, format: uuid }
+                  version: { $ref: "#/components/schemas/Version" }
+                  pins: { type: array, items: { $ref: "#/components/schemas/Pin" } }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/controls:
+    get:
+      operationId: listControls
+      tags: [controls]
+      summary: The controls the caller can see, newest first
+      x-permission: control.view
+      parameters:
+        - { name: bu, in: query, schema: { type: string, format: uuid } }
+        - { name: archived, in: query, schema: { enum: ["false", "true", all], default: "false" } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { name: cursor, in: query, schema: { type: string }, description: The next_cursor of the previous page }
+      responses:
+        "200":
+          description: A page
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [controls]
+                properties:
+                  controls: { type: array, items: { $ref: "#/components/schemas/Head" } }
+                  next_cursor: { type: string }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createControl
+      tags: [controls]
+      summary: Create a control with its first version
+      x-permission: control.edit
+      x-audit-events: [control.created]
+      x-reason-field: change_note
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bu_id, document, change_note]
+              additionalProperties: false
+              properties:
+                bu_id: { type: string, format: uuid }
+                document: { $ref: "#/components/schemas/Document" }
+                change_note: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Saved" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /api/v1/controls/{id}:
+    get:
+      operationId: getControl
+      tags: [controls]
+      summary: A control's current version
+      x-permission: control.view
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: The control
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [control, version, currency]
+                properties:
+                  control: { $ref: "#/components/schemas/Head" }
+                  version: { $ref: "#/components/schemas/Version" }
+                  currency: { type: [string, "null"], description: The installation currency of every amount (AC-07) }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      operationId: saveControl
+      tags: [controls]
+      summary: Save a new version of a control (AC-15)
+      x-permission: control.edit
+      x-audit-events: [control.version_saved]
+      x-reason-field: change_note
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/ID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [document, expected_version, change_note]
+              additionalProperties: false
+              properties:
+                document: { $ref: "#/components/schemas/Document" }
+                expected_version: { type: integer, minimum: 1, description: The version the change was made from }
+                change_note: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "200": { description: Saved, content: { application/json: { schema: { $ref: "#/components/schemas/Saved" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /api/v1/controls/{id}/versions:
+    get:
+      operationId: listControlVersions
+      tags: [controls]
+      summary: A control's versions, newest first (without documents)
+      x-permission: control.view
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: Versions
+          content: { application/json: { schema: { type: object, required: [versions], properties: { versions: { type: array, items: { $ref: "#/components/schemas/Version" } } } } } }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/controls/{id}/versions/{version}:
+    get:
+      operationId: getControlVersion
+      tags: [controls]
+      summary: One version of a control, with its document
+      x-permission: control.view
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { name: version, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200":
+          description: The version
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, version]
+                properties:
+                  id: { type: string, format: uuid }
+                  version: { $ref: "#/components/schemas/Version" }
         "404": { $ref: "#/components/responses/Error" }
   /api/v1/risk/settings:
     get:

@@ -13,6 +13,13 @@
 //	GET  /api/v1/scenarios/{id}/versions[/{v}]      history
 //	GET  /api/v1/risk/settings                      the installation currency
 //
+// T-06 serves the library (assets, asset groups, threat communities, loss
+// profiles; library.view and library.edit) and controls (control.view and
+// control.edit) in the same shape under /api/v1/library and
+// /api/v1/controls. Both are shared down the BU tree: a caller also reads,
+// marked inherited, the entries of the BUs above theirs (ADR-007 amendment
+// 2), and may not change them (403).
+//
 // Without the view permission anywhere a route does not exist for the
 // caller (404, F-001 AC-25); a scenario the caller cannot see is 404 like a
 // missing one. A change needs the edit permission at the scenario's BU
@@ -66,6 +73,18 @@ var routes = []route{
 	{"PUT", "/api/v1/scenarios/{id}", (*API).saveScenario},
 	{"GET", "/api/v1/scenarios/{id}/versions", (*API).listScenarioVersions},
 	{"GET", "/api/v1/scenarios/{id}/versions/{version}", (*API).getScenarioVersion},
+	{"GET", "/api/v1/library", (*API).listLibrary},
+	{"POST", "/api/v1/library", (*API).createLibraryEntry},
+	{"GET", "/api/v1/library/{id}", (*API).getLibraryEntry},
+	{"PUT", "/api/v1/library/{id}", (*API).saveLibraryEntry},
+	{"GET", "/api/v1/library/{id}/versions", (*API).listLibraryVersions},
+	{"GET", "/api/v1/library/{id}/versions/{version}", (*API).getLibraryVersion},
+	{"GET", "/api/v1/controls", (*API).listControls},
+	{"POST", "/api/v1/controls", (*API).createControl},
+	{"GET", "/api/v1/controls/{id}", (*API).getControl},
+	{"PUT", "/api/v1/controls/{id}", (*API).saveControl},
+	{"GET", "/api/v1/controls/{id}/versions", (*API).listControlVersions},
+	{"GET", "/api/v1/controls/{id}/versions/{version}", (*API).getControlVersion},
 	{"GET", "/api/v1/risk/settings", (*API).getSettings},
 }
 
@@ -80,7 +99,7 @@ func Routes() []string {
 }
 
 // Prefixes are the path prefixes the API owns (for the service's mux).
-var Prefixes = []string{"/api/v1/scenarios", "/api/v1/risk"}
+var Prefixes = []string{"/api/v1/scenarios", "/api/v1/library", "/api/v1/controls", "/api/v1/risk"}
 
 // Handler returns the API with authentication and idempotency in front.
 func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {
@@ -115,8 +134,8 @@ func (a *API) viewAnywhere(w http.ResponseWriter, r *http.Request, p authz.Princ
 }
 
 // editAt answers and returns false unless the caller holds edit at bu: 403
-// for someone who may view there, 404 for anyone else.
-func (a *API) editAt(w http.ResponseWriter, r *http.Request, p authz.Principal, edit, view authz.Permission, bu string) bool {
+// for someone who sees what they would change (seen), 404 for anyone else.
+func (a *API) editAt(w http.ResponseWriter, r *http.Request, p authz.Principal, edit authz.Permission, bu string, seen bool) bool {
 	err := a.Authz.Check(r.Context(), p, edit, bu)
 	if err == nil {
 		return true
@@ -126,7 +145,7 @@ func (a *API) editAt(w http.ResponseWriter, r *http.Request, p authz.Principal, 
 		server.WriteAuthzError(w, err)
 		return false
 	}
-	if a.Authz.Check(r.Context(), p, view, bu) == nil {
+	if seen {
 		problem(w, http.StatusForbidden, "forbidden", "the change needs "+string(edit)+" at this business unit", nil)
 		return false
 	}

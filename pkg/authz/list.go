@@ -32,6 +32,9 @@ type NewestQuery struct {
 	// with parameters from $2. It must be a constant of the caller's code,
 	// never built from input: values go in parameters.
 	Filter string
+	// SharedDown lists a table registered shared_down (ADR-007 amendment
+	// 2): the include form also walks the BUs the caller inherits from.
+	SharedDown bool
 }
 
 // MaxListLimit bounds a page.
@@ -77,6 +80,10 @@ func (q NewestQuery) SQL() (string, error) {
 	}
 	excludes := fmt.Sprintf("authz.scope_excludes('%s', 'read')", q.ResourceType)
 	// The cursor comparison comes first so that $1 takes the column's type.
+	bus := fmt.Sprintf("(SELECT authz.visible_bus('%s', 'read'))::uuid[]", q.ResourceType)
+	if q.SharedDown {
+		bus = fmt.Sprintf("array_cat((SELECT authz.visible_bus('%[1]s', 'read'))::uuid[], coalesce((SELECT authz.inherited_bus('%[1]s'))::uuid[], '{}'))", q.ResourceType)
+	}
 	cursor := fmt.Sprintf("(t.%s < $1 OR $1 IS NULL)", q.OrderBy)
 	if q.Filter != "" {
 		if strings.ContainsAny(q.Filter, ";") || strings.Contains(q.Filter, "--") || strings.Contains(q.Filter, "/*") {
@@ -88,11 +95,11 @@ func (q NewestQuery) SQL() (string, error) {
 	// the branch not taken is never executed.
 	return fmt.Sprintf(`WITH f AS MATERIALIZED (SELECT %[9]s AS excludes)
 SELECT %[1]s FROM (
-  SELECT %[2]s FROM unnest((SELECT authz.visible_bus('%[3]s', 'read'))::uuid[]) AS v(bu),
+  SELECT %[2]s FROM unnest(%[10]s) AS v(bu),
     LATERAL (SELECT %[4]s FROM %[5]s t WHERE t.bu_id = v.bu AND %[6]s ORDER BY t.%[7]s DESC LIMIT %[8]d) d
   WHERE NOT (SELECT excludes FROM f)
   UNION ALL
   (SELECT %[4]s FROM %[5]s t WHERE (SELECT excludes FROM f) AND %[6]s ORDER BY t.%[7]s DESC LIMIT %[8]d)
 ) q ORDER BY %[7]s DESC LIMIT %[8]d`,
-		cols(""), cols("d."), q.ResourceType, cols("t."), q.Table, cursor, q.OrderBy, q.Limit, excludes), nil
+		cols(""), cols("d."), q.ResourceType, cols("t."), q.Table, cursor, q.OrderBy, q.Limit, excludes, bus), nil
 }
