@@ -239,7 +239,7 @@ Performance (requirements NFR): `TestBenchmarkGateRiskScenarios` (10,000 scenari
 - **Currency as an F-015 setting.** Rejected: it has no security ordering, and changing it after data exists must be refused rather than bounded.
 
 ## 14. Open items
-- The starter library's text is drafted in T-10 and reviewed by Robert before release.
+- None. (The starter library's text, drafted in T-10, was reviewed by Robert Former on 2026-11-09.)
 
 ## Change Log
 - 2026-11-06: Initial draft (decisions: new `risk` service; inherited read through ADR-007 amendment 2; canonical JSON versions).
@@ -252,3 +252,5 @@ Performance (requirements NFR): `TestBenchmarkGateRiskScenarios` (10,000 scenari
 - 2026-11-09: T-07: pins report the pinned entry's `current_version` as the caller sees it (null when unseen) and `newer`; `adopt` records the adopted pointers on `scenario.version_saved` (attribute `adopted`); diffs for scenarios, library entries and controls (`model.DiffDocuments`).
 - 2026-11-09: T-08: a scenario version that pins an asset group also holds the group version's members in its pin rows (`member_of`; migration 0088), so the bundle and scenario readers are self-contained; bundle format `fair.scenario-input.v1` (`risk.BuildBundle`: scenario version, pins with documents, currency; SHA-256 of the canonical form; documents re-checked against their digests).
 - 2026-11-09: T-09 (migration 0089): moves and archiving go through `risk.move_scenario` and `risk.set_archived` (definer functions under the caller's RLS; only `risk_definer` may change `bu_id` and `archived_at` of versions and pins, replacing §6.4's `risk.moving()` flag); versions and pins carry `archived_at` in step with their head and are registered with it as their inactive column (F-001 T-31), so archived data does not hold a BU open; app_rw no longer updates `archived_at`; pins record the pinned entry's BU (`to_bu_id`) and `risk.pin_reachable` gives AC-20's flag; leaving a restricted subtree is PF020.
+- 2026-11-09: T-10 (migration 0090): the starter library ships as `internal/risk/starter/starter.json` (release 2026.11: six threat communities, guidance for each of the six forms of loss as loss profiles); `iam migrate` syncs it (`risk.sync_starter`, `migrate.Release.Starter`); entries carry `illustrative` and each estimate's rationale begins "Illustrative only" (checked by `starter.Parse`); `risk.copy_starter` copies an entry into a BU (origin `key@release`), event `library.starter_copied`.
+- 2026-11-09: the starter library's text (release 2026.11) reviewed and approved by Robert Former; §14's open item closed.

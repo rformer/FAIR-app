@@ -1,0 +1,198 @@
+{
+  "release": "2026.11",
+  "about": "The FAIR platform's starter library (F-003 AC-11): generic threat communities and guidance for each Open FAIR form of loss, written from Open FAIR concepts. Every number in it is illustrative, a starting point to replace with your own calibrated estimates; none is industry data.",
+  "entries": [
+    {
+      "key": "threat_community.cyber_criminals",
+      "illustrative": true,
+      "guidance": "Use for financially motivated external actors: ransomware operators, fraud and extortion groups, and the access brokers who supply them. They choose targets by opportunity and expected payoff, and reuse tools and access across many victims. Calibrate threat capability with your incident history and threat intelligence; distinguish commodity crime from capable, organised groups if both matter to you.",
+      "document": {
+        "kind": "threat_community", "schema_version": 1,
+        "name": "Cyber criminals",
+        "description": "Financially motivated external actors, from commodity attackers to organised groups, who attack to steal, extort or defraud.",
+        "threat_capability": {
+          "min": "20", "ml": "55", "max": "85", "unit": "percentile", "confidence": "0.9",
+          "rationale": "Illustrative only: a wide range for a broad community, to be replaced by your own calibrated estimate. Not industry data.",
+          "sources": [{ "type": "document", "ref": "FAIR platform starter library 2026.11 (illustrative)" }]
+        }
+      }
+    },
+    {
+      "key": "threat_community.nation_state",
+      "illustrative": true,
+      "guidance": "Use for actors working for or on behalf of a state: espionage, pre-positioning for disruption, or theft of intellectual property. They are persistent, patient and well resourced, and may target you for your data, your customers or your place in a supply chain. Consider whether you are a likely target at all before estimating frequency; capability is usually at the high end of the continuum.",
+      "document": {
+        "kind": "threat_community", "schema_version": 1,
+        "name": "Nation-state actors",
+        "description": "State or state-sponsored actors pursuing intelligence, disruption or economic advantage.",
+        "threat_capability": {
+          "min": "70", "ml": "85", "max": "99", "unit": "percentile", "confidence": "0.9",
+          "rationale": "Illustrative only: placed at the high end of the continuum, to be replaced by your own calibrated estimate. Not industry data.",
+          "sources": [{ "type": "document", "ref": "FAIR platform starter library 2026.11 (illustrative)" }]
+        }
+      }
+    },
+    {
+      "key": "threat_community.malicious_insiders",
+      "illustrative": true,
+      "guidance": "Use for employees, contractors or partners with legitimate access who act deliberately against you: theft, sabotage, or helping an outside party. Their access often bypasses perimeter controls, so resistance strength depends on least privilege, separation of duties and monitoring. Estimate per role group where privileges differ widely.",
+      "document": {
+        "kind": "threat_community", "schema_version": 1,
+        "name": "Malicious insiders",
+        "description": "People with authorised access who deliberately misuse it.",
+        "threat_capability": {
+          "min": "10", "ml": "40", "max": "75", "unit": "percentile", "confidence": "0.9",
+          "rationale": "Illustrative only: insiders' skill varies widely while their access is real, to be replaced by your own calibrated estimate. Not industry data.",
+          "sources": [{ "type": "document", "ref": "FAIR platform starter library 2026.11 (illustrative)" }]
+        }
+      }
+    },
+    {
+      "key": "threat_community.non_malicious_insiders",
+      "illustrative": true,
+      "guidance": "Use for people with authorised access who cause loss by error: misdirected data, misconfiguration, lost devices, or falling for a lure. In Open FAIR terms the threat event is the error itself; contact frequency is how often the relevant task is done and probability of action how often it goes wrong. Threat capability is usually low; loss can still be large.",
+      "document": {
+        "kind": "threat_community", "schema_version": 1,
+        "name": "Non-malicious insiders",
+        "description": "People with authorised access who cause loss by mistake.",
+        "threat_capability": {
+          "min": "1", "ml": "15", "max": "40", "unit": "percentile", "confidence": "0.9",
+          "rationale": "Illustrative only: errors need little skill, to be replaced by your own calibrated estimate. Not industry data.",
+          "sources": [{ "type": "document", "ref": "FAIR platform starter library 2026.11 (illustrative)" }]
+        }
+      }
+    },
+    {
+      "key": "threat_community.hacktivists",
+      "illustrative": true,
+      "guidance": "Use for actors motivated by ideology or protest: defacement, denial of service, leaking data to embarrass. Whether you are a target often depends on events and your public profile, so frequency can change quickly; revisit it when your exposure changes.",
+      "document": {
+        "kind": "threat_community", "schema_version": 1,
+        "name": "Hacktivists",
+        "description": "Ideologically motivated actors seeking publicity or disruption.",
+        "threat_capability": {
+          "min": "10", "ml": "40", "max": "75", "unit": "percentile", "confidence": "0.9",
+          "rationale": "Illustrative only: capability ranges from opportunists to skilled groups, to be replaced by your own calibrated estimate. Not industry data.",
+          "sources": [{ "type": "document", "ref": "FAIR platform starter library 2026.11 (illustrative)" }]
+        }
+      }
+    },
+    {
+      "key": "threat_community.third_parties",
+      "illustrative": true,
+      "guidance": "Use for suppliers, service providers and partners whose access or systems are the route to the loss: a compromised vendor, a provider's outage, or a partner's mishandling of your data. Model the third party as the threat community when the loss event starts in their environment; model their attacker instead when you want to analyse that attacker directly.",
+      "document": {
+        "kind": "threat_community", "schema_version": 1,
+        "name": "Third parties",
+        "description": "Suppliers, providers and partners whose access or failures lead to loss.",
+        "threat_capability": {
+          "min": "10", "ml": "35", "max": "70", "unit": "percentile", "confidence": "0.9",
+          "rationale": "Illustrative only: depends on what the third party can reach and how it fails, to be replaced by your own calibrated estimate. Not industry data.",
+          "sources": [{ "type": "document", "ref": "FAIR platform starter library 2026.11 (illustrative)" }]
+        }
+      }
+    },
+    {
+      "key": "loss_guidance.productivity",
+      "illustrative": true,
+      "guidance": "Productivity loss: the organisation cannot deliver its products or services, or its people cannot work, because of the event. Count lost revenue that does not come back later and the cost of people who are paid but idle. Do not count revenue merely delayed, and do not count response effort here (that is response).",
+      "document": {
+        "kind": "loss_profile", "schema_version": 1,
+        "name": "Guidance: productivity loss",
+        "description": "What counts as productivity loss, with an illustrative range to replace.",
+        "magnitudes": {
+          "productivity": {
+            "min": "10000", "ml": "100000", "max": "2000000", "unit": "currency", "confidence": "0.9",
+            "rationale": "Illustrative only: an example range in the installation currency, to show the shape of an estimate. Replace with your own. Not industry data.",
+            "sources": [{ "type": "document", "ref": "FAIR platform starter library 2026.11 (illustrative)" }]
+          }
+        }
+      }
+    },
+    {
+      "key": "loss_guidance.response",
+      "illustrative": true,
+      "guidance": "Response costs: managing the event itself. Incident response staff and external responders, forensics, legal advice on the incident, notification and call centres, credit monitoring offered to affected people, and executive time spent managing the event.",
+      "document": {
+        "kind": "loss_profile", "schema_version": 1,
+        "name": "Guidance: response costs",
+        "description": "What counts as response cost, with an illustrative range to replace.",
+        "magnitudes": {
+          "response": {
+            "min": "5000", "ml": "75000", "max": "1000000", "unit": "currency", "confidence": "0.9",
+            "rationale": "Illustrative only: an example range in the installation currency, to show the shape of an estimate. Replace with your own. Not industry data.",
+            "sources": [{ "type": "document", "ref": "FAIR platform starter library 2026.11 (illustrative)" }]
+          }
+        }
+      }
+    },
+    {
+      "key": "loss_guidance.replacement",
+      "illustrative": true,
+      "guidance": "Replacement costs: replacing or restoring an asset that was lost, destroyed or must be rebuilt, such as hardware, systems rebuilt after compromise, or recreated data. Count the cost to restore capability, not the asset's book value.",
+      "document": {
+        "kind": "loss_profile", "schema_version": 1,
+        "name": "Guidance: replacement costs",
+        "description": "What counts as replacement cost, with an illustrative range to replace.",
+        "magnitudes": {
+          "replacement": {
+            "min": "1000", "ml": "50000", "max": "500000", "unit": "currency", "confidence": "0.9",
+            "rationale": "Illustrative only: an example range in the installation currency, to show the shape of an estimate. Replace with your own. Not industry data.",
+            "sources": [{ "type": "document", "ref": "FAIR platform starter library 2026.11 (illustrative)" }]
+          }
+        }
+      }
+    },
+    {
+      "key": "loss_guidance.fines_judgments",
+      "illustrative": true,
+      "guidance": "Fines and judgments: regulatory fines, legal judgments, settlements and the legal fees of defending them. These usually arise from secondary stakeholders (regulators, customers, partners) reacting to the event, so they are often estimated as secondary loss with a secondary loss event frequency.",
+      "document": {
+        "kind": "loss_profile", "schema_version": 1,
+        "name": "Guidance: fines and judgments",
+        "description": "What counts as fines and judgments, with an illustrative range to replace.",
+        "magnitudes": {
+          "fines_judgments": {
+            "min": "0", "ml": "100000", "max": "5000000", "unit": "currency", "confidence": "0.9",
+            "rationale": "Illustrative only: an example range in the installation currency, to show the shape of an estimate. Replace with your own. Not industry data.",
+            "sources": [{ "type": "document", "ref": "FAIR platform starter library 2026.11 (illustrative)" }]
+          }
+        }
+      }
+    },
+    {
+      "key": "loss_guidance.competitive_advantage",
+      "illustrative": true,
+      "guidance": "Competitive advantage: loss of something that sets you apart, such as trade secrets, intellectual property, plans or market position, when a competitor gains or you lose that edge. It is hard to observe directly; estimate it from what the advantage is worth to you and how much of it the event would erode.",
+      "document": {
+        "kind": "loss_profile", "schema_version": 1,
+        "name": "Guidance: competitive advantage",
+        "description": "What counts as loss of competitive advantage, with an illustrative range to replace.",
+        "magnitudes": {
+          "competitive_advantage": {
+            "min": "0", "ml": "50000", "max": "3000000", "unit": "currency", "confidence": "0.9",
+            "rationale": "Illustrative only: an example range in the installation currency, to show the shape of an estimate. Replace with your own. Not industry data.",
+            "sources": [{ "type": "document", "ref": "FAIR platform starter library 2026.11 (illustrative)" }]
+          }
+        }
+      }
+    },
+    {
+      "key": "loss_guidance.reputation",
+      "illustrative": true,
+      "guidance": "Reputation: how stakeholders' changed view of you turns into money, such as lost customers, lower sales, a higher cost of capital, or harder hiring. Estimate the financial effect, not the publicity. It usually arises as secondary loss, from customers, investors or the public reacting to the event.",
+      "document": {
+        "kind": "loss_profile", "schema_version": 1,
+        "name": "Guidance: reputation",
+        "description": "What counts as reputation loss, with an illustrative range to replace.",
+        "magnitudes": {
+          "reputation": {
+            "min": "0", "ml": "100000", "max": "5000000", "unit": "currency", "confidence": "0.9",
+            "rationale": "Illustrative only: an example range in the installation currency, to show the shape of an estimate. Replace with your own. Not industry data.",
+            "sources": [{ "type": "document", "ref": "FAIR platform starter library 2026.11 (illustrative)" }]
+          }
+        }
+      }
+    }
+  ]
+}

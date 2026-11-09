@@ -26,6 +26,10 @@
 // /restore for the three kinds (AC-22); scenario pins say whether the
 // scenario's BU still reads them (reachable; AC-20).
 //
+// T-10 adds the starter library: GET /api/v1/library/starter (library.view
+// somewhere) and POST /api/v1/library/starter/{key}/copy (library.edit at
+// the BU): a copy is an ordinary entry recording its origin (AC-11).
+//
 // T-06 serves the library (assets, asset groups, threat communities, loss
 // profiles; library.view and library.edit) and controls (control.view and
 // control.edit) in the same shape under /api/v1/library and
@@ -93,6 +97,8 @@ var routes = []route{
 	{"POST", "/api/v1/scenarios/{id}/archive", (*API).archiveScenario},
 	{"POST", "/api/v1/scenarios/{id}/restore", (*API).restoreScenario},
 	{"GET", "/api/v1/library", (*API).listLibrary},
+	{"GET", "/api/v1/library/starter", (*API).listStarterEntries},
+	{"POST", "/api/v1/library/starter/{key}/copy", (*API).copyStarterEntry},
 	{"POST", "/api/v1/library", (*API).createLibraryEntry},
 	{"GET", "/api/v1/library/{id}", (*API).getLibraryEntry},
 	{"PUT", "/api/v1/library/{id}", (*API).saveLibraryEntry},

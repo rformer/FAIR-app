@@ -100,3 +100,10 @@ func (a *API) archiveControl(w http.ResponseWriter, r *http.Request, p authz.Pri
 func (a *API) restoreControl(w http.ResponseWriter, r *http.Request, p authz.Principal) {
 	a.setArchived(controls, false, w, r, p)
 }
+
+func (a *API) listStarterEntries(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	a.starterList(w, r, p)
+}
+func (a *API) copyStarterEntry(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	a.starterCopy(w, r, p)
+}

@@ -472,6 +472,13 @@ events:
     bu: required
     attributes: [change_note, digest, kind, version]
     description: "A library entry (asset, asset group, threat community or loss profile) was created with its first version (F-003 T-06, AC-08, AC-21)"
+  - type: library.starter_copied
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [kind, origin]
+    description: "A starter library entry was copied into a BU as an ordinary library entry; origin is its key and release (F-003 T-10, AC-11)"
   - type: library.version_saved
     category: risk_data
     severities: [low]

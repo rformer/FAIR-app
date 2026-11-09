@@ -20,6 +20,7 @@ import (
 	"github.com/rformer/fair-app/internal/access/catalog"
 	"github.com/rformer/fair-app/internal/migrate"
 	"github.com/rformer/fair-app/internal/profilepkg"
+	"github.com/rformer/fair-app/internal/risk/starter"
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/profiles"
 )
@@ -142,7 +143,11 @@ func migrateOnce(ctx context.Context, env string) (migrate.Result, error) {
 	if err != nil {
 		return migrate.Result{}, err
 	}
-	return migrate.Run(ctx, conn, migrations, migrate.Release{Catalog: payload, ProfilePackages: pkgs, Events: events})
+	starterLib, err := starter.SyncPayload()
+	if err != nil {
+		return migrate.Result{}, err
+	}
+	return migrate.Run(ctx, conn, migrations, migrate.Release{Catalog: payload, ProfilePackages: pkgs, Events: events, Starter: starterLib})
 }
 
 // releasePackages returns the embedded profile packages, each checked

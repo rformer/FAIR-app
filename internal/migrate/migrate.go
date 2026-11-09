@@ -72,11 +72,20 @@ type EventSync struct {
 	Restored []string `json:"restored"`
 }
 
+// StarterSync is what risk.sync_starter reports: starter library entries
+// added, changed and removed (F-003 T-10).
+type StarterSync struct {
+	Added   []string `json:"added"`
+	Changed []string `json:"changed"`
+	Removed []string `json:"removed"`
+}
+
 // Release is what a build ships besides its migrations.
 type Release struct {
 	Catalog         []byte   // catalog.SyncPayload, for iam.sync_release
 	ProfilePackages [][]byte // profile packages, checked against their manifest (profilepkg.LoadRelease)
 	Events          []byte   // audit.(*Catalog).SyncPayload, for audit.sync_event_types
+	Starter         []byte   // starter.SyncPayload, for risk.sync_starter (F-003 T-10)
 }
 
 // Result summarizes a run.
@@ -85,6 +94,7 @@ type Result struct {
 	Sync     SyncResult
 	Packages PackageSync
 	Events   EventSync
+	Starter  StarterSync
 }
 
 // ConnConfig builds the migrator's connection (see dbconn.Config). The user
@@ -111,6 +121,9 @@ func Run(ctx context.Context, conn *pgx.Conn, migrations fs.FS, rel Release) (Re
 	}
 	if len(rel.Events) == 0 {
 		return res, errors.New("migrate: the release has no security event catalog")
+	}
+	if len(rel.Starter) == 0 {
+		return res, errors.New("migrate: the release has no starter library")
 	}
 	types, err := resourceTypes(rel.Catalog)
 	if err != nil {
@@ -204,7 +217,13 @@ REVOKE ALL ON fair_meta.schema_migrations FROM PUBLIC;`).ReadAll()
 		if err := tx.QueryRow(ctx, "SELECT audit.sync_event_types($1::jsonb)", string(rel.Events)).Scan(&out); err != nil {
 			return fmt.Errorf("event catalog: %w", err)
 		}
-		return json.Unmarshal(out, &res.Events)
+		if err := json.Unmarshal(out, &res.Events); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx, "SELECT risk.sync_starter($1::jsonb)", string(rel.Starter)).Scan(&out); err != nil {
+			return fmt.Errorf("starter library: %w", err)
+		}
+		return json.Unmarshal(out, &res.Starter)
 	})
 	if err != nil {
 		return res, fmt.Errorf("migrate: %w", err)

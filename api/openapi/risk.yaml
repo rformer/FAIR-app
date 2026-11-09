@@ -541,6 +541,71 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Invalid" }
+  /api/v1/library/starter:
+    get:
+      operationId: listStarterEntries
+      tags: [library]
+      summary: The release's starter library (AC-11)
+      description: >-
+        Generic threat communities and guidance for each Open FAIR form of loss, written from Open
+        FAIR concepts. Every number in it is illustrative (illustrative is true and each estimate's
+        rationale says so): a starting point to replace, never industry data. Starter entries are
+        not edited; copy one into a BU to adapt it.
+      x-permission: library.view
+      responses:
+        "200":
+          description: Starter entries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entries]
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      required: [key, release, kind, name, illustrative, guidance, digest, document]
+                      properties:
+                        key: { type: string }
+                        release: { type: string }
+                        kind: { enum: [asset, asset_group, threat_community, loss_profile] }
+                        name: { type: string }
+                        illustrative: { type: boolean }
+                        guidance: { type: string }
+                        digest: { type: string }
+                        document: { $ref: "#/components/schemas/Document" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/library/starter/{key}/copy:
+    post:
+      operationId: copyStarterEntry
+      tags: [library]
+      summary: Copy a starter entry into a BU as an ordinary library entry (AC-11)
+      x-permission: library.edit
+      x-audit-events: [library.starter_copied]
+      x-reason-field: change_note
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { name: key, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bu_id]
+              additionalProperties: false
+              properties:
+                bu_id: { type: string, format: uuid }
+                change_note: { type: string, maxLength: 1000, description: "The first version's note; by default, where it was copied from" }
+      responses:
+        "201":
+          description: Copied
+          content: { application/json: { schema: { type: object, required: [id, version, kind, origin], properties: { id: { type: string, format: uuid }, version: { type: integer }, kind: { type: string }, origin: { type: string, description: "key@release" } } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /api/v1/library/{id}:
     get:
       operationId: getLibraryEntry
