@@ -1,0 +1,149 @@
+# NIST SP 800-53 Rev 5 control implementation statements for F-003
+# (FAIR data model), task T-16. Source for the platform's OSCAL component
+# definition (F-014 assembles the features' files); checked by
+# internal/compliance tests: the controls are exactly F-003's control
+# mapping, every evidence path and test exists, and the OSCAL output
+# validates against the pinned schema.
+#
+# responsibility, per deployment mode (ADR-005):
+#   provider  the platform (and, in SaaS, the vendor operating it) meets it
+#   shared    the platform provides the mechanism; the customer operates it
+#   customer  the customer meets it
+# customer: what the customer does wherever the responsibility is shared
+# or customer. Evidence tests are "<package dir>:<test name>".
+feature: F-003
+title: FAIR data model
+status: approved # signed off by Robert Former, 2026-11-09
+controls:
+  - id: ac-3
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Risk data (scenarios, library entries, controls, their versions and
+      pins) is owned by business units and enforced twice: the risk service
+      checks the view or edit permission of each kind at the business unit
+      concerned, and the database applies forced row-level security on every
+      risk table under the signed database context (ADR-007). Library entries
+      and controls are readable below the business unit that owns them
+      (inherited read, ADR-007 amendment 2), never across siblings and never
+      past a restricted business unit; inherited rows are read-only, and
+      scenarios are never inherited. A scenario cannot be moved out of a
+      restricted subtree, and exports are built under the requester's own
+      context, so they hold only what the requester can see.
+    evidence:
+      code: [db/migrations/0084_inherited_read.sql, db/migrations/0085_risk_schema.sql, db/migrations/0089_risk_move_archive.sql, internal/riskapi]
+      tests: ["db/tests:TestInheritedRead", "db/tests:TestSTRIDEF003InheritedRead", "db/tests:TestSTRIDEF003InheritedWrite",
+              "db/tests:TestSTRIDEF003RestrictedMove", "db/tests:TestSTRIDEF003ExportScope", "db/tests:TestRLSHarnessEveryBUOwnedTable"]
+
+  - id: ac-6
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Reading and changing risk data are separate permissions for each kind
+      (scenario, library, control), so viewers cannot change what they see.
+      The application's database role may only insert new heads and versions
+      in the columns it supplies; authors, times, version numbers, business
+      units and archive state are set by the database, and moving or
+      archiving runs only through definer functions that re-check the
+      caller's write scope at both ends. The installation currency is set
+      once, by the installer, outside the application.
+    customer: >-
+      Grant the edit permissions only to the analysts who maintain each
+      business unit's risk data, and review them in F-001's access reviews.
+    evidence:
+      code: [db/migrations/0085_risk_schema.sql, db/migrations/0086_risk_currency.sql, db/migrations/0089_risk_move_archive.sql]
+      tests: ["db/tests:TestSTRIDEF003Author", "db/tests:TestRiskScenariosAPI", "db/tests:TestRiskMoveAndArchive",
+              "db/tests:TestRiskAppendOnly", "db/tests:TestRiskCurrency"]
+
+  - id: au-2
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      F-003 adds its events to the security event catalog under the category
+      risk_data: creating a scenario, library entry or control, saving a
+      version, archiving, restoring, moving a scenario, copying from the
+      starter library, exporting and importing risk data, and setting the
+      installation currency. Each entry names the attributes it carries
+      (change note or reason, version, document digest, kind).
+    customer: >-
+      Decide which risk data events to forward to the SIEM and alert on.
+    evidence:
+      code: [pkg/audit/catalog.yaml]
+      tests: ["pkg/audit:TestCatalogMatchesCode", "db/tests:TestRiskAuditEvents"]
+
+  - id: au-12
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Every change to risk data records its event in the change's own
+      transaction, with the actor from the signed context, the business
+      unit, the change note or reason and the document's digest; a refused
+      change records nothing, and a change whose event cannot be recorded
+      does not happen.
+    customer: >-
+      Monitor the audit trail's capacity and forwarding (F-002).
+    evidence:
+      code: [internal/riskapi/documents.go, internal/riskapi/transfer.go, pkg/audit/trail.go]
+      tests: ["db/tests:TestRiskAuditEvents", "db/tests:TestRiskExportImport", "db/tests:TestRiskStarter"]
+
+  - id: cm-3
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Risk data changes as versions: each version is append-only, numbered
+      in sequence, attributed, carries a change note and the SHA-256 digest
+      of its canonical document, and is saved only against the version the
+      editor saw. Scenarios pin exact versions of the library entries and
+      controls they use and keep copies of them; a newer version is shown
+      and adopted only by an explicit, recorded change. Any two versions can
+      be compared, and each scenario version builds a reproducible input
+      bundle for simulation.
+    customer: >-
+      Decide who reviews changes to scenarios and library entries before
+      they are used in decisions (acceptance comes with F-008).
+    evidence:
+      code: [db/migrations/0085_risk_schema.sql, internal/risk/model/diff.go, internal/risk/bundle.go]
+      tests: ["db/tests:TestRiskVersions", "db/tests:TestRiskAdoptAndDiff", "db/tests:TestRiskBundle",
+              "db/tests:TestSTRIDEF003VersionTamper", "internal/risk/model:TestDiffDocuments"]
+
+  - id: ra-3
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      The platform records risk assessments as loss scenarios in Open FAIR
+      terms: scope and analysis period, asset, threat community, threat
+      effects, loss event, loss event frequency and loss magnitude
+      decomposed to the level the data supports, primary loss by form and
+      secondary risk by stakeholder, and the controls in place or proposed.
+      Every estimate carries its range, confidence, rationale and sources.
+      The starter library's examples are marked illustrative, never
+      presented as industry data.
+    customer: >-
+      Conduct the assessments: define scenarios, scope and estimates, and
+      keep them current.
+    evidence:
+      code: [internal/risk/model, internal/risk/starter/starter.json]
+      tests: ["internal/risk/model:TestCorpus", "internal/risk/model:TestTaxonomy", "db/tests:TestRiskValidationParity", "db/tests:TestRiskStarter"]
+
+  - id: ra-7
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Risk responses are recorded as controls with their effects on named
+      FAIR factors and their framework references, grouped per scenario
+      into control sets (the current set and proposed alternatives) so the
+      responses can be compared; archiving and restoring a scenario need a
+      reason, which is recorded.
+    customer: >-
+      Choose the responses to identified risk; accept risk through F-008.
+    evidence:
+      code: [internal/risk/model/types.go, internal/riskapi/documents.go]
+      tests: ["db/tests:TestRiskLibraryAPI", "db/tests:TestRiskMoveAndArchive", "internal/risk/model:TestCorpus"]
+
+  - id: si-10
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Risk documents are validated by the service, with every problem
+      reported by JSON pointer, and validated again by the database, which
+      applies the same rules (a parity test holds them equal), so input that
+      bypasses the service is refused too. Documents are canonical JSON with
+      numbers as decimal strings; unknown fields, oversized text, lists and
+      documents, and values that look like secrets are refused. Imports are
+      checked whole, with a dry run, and applied all or nothing.
+    evidence:
+      code: [internal/risk/model/validate.go, internal/risk/canon, db/migrations/0085_risk_schema.sql, internal/risk/transfer.go]
+      tests: ["db/tests:TestRiskValidationParity", "db/tests:TestRiskLimits", "db/tests:TestRiskSecretsRefused",
+              "db/tests:TestRiskExportImport", "internal/risk/model:TestLimits", "internal/risk/canon:TestParseRefuses"]
