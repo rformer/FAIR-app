@@ -64,3 +64,16 @@ func (a *API) listControlVersions(w http.ResponseWriter, r *http.Request, p auth
 func (a *API) getControlVersion(w http.ResponseWriter, r *http.Request, p authz.Principal) {
 	a.getVersion(controls, w, r, p)
 }
+
+func (a *API) diffScenario(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	a.diff(scenarios, w, r, p)
+}
+func (a *API) adoptScenarioPins(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	a.adopt(scenarios, w, r, p)
+}
+func (a *API) diffLibraryEntry(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	a.diff(library, w, r, p)
+}
+func (a *API) diffControl(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	a.diff(controls, w, r, p)
+}

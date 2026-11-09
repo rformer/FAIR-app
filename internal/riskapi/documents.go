@@ -108,6 +108,11 @@ type pinItem struct {
 	ID      string `json:"id"`
 	Version int    `json:"version"`
 	Digest  string `json:"digest"`
+	// CurrentVersion is the pinned entry's current version, as the caller
+	// sees it (null: the caller cannot see the entry); Newer says it is
+	// later than the pinned one (AC-10).
+	CurrentVersion *int `json:"current_version"`
+	Newer          bool `json:"newer"`
 }
 
 // selectHead wraps a query returning the head table's columns with the
@@ -319,8 +324,11 @@ func failSave(w http.ResponseWriter, err error) {
 }
 
 // event records a change in tx: the resource's created or saved type.
-func (a *API) event(ctx context.Context, tx pgx.Tx, res resource, p authz.Principal, eventType, id, bu, kind string, version int, doc *model.Document, note string) error {
+func (a *API) event(ctx context.Context, tx pgx.Tx, res resource, p authz.Principal, eventType, id, bu, kind string, version int, doc *model.Document, note string, extra map[string]string) error {
 	attrs := map[string]string{"version": strconv.Itoa(version), "digest": doc.Digest, "change_note": note}
+	for k, v := range extra {
+		attrs[k] = v
+	}
 	if len(res.kinds) > 1 {
 		attrs["kind"] = kind
 	}
@@ -374,7 +382,7 @@ func (a *API) create(res resource, w http.ResponseWriter, r *http.Request, p aut
 			id, doc.Canonical, doc.Digest, note); err != nil {
 			return err
 		}
-		return a.event(ctx, tx, res, p, res.createdType, id, body.BUID, kind, 1, doc, note)
+		return a.event(ctx, tx, res, p, res.createdType, id, body.BUID, kind, 1, doc, note, nil)
 	})
 	if err != nil {
 		failSave(w, err)
@@ -439,7 +447,7 @@ func (a *API) save(res resource, w http.ResponseWriter, r *http.Request, p authz
 			id, version, doc.Canonical, doc.Digest, note); err != nil {
 			return err
 		}
-		return a.event(ctx, tx, res, p, res.savedType, id, h.BUID, h.Kind, version, doc, note)
+		return a.event(ctx, tx, res, p, res.savedType, id, h.BUID, h.Kind, version, doc, note, nil)
 	})
 	if err != nil {
 		failSave(w, err)
@@ -466,8 +474,11 @@ func (a *API) version(ctx context.Context, res resource, p authz.Principal, id s
 		if res.pins == "" {
 			return nil
 		}
-		rows, err := tx.Query(ctx, "SELECT pointer, to_kind, to_id::text, to_version, to_digest FROM risk."+res.pins+
-			" WHERE "+res.headColumn+" = $1 AND version = $2 ORDER BY pointer", id, v)
+		// The pinned heads as the caller sees them (inherited read included).
+		rows, err := tx.Query(ctx, "SELECT p.pointer, p.to_kind, p.to_id::text, p.to_version, p.to_digest, coalesce(l.current_version, c.current_version), "+
+			"coalesce(l.current_version, c.current_version) > p.to_version IS TRUE FROM risk."+res.pins+" p "+
+			"LEFT JOIN risk.library_entry l ON l.id = p.to_id AND p.to_kind <> 'control' LEFT JOIN risk.control c ON c.id = p.to_id AND p.to_kind = 'control' "+
+			"WHERE p."+res.headColumn+" = $1 AND p.version = $2 ORDER BY p.pointer", id, v)
 		if err != nil {
 			return err
 		}
@@ -590,4 +601,127 @@ func (a *API) getSettings(w http.ResponseWriter, r *http.Request, p authz.Princi
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"currency": c})
+}
+
+// diff compares two versions (AC-17; design §6.3): ?from=&to=.
+func (a *API) diff(res resource, w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	if !a.viewAnywhere(w, r, p, res.view) {
+		return
+	}
+	h, err := a.head(r.Context(), res, p, r.PathValue("id"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	var n [2]int
+	for i, k := range []string{"from", "to"} {
+		n[i], err = strconv.Atoi(r.URL.Query().Get(k))
+		if err != nil || n[i] < 1 {
+			problem(w, http.StatusBadRequest, "invalid_value", "from and to are version numbers", nil)
+			return
+		}
+	}
+	from, _, err := a.version(r.Context(), res, p, h.ID, n[0])
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	to, _, err := a.version(r.Context(), res, p, h.ID, n[1])
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	d, err := model.DiffDocuments(h.Kind, from.Document, to.Document)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": h.ID, "from": n[0], "to": n[1], "changes": d.Changes, "pins": d.Pins})
+}
+
+// adopt saves a new version re-pinning library entries and controls to
+// their current versions (AC-09, AC-10; design §6.2): the pins named, or
+// every pin with a newer version. Nothing else changes.
+func (a *API) adopt(res resource, w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	var body struct {
+		ExpectedVersion *int     `json:"expected_version"`
+		Pins            []string `json:"pins"`
+		ChangeNote      string   `json:"change_note"`
+	}
+	if !a.viewAnywhere(w, r, p, res.view) || !decode(w, r, &body) {
+		return
+	}
+	h, err := a.head(r.Context(), res, p, r.PathValue("id"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if body.ExpectedVersion == nil {
+		problem(w, http.StatusBadRequest, "invalid_value", "expected_version (the version the adoption was reviewed against) is required", nil)
+		return
+	}
+	if !a.editAt(w, r, p, res.edit, h.BUID, true) || !checkNote(w, body.ChangeNote) {
+		return
+	}
+	if *body.ExpectedVersion != h.CurrentVersion {
+		problem(w, http.StatusConflict, "stale_version", "the current version is "+strconv.Itoa(h.CurrentVersion), nil)
+		return
+	}
+	cur, pins, err := a.version(r.Context(), res, p, h.ID, h.CurrentVersion)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	newer := map[string]pinItem{}
+	for _, pin := range pins {
+		if pin.Newer {
+			newer[pin.Pointer] = pin
+		}
+	}
+	chosen := append([]string(nil), body.Pins...)
+	if len(chosen) == 0 {
+		for ptr := range newer {
+			chosen = append(chosen, ptr)
+		}
+	}
+	slices.Sort(chosen)
+	chosen = slices.Compact(chosen)
+	if len(chosen) == 0 {
+		problem(w, http.StatusConflict, "not_applicable", "no pin has a newer version", nil)
+		return
+	}
+	doc := []byte(cur.Document)
+	for _, ptr := range chosen {
+		pin, ok := newer[ptr]
+		if !ok {
+			problem(w, http.StatusConflict, "not_applicable", ptr+" is not a pin with a newer version", nil)
+			return
+		}
+		if doc, err = model.SetPinVersion(doc, ptr, int64(*pin.CurrentVersion)); err != nil {
+			fail(w, err)
+			return
+		}
+	}
+	next := validDocument(w, h.Kind, doc)
+	if next == nil {
+		return
+	}
+	note := strings.TrimSpace(body.ChangeNote)
+	version := h.CurrentVersion + 1
+	err = authz.WithDBContext(r.Context(), a.DB, p.DBToken, func(tx pgx.Tx) error {
+		ctx := r.Context()
+		if err := needsCurrency(ctx, tx, next); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, "INSERT INTO risk."+res.versions+" ("+res.headColumn+", version, document, digest, change_note) VALUES ($1, $2, $3, $4, $5)",
+			h.ID, version, next.Canonical, next.Digest, note); err != nil {
+			return err
+		}
+		return a.event(ctx, tx, res, p, res.savedType, h.ID, h.BUID, h.Kind, version, next, note, map[string]string{"adopted": strings.Join(chosen, ",")})
+	})
+	if err != nil {
+		failSave(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": h.ID, "version": version, "digest": next.Digest, "adopted": chosen})
 }

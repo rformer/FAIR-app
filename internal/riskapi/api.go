@@ -13,6 +13,11 @@
 //	GET  /api/v1/scenarios/{id}/versions[/{v}]      history
 //	GET  /api/v1/risk/settings                      the installation currency
 //
+// T-07 adds GET .../{id}/diff?from=&to= (all three; AC-17) and POST
+// /api/v1/scenarios/{id}/adopt (re-pin to newer library and control
+// versions; AC-10). Pins report the pinned entry's current version and
+// whether it is newer.
+//
 // T-06 serves the library (assets, asset groups, threat communities, loss
 // profiles; library.view and library.edit) and controls (control.view and
 // control.edit) in the same shape under /api/v1/library and
@@ -73,18 +78,22 @@ var routes = []route{
 	{"PUT", "/api/v1/scenarios/{id}", (*API).saveScenario},
 	{"GET", "/api/v1/scenarios/{id}/versions", (*API).listScenarioVersions},
 	{"GET", "/api/v1/scenarios/{id}/versions/{version}", (*API).getScenarioVersion},
+	{"GET", "/api/v1/scenarios/{id}/diff", (*API).diffScenario},
+	{"POST", "/api/v1/scenarios/{id}/adopt", (*API).adoptScenarioPins},
 	{"GET", "/api/v1/library", (*API).listLibrary},
 	{"POST", "/api/v1/library", (*API).createLibraryEntry},
 	{"GET", "/api/v1/library/{id}", (*API).getLibraryEntry},
 	{"PUT", "/api/v1/library/{id}", (*API).saveLibraryEntry},
 	{"GET", "/api/v1/library/{id}/versions", (*API).listLibraryVersions},
 	{"GET", "/api/v1/library/{id}/versions/{version}", (*API).getLibraryVersion},
+	{"GET", "/api/v1/library/{id}/diff", (*API).diffLibraryEntry},
 	{"GET", "/api/v1/controls", (*API).listControls},
 	{"POST", "/api/v1/controls", (*API).createControl},
 	{"GET", "/api/v1/controls/{id}", (*API).getControl},
 	{"PUT", "/api/v1/controls/{id}", (*API).saveControl},
 	{"GET", "/api/v1/controls/{id}/versions", (*API).listControlVersions},
 	{"GET", "/api/v1/controls/{id}/versions/{version}", (*API).getControlVersion},
+	{"GET", "/api/v1/controls/{id}/diff", (*API).diffControl},
 	{"GET", "/api/v1/risk/settings", (*API).getSettings},
 }
 

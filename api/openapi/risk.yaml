@@ -123,6 +123,8 @@ components:
         id: { type: string, format: uuid }
         version: { type: integer }
         digest: { type: string }
+        current_version: { type: [integer, "null"], description: "The pinned entry's current version as the caller sees it; null when the caller cannot see it" }
+        newer: { type: boolean, description: A later version exists (adopt it with /adopt; AC-10) }
     Node:
       type: object
       required: [factor, status]
@@ -132,6 +134,36 @@ components:
         parent: { type: string }
         status: { enum: [entered, derived, library, not_used] }
         pointer: { type: string }
+    Diff:
+      type: object
+      required: [id, from, to, changes, pins]
+      description: The structural difference between two versions (AC-17); estimates are compared and shown whole
+      properties:
+        id: { type: string, format: uuid }
+        from: { type: integer }
+        to: { type: integer }
+        changes:
+          type: array
+          items:
+            type: object
+            required: [pointer, op]
+            properties:
+              pointer: { type: string }
+              op: { enum: [added, removed, changed] }
+              from: {}
+              to: {}
+        pins:
+          type: array
+          items:
+            type: object
+            required: [pointer, kind]
+            properties:
+              pointer: { type: string }
+              kind: { type: string }
+              from_id: { type: string, format: uuid }
+              from_version: { type: integer }
+              to_id: { type: string, format: uuid }
+              to_version: { type: integer }
     Saved:
       type: object
       required: [id, version, digest]
@@ -279,6 +311,58 @@ paths:
                   version: { $ref: "#/components/schemas/Version" }
                   pins: { type: array, items: { $ref: "#/components/schemas/Pin" } }
         "404": { $ref: "#/components/responses/Error" }
+  /api/v1/scenarios/{id}/diff:
+    get:
+      operationId: diffScenario
+      tags: [scenarios]
+      summary: What changed between two versions of a scenario (AC-17)
+      x-permission: scenario.view
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { name: from, in: query, required: true, schema: { type: integer, minimum: 1 } }
+        - { name: to, in: query, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200": { description: The difference, content: { application/json: { schema: { $ref: "#/components/schemas/Diff" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/scenarios/{id}/adopt:
+    post:
+      operationId: adoptScenarioPins
+      tags: [scenarios]
+      summary: Save a new version moving pins to their entries' current versions (AC-09, AC-10)
+      description: The pins named, or every pin with a newer version; nothing else changes. Recorded as scenario.version_saved with the adopted pointers.
+      x-permission: scenario.edit
+      x-audit-events: [scenario.version_saved]
+      x-reason-field: change_note
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/ID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expected_version, change_note]
+              additionalProperties: false
+              properties:
+                expected_version: { type: integer, minimum: 1, description: The version the adoption was reviewed against }
+                pins: { type: array, items: { type: string }, description: The pins' pointers; none means every pin with a newer version }
+                change_note: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Saved" }
+                  - { type: object, required: [adopted], properties: { adopted: { type: array, items: { type: string } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Invalid" }
   /api/v1/library:
     get:
       operationId: listLibrary
@@ -416,6 +500,20 @@ paths:
                   version: { $ref: "#/components/schemas/Version" }
                   pins: { type: array, items: { $ref: "#/components/schemas/Pin" } }
         "404": { $ref: "#/components/responses/Error" }
+  /api/v1/library/{id}/diff:
+    get:
+      operationId: diffLibraryEntry
+      tags: [library]
+      summary: What changed between two versions of a library entry (AC-17)
+      x-permission: library.view
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { name: from, in: query, required: true, schema: { type: integer, minimum: 1 } }
+        - { name: to, in: query, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200": { description: The difference, content: { application/json: { schema: { $ref: "#/components/schemas/Diff" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /api/v1/controls:
     get:
       operationId: listControls
@@ -548,6 +646,20 @@ paths:
                 properties:
                   id: { type: string, format: uuid }
                   version: { $ref: "#/components/schemas/Version" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/controls/{id}/diff:
+    get:
+      operationId: diffControl
+      tags: [controls]
+      summary: What changed between two versions of a control (AC-17)
+      x-permission: control.view
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { name: from, in: query, required: true, schema: { type: integer, minimum: 1 } }
+        - { name: to, in: query, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200": { description: The difference, content: { application/json: { schema: { $ref: "#/components/schemas/Diff" } } } }
+        "400": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
   /api/v1/risk/settings:
     get:

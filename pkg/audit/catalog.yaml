@@ -767,8 +767,8 @@ events:
     severities: [low]
     requires: [target]
     bu: required
-    attributes: [change_note, digest, version]
-    description: "A new version of a loss scenario was saved (F-003 T-05, AC-15, AC-21); earlier versions never change"
+    attributes: [adopted, change_note, digest, version]
+    description: "A new version of a loss scenario was saved (F-003 T-05, AC-15, AC-21); earlier versions never change. adopted lists the pins moved to newer library or control versions (T-07, AC-10)"
   - type: service.started
     category: system
     severities: [info]
