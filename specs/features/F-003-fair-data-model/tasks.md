@@ -33,7 +33,7 @@ Every task that adds a migration follows the immutability rule. Every new event 
 ## Phase D — Assurance
 | # | Task | Traces to | Verification | Size | Status |
 |---|---|---|---|---|---|
-| T-14 | Benchmark gate `TestBenchmarkGateRiskScenarios`: 10,000 scenarios in a subtree, list ≤ 500 ms p95, load with pins ≤ 300 ms p95; inherited read cost included | Requirements NFR; §10 | Bench gate passes in CI | S | Not started |
+| T-14 | Benchmark gate `TestBenchmarkGateRiskScenarios`: 10,000 scenarios in a subtree, list ≤ 500 ms p95, load with pins ≤ 300 ms p95; inherited read cost included | Requirements NFR; §10 | Bench gate passes in CI | S | Done (2026-11-09) |
 | T-15 | STRIDE suite for design §8 (`db/tests/stride_f003_test.go`, rows in `TestSTRIDECatalog`) | Q5; §8 | `make test-stride` covers every §8 row | M | Not started |
 | T-16 | Control implementation statements `compliance/statements/F-003.yaml` (AC-3, AC-6, AU-2, AU-12, CM-3, RA-3, RA-7, SI-10), built into the OSCAL component definition; Robert Former signs off | S1, Q1 | `internal/compliance` checks pass; sign-off recorded | S | Not started |
 
