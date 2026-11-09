@@ -77,3 +77,7 @@ func (a *API) diffLibraryEntry(w http.ResponseWriter, r *http.Request, p authz.P
 func (a *API) diffControl(w http.ResponseWriter, r *http.Request, p authz.Principal) {
 	a.diff(controls, w, r, p)
 }
+
+func (a *API) getScenarioBundle(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	a.bundle(scenarios, w, r, p)
+}

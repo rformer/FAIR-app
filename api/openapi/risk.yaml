@@ -125,6 +125,7 @@ components:
         digest: { type: string }
         current_version: { type: [integer, "null"], description: "The pinned entry's current version as the caller sees it; null when the caller cannot see it" }
         newer: { type: boolean, description: A later version exists (adopt it with /adopt; AC-10) }
+        member_of: { type: string, description: "A member of a pinned asset group, copied with the group: not a pin of the document (adopt moves the group)" }
     Node:
       type: object
       required: [factor, status]
@@ -310,6 +311,40 @@ paths:
                   id: { type: string, format: uuid }
                   version: { $ref: "#/components/schemas/Version" }
                   pins: { type: array, items: { $ref: "#/components/schemas/Pin" } }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/scenarios/{id}/versions/{version}/bundle:
+    get:
+      operationId: getScenarioBundle
+      tags: [scenarios]
+      summary: A scenario version's simulation input bundle (AC-16)
+      description: >-
+        The scenario version with every library and control version it pins (asset group members
+        included, marked member_of), and the installation currency, in canonical form (format
+        fair.scenario-input.v1). digest is the SHA-256 of the canonical form of bundle; it changes
+        whenever any input does. Built from the scenario's own pin rows: a reader of the scenario
+        gets exactly what it uses, without library.view (AC-20).
+      x-permission: scenario.view
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { name: version, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200":
+          description: The bundle
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [digest, bundle]
+                properties:
+                  digest: { type: string, description: "SHA-256, hex, of the canonical form of bundle" }
+                  bundle:
+                    type: object
+                    required: [format, currency, scenario, pins]
+                    properties:
+                      format: { const: fair.scenario-input.v1 }
+                      currency: { type: [string, "null"] }
+                      scenario: { type: object, required: [id, version, digest, document] }
+                      pins: { type: array, items: { type: object, required: [pointer, kind, id, version, digest, document] } }
         "404": { $ref: "#/components/responses/Error" }
   /api/v1/scenarios/{id}/diff:
     get:

@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/rformer/fair-app/internal/risk"
 	"github.com/rformer/fair-app/internal/risk/model"
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
@@ -42,6 +43,7 @@ type resource struct {
 	versions     string // risk.<versions>
 	headColumn   string // the versions' reference to the head
 	pins         string // risk.<pins>, or "" when the kind holds none
+	memberCol    string // the pins' member_of column (scenarios), or a NULL
 	view, edit   authz.Permission
 	kinds        []string // document kinds; more than one: the request names it
 	shared       bool     // shared down the BU tree (ADR-007 amendment 2)
@@ -53,11 +55,11 @@ type resource struct {
 
 var (
 	scenarios = resource{label: "scenario", event: "scenario", createdType: "scenario.created", savedType: "scenario.version_saved", resourceType: "scenario", head: "scenario", versions: "scenario_version",
-		headColumn: "scenario_id", pins: "scenario_pin", view: permScenarioView, edit: permScenarioEdit, kinds: []string{model.KindScenario},
+		headColumn: "scenario_id", pins: "scenario_pin", memberCol: "p.member_of", view: permScenarioView, edit: permScenarioEdit, kinds: []string{model.KindScenario},
 		filters: []filter{{"bu", "bu_id"}, {"owner", "owner"}, {"asset", "asset_id"}, {"threat_community", "threat_community_id"}},
 		columns: []string{"id", "bu_id", "'scenario'::text AS kind", "name", "owner", "asset_id", "threat_community_id", "current_version", "archived_at", "created_at", "created_by", "seq"}}
 	library = resource{label: "library entry", event: "library", createdType: "library.created", savedType: "library.version_saved", resourceType: "library", head: "library_entry", versions: "library_version",
-		headColumn: "entry_id", pins: "library_pin", view: "library.view", edit: "library.edit",
+		headColumn: "entry_id", pins: "library_pin", memberCol: "NULL::text", view: "library.view", edit: "library.edit",
 		kinds:   []string{model.KindAsset, model.KindAssetGroup, model.KindThreatCommunity, model.KindLossProfile},
 		shared:  true,
 		filters: []filter{{"bu", "bu_id"}},
@@ -113,6 +115,9 @@ type pinItem struct {
 	// later than the pinned one (AC-10).
 	CurrentVersion *int `json:"current_version"`
 	Newer          bool `json:"newer"`
+	// MemberOf marks a member of a pinned asset group: copied with the
+	// group (T-08), not a pin of the document; adopt moves the group.
+	MemberOf *string `json:"member_of,omitempty"`
 }
 
 // selectHead wraps a query returning the head table's columns with the
@@ -476,7 +481,7 @@ func (a *API) version(ctx context.Context, res resource, p authz.Principal, id s
 		}
 		// The pinned heads as the caller sees them (inherited read included).
 		rows, err := tx.Query(ctx, "SELECT p.pointer, p.to_kind, p.to_id::text, p.to_version, p.to_digest, coalesce(l.current_version, c.current_version), "+
-			"coalesce(l.current_version, c.current_version) > p.to_version IS TRUE FROM risk."+res.pins+" p "+
+			"coalesce(l.current_version, c.current_version) > p.to_version IS TRUE, "+res.memberCol+" FROM risk."+res.pins+" p "+
 			"LEFT JOIN risk.library_entry l ON l.id = p.to_id AND p.to_kind <> 'control' LEFT JOIN risk.control c ON c.id = p.to_id AND p.to_kind = 'control' "+
 			"WHERE p."+res.headColumn+" = $1 AND p.version = $2 ORDER BY p.pointer", id, v)
 		if err != nil {
@@ -674,7 +679,7 @@ func (a *API) adopt(res resource, w http.ResponseWriter, r *http.Request, p auth
 	}
 	newer := map[string]pinItem{}
 	for _, pin := range pins {
-		if pin.Newer {
+		if pin.Newer && pin.MemberOf == nil {
 			newer[pin.Pointer] = pin
 		}
 	}
@@ -724,4 +729,64 @@ func (a *API) adopt(res resource, w http.ResponseWriter, r *http.Request, p auth
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": h.ID, "version": version, "digest": next.Digest, "adopted": chosen})
+}
+
+// bundle answers a scenario version's input bundle (AC-16, AC-20; design
+// §1): the version with every library and control version it pins, from
+// its own pin rows, so a reader of the scenario gets exactly what it uses
+// and nothing else, and the installation currency, in canonical form with
+// its digest.
+func (a *API) bundle(res resource, w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	if !a.viewAnywhere(w, r, p, res.view) {
+		return
+	}
+	h, err := a.head(r.Context(), res, p, r.PathValue("id"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	n, err := strconv.Atoi(r.PathValue("version"))
+	if err != nil || n < 1 {
+		notFound(w)
+		return
+	}
+	var s risk.BundleScenario
+	var pins []risk.BundlePin
+	var currency string
+	err = authz.WithDBContext(r.Context(), a.DB, p.DBToken, func(tx pgx.Tx) error {
+		ctx := r.Context()
+		err := tx.QueryRow(ctx, "SELECT digest, document FROM risk."+res.versions+" WHERE "+res.headColumn+" = $1 AND version = $2", h.ID, n).
+			Scan(&s.Digest, &s.Document)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errNotFound
+		}
+		if err != nil {
+			return err
+		}
+		s.ID, s.Version = h.ID, int64(n)
+		rows, err := tx.Query(ctx, "SELECT pointer, to_kind, to_id::text, to_version, to_digest, to_document, coalesce(member_of, '') FROM risk."+res.pins+
+			" WHERE "+res.headColumn+" = $1 AND version = $2", h.ID, n)
+		if err != nil {
+			return err
+		}
+		pins, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (risk.BundlePin, error) {
+			var b risk.BundlePin
+			err := row.Scan(&b.Pointer, &b.Kind, &b.ID, &b.Version, &b.Digest, &b.Document, &b.MemberOf)
+			return b, err
+		})
+		if err != nil {
+			return err
+		}
+		return tx.QueryRow(ctx, "SELECT coalesce((SELECT currency FROM risk.instance), '')").Scan(&currency)
+	})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	b, err := risk.BuildBundle(currency, s, pins)
+	if err != nil {
+		fail(w, err) // a stored document that does not match its digest
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"digest": b.Digest, "bundle": json.RawMessage(b.Canonical)})
 }

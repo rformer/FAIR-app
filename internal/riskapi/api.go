@@ -18,6 +18,9 @@
 // versions; AC-10). Pins report the pinned entry's current version and
 // whether it is newer.
 //
+// T-08 adds GET /api/v1/scenarios/{id}/versions/{v}/bundle: the frozen,
+// self-contained input of a simulation, with its digest (AC-16).
+//
 // T-06 serves the library (assets, asset groups, threat communities, loss
 // profiles; library.view and library.edit) and controls (control.view and
 // control.edit) in the same shape under /api/v1/library and
@@ -79,6 +82,7 @@ var routes = []route{
 	{"GET", "/api/v1/scenarios/{id}/versions", (*API).listScenarioVersions},
 	{"GET", "/api/v1/scenarios/{id}/versions/{version}", (*API).getScenarioVersion},
 	{"GET", "/api/v1/scenarios/{id}/diff", (*API).diffScenario},
+	{"GET", "/api/v1/scenarios/{id}/versions/{version}/bundle", (*API).getScenarioBundle},
 	{"POST", "/api/v1/scenarios/{id}/adopt", (*API).adoptScenarioPins},
 	{"GET", "/api/v1/library", (*API).listLibrary},
 	{"POST", "/api/v1/library", (*API).createLibraryEntry},
