@@ -42,9 +42,9 @@ F-005 turns a scenario into numbers. It runs a Monte Carlo simulation of an F-00
 ### F-005-R-04 Reproducibility
 **As an** auditor, **I want** to verify that a stored result is what its inputs produce, **so that** results can be relied on as evidence (P3, S6).
 
-- F-005-AC-15: THE SYSTEM SHALL record with every run its input bundle's digest, the seed, the iteration count, the control sets, the engine version and the engine image's digest, and a digest of its results.
-- F-005-AC-16: WHEN a holder of `analysis.run` asks to reproduce a run THE SYSTEM SHALL run the recorded inputs again and report whether the results' digest matches; IF the engine version now differs from the run's THEN THE SYSTEM SHALL say so and not report a mismatch as tampering.
-- F-005-AC-17: THE SYSTEM SHALL produce identical results, bit for bit, for the same input bundle, seed, iteration count and control sets on the same engine version, whatever the hardware, the number of workers and the order runs are executed in.
+- F-005-AC-15: THE SYSTEM SHALL record with every run its input bundle's digest, the seed, the iteration count, the control sets, the engine version, the CPU architecture and the engine image's digest, and a digest of its results.
+- F-005-AC-16: WHEN a holder of `analysis.run` asks to reproduce a run THE SYSTEM SHALL run the recorded inputs again and report whether the results' digest matches; IF the engine version or the CPU architecture now differs from the run's THEN THE SYSTEM SHALL say so and not report a mismatch as tampering.
+- F-005-AC-17: THE SYSTEM SHALL produce identical results, bit for bit, for the same input bundle, seed, iteration count and control sets on the same engine version and CPU architecture, whatever the CPU model, the number of workers and the order runs are executed in.
 
 ### F-005-R-05 Aggregation
 **As a** risk analyst, **I want** to combine several scenarios' results, **so that** I can see the loss distribution of a business unit or a group of risks.
@@ -100,3 +100,4 @@ F-005 turns a scenario into numbers. It runs a Monte Carlo simulation of an F-00
 ## Change Log
 - 2026-11-10: Initial draft; scope decisions (confidence-honouring Beta-PERT for every estimate, asynchronous runs, core results with sensitivity, aggregation and convergence diagnostics, bit-for-bit reproducibility per engine version) taken with Robert Former.
 - 2026-11-10: **Approved** by Robert Former, with the open questions' proposals as stated (to be settled in the design).
+- 2026-11-10: AC-15 to AC-17 amended in the design (decided with Robert Former): bit-for-bit identical results on the same engine version and CPU architecture; runs record the architecture, and a reproduction on another architecture is labelled as one on another engine version is.
