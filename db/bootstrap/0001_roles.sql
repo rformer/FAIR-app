@@ -24,6 +24,10 @@
 --                           through audit_definer's functions; NOBYPASSRLS
 --   risk_definer   NOLOGIN  owns the risk schema's trigger functions (F-003 T-03):
 --                           version checks, head advances, pins; subject to RLS
+--   estimate_definer NOLOGIN owns the estimate schema's functions (F-004 T-04):
+--                           estimators' and jobs' access to requests, answers,
+--                           calibration; RLS admits it only where a table
+--                           allows it (ADR-007 amendment 3)
 --
 -- Required psql variables: dbname, migrator_password, rw_password,
 -- engine_password, posture_password, gateway_password, audit_password
@@ -34,7 +38,7 @@ DO $$
 DECLARE
   r text;
 BEGIN
-  FOREACH r IN ARRAY ARRAY['fair_owner', 'authz_definer', 'posture_definer', 'rollup_definer', 'bu_guard_definer', 'audit_definer', 'risk_definer'] LOOP
+  FOREACH r IN ARRAY ARRAY['fair_owner', 'authz_definer', 'posture_definer', 'rollup_definer', 'bu_guard_definer', 'audit_definer', 'risk_definer', 'estimate_definer'] LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
       EXECUTE format('CREATE ROLE %I NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS', r);
     END IF;
@@ -81,6 +85,8 @@ GRANT bu_guard_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
 GRANT audit_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
 -- And for the risk data model (F-003 T-03).
 GRANT risk_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
+-- And for estimate capture (F-004 T-04).
+GRANT estimate_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
 
 -- Lock down the database: nobody connects unless granted.
 REVOKE ALL ON DATABASE :"dbname" FROM PUBLIC;

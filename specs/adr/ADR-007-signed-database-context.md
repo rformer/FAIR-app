@@ -65,3 +65,19 @@ Status: Accepted (Robert Former, 2026-11-06; F-003 design §11)
 **Consequences.**
 - The RLS harness (T-10) exercises every shared-down table, including the restricted cases: a sibling's entries, a restricted BU's entries seen from outside, and a restricted BU's own view of its ancestors are all refused.
 - Only F-003's `library` and `control` tables use it in v1.
+
+## Amendment 3: sanctioned definer access (2026-11-10)
+Status: Accepted (Robert Former, 2026-11-10; F-004 T-04)
+
+**Context.** F-004's estimate requests are scenario data, owned by the scenario's BU under the BU policies. Estimators answer the requests addressed to them while holding `estimate.submit`, not `scenario.view`, so they have no read scope there; the leader's due-date job closes requests with no user context at all. Definer roles are subject to RLS too, so the functions that serve estimators and jobs cannot see or update those rows. F-001 met the same need for roll-ups and the archive guard with policies for one named role each (`bu_rollup`, `bu_guard`), and `authz.apply_bu_rls` refuses any other policy.
+
+**Decision.**
+- `authz.allow_definer(table, role)` gives one named definer role read and update access to a registered BU-owned table: policies `bu_definer_select` (`FOR SELECT`) and `bu_definer_update` (`FOR UPDATE`), both `TO <role> USING (true)`, the update `WITH CHECK (true)`; the role is granted `SELECT` and `UPDATE` only, never `INSERT` or `DELETE`.
+- The role must be `NOLOGIN`, `NOBYPASSRLS`, named `*_definer`, granted to no login role, and not `rollup_definer` or `bu_guard_definer`. It is recorded in `iam.bu_owned_tables.definer`; one per table.
+- `authz.apply_bu_rls` keeps these policies when it re-applies a table's BU policies.
+- The role's functions are the only callers. They take the caller from the signed context and enforce who may read or change what (for F-004: the addressed estimator holding `estimate.submit` at the request's BU, checked on every call).
+
+**Consequences.**
+- The RLS harness checks the two policies against the registry: the recorded role alone, `true`, the right commands, and no privileges beyond `SELECT` and `UPDATE`.
+- Application roles are unaffected: their access remains the BU policies.
+- Used for `estimate_definer` on F-004's request tables in v1.

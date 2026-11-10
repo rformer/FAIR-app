@@ -13,7 +13,10 @@
 //     BUs only; F-001 T-30; bu_guard: SELECT, for bu_guard_definer alone,
 //     every row, for the archive guard's count; F-001 T-31), owned by
 //     fair_owner, nothing granted to PUBLIC and nothing but SELECT to
-//     rollup_definer and bu_guard_definer;
+//     rollup_definer and bu_guard_definer; and, for a table with a
+//     registered definer (ADR-007 amendment 3; F-004), bu_definer_select
+//     and bu_definer_update for that role alone, every row, the role
+//     holding SELECT and UPDATE and nothing else;
 //   - context: missing, malformed, forged, wrong-key, expired, overlong and
 //     stale tokens see and change nothing;
 //   - writes: write scope, not read scope, governs inserts, updates and
@@ -99,7 +102,8 @@ type run struct {
 	env      Env
 	fx       Fixture
 	rt       string
-	shared   bool // registered shared_down (inherited read)
+	shared   bool   // registered shared_down (inherited read)
+	definer  string // registered definer role (ADR-007 amendment 3), or ""
 	key      authz.ContextKey
 	userID   string
 	version  int64
@@ -142,7 +146,7 @@ func randHex(n int) string {
 
 func (r *run) setup() error {
 	a := r.env.Admin
-	if err := a.QueryRow(r.ctx, "SELECT resource_type, shared_down FROM iam.bu_owned_tables WHERE table_name = $1::regclass", r.fx.Table).Scan(&r.rt, &r.shared); err != nil {
+	if err := a.QueryRow(r.ctx, "SELECT resource_type, shared_down, coalesce(definer::text, '') FROM iam.bu_owned_tables WHERE table_name = $1::regclass", r.fx.Table).Scan(&r.rt, &r.shared, &r.definer); err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
@@ -305,6 +309,9 @@ func (r *run) structure() {
 		r.fail("structure", "owned by %s; BU-owned tables must be owned by fair_owner", owner)
 	}
 	want := map[string]string{"bu_select": "r", "bu_insert": "a", "bu_update": "w", "bu_delete": "d", "bu_rollup": "r", "bu_guard": "r"}
+	if r.definer != "" {
+		want["bu_definer_select"], want["bu_definer_update"] = "r", "w"
+	}
 	rows, err := r.env.Admin.Query(r.ctx, `SELECT polname, polcmd::text,
 		coalesce(pg_get_expr(polqual, polrelid), ''), coalesce(pg_get_expr(polwithcheck, polrelid), ''),
 		(SELECT string_agg(CASE WHEN o = 0 THEN 'PUBLIC' ELSE o::regrole::text END, ',' ORDER BY o) FROM unnest(polroles) o)
@@ -333,6 +340,18 @@ func (r *run) structure() {
 			// Every row, for the archive guard's count alone (AC-18).
 			if roles != "bu_guard_definer" || qual != "true" || check != "" {
 				r.fail("structure", "policy bu_guard (roles %s, %q) must be for bu_guard_definer alone", roles, qual)
+			}
+			continue
+		}
+		if name == "bu_definer_select" || name == "bu_definer_update" {
+			// Every row, for the registered definer's functions alone
+			// (ADR-007 amendment 3).
+			wantCheck := ""
+			if name == "bu_definer_update" {
+				wantCheck = "true"
+			}
+			if roles != r.definer || qual != "true" || check != wantCheck {
+				r.fail("structure", "policy %s (roles %s, %q, %q) must be for the registered definer %s alone, every row", name, roles, qual, check, r.definer)
 			}
 			continue
 		}
@@ -379,6 +398,14 @@ func (r *run) structure() {
 		WHERE c.oid = $1::regclass AND a.grantee IN ('rollup_definer'::regrole, 'bu_guard_definer'::regrole) AND a.privilege_type <> 'SELECT')`,
 		r.fx.Table).Scan(&extra); err == nil && extra {
 		r.fail("structure", "rollup_definer or bu_guard_definer holds more than SELECT")
+	}
+	if r.definer != "" {
+		var more bool
+		if err := r.env.Admin.QueryRow(r.ctx, `SELECT EXISTS (SELECT 1 FROM pg_class c, aclexplode(c.relacl) a
+			WHERE c.oid = $1::regclass AND a.grantee = $2::regrole AND a.privilege_type NOT IN ('SELECT', 'UPDATE'))`,
+			r.fx.Table, r.definer).Scan(&more); err == nil && more {
+			r.fail("structure", "the definer %s holds more than SELECT and UPDATE", r.definer)
+		}
 	}
 }
 
