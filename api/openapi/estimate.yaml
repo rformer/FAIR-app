@@ -89,6 +89,86 @@ components:
         max: { type: string, description: "A decimal" }
         confidence: { type: string, description: "A decimal between 0 and 1, exclusive" }
 paths:
+  /api/v1/estimates/requests/{id}/answers:
+    get:
+      operationId: getRequestAnswers
+      tags: [requests]
+      summary: Submitted answers side by side, with the pools' previews
+      description: >-
+        Per factor, every submitted revision (never drafts) with the estimator's calibration when they
+        answered, and previews of the equal-weight and calibration-weighted pools of the latest answers
+        given at the request's confidence (AC-15).
+      x-permission: scenario.view (under RLS)
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "200":
+          description: The answers
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [request, estimators, factors]
+                properties:
+                  request: { $ref: "#/components/schemas/Request" }
+                  estimators: { type: array, items: { type: object } }
+                  factors: { type: array, items: { type: object } }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/estimates/requests/{id}/accept:
+    post:
+      operationId: acceptRequest
+      tags: [requests]
+      summary: Accept factors into a new scenario version
+      description: >-
+        Each factor by one answer (single), an equal-weight or calibration-weighted pool of the chosen
+        estimators' latest answers, or the analyst's own estimate (own), saved as one new version of the
+        scenario (AC-16). Each accepted estimate carries its provenance (the request, the method, the answers
+        used with their weights and calibration), which the database re-computes and verifies (AC-17,
+        AC-18). A newer scenario version than `expected_version` refuses it (409 `stale_version`).
+      x-permission: estimate.request and scenario.edit at the request's BU
+      x-reason-field: change_note
+      x-audit-events: [scenario.version_saved, estimate.accepted]
+      parameters:
+        - $ref: "#/components/parameters/ID"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expected_version, change_note, factors]
+              additionalProperties: false
+              properties:
+                expected_version: { type: integer }
+                change_note: { type: string, minLength: 1, maxLength: 1000 }
+                factors:
+                  type: array
+                  minItems: 1
+                  maxItems: 60
+                  items:
+                    type: object
+                    required: [pointer, method]
+                    additionalProperties: false
+                    properties:
+                      pointer: { type: string }
+                      method: { enum: [single, equal, calibration, own] }
+                      estimators: { type: array, items: { type: string, format: uuid }, description: "Default: every estimator with a submitted estimate" }
+                      estimate: { type: object, description: "The analyst's own estimate (own only)" }
+      responses:
+        "200":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [scenario_id, version, digest]
+                properties: { scenario_id: { type: string, format: uuid }, version: { type: integer }, digest: { type: string } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
   /api/v1/estimates/inbox:
     get:
       operationId: listInbox

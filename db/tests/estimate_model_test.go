@@ -50,6 +50,9 @@ func TestEstimateModel(t *testing.T) {
 	// A scenario whose contact frequency was accepted from an estimate
 	// request: the provenance is stored as given.
 	doc := modeltest.Set(ra.scenarioDoc(t), "/lef/tef/contact_frequency", modeltest.Elicited())
+	// Its request is not in this installation: provenance from elsewhere is
+	// marked imported (T-08 verifies the rest).
+	modeltest.Set(doc, "/lef/tef/contact_frequency/elicitation/imported", true)
 	got = ra.call(t, "POST", "analyst", "/api/v1/scenarios", map[string]any{"bu_id": ra.bu["A"], "document": doc, "change_note": "Accepted"})
 	if got.code != 201 {
 		t.Fatalf("scenario: %d %s", got.code, got.raw)

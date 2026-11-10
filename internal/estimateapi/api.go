@@ -22,6 +22,12 @@
 //	PATCH /api/v1/estimates/requests/{id}        due date, estimators
 //	POST  /api/v1/estimates/requests/{id}/cancel
 //
+// T-08 serves review and acceptance (scenario.view to review; estimate.request
+// and scenario.edit to accept):
+//
+//	GET  /api/v1/estimates/requests/{id}/answers   submitted answers side by side, with pool previews
+//	POST /api/v1/estimates/requests/{id}/accept    a new scenario version with the accepted estimates
+//
 // T-07 serves the estimator's inbox (estimate.submit; a request only to its
 // current estimators, through estimate_definer's functions):
 //
@@ -70,6 +76,8 @@ var routes = []route{
 	{"GET", "/api/v1/estimates/requests/{id}", (*API).getRequest, false},
 	{"PATCH", "/api/v1/estimates/requests/{id}", (*API).changeRequest, false},
 	{"POST", "/api/v1/estimates/requests/{id}/cancel", (*API).cancelRequest, false},
+	{"GET", "/api/v1/estimates/requests/{id}/answers", (*API).getRequestAnswers, false},
+	{"POST", "/api/v1/estimates/requests/{id}/accept", (*API).acceptRequest, false},
 	{"GET", "/api/v1/estimates/inbox", (*API).listInbox, false},
 	{"GET", "/api/v1/estimates/inbox/{id}", (*API).getInboxRequest, false},
 	{"PUT", "/api/v1/estimates/inbox/{id}/answers", (*API).saveAnswers, false},

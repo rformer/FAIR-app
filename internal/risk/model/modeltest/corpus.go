@@ -261,6 +261,7 @@ func Corpus() []Case {
 			"replacement": est("0", "1", "2", "currency"), "fines_judgments": est("0", "1", "2", "currency"),
 			"competitive_advantage": est("0", "1", "2", "currency"), "reputation": est("0", "1", "2", "currency")}},
 		{"an accepted estimate", "scenario", "/lef/tef/contact_frequency", Elicited()},
+		{"imported provenance", "scenario", "/lef/tef/contact_frequency", nil},
 		{"observed losses", "reference_class", "/data", map[string]any{"kind": "losses", "unit": "currency", "amounts": []any{"12000", "250000.5", "0"}}},
 	}
 	for _, c := range valid {
@@ -270,6 +271,10 @@ func Corpus() []Case {
 			d["value_basis"] = "Replacement cost of the platform and its data."
 		case "group valued by members":
 			d["valuation"] = "members"
+		case "imported provenance":
+			e := Elicited()
+			e["elicitation"].(map[string]any)["imported"] = true
+			d = Set(Scenario(), c.pointer, e)
 		}
 		out = append(out, Case{Name: c.kind + ": " + c.name, Kind: c.kind, Doc: mustJSON(d), Valid: true})
 	}
@@ -412,6 +417,7 @@ func Corpus() []Case {
 		{"revision zero", cf + "/elicitation/answers/0/revision", 0, "", true},
 		{"answer without a name", cf + "/elicitation/answers/0/name", "", "", true},
 		{"unknown provenance field", cf + "/elicitation/colour", "red", "", true},
+		{"imported not a boolean", cf + "/elicitation/imported", "yes", "", true},
 	} {
 		d := Set(Scenario(), cf, Elicited())
 		if m.name == "elicitation source without provenance" {

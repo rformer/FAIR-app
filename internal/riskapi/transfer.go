@@ -457,6 +457,13 @@ func (a *API) importRisk(w http.ResponseWriter, r *http.Request, p authz.Princip
 				if err != nil {
 					return err
 				}
+				// Provenance cannot be verified where its requests are not
+				// (F-004 AC-31): it arrives marked imported.
+				if pl.item.Kind == model.KindScenario {
+					if nd, err = model.MarkProvenanceImported(nd.Canonical); err != nil {
+						return err
+					}
+				}
 				pl.docs[i] = nd
 			}
 		}

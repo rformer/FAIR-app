@@ -57,6 +57,7 @@
       "properties": {
         "request": { "$ref": "#/$defs/uuid" },
         "method": { "enum": ["single", "equal", "calibration", "own"] },
+        "imported": { "type": "boolean", "description": "Came with an import; not verified in this installation (F-004 AC-31)" },
         "confidence": { "$ref": "#/$defs/decimal" },
         "answers": {
           "type": "array", "maxItems": 50,

@@ -405,6 +405,13 @@ events:
     requires: [target]
     attributes: [filters, format, rows]
     description: "An entitlement report or restricted-BU access listing was exported as CSV or PDF (T-38)"
+  - type: estimate.accepted
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [factors, methods, scenario, version]
+    description: "Factors of an estimate request were accepted into a new scenario version, by one answer, a pool or the analyst's own estimate, with provenance the database verifies (F-004 T-08, AC-16 to AC-18)"
   - type: estimate.answer_saved
     category: risk_data
     severities: [low]

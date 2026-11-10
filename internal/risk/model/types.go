@@ -96,6 +96,11 @@ type Elicitation struct {
 	Method     string           `json:"method"`
 	Confidence Decimal          `json:"confidence"`
 	Answers    []ElicitedAnswer `json:"answers"`
+	// Imported marks provenance that came with an import (F-004 AC-31): its
+	// request is another installation's, so it is not verified here and is
+	// shown as such. Without it, the database verifies the provenance
+	// against the request's answers (F-004 T-08).
+	Imported bool `json:"imported,omitempty"`
 }
 
 // ElicitedAnswer is one answer an accepted estimate used.
