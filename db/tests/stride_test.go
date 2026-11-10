@@ -67,6 +67,40 @@ var strideSuite = map[string][]string{
 // attack the same mitigation.
 // strideF002 maps F-002 design §8 (T-21) to the tests that attack each
 // mitigation.
+// strideF004 maps F-004's design §8 threats (T-16) to their tests.
+var strideF004 = map[string][]string{
+	"S: an estimator answers as another person | Answers only through definer functions taking the caller from the signed context; addressee and permission checked per call": {
+		"db/tests:TestSTRIDEF004AnswerAuthor", "db/tests:TestEstimateInbox",
+	},
+	"T: an answer is changed after it was used | Revisions append-only for every role; provenance copied into the scenario version under its digest and re-checked by the database": {
+		"db/tests:TestSTRIDEF004AnswerTamper", "db/tests:TestEstimateSchema", "db/tests:TestEstimateAcceptance",
+	},
+	"T: a client supplies a pooled result | The service computes combinations; the database re-computes them from the referenced revisions and refuses a mismatch": {
+		"db/tests:TestSTRIDEF004CombinationChecked", "db/tests:TestEstimateAcceptance",
+	},
+	"R: an acceptance cannot be attributed | Audited in its transaction; provenance names the request, method and answers": {
+		"db/tests:TestEstimateAuditEvents",
+	},
+	"I: an estimator is anchored by other answers or the scenario | Estimators read only their own answers and the snapshot; no scenario permissions in the Estimator role; drafts hidden": {
+		"db/tests:TestSTRIDEF004Independence", "db/tests:TestEstimateInbox",
+	},
+	"I: a removed estimator, or one without the permission at the BU, keeps reading | Addressee and `estimate.submit` at the BU checked on every call": {
+		"db/tests:TestSTRIDEF004EstimatorScope",
+	},
+	"I: question answers reach a person taking an exercise | No table privileges; functions return truths only after submission": {
+		"db/tests:TestSTRIDEF004QuestionSecrecy", "db/tests:TestQuestionSets",
+	},
+	"I: calibration records are exposed | Visibility rules in the functions; views of others' records audited; retention": {
+		"db/tests:TestSTRIDEF004CalibrationPrivacy", "db/tests:TestCalibration",
+	},
+	"D: request, answer or exercise floods | Limits (§4.4), body limits, settings bounds": {
+		"db/tests:TestEstimateLimits", "db/tests:TestEstimateSchema",
+	},
+	"E: an estimator edits the scenario or accepts answers | Acceptance needs `estimate.request` and `scenario.edit`; the Estimator role holds neither": {
+		"db/tests:TestSTRIDEF004Escalation",
+	},
+}
+
 // strideF003 maps F-003's design §8 threats (T-15) to their tests.
 var strideF003 = map[string][]string{
 	"S: an analyst saves under another identity | Author from the signed DB context (ADR-007), never the body": {
@@ -206,6 +240,7 @@ func TestSTRIDECatalog(t *testing.T) {
 		{"F-001-identity-bu-rbac", "## 7.", 11, strideF001},
 		{"F-002-audit-trail", "## 8.", 9, strideF002},
 		{"F-003-fair-data-model", "## 8.", 11, strideF003},
+		{"F-004-estimate-capture", "## 8.", 10, strideF004},
 	} {
 		rows := threatRows(t, filepath.Join(root, "specs", "features", c.feature, "design.md"), c.section)
 		if len(rows) < c.min {
