@@ -835,3 +835,45 @@ func (v *validator) control(c *Control) {
 	}
 	v.effects("/effects", c.Effects)
 }
+
+// ValidateEstimate checks one estimate, for a factor estimated in unit, as
+// a document's estimates are checked (AC-05, AC-06), and returns its
+// canonical form. Pointers in problems are relative to the estimate. An
+// answer to an estimate request is such an estimate, without elicitation
+// provenance (F-004 design §3.3).
+func ValidateEstimate(unit string, raw []byte) ([]byte, Problems) {
+	generic, err := canon.Parse(raw)
+	if err != nil {
+		return nil, Problems{{"", "not a JSON document: " + err.Error()}}
+	}
+	if _, ok := generic.(map[string]any); !ok {
+		return nil, Problems{{"", "not a JSON object"}}
+	}
+	e := &Estimate{}
+	var unknown Problems
+	unknownFields(reflect.TypeOf(e), generic, "", &unknown)
+	if len(unknown) > 0 {
+		return nil, unknown
+	}
+	d := json.NewDecoder(bytes.NewReader(raw))
+	d.DisallowUnknownFields()
+	if err := d.Decode(e); err != nil {
+		return nil, Problems{structural(err)}
+	}
+	if e.Elicitation != nil {
+		return nil, Problems{{"/elicitation", "an answer carries no elicitation provenance"}}
+	}
+	v := &validator{}
+	v.estimate("", e, unit)
+	if len(v.problems) > 0 {
+		return nil, v.problems
+	}
+	out, err := json.Marshal(e)
+	if err == nil {
+		out, err = canon.Canonicalize(out)
+	}
+	if err != nil {
+		return nil, Problems{{"", "cannot write the canonical form: " + err.Error()}}
+	}
+	return out, nil
+}

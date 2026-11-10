@@ -21,6 +21,13 @@
 //	GET   /api/v1/estimates/requests/{id}        read one, with factors, estimators, references and context
 //	PATCH /api/v1/estimates/requests/{id}        due date, estimators
 //	POST  /api/v1/estimates/requests/{id}/cancel
+//
+// T-07 serves the estimator's inbox (estimate.submit; a request only to its
+// current estimators, through estimate_definer's functions):
+//
+//	GET /api/v1/estimates/inbox                  the requests addressed to the caller
+//	GET /api/v1/estimates/inbox/{id}             one, as its estimator sees it
+//	PUT /api/v1/estimates/inbox/{id}/answers     save drafts or submit answers
 package estimateapi
 
 import (
@@ -63,6 +70,9 @@ var routes = []route{
 	{"GET", "/api/v1/estimates/requests/{id}", (*API).getRequest, false},
 	{"PATCH", "/api/v1/estimates/requests/{id}", (*API).changeRequest, false},
 	{"POST", "/api/v1/estimates/requests/{id}/cancel", (*API).cancelRequest, false},
+	{"GET", "/api/v1/estimates/inbox", (*API).listInbox, false},
+	{"GET", "/api/v1/estimates/inbox/{id}", (*API).getInboxRequest, false},
+	{"PUT", "/api/v1/estimates/inbox/{id}/answers", (*API).saveAnswers, false},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).

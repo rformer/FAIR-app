@@ -405,6 +405,13 @@ events:
     requires: [target]
     attributes: [filters, format, rows]
     description: "An entitlement report or restricted-BU access listing was exported as CSV or PDF (T-38)"
+  - type: estimate.answer_saved
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [declined, pointer, revision]
+    description: "An estimator submitted a revision of their answer to one factor of an estimate request (F-004 T-07, AC-08, AC-09); drafts are not recorded"
   - type: estimate.request_affected
     category: risk_data
     severities: [low]
@@ -426,6 +433,13 @@ events:
     bu: required
     attributes: [added, due_at, removed, scenario]
     description: "An open estimate request's due date or estimators changed (F-004 T-06, AC-03)"
+  - type: estimate.request_closed
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [scenario]
+    description: "An estimate request closed at its due date; its estimators are told (F-004 T-07, AC-04)"
   - type: estimate.request_created
     category: risk_data
     severities: [low]

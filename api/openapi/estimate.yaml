@@ -19,6 +19,7 @@ security:
 tags:
   - { name: aids, description: "Estimating aids (F-004 R-03)" }
   - { name: requests, description: "Estimate requests (F-004 R-01)" }
+  - { name: inbox, description: "The estimator's requests and answers (F-004 R-02)" }
 components:
   securitySchemes:
     internalJWT: { type: http, scheme: bearer, bearerFormat: JWT }
@@ -35,6 +36,19 @@ components:
       required: true
       schema: { type: string, format: uuid }
   responses:
+    EstimatorView:
+      description: A request as its estimator sees it
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [request, context, factors, references, answers]
+            properties:
+              request: { type: object }
+              context: { type: object }
+              factors: { type: array, items: { type: object } }
+              references: { type: array, items: { type: object } }
+              answers: { type: array, items: { type: object } }
     Error:
       description: An error
       content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
@@ -75,6 +89,97 @@ components:
         max: { type: string, description: "A decimal" }
         confidence: { type: string, description: "A decimal between 0 and 1, exclusive" }
 paths:
+  /api/v1/estimates/inbox:
+    get:
+      operationId: listInbox
+      tags: [inbox]
+      summary: The requests addressed to the caller, soonest due first
+      x-permission: estimate.submit (a request only to its current estimators)
+      responses:
+        "200":
+          description: Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [requests]
+                properties:
+                  requests:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, title, status, due_at, confidence, factors, answered]
+                      properties:
+                        id: { type: string, format: uuid }
+                        title: { type: string }
+                        status: { enum: [open, complete, closed, cancelled] }
+                        due_at: { type: string, format: date-time }
+                        confidence: { type: string }
+                        scenario_name: { type: [string, "null"] }
+                        factors: { type: integer }
+                        answered: { type: integer, description: "Factors with a submitted answer" }
+                        finished_at: { type: [string, "null"], format: date-time }
+                        created_at: { type: string, format: date-time }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/estimates/inbox/{id}:
+    get:
+      operationId: getInboxRequest
+      tags: [inbox]
+      summary: A request as its estimator sees it
+      description: >-
+        The request's text, the shared context, the factors with their definitions, the pinned reference
+        classes, and the caller's own answers with every revision (AC-07, AC-09). Never the scenario or
+        another estimator's answers.
+      x-permission: estimate.submit at the request's BU, as a current estimator of it
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "200": { $ref: "#/components/responses/EstimatorView" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/estimates/inbox/{id}/answers:
+    put:
+      operationId: saveAnswers
+      tags: [inbox]
+      summary: Save drafts of, or submit, answers to factors
+      description: >-
+        Each answer is an estimate (checked as F-003 checks one, without elicitation provenance) or a decline
+        with a reason, appended as a revision (AC-08 to AC-10). Drafts are the estimator's own; submitted
+        revisions are recorded. Taken while the request is open or complete and before its due date. An
+        estimator who has submitted every factor is finished, and when all are, the request is complete.
+      x-permission: estimate.submit at the request's BU, as a current estimator of it
+      x-reason-exempt: each estimate carries its rationale, each decline its reason
+      x-audit-events: [estimate.answer_saved]
+      parameters:
+        - $ref: "#/components/parameters/ID"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [answers]
+              additionalProperties: false
+              properties:
+                submit: { type: boolean, description: "false (the default) saves drafts" }
+                answers:
+                  type: array
+                  minItems: 1
+                  maxItems: 60
+                  items:
+                    type: object
+                    required: [pointer]
+                    additionalProperties: false
+                    properties:
+                      pointer: { type: string }
+                      estimate: { type: object, description: "min, ml, max, unit, confidence, rationale, sources (F-003 estimate)" }
+                      declined: { type: string, maxLength: 1000 }
+      responses:
+        "200": { $ref: "#/components/responses/EstimatorView" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
   /api/v1/estimates/requests:
     get:
       operationId: listRequests

@@ -44,8 +44,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	auditsvc "github.com/rformer/fair-app/internal/audit"
 	"github.com/rformer/fair-app/internal/config"
 	"github.com/rformer/fair-app/internal/dbconn"
+	"github.com/rformer/fair-app/internal/estimate"
 	"github.com/rformer/fair-app/internal/estimateapi"
 	"github.com/rformer/fair-app/internal/keys"
 	"github.com/rformer/fair-app/internal/migrate"
@@ -224,6 +226,20 @@ func run() error {
 		}
 	}
 	go sc.Run(ctx, func(err error) { logger.Error("settings refresh", "error", err.Error()) })
+
+	// One replica leads and runs the estimate jobs (F-004 design §6.7):
+	// requests close at their due date, reminders go out before it.
+	jobs := estimate.Jobs{DB: pool, ReminderLead: func() time.Duration {
+		d, err := sc.Duration(settings.KeyEstimateReminderLead, "")
+		if err != nil {
+			return 48 * time.Hour // the default of every built-in profile
+		}
+		return d
+	}, OnError: func(err error) { logger.Error("estimate jobs", "error", err.Error()) }}
+	leader := auditsvc.Leader{Pool: pool, Key: estimate.RiskLeaderLockKey, OnChange: func(leading bool) {
+		logger.Info("leader", "leading", leading, "replica", os.Getenv("POD_NAME"))
+	}}
+	go leader.Run(ctx, jobs.Run, func(err error) { logger.Error("leader", "error", err.Error()) })
 
 	srv := server.New(server.Options{
 		Addr:        cfg.ListenAddr,
