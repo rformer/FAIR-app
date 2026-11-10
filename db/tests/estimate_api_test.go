@@ -27,6 +27,7 @@ func estimateAPI(t *testing.T, ra *riskAPIEnv) *riskAPIEnv {
 	t.Cleanup(srv.Close)
 	ea := *ra
 	ea.url = srv.URL
+	ea.n += 100000 // its Idempotency-Keys never meet the risk env's
 	return &ea
 }
 

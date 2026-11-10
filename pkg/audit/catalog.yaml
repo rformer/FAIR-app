@@ -405,6 +405,34 @@ events:
     requires: [target]
     attributes: [filters, format, rows]
     description: "An entitlement report or restricted-BU access listing was exported as CSV or PDF (T-38)"
+  - type: estimate.request_affected
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [cause, scenario]
+    description: "An open estimate request was marked affected: its scenario moved, was archived, or no longer estimates one of its factors (F-004 T-06, AC-06)"
+  - type: estimate.request_cancelled
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [scenario]
+    description: "An open estimate request was cancelled, with a reason; its estimators are told (F-004 T-06, AC-03)"
+  - type: estimate.request_changed
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [added, due_at, removed, scenario]
+    description: "An open estimate request's due date or estimators changed (F-004 T-06, AC-03)"
+  - type: estimate.request_created
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [confidence, due_at, estimators, factors, references, scenario, scenario_version]
+    description: "An estimate request was sent for factors of a scenario to estimators, with a due date (F-004 T-06, AC-01)"
   - type: group_mapping.created
     category: access
     severities: [high]

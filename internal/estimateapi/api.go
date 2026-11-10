@@ -9,8 +9,18 @@
 //	POST /api/v1/estimates/warnings   warnings, the equivalent bet and a preview for an estimate
 //
 // Without a permission that enters estimates anywhere (estimate.submit,
-// scenario.edit, library.edit or control.edit) the routes do not exist for
+// scenario.edit, library.edit or control.edit) the aids do not exist for
 // the caller (404, F-001 AC-25).
+//
+// T-06 serves estimate requests (scenario.view to list and read them, under
+// RLS; estimate.request and scenario.edit at the request's BU to send,
+// change and cancel them):
+//
+//	GET   /api/v1/estimates/requests?scenario=   a scenario's requests
+//	POST  /api/v1/estimates/requests             send one
+//	GET   /api/v1/estimates/requests/{id}        read one, with factors, estimators, references and context
+//	PATCH /api/v1/estimates/requests/{id}        due date, estimators
+//	POST  /api/v1/estimates/requests/{id}/cancel
 package estimateapi
 
 import (
@@ -48,6 +58,11 @@ type route struct {
 
 var routes = []route{
 	{"POST", "/api/v1/estimates/warnings", (*API).checkEstimate, true},
+	{"GET", "/api/v1/estimates/requests", (*API).listRequests, false},
+	{"POST", "/api/v1/estimates/requests", (*API).createRequest, false},
+	{"GET", "/api/v1/estimates/requests/{id}", (*API).getRequest, false},
+	{"PATCH", "/api/v1/estimates/requests/{id}", (*API).changeRequest, false},
+	{"POST", "/api/v1/estimates/requests/{id}/cancel", (*API).cancelRequest, false},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).

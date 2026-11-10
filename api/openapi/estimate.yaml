@@ -18,10 +18,22 @@ security:
     dbContext: []
 tags:
   - { name: aids, description: "Estimating aids (F-004 R-03)" }
+  - { name: requests, description: "Estimate requests (F-004 R-01)" }
 components:
   securitySchemes:
     internalJWT: { type: http, scheme: bearer, bearerFormat: JWT }
     dbContext: { type: apiKey, in: header, name: X-Fair-DB-Context }
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 8, maxLength: 128 }
+    ID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
   responses:
     Error:
       description: An error
@@ -33,6 +45,26 @@ components:
       properties:
         error: { type: string }
         detail: { type: string }
+    Request:
+      type: object
+      required: [id, bu_id, scenario_id, scenario_version, title, instructions, confidence, due_at, status, affected, created_by, created_at, ended_at, factors, estimators]
+      properties:
+        id: { type: string, format: uuid }
+        bu_id: { type: string, format: uuid }
+        scenario_id: { type: string, format: uuid }
+        scenario_version: { type: integer, description: "The version the request was made from" }
+        title: { type: string }
+        instructions: { type: string }
+        confidence: { type: string, description: "The confidence asked for, a decimal" }
+        due_at: { type: string, format: date-time }
+        status: { enum: [open, complete, closed, cancelled] }
+        affected: { type: [string, "null"], enum: [moved, archived, factor_changed, null], description: "Set once when the scenario changed under the request (AC-06)" }
+        cancel_reason: { type: string }
+        created_by: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        ended_at: { type: [string, "null"], format: date-time }
+        factors: { type: integer }
+        estimators: { type: integer, description: "Estimators not removed" }
     Range:
       type: object
       required: [min, ml, max, confidence]
@@ -43,6 +75,160 @@ components:
         max: { type: string, description: "A decimal" }
         confidence: { type: string, description: "A decimal between 0 and 1, exclusive" }
 paths:
+  /api/v1/estimates/requests:
+    get:
+      operationId: listRequests
+      tags: [requests]
+      summary: A scenario's estimate requests, newest first
+      x-permission: scenario.view (under RLS)
+      parameters:
+        - { name: scenario, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [requests]
+                properties:
+                  requests: { type: array, items: { $ref: "#/components/schemas/Request" } }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createRequest
+      tags: [requests]
+      summary: Send an estimate request
+      description: >-
+        Asks the named estimators (each must hold estimate.submit at the scenario's BU) for estimates
+        of factors of the scenario's current version: estimates its taxonomy levels require (AC-01).
+        The context shown to them is a snapshot of the chosen fields, never an estimate (AC-02); the
+        pinned reference classes are copied. Each estimator is sent an assigned notice (AC-05).
+      x-permission: estimate.request and scenario.edit at the scenario's BU
+      x-reason-field: instructions
+      x-audit-events: [estimate.request_created]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scenario_id, title, due_at, factors, estimators]
+              additionalProperties: false
+              properties:
+                scenario_id: { type: string, format: uuid }
+                title: { type: string, minLength: 1, maxLength: 200 }
+                instructions: { type: string, maxLength: 10000 }
+                confidence: { type: string, description: "The confidence to answer at (default 0.9)" }
+                due_at: { type: string, format: date-time }
+                factors: { type: array, minItems: 1, maxItems: 60, items: { type: string, description: "JSON pointer of the factor's estimate" } }
+                context: { type: array, items: { enum: [name, description, scope, analysis_period, asset, threat_community, threat_effects, loss_event] }, description: "Default: all" }
+                estimators: { type: array, minItems: 1, maxItems: 50, items: { type: string, format: uuid } }
+                references:
+                  type: array
+                  maxItems: 20
+                  items:
+                    type: object
+                    required: [id, version]
+                    additionalProperties: false
+                    properties: { id: { type: string, format: uuid }, version: { type: integer, minimum: 1 } }
+      responses:
+        "201":
+          description: Sent
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, scenario_version]
+                properties: { id: { type: string, format: uuid }, scenario_version: { type: integer } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /api/v1/estimates/requests/{id}:
+    get:
+      operationId: getRequest
+      tags: [requests]
+      summary: A request with its factors, estimators, references and context
+      x-permission: scenario.view (under RLS)
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "200":
+          description: The request
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [request, context, factors, estimators, references]
+                properties:
+                  request: { $ref: "#/components/schemas/Request" }
+                  context: { type: object }
+                  factors: { type: array, items: { type: object } }
+                  estimators: { type: array, items: { type: object } }
+                  references: { type: array, items: { type: object } }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: changeRequest
+      tags: [requests]
+      summary: Extend the due date, add or remove estimators
+      description: While the request is open (AC-03). A removed estimator's answers are kept; an added one is sent an assigned notice.
+      x-permission: estimate.request and scenario.edit at the request's BU
+      x-audit-events: [estimate.request_changed]
+      parameters:
+        - $ref: "#/components/parameters/ID"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                due_at: { type: string, format: date-time }
+                add_estimators: { type: array, maxItems: 50, items: { type: string, format: uuid } }
+                remove_estimators: { type: array, maxItems: 50, items: { type: string, format: uuid } }
+                reason: { type: string, maxLength: 1000 }
+      responses:
+        "200":
+          description: Changed
+          content: { application/json: { schema: { type: object, required: [request], properties: { request: { $ref: "#/components/schemas/Request" } } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/estimates/requests/{id}/cancel:
+    post:
+      operationId: cancelRequest
+      tags: [requests]
+      summary: Cancel an open request
+      description: With a reason; its estimators are sent a closed notice (AC-03).
+      x-permission: estimate.request and scenario.edit at the request's BU
+      x-audit-events: [estimate.request_cancelled]
+      parameters:
+        - $ref: "#/components/parameters/ID"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties: { reason: { type: string, minLength: 1, maxLength: 1000 } }
+      responses:
+        "200":
+          description: Cancelled
+          content: { application/json: { schema: { type: object, required: [request], properties: { request: { $ref: "#/components/schemas/Request" } } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /api/v1/estimates/warnings:
     post:
       operationId: checkEstimate
