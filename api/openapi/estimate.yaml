@@ -1,0 +1,103 @@
+openapi: 3.1.0
+info:
+  title: FAIR Estimate API
+  version: "1"
+  contact: { name: FAIR Risk Platform, url: "https://github.com/rformer/FAIR-app" }
+  description: |
+    F-004 design §5. Estimate requests, answers and calibration, served by the risk service
+    behind the gateway, which authenticates the session and forwards an internal JWT (ES256,
+    audience `risk`, at most 5 minutes) and the DB context token it was minted with (F-001
+    design §4, §5.2).
+
+    Without a permission the routes need anywhere they do not exist for the caller (404,
+    F-001 AC-25). The estimating aids change nothing and need no Idempotency-Key.
+servers:
+  - url: /
+security:
+  - internalJWT: []
+    dbContext: []
+tags:
+  - { name: aids, description: "Estimating aids (F-004 R-03)" }
+components:
+  securitySchemes:
+    internalJWT: { type: http, scheme: bearer, bearerFormat: JWT }
+    dbContext: { type: apiKey, in: header, name: X-Fair-DB-Context }
+  responses:
+    Error:
+      description: An error
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        detail: { type: string }
+    Range:
+      type: object
+      required: [min, ml, max, confidence]
+      additionalProperties: false
+      properties:
+        min: { type: string, description: "A decimal" }
+        ml: { type: string, description: "A decimal" }
+        max: { type: string, description: "A decimal" }
+        confidence: { type: string, description: "A decimal between 0 and 1, exclusive" }
+paths:
+  /api/v1/estimates/warnings:
+    post:
+      operationId: checkEstimate
+      tags: [aids]
+      summary: Warnings, the equivalent bet and a preview for an estimate being entered
+      description: >-
+        For the answer form and the scenario editor (F-004 AC-11, AC-12; design §3.7). Warnings advise
+        and never refuse: a most likely value at a bound, a range implausibly narrow or wide for its
+        unit, a probability reaching 0 or 1, a confidence other than the one requested. The preview is an
+        illustrative Beta-PERT curve through the range; the simulation chooses its own distributions
+        (F-005). Nothing is changed or recorded.
+      x-permission: estimate.submit, scenario.edit, library.edit or control.edit (anywhere)
+      x-idempotency-exempt: it changes nothing
+      x-reason-exempt: it changes nothing, so there is nothing to explain
+      x-audit-events: []
+      x-audit-note: a computation over the request body; nothing is changed or read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [unit, estimate]
+              additionalProperties: false
+              properties:
+                unit: { enum: [events_per_year, probability, currency, percentile, fraction] }
+                estimate: { $ref: "#/components/schemas/Range" }
+                requested_confidence: { type: string, description: "The confidence a request asked for, if any" }
+      responses:
+        "200":
+          description: The aids
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [warnings, bet, preview]
+                properties:
+                  warnings:
+                    type: array
+                    items:
+                      type: object
+                      required: [code, message]
+                      properties:
+                        code: { enum: [ml_at_bound, narrow_range, wide_range, reaches_certainty, other_confidence] }
+                        pointer: { type: string }
+                        message: { type: string }
+                  bet: { type: string }
+                  preview:
+                    type: object
+                    required: [shape, points]
+                    properties:
+                      shape: { enum: [beta_pert, point] }
+                      points:
+                        type: array
+                        items: { type: array, items: { type: number }, minItems: 2, maxItems: 2 }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }

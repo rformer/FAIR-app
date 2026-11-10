@@ -96,6 +96,8 @@ var Segments = map[string]string{
 	"entitlements": "iam", "banner": "iam", "breakglass": "iam",
 	// F-003 (design §5): the risk service.
 	"scenarios": "risk", "library": "risk", "controls": "risk",
+	// F-004 (design §5): estimate requests and calibration, in the risk service.
+	"estimates": "risk",
 }
 
 type ctxKey struct{}

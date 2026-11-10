@@ -46,6 +46,7 @@ import (
 
 	"github.com/rformer/fair-app/internal/config"
 	"github.com/rformer/fair-app/internal/dbconn"
+	"github.com/rformer/fair-app/internal/estimateapi"
 	"github.com/rformer/fair-app/internal/keys"
 	"github.com/rformer/fair-app/internal/migrate"
 	"github.com/rformer/fair-app/internal/natspub"
@@ -257,6 +258,12 @@ func run() error {
 		for _, prefix := range riskapi.Prefixes {
 			srv.Mux().Handle(prefix, h)
 			srv.Mux().Handle(prefix+"/", h)
+		}
+		// The estimate API (F-004 design §5), on the same grants.
+		eh := server.SecurityHeaders((&estimateapi.API{DB: pool, Authz: grants, Audit: emitter}).Handler(jwtKeys, nil))
+		for _, prefix := range estimateapi.Prefixes {
+			srv.Mux().Handle(prefix, eh)
+			srv.Mux().Handle(prefix+"/", eh)
 		}
 	} else {
 		logger.Warn("the risk API is off: it needs the gateway's JWT keys (FAIR_JWT_KEYS_DIR)")
