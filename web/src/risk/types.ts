@@ -203,12 +203,13 @@ export function at(doc: unknown, pointer: string): unknown {
 export const LIBRARY_KINDS = ["asset", "asset_group", "threat_community", "loss_profile"] as const;
 export type LibraryKind = (typeof LIBRARY_KINDS)[number];
 
-export const KIND_LABELS: Record<LibraryKind | "control", string> = {
+export const KIND_LABELS: Record<LibraryKind | "control" | "reference_class", string> = {
   asset: "Asset",
   asset_group: "Asset group",
   threat_community: "Threat community",
   loss_profile: "Loss profile",
   control: "Control",
+  reference_class: "Reference class",
 };
 
 export interface AssetDoc {
@@ -269,7 +270,19 @@ export interface ControlDoc {
   effects: Effect[];
 }
 
-export type EntryDoc = AssetDoc | AssetGroupDoc | ThreatCommunityDoc | LossProfileDoc | ControlDoc;
+// F-004 T-03: reference classes are shown read-only; they are created
+// through the API until their pages exist.
+export interface ReferenceClassDoc {
+  kind: "reference_class";
+  schema_version: 1;
+  name: string;
+  description?: string;
+  period: { start: string; end: string };
+  data: { kind: "counts"; series: { start: string; end: string; count: number }[] } | { kind: "losses"; unit: "currency"; amounts: string[] };
+  sources: { type: string; ref: string; note?: string }[];
+}
+
+export type EntryDoc = AssetDoc | AssetGroupDoc | ThreatCommunityDoc | LossProfileDoc | ControlDoc | ReferenceClassDoc;
 
 export interface EntryView {
   entry?: Head;

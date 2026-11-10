@@ -14,10 +14,11 @@ const (
 	KindThreatCommunity = "threat_community"
 	KindLossProfile     = "loss_profile"
 	KindControl         = "control"
+	KindReferenceClass  = "reference_class" // F-004 design §3.8
 )
 
 // Kinds lists every document kind.
-var Kinds = []string{KindScenario, KindAsset, KindAssetGroup, KindThreatCommunity, KindLossProfile, KindControl}
+var Kinds = []string{KindScenario, KindAsset, KindAssetGroup, KindThreatCommunity, KindLossProfile, KindControl, KindReferenceClass}
 
 // SchemaVersion is the document schema version this release writes and reads.
 const SchemaVersion = 1
@@ -37,8 +38,21 @@ var FormsOfLoss = []string{"productivity", "response", "replacement", "fines_jud
 // ThreatEffects are the threat effects a scenario may name (AC-01).
 var ThreatEffects = []string{"confidentiality", "integrity", "availability"}
 
-// SourceTypes are the kinds of an estimate's source (AC-05).
-var SourceTypes = []string{"person", "document", "dataset", "integration"}
+// SourceTypes are the kinds of an estimate's source (AC-05). An
+// "elicitation" source names the estimate request an estimate was accepted
+// from (F-004 design §3.4), and goes with the estimate's elicitation
+// provenance.
+var SourceTypes = []string{"person", "document", "dataset", "integration", SourceElicitation}
+
+// SourceElicitation is the source type of an accepted estimate request.
+const SourceElicitation = "elicitation"
+
+// ElicitationMethods are how an accepted estimate was made from the answers
+// to an estimate request (F-004 design §3.4).
+var ElicitationMethods = []string{"single", "equal", "calibration", "own"}
+
+// CalibrationClasses classify a person's calibration (F-004 design §3.6).
+var CalibrationClasses = []string{"calibrated", "overconfident", "underconfident", "not_measured"}
 
 // Decimal is a decimal number, written in a document as a canonical decimal
 // string (canon.Decimal). On input it may be a JSON number or a string.
@@ -69,6 +83,39 @@ type Estimate struct {
 	Confidence Decimal  `json:"confidence"`
 	Rationale  string   `json:"rationale"`
 	Sources    []Source `json:"sources"`
+	// Elicitation is the provenance of an estimate accepted from an
+	// estimate request (F-004 design §3.5).
+	Elicitation *Elicitation `json:"elicitation,omitempty"`
+}
+
+// Elicitation records how an estimate was accepted from an estimate
+// request: the request, the method, and the answers used, each with its
+// estimator, weight and calibration at the time (F-004 AC-17, AC-18).
+type Elicitation struct {
+	Request    string           `json:"request"`
+	Method     string           `json:"method"`
+	Confidence Decimal          `json:"confidence"`
+	Answers    []ElicitedAnswer `json:"answers"`
+}
+
+// ElicitedAnswer is one answer an accepted estimate used.
+type ElicitedAnswer struct {
+	Estimator   string      `json:"estimator"`
+	Name        string      `json:"name"`
+	Revision    int64       `json:"revision"`
+	Weight      Decimal     `json:"weight"`
+	Min         Decimal     `json:"min"`
+	ML          Decimal     `json:"ml"`
+	Max         Decimal     `json:"max"`
+	Confidence  Decimal     `json:"confidence"`
+	Calibration Calibration `json:"calibration"`
+}
+
+// Calibration is an estimator's calibration when they answered.
+type Calibration struct {
+	Class     string   `json:"class"`
+	RangeRate *Decimal `json:"range_rate,omitempty"`
+	AsOf      string   `json:"as_of"`
 }
 
 // Source is where an estimate came from.
@@ -241,6 +288,34 @@ type Control struct {
 	Description   string      `json:"description,omitempty"`
 	References    []Reference `json:"references,omitempty"`
 	Effects       []Effect    `json:"effects"`
+}
+
+// ReferenceClass is the customer's own data to inform estimates: counts of
+// events over periods, or observed losses (F-004 AC-13; design §3.8).
+type ReferenceClass struct {
+	Kind          string        `json:"kind"`
+	SchemaVersion int           `json:"schema_version"`
+	Name          string        `json:"name"`
+	Description   string        `json:"description,omitempty"`
+	Period        Period        `json:"period"`
+	Data          ReferenceData `json:"data"`
+	Sources       []Source      `json:"sources"`
+}
+
+// ReferenceData is a reference class's data: kind "counts" with a series,
+// or kind "losses" with amounts in the installation currency.
+type ReferenceData struct {
+	Kind    string        `json:"kind"`
+	Unit    string        `json:"unit,omitempty"`
+	Series  []CountPeriod `json:"series,omitempty"`
+	Amounts []Decimal     `json:"amounts,omitempty"`
+}
+
+// CountPeriod is a count of events in a period.
+type CountPeriod struct {
+	Start string `json:"start"`
+	End   string `json:"end"`
+	Count int64  `json:"count"`
 }
 
 // Reference is a control's identifier in an external framework, as text

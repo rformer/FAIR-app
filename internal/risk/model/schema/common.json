@@ -7,6 +7,12 @@
     "schema_version": { "const": 1 },
     "uuid": { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" },
     "date": { "type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$" },
+    "period": {
+      "type": "object",
+      "required": ["start", "end"],
+      "additionalProperties": false,
+      "properties": { "start": { "$ref": "#/$defs/date" }, "end": { "$ref": "#/$defs/date" } }
+    },
     "decimal": {
       "description": "A decimal number: a JSON number on input, or a string in JSON number syntax. Stored documents hold canonical decimal strings.",
       "anyOf": [
@@ -22,7 +28,7 @@
       "required": ["type", "ref"],
       "additionalProperties": false,
       "properties": {
-        "type": { "enum": ["person", "document", "dataset", "integration"] },
+        "type": { "enum": ["person", "document", "dataset", "integration", "elicitation"] },
         "ref": { "$ref": "#/$defs/line", "minLength": 1 },
         "note": { "$ref": "#/$defs/line" }
       }
@@ -39,7 +45,47 @@
         "unit": { "enum": ["events_per_year", "probability", "currency", "percentile", "fraction"] },
         "confidence": { "$ref": "#/$defs/decimal" },
         "rationale": { "$ref": "#/$defs/text", "minLength": 1 },
-        "sources": { "type": "array", "minItems": 1, "maxItems": 20, "items": { "$ref": "#/$defs/source" } }
+        "sources": { "type": "array", "minItems": 1, "maxItems": 20, "items": { "$ref": "#/$defs/source" } },
+        "elicitation": { "$ref": "#/$defs/elicitation" }
+      }
+    },
+    "elicitation": {
+      "description": "F-004 design §3.5: how an estimate was accepted from an estimate request, with the answers it used.",
+      "type": "object",
+      "required": ["request", "method", "confidence", "answers"],
+      "additionalProperties": false,
+      "properties": {
+        "request": { "$ref": "#/$defs/uuid" },
+        "method": { "enum": ["single", "equal", "calibration", "own"] },
+        "confidence": { "$ref": "#/$defs/decimal" },
+        "answers": {
+          "type": "array", "maxItems": 50,
+          "items": {
+            "type": "object",
+            "required": ["estimator", "name", "revision", "weight", "min", "ml", "max", "confidence", "calibration"],
+            "additionalProperties": false,
+            "properties": {
+              "estimator": { "$ref": "#/$defs/uuid" },
+              "name": { "$ref": "#/$defs/name" },
+              "revision": { "type": "integer", "minimum": 1 },
+              "weight": { "$ref": "#/$defs/decimal" },
+              "min": { "$ref": "#/$defs/decimal" },
+              "ml": { "$ref": "#/$defs/decimal" },
+              "max": { "$ref": "#/$defs/decimal" },
+              "confidence": { "$ref": "#/$defs/decimal" },
+              "calibration": {
+                "type": "object",
+                "required": ["class", "as_of"],
+                "additionalProperties": false,
+                "properties": {
+                  "class": { "enum": ["calibrated", "overconfident", "underconfident", "not_measured"] },
+                  "range_rate": { "$ref": "#/$defs/decimal" },
+                  "as_of": { "$ref": "#/$defs/date" }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "estimate_events_per_year": { "$ref": "#/$defs/estimate", "properties": { "unit": { "const": "events_per_year" } } },

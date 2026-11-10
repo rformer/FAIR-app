@@ -20,7 +20,7 @@
         "required": ["kind", "id", "version", "digest", "document"],
         "additionalProperties": false,
         "properties": {
-          "kind": { "enum": ["asset", "asset_group", "threat_community", "loss_profile", "control"] },
+          "kind": { "enum": ["asset", "asset_group", "threat_community", "loss_profile", "control", "reference_class"] },
           "id": { "$ref": "#/$defs/uuid" },
           "version": { "type": "integer", "minimum": 1 },
           "digest": { "$ref": "#/$defs/digest" },
@@ -38,7 +38,7 @@
       "additionalProperties": false,
       "properties": {
         "id": { "$ref": "#/$defs/uuid" },
-        "kind": { "enum": ["scenario", "asset", "asset_group", "threat_community", "loss_profile", "control"] },
+        "kind": { "enum": ["scenario", "asset", "asset_group", "threat_community", "loss_profile", "control", "reference_class"] },
         "versions": {
           "type": "array",
           "minItems": 1,

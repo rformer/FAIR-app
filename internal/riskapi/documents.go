@@ -62,7 +62,7 @@ var (
 		columns: []string{"id", "bu_id", "'scenario'::text AS kind", "name", "owner", "asset_id", "threat_community_id", "current_version", "archived_at", "created_at", "created_by", "seq"}}
 	library = resource{label: "library entry", event: "library", createdType: "library.created", savedType: "library.version_saved", archivedType: "library.archived", restoredType: "library.restored", resourceType: "library", head: "library_entry", versions: "library_version",
 		headColumn: "entry_id", pins: "library_pin", memberCol: "NULL::text", view: "library.view", edit: "library.edit",
-		kinds:   []string{model.KindAsset, model.KindAssetGroup, model.KindThreatCommunity, model.KindLossProfile},
+		kinds:   []string{model.KindAsset, model.KindAssetGroup, model.KindThreatCommunity, model.KindLossProfile, model.KindReferenceClass},
 		shared:  true,
 		filters: []filter{{"bu", "bu_id"}},
 		columns: []string{"id", "bu_id", "kind", "name", "NULL::uuid AS owner", "NULL::uuid AS asset_id", "NULL::uuid AS threat_community_id", "current_version", "archived_at", "created_at", "created_by", "seq"}}

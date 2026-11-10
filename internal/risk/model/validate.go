@@ -30,6 +30,9 @@ const (
 	MaxMembers       = 1000
 	MaxReferences    = 50
 	MaxEffects       = 20
+	MaxAnswers       = 50   // answers an accepted estimate used (F-004 design §4.4)
+	MaxSeries        = 200  // a reference class's count periods (F-004 design §3.8)
+	MaxAmounts       = 1000 // a reference class's observed losses
 )
 
 // Problem is one reason a document is invalid, at a JSON pointer (RFC 6901;
@@ -61,7 +64,7 @@ type PinRef struct {
 // Document is a valid document in canonical form.
 type Document struct {
 	Kind      string
-	Value     any    // *Scenario, *Asset, *AssetGroup, *ThreatCommunity, *LossProfile or *Control
+	Value     any    // *Scenario, *Asset, *AssetGroup, *ThreatCommunity, *LossProfile, *Control or *ReferenceClass
 	Canonical []byte // canonical JSON (package canon)
 	Digest    string // hex SHA-256 of Canonical
 	Pins      []PinRef
@@ -101,6 +104,8 @@ func Validate(kind string, raw []byte) (*Document, Problems) {
 		doc = &LossProfile{}
 	case KindControl:
 		doc = &Control{}
+	case KindReferenceClass:
+		doc = &ReferenceClass{}
 	default:
 		return nil, Problems{{"/kind", fmt.Sprintf("unknown kind %q", kind)}}
 	}
@@ -133,6 +138,8 @@ func Validate(kind string, raw []byte) (*Document, Problems) {
 		v.lossMap("/magnitudes", x.Magnitudes)
 	case *Control:
 		v.control(x)
+	case *ReferenceClass:
+		v.referenceClass(x)
 	}
 	if len(v.problems) > 0 {
 		return nil, v.problems
@@ -309,14 +316,28 @@ func (v *validator) estimate(ptr string, e *Estimate, unit string) {
 	if e.Unit != unit {
 		v.add(ptr+"/unit", "is %q; this factor is estimated in %q", e.Unit, unit)
 	}
-	lo, ml, hi := v.decimal(ptr+"/min", &e.Min), v.decimal(ptr+"/ml", &e.ML), v.decimal(ptr+"/max", &e.Max)
-	if lo != nil && ml != nil && hi != nil && (lo.Cmp(ml) > 0 || ml.Cmp(hi) > 0) {
+	v.triple(ptr, &e.Min, &e.ML, &e.Max, unit)
+	v.confidence(ptr+"/confidence", &e.Confidence)
+	v.text(ptr+"/rationale", e.Rationale, MaxText, true, true)
+	request := ""
+	if e.Elicitation != nil {
+		v.elicitation(ptr+"/elicitation", e.Elicitation, unit)
+		request = e.Elicitation.Request
+	}
+	v.sources(ptr+"/sources", e.Sources, request)
+}
+
+// triple checks a minimum, most likely and maximum for a unit: decimals,
+// ordered, within the unit's range.
+func (v *validator) triple(ptr string, min, ml, max *Decimal, unit string) {
+	lo, m, hi := v.decimal(ptr+"/min", min), v.decimal(ptr+"/ml", ml), v.decimal(ptr+"/max", max)
+	if lo != nil && m != nil && hi != nil && (lo.Cmp(m) > 0 || m.Cmp(hi) > 0) {
 		v.add(ptr, "must be ordered: min ≤ ml ≤ max")
 	}
 	for _, x := range []struct {
 		name string
 		r    *big.Rat
-	}{{"min", lo}, {"ml", ml}, {"max", hi}} {
+	}{{"min", lo}, {"ml", m}, {"max", hi}} {
 		if x.r == nil {
 			continue
 		}
@@ -329,24 +350,93 @@ func (v *validator) estimate(ptr string, e *Estimate, unit string) {
 			v.add(ptr+"/"+x.name, "must be between 0 and 100")
 		}
 	}
-	if c := v.decimal(ptr+"/confidence", &e.Confidence); c != nil && (c.Cmp(ratZero) <= 0 || c.Cmp(ratOne) >= 0) {
-		v.add(ptr+"/confidence", "must be between 0 and 1, exclusive")
+}
+
+// confidence checks a confidence level: between 0 and 1, exclusive.
+func (v *validator) confidence(ptr string, d *Decimal) {
+	if c := v.decimal(ptr, d); c != nil && (c.Cmp(ratZero) <= 0 || c.Cmp(ratOne) >= 0) {
+		v.add(ptr, "must be between 0 and 1, exclusive")
 	}
-	v.text(ptr+"/rationale", e.Rationale, MaxText, true, true)
+}
+
+// sources checks an estimate's or a reference class's sources. An
+// elicitation source is allowed only with elicitation provenance, and then
+// one of them must name its request (F-004 design §3.4).
+func (v *validator) sources(ptr string, sources []Source, request string) {
 	switch {
-	case len(e.Sources) == 0:
-		v.add(ptr+"/sources", "at least one source is required")
-	case len(e.Sources) > MaxSources:
-		v.add(ptr+"/sources", "at most %d sources", MaxSources)
+	case len(sources) == 0:
+		v.add(ptr, "at least one source is required")
+	case len(sources) > MaxSources:
+		v.add(ptr, "at most %d sources", MaxSources)
 	}
-	for i := range e.Sources {
-		s := &e.Sources[i]
-		sp := fmt.Sprintf("%s/sources/%d", ptr, i)
-		if !oneOf(s.Type, SourceTypes) {
+	named := false
+	for i := range sources {
+		s := &sources[i]
+		sp := fmt.Sprintf("%s/%d", ptr, i)
+		switch {
+		case !oneOf(s.Type, SourceTypes):
 			v.add(sp+"/type", "is %q, want one of %s", s.Type, strings.Join(SourceTypes, ", "))
+		case s.Type == SourceElicitation && request == "":
+			v.add(sp+"/type", "is elicitation, which goes only with an accepted estimate's elicitation provenance")
+		case s.Type == SourceElicitation && strings.ToLower(s.Ref) == request:
+			named = true
 		}
 		v.text(sp+"/ref", s.Ref, MaxLine, true, false)
 		v.text(sp+"/note", s.Note, MaxLine, false, false)
+	}
+	if request != "" && !named && len(sources) > 0 {
+		v.add(ptr, "must include an elicitation source whose ref is the request %s", request)
+	}
+}
+
+// elicitation checks an accepted estimate's provenance (F-004 design §3.5).
+// That the values follow from the answers by the method is checked where
+// the answers are known (F-004 T-08).
+func (v *validator) elicitation(ptr string, el *Elicitation, unit string) {
+	v.uuid(ptr+"/request", &el.Request)
+	if !oneOf(el.Method, ElicitationMethods) {
+		v.add(ptr+"/method", "is %q, want one of %s", el.Method, strings.Join(ElicitationMethods, ", "))
+	}
+	v.confidence(ptr+"/confidence", &el.Confidence)
+	n := len(el.Answers)
+	switch {
+	case n > MaxAnswers:
+		v.add(ptr+"/answers", "at most %d answers", MaxAnswers)
+	case el.Method == "single" && n != 1:
+		v.add(ptr+"/answers", "the single method uses exactly one answer")
+	case (el.Method == "equal" || el.Method == "calibration") && n == 0:
+		v.add(ptr+"/answers", "a pool uses at least one answer")
+	}
+	seen := map[string]bool{}
+	for i := range el.Answers {
+		a := &el.Answers[i]
+		ap := fmt.Sprintf("%s/answers/%d", ptr, i)
+		v.uuid(ap+"/estimator", &a.Estimator)
+		if seen[a.Estimator] {
+			v.add(ap+"/estimator", "the estimator's answer is listed twice")
+		}
+		seen[a.Estimator] = true
+		v.text(ap+"/name", a.Name, MaxName, true, false)
+		if a.Revision < 1 {
+			v.add(ap+"/revision", "must be 1 or more")
+		}
+		if w := v.decimal(ap+"/weight", &a.Weight); w != nil && (w.Sign() < 0 || w.Cmp(ratOne) > 0) {
+			v.add(ap+"/weight", "must be between 0 and 1")
+		}
+		v.triple(ap, &a.Min, &a.ML, &a.Max, unit)
+		v.confidence(ap+"/confidence", &a.Confidence)
+		cp := ap + "/calibration"
+		if !oneOf(a.Calibration.Class, CalibrationClasses) {
+			v.add(cp+"/class", "is %q, want one of %s", a.Calibration.Class, strings.Join(CalibrationClasses, ", "))
+		}
+		if a.Calibration.RangeRate != nil {
+			if r := v.decimal(cp+"/range_rate", a.Calibration.RangeRate); r != nil && r.Cmp(ratOne) > 0 {
+				v.add(cp+"/range_rate", "must be between 0 and 1")
+			}
+		}
+		if _, err := time.Parse(time.DateOnly, a.Calibration.AsOf); err != nil {
+			v.add(cp+"/as_of", "must be a date (YYYY-MM-DD)")
+		}
 	}
 }
 
@@ -655,6 +745,74 @@ func (v *validator) assetGroup(g *AssetGroup) {
 		}
 	default:
 		v.add("/valuation", "is %q, want \"whole\" or \"members\"", g.Valuation)
+	}
+}
+
+// referenceClass checks a reference class (F-004 AC-13; design §3.8).
+func (v *validator) referenceClass(r *ReferenceClass) {
+	v.header(r.SchemaVersion)
+	v.text("/name", r.Name, MaxName, true, false)
+	v.text("/description", r.Description, MaxText, false, true)
+	v.period("/period", r.Period)
+	d := &r.Data
+	switch d.Kind {
+	case "counts":
+		if d.Unit != "" {
+			v.add("/data/unit", "is not used with counts")
+		}
+		if len(d.Amounts) > 0 {
+			v.add("/data/amounts", "is not used with counts")
+		}
+		switch {
+		case len(d.Series) == 0:
+			v.add("/data/series", "at least one period is required")
+		case len(d.Series) > MaxSeries:
+			v.add("/data/series", "at most %d periods", MaxSeries)
+		}
+		for i, c := range d.Series {
+			sp := fmt.Sprintf("/data/series/%d", i)
+			v.period(sp, Period{c.Start, c.End})
+			if c.Count < 0 {
+				v.add(sp+"/count", "must not be negative")
+			}
+		}
+	case "losses":
+		if d.Unit != UnitCurrency {
+			v.add("/data/unit", "is %q, want %q", d.Unit, UnitCurrency)
+		}
+		if len(d.Series) > 0 {
+			v.add("/data/series", "is not used with losses")
+		}
+		switch {
+		case len(d.Amounts) == 0:
+			v.add("/data/amounts", "at least one amount is required")
+		case len(d.Amounts) > MaxAmounts:
+			v.add("/data/amounts", "at most %d amounts", MaxAmounts)
+		}
+		for i := range d.Amounts {
+			ap := fmt.Sprintf("/data/amounts/%d", i)
+			if a := v.decimal(ap, &d.Amounts[i]); a != nil && a.Sign() < 0 {
+				v.add(ap, "must not be negative")
+			}
+		}
+	default:
+		v.add("/data/kind", "is %q, want counts or losses", d.Kind)
+	}
+	v.sources("/sources", r.Sources, "")
+}
+
+// period checks a period of dates that ends after it starts.
+func (v *validator) period(ptr string, p Period) {
+	start, err1 := time.Parse(time.DateOnly, p.Start)
+	end, err2 := time.Parse(time.DateOnly, p.End)
+	if err1 != nil {
+		v.add(ptr+"/start", "must be a date (YYYY-MM-DD)")
+	}
+	if err2 != nil {
+		v.add(ptr+"/end", "must be a date (YYYY-MM-DD)")
+	}
+	if err1 == nil && err2 == nil && !end.After(start) {
+		v.add(ptr, "must end after it starts")
 	}
 }
 

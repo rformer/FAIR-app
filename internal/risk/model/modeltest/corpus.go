@@ -32,6 +32,10 @@ const (
 	ctrl2ID  = "44444444-4444-4444-8444-444444444444"
 	ownerID  = "5555aaaa-5555-4555-8555-55555555bbbb"
 	asset2ID = "66666666-6666-4666-8666-666666666666"
+	// F-004: an estimate request and its estimators.
+	requestID = "77777777-7777-4777-8777-777777777777"
+	expertA   = "88888888-8888-4888-8888-888888888888"
+	expertB   = "99999999-9999-4999-8999-999999999999"
 )
 
 func est(lo, ml, hi, unit string) map[string]any {
@@ -138,10 +142,49 @@ func Control() map[string]any {
 	}
 }
 
+// ReferenceClass returns a valid reference class of event counts (F-004
+// design §3.8).
+func ReferenceClass() map[string]any {
+	return map[string]any{
+		"kind": "reference_class", "schema_version": 1, "name": "Ransomware incidents, claims division",
+		"description": "Incidents recorded by the claims division's security team.",
+		"period":      map[string]any{"start": "2022-01-01", "end": "2025-01-01"},
+		"data": map[string]any{"kind": "counts", "series": []any{
+			map[string]any{"start": "2022-01-01", "end": "2023-01-01", "count": 2},
+			map[string]any{"start": "2023-01-01", "end": "2024-01-01", "count": 0},
+			map[string]any{"start": "2024-01-01", "end": "2025-01-01", "count": 3},
+		}},
+		"sources": []any{map[string]any{"type": "dataset", "ref": "Incident register export, 2025-01"}},
+	}
+}
+
+// Elicited returns a valid contact frequency estimate accepted from an
+// estimate request by an equal-weight pool of two answers (F-004 design
+// §3.5).
+func Elicited() map[string]any {
+	e := est("3", "6", "11", "events_per_year")
+	e["rationale"] = "Equal-weight average of 2 answers to estimate request " + requestID + "."
+	e["sources"] = []any{
+		map[string]any{"type": "elicitation", "ref": requestID},
+		map[string]any{"type": "person", "ref": "Dana Ruiz"},
+	}
+	e["elicitation"] = map[string]any{
+		"request": requestID, "method": "equal", "confidence": "0.9",
+		"answers": []any{
+			map[string]any{"estimator": expertA, "name": "Dana Ruiz", "revision": 2, "weight": "0.5", "min": "2", "ml": "5", "max": "10",
+				"confidence": "0.9", "calibration": map[string]any{"class": "calibrated", "range_rate": "0.9", "as_of": "2026-11-09"}},
+			map[string]any{"estimator": expertB, "name": "Sam Okafor", "revision": 1, "weight": "0.5", "min": "4", "ml": "7", "max": "12",
+				"confidence": "0.9", "calibration": map[string]any{"class": "not_measured", "as_of": "2026-11-09"}},
+		},
+	}
+	return e
+}
+
 // Bases maps each kind to its valid base document.
 var Bases = map[string]func() map[string]any{
 	"scenario": Scenario, "asset": Asset, "asset_group": AssetGroup,
 	"threat_community": ThreatCommunity, "loss_profile": LossProfile, "control": Control,
+	"reference_class": ReferenceClass,
 }
 
 // Set returns doc with the value at a JSON pointer replaced (or added); a
@@ -194,7 +237,7 @@ const remove = "\x00remove"
 // Corpus returns every case.
 func Corpus() []Case {
 	var out []Case
-	for _, k := range []string{"scenario", "asset", "asset_group", "threat_community", "loss_profile", "control"} {
+	for _, k := range []string{"scenario", "asset", "asset_group", "threat_community", "loss_profile", "control", "reference_class"} {
 		out = append(out, Case{Name: k + ": base", Kind: k, Doc: mustJSON(Bases[k]()), Valid: true})
 	}
 	valid := []struct {
@@ -217,6 +260,8 @@ func Corpus() []Case {
 			"productivity": est("0", "1", "2", "currency"), "response": est("0", "1", "2", "currency"),
 			"replacement": est("0", "1", "2", "currency"), "fines_judgments": est("0", "1", "2", "currency"),
 			"competitive_advantage": est("0", "1", "2", "currency"), "reputation": est("0", "1", "2", "currency")}},
+		{"an accepted estimate", "scenario", "/lef/tef/contact_frequency", Elicited()},
+		{"observed losses", "reference_class", "/data", map[string]any{"kind": "losses", "unit": "currency", "amounts": []any{"12000", "250000.5", "0"}}},
 	}
 	for _, c := range valid {
 		d := Set(Bases[c.kind](), c.pointer, c.value)
@@ -313,6 +358,17 @@ func Corpus() []Case {
 			{"no magnitudes", "/magnitudes", map[string]any{}, "", true},
 			{"unknown form", "/magnitudes/brand", est("0", "1", "2", "currency"), "", true},
 		},
+		"reference_class": {
+			{"no data kind", "/data/kind", "anecdotes", "", true},
+			{"no periods", "/data/series", []any{}, "", true},
+			{"negative count", "/data/series/0/count", -1, "", true},
+			{"period backwards", "/period/end", "2021-01-01", "/period", false},
+			{"count period backwards", "/data/series/1/end", "2022-06-01", "/data/series/1", false},
+			{"amounts with counts", "/data/amounts", []any{"1"}, "", true},
+			{"no sources", "/sources", []any{}, "", true},
+			{"an elicitation source", "/sources/0/type", "elicitation", "", false},
+			{"secret in a source", "/sources/0/note", "Bearer abcdefghijklmnopqrstuvwxyz0123456789", "", false},
+		},
 		"control": {
 			{"no effects", "/effects", []any{}, "", true},
 			{"effect twice", "/effects/1/factor", "resistance_strength", "/effects/1/factor", false},
@@ -324,7 +380,7 @@ func Corpus() []Case {
 			{"reference without identifier", "/references/0/identifier", "", "", false},
 		},
 	}
-	for _, k := range []string{"scenario", "asset", "asset_group", "threat_community", "loss_profile", "control"} {
+	for _, k := range []string{"scenario", "asset", "asset_group", "threat_community", "loss_profile", "control", "reference_class"} {
 		for _, m := range invalid[k] {
 			v := m.value
 			if v == remove {
@@ -338,6 +394,37 @@ func Corpus() []Case {
 			out = append(out, Case{Name: k + ": " + m.name, Kind: k, Doc: mustJSON(d), Pointer: p, Structural: m.structural})
 		}
 	}
+	// Accepted estimates (F-004 design §3.5): mutations of a scenario whose
+	// contact frequency carries elicitation provenance.
+	const cf = "/lef/tef/contact_frequency"
+	for _, m := range []mutation{
+		{"elicitation source without provenance", cf + "/sources/0/type", "elicitation", "", false},
+		{"provenance without its source", cf + "/elicitation/request", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", cf + "/sources", false},
+		{"unknown method", cf + "/elicitation/method", "median", "", true},
+		{"bad request id", cf + "/elicitation/request", "request-1", "", true},
+		{"single with two answers", cf + "/elicitation/method", "single", cf + "/elicitation/answers", false},
+		{"weight above 1", cf + "/elicitation/answers/0/weight", "1.5", "", false},
+		{"answer unordered", cf + "/elicitation/answers/0/min", "6", cf + "/elicitation/answers/0", false},
+		{"answer confidence 1", cf + "/elicitation/answers/0/confidence", "1", "", false},
+		{"estimator twice", cf + "/elicitation/answers/1/estimator", expertA, "", false},
+		{"unknown calibration class", cf + "/elicitation/answers/0/calibration/class", "great", "", true},
+		{"calibration date", cf + "/elicitation/answers/0/calibration/as_of", "yesterday", "", true},
+		{"revision zero", cf + "/elicitation/answers/0/revision", 0, "", true},
+		{"answer without a name", cf + "/elicitation/answers/0/name", "", "", true},
+		{"unknown provenance field", cf + "/elicitation/colour", "red", "", true},
+	} {
+		d := Set(Scenario(), cf, Elicited())
+		if m.name == "elicitation source without provenance" {
+			d = Scenario()
+		}
+		d = Set(d, m.pointer, m.value) // "provenance without its source": the source still names the original request
+		p := m.problem
+		if p == "" {
+			p = m.pointer
+		}
+		out = append(out, Case{Name: "scenario: " + m.name, Kind: "scenario", Doc: mustJSON(d), Pointer: p, Structural: m.structural})
+	}
+
 	// Documents that are not the kind asked for, or not documents at all.
 	out = append(out,
 		Case{Name: "wrong kind", Kind: "asset", Doc: mustJSON(Control()), Pointer: "/kind", Structural: true},

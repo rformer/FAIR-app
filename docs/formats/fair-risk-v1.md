@@ -1,6 +1,6 @@
 # fair.risk.v1: risk data export and import
 
-F-003 T-11 (F-003-AC-24, AC-25; design §6.5). A `fair.risk.v1` file carries scenarios, library entries (assets, asset groups, threat communities, loss profiles) and controls between FAIR instances, or out of one for safekeeping. Its JSON Schema is [`fair-risk-v1.schema.json`](fair-risk-v1.schema.json).
+F-003 T-11 (F-003-AC-24, AC-25; design §6.5). A `fair.risk.v1` file carries scenarios, library entries (assets, asset groups, threat communities, loss profiles, and reference classes since F-004 T-03) and controls between FAIR instances, or out of one for safekeeping. Its JSON Schema is [`fair-risk-v1.schema.json`](fair-risk-v1.schema.json).
 
 ## Getting one
 
@@ -51,3 +51,7 @@ Fractions are canonical decimal strings, such as `"0.25"` or `"1500"`. A file's 
 - **Pinned versions:** a pinned version you already have, with the same id, version and digest, is used as it is. Otherwise it becomes a new entry at version 1.
 - **All or nothing:** the import runs in one transaction, and if anything fails nothing is kept. It is recorded as `risk.imported` (with the source file's digest) and as each created item's event.
 - **Size:** a file is at most 4 MiB, less 64 KiB for the request around it.
+
+## Accepted estimates (F-004)
+
+An estimate accepted from an estimate request carries an `elicitation` member: the request, the method (`single`, `equal`, `calibration` or `own`), the confidence, and each answer used with its estimator (id and name at the time), revision, weight, values and calibration at the time. One of its sources has type `elicitation` and names the request. The provenance is part of the document and its digest, so it travels with the file and is imported as it is; the request and the calibration records it refers to stay in the installation they came from.

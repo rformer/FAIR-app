@@ -294,7 +294,7 @@ export function EntryPage({ section, id }: { section: EntrySection; id: string }
               ) : null}
             </p>
             <p className="actions">
-              {mayEdit && !h.archived_at ? (
+              {mayEdit && !h.archived_at && d.kind !== "reference_class" ? (
                 <a className="react-aria-Button" href={`/${section}/${id}/edit`}>
                   Edit
                 </a>
@@ -337,6 +337,16 @@ function EntrySummary({ doc, currency }: { doc: EntryDoc; currency: string | nul
     case "control":
       for (const e of doc.effects) rows.push([`Effect on ${factorName(e.factor)}`, showEstimate(e.estimate, currency)]);
       for (const r of doc.references ?? []) rows.push([r.framework, r.identifier]);
+      break;
+    case "reference_class":
+      rows.push(["Period", `${doc.period.start} to ${doc.period.end}`]);
+      if (doc.data.kind === "counts") {
+        const total = doc.data.series.reduce((n, s) => n + s.count, 0);
+        rows.push(["Events", `${total} in ${doc.data.series.length} period${doc.data.series.length === 1 ? "" : "s"}`]);
+      } else {
+        rows.push(["Observed losses", `${doc.data.amounts.length} amount${doc.data.amounts.length === 1 ? "" : "s"}${currency ? ` (${currency})` : ""}`]);
+      }
+      for (const s of doc.sources) rows.push(["Source", s.ref]);
       break;
   }
   return (
@@ -482,8 +492,10 @@ function EditorForm({ section, initial, view }: { section: EntrySection; initial
             <EstimateFields legend="Threat capability" pointer="/threat_capability" value={doc.threat_capability} currency={currency} onChange={(e) => set({ threat_capability: e } as Partial<ThreatCommunityDoc>)} />
           ) : doc.kind === "loss_profile" ? (
             <LossFields doc={doc} currency={currency} set={set} />
-          ) : (
+          ) : doc.kind === "control" ? (
             <ControlFields doc={doc} currency={currency} set={set} />
+          ) : (
+            <p>Reference classes are edited through the API for now.</p>
           )}
         </Section>
         <Section id="save" title="Save">

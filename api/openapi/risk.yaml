@@ -93,7 +93,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         bu_id: { type: string, format: uuid }
-        kind: { enum: [scenario, asset, asset_group, threat_community, loss_profile, control] }
+        kind: { enum: [scenario, asset, asset_group, threat_community, loss_profile, control, reference_class] }
         name: { type: [string, "null"] }
         owner: { type: [string, "null"], format: uuid, description: Scenarios only }
         asset_id: { type: [string, "null"], format: uuid, description: Scenarios only }
@@ -534,7 +534,7 @@ paths:
       x-permission: library.view
       parameters:
         - { name: bu, in: query, schema: { type: string, format: uuid } }
-        - { name: kind, in: query, schema: { enum: [asset, asset_group, threat_community, loss_profile] } }
+        - { name: kind, in: query, schema: { enum: [asset, asset_group, threat_community, loss_profile, reference_class] } }
         - { name: archived, in: query, schema: { enum: ["false", "true", all], default: "false" } }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
         - { name: cursor, in: query, schema: { type: string }, description: The next_cursor of the previous page }
@@ -569,7 +569,7 @@ paths:
               additionalProperties: false
               properties:
                 bu_id: { type: string, format: uuid }
-                kind: { enum: [asset, asset_group, threat_community, loss_profile] }
+                kind: { enum: [asset, asset_group, threat_community, loss_profile, reference_class] }
                 document: { $ref: "#/components/schemas/Document" }
                 change_note: { type: string, minLength: 1, maxLength: 1000 }
       responses:
@@ -607,7 +607,7 @@ paths:
                       properties:
                         key: { type: string }
                         release: { type: string }
-                        kind: { enum: [asset, asset_group, threat_community, loss_profile] }
+                        kind: { enum: [asset, asset_group, threat_community, loss_profile, reference_class] }
                         name: { type: string }
                         illustrative: { type: boolean }
                         guidance: { type: string }
