@@ -213,14 +213,17 @@ func run() error {
 	// the install is seeded), read as every service reads settings; the
 	// service refuses to start while one of them is unbound.
 	sc := settings.NewClient(settings.ClientOptions{Source: settings.DBSource{DB: pool}, Service: "risk", Instance: os.Getenv("POD_NAME")})
-	if err := sc.Register(settings.F004Defs()...); err != nil {
+	// F-005's (design §7) likewise.
+	riskDefs := append(settings.F004Defs(), settings.F005Defs()...)
+	if err := sc.Register(riskDefs...); err != nil {
 		return err
 	}
-	go registerF004(ctx, pool, logger)
+	go registerDefs(ctx, pool, logger, "F-004", settings.F004Defs())
+	go registerDefs(ctx, pool, logger, "F-005", settings.F005Defs())
 	if err := sc.Refresh(ctx); err != nil {
 		return fmt.Errorf("settings: %w", err)
 	}
-	for _, d := range settings.F004Defs() {
+	for _, d := range riskDefs {
 		if _, err := sc.Get(d.Key, ""); err != nil {
 			return fmt.Errorf("settings: %s is not bound by the active profile: %w", d.Key, err)
 		}
@@ -351,15 +354,16 @@ func connect(ctx context.Context, env string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-// registerF004 registers F-004's setting definitions, retrying every 30
-// seconds until it succeeds (posture refuses before the install is seeded).
-func registerF004(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) {
+// registerDefs registers a feature's setting definitions, retrying every
+// 30 seconds until it succeeds (posture refuses before the install is
+// seeded).
+func registerDefs(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, feature string, defs []settings.Def) {
 	for {
-		err := settings.DBRegistrar{DB: pool}.Register(ctx, "F-004", version, settings.F004Defs())
+		err := settings.DBRegistrar{DB: pool}.Register(ctx, feature, version, defs)
 		if err == nil {
 			return
 		}
-		logger.Warn("registering F-004 settings", "error", err.Error())
+		logger.Warn("registering settings", "feature", feature, "error", err.Error())
 		select {
 		case <-ctx.Done():
 			return

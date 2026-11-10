@@ -1,0 +1,18 @@
+# F-005 T-01: binding for simulation.convergence_threshold_bp: RA-3; convergence warning threshold in basis points (F-005 design §7).
+setting: simulation.convergence_threshold_bp
+type: int
+direction: lower_is_stricter
+bu_scopable: false
+profiles:
+  fedramp-moderate:
+    default: 100
+    bound: { max: 500 }
+    platform_choice: "Simulation results (F-005 AC-13): flagged when the mean's relative standard error exceeds 1% (100 basis points); at most 5%"
+  cmmc-l2-r2:
+    default: 100
+    bound: { max: 500 }
+    platform_choice: "Not a security parameter of 800-171; matches FedRAMP Moderate"
+  enterprise-baseline:
+    default: 100
+    bound: { max: 500 }
+    platform_choice: "Matches FedRAMP Moderate"

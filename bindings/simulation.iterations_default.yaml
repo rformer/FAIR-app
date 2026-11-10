@@ -1,0 +1,18 @@
+# F-005 T-01: binding for simulation.iterations_default: RA-3; default iterations of a simulation run (F-005 design §7).
+setting: simulation.iterations_default
+type: int
+direction: higher_is_stricter
+bu_scopable: false
+profiles:
+  fedramp-moderate:
+    default: 100000
+    bound: { min: 10000 }
+    platform_choice: "Simulation runs (F-005 AC-01): 100,000 iterations unless the analyst chooses; at least 10,000"
+  cmmc-l2-r2:
+    default: 100000
+    bound: { min: 10000 }
+    platform_choice: "Not a security parameter of 800-171; matches FedRAMP Moderate"
+  enterprise-baseline:
+    default: 100000
+    bound: { min: 10000 }
+    platform_choice: "Matches FedRAMP Moderate"

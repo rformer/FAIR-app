@@ -1,0 +1,18 @@
+# F-005 T-01: binding for simulation.max_active_runs: SC-5; simulation runs a person may have queued or running (F-005 design §7).
+setting: simulation.max_active_runs
+type: int
+direction: lower_is_stricter
+bu_scopable: false
+profiles:
+  fedramp-moderate:
+    default: 5
+    bound: { max: 50 }
+    platform_choice: "Simulation runs (F-005 AC-05): 5 queued or running per person; at most 50"
+  cmmc-l2-r2:
+    default: 5
+    bound: { max: 50 }
+    platform_choice: "Not a security parameter of 800-171; matches FedRAMP Moderate"
+  enterprise-baseline:
+    default: 5
+    bound: { max: 50 }
+    platform_choice: "Matches FedRAMP Moderate"

@@ -57,7 +57,7 @@ Per control set, from the per-year arrays:
 - **Loss exceedance curve**: 200 annual-loss values, spaced logarithmically from the 0.1st percentile of the positive annual losses to the maximum, each with `P(ALE > x)`, plus the exceedance at every reported percentile.
 - **Breakdown**: mean ALE split into primary and secondary and by form of loss (by stakeholder group for secondary).
 - **Comparison** (AC-12): for each set against the current one, the difference in mean and in percentiles 50, 90, 95 and 99, and the summary of the per-year difference `ALE_s − ALE_current` (common random numbers make it meaningful).
-- **Convergence** (AC-13): standard error of the mean `sd/√n`, relative standard error `SE/mean`, and distribution-free 95% intervals for percentiles 50, 90, 95 and 99 (binomial order-statistic bounds). The warning `not_converged` is raised when the relative standard error exceeds `simulation.convergence_threshold`.
+- **Convergence** (AC-13): standard error of the mean `sd/√n`, relative standard error `SE/mean`, and distribution-free 95% intervals for percentiles 50, 90, 95 and 99 (binomial order-statistic bounds). The warning `not_converged` is raised when the relative standard error exceeds `simulation.convergence_threshold_bp` basis points.
 - **Sensitivity** (AC-14; OQ6): for each input (each estimate the scenario uses and each control effect of the set), the change in mean ALE when the input is fixed at its 5th and at its 95th percentile with every other input sampled as before (same seed), over the first `min(iterations, 20,000)` iterations; and the Spearman rank correlation between the input and ALE over all iterations (for event-level inputs, the year's total of that form). Ordered by the absolute swing.
 
 ### 3.5 Aggregation (AC-18, AC-19)
@@ -131,7 +131,7 @@ SHA-256 (Go) over the canonical form (F-003 `canon`, numbers as the shortest rou
 | `simulation.iterations_min` | 10,000 | at least 1,000 | higher is stricter |
 | `simulation.iterations_max` | 1,000,000 | at most 2,000,000 | lower is stricter |
 | `simulation.max_active_runs` | 5 | 1 to 50 | lower is stricter |
-| `simulation.convergence_threshold` | 0.01 | 0.001 to 0.05 | lower is stricter |
+| `simulation.convergence_threshold_bp` | 100 (1%) | 10 to 500 basis points | lower is stricter |
 
 Results are kept with their scenario (OQ7): no retention setting; they are evidence for acceptance (F-008).
 
@@ -193,3 +193,4 @@ Identical in SaaS, self-hosted and air-gapped. The engine pod has no egress (Net
 ## Change Log
 - 2026-11-10: Initial draft; decisions (Go FIPS gate for the engine's TLS, ADR-013; bit-for-bit per engine version and architecture; per-year arrays in PostgreSQL) taken with Robert Former; requirements OQ1 to OQ8 settled as proposed.
 - 2026-11-10: **Approved** by Robert Former, with ADR-013.
+- 2026-11-10: T-01 (decided with Robert Former): the convergence threshold is the integer setting `simulation.convergence_threshold_bp` in basis points (default 100, bounds 10 to 500), since F-015 has no decimal kind. The profiles bound the loosening side (iterations default ≥ 10,000, minimum ≥ 1,000, maximum ≤ 2,000,000, active runs ≤ 50, threshold ≤ 500); the service keeps the other limits. Iterations maximum and active runs map to SC-5.

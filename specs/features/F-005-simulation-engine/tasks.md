@@ -8,7 +8,7 @@ Every task that adds a migration follows the immutability rule. Every new event 
 ## Phase A — Foundations
 | # | Task | Traces to | Verification | Size | Status |
 |---|---|---|---|---|---|
-| T-01 | F-005 settings (design §7) as `settings.F005Defs()`, bindings, packages 1.5.0; the risk service registers them | AC-01, AC-05, AC-13; §7 | Settings tests (bounds, stricter direction, iterations_min ≤ default ≤ max); release-check passes; the risk service refuses to start on an unbound key | S | Not started |
+| T-01 | F-005 settings (design §7) as `settings.F005Defs()`, bindings, packages 1.5.0; the risk service registers them | AC-01, AC-05, AC-13; §7 | Settings tests (bounds, stricter direction, iterations_min ≤ default ≤ max); release-check passes; the risk service refuses to start on an unbound key | S | Done (2026-11-10) |
 | T-02 | Schema `analysis` (migration): tables of §4.1 with `apply_bu_rls(..., 'analysis')` (RLS harness fixtures), bootstrap role `analysis_definer` (`scripts/db-bootstrap.sh`), append-only finished runs and aggregates (PF023), the functions of §4.2 with limits (§4.3), the aggregate SELECT policy (every member visible), the move trigger on `risk.scenario`; River schema `risk_river` (`db/rivergen`) | AC-01 to AC-06, AC-19, AC-22; §4 | DB tests: app_rw writes only through the functions; finished runs immutable for every role; limits and bounds refused; moving a scenario moves its runs; an aggregate hidden unless every member is visible; RLS harness passes | L | Not started |
 | T-03 | The engine contract `api/proto/fair/engine/v1/engine.proto` (`Info`, `Simulate`, `Aggregate`; progress, result, series chunks, done), generated Go (`internal/api/enginev1`) and Python (`engine/fairsim/_proto`) by `scripts/gen-proto.sh`; the eight catalog entries of §9 | §2, §6.1, §9 | Generated code checked in and reproducible (CI diff check); `TestCatalogMatchesCode` once the events are emitted | S | Not started |
 
@@ -48,3 +48,4 @@ Every task that adds a migration follows the immutability rule. Every new event 
 ## Change Log
 - 2026-11-10: Initial draft.
 - 2026-11-10: **Approved** by Robert Former, with the control mapping added to the requirements.
+- 2026-11-10: T-01: `settings.F005Defs()` (five settings; the threshold as `simulation.convergence_threshold_bp`, design §7 change), bindings, packages 1.5.0 with 38 settings; the risk service registers F-004's and F-005's definitions (`registerDefs`) and refuses to start on an unbound key. Tests use 1.5.0, and a synthetic later release 1.6.0. The service-side limits (minimum ≤ default ≤ maximum, threshold ≥ 10) are checked where runs are requested (T-02).

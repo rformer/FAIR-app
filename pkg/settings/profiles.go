@@ -84,6 +84,35 @@ const (
 	KeyCalibrationRetention    = "calibration.retention"
 )
 
+// F-005 setting keys (design §7).
+const (
+	KeySimulationIterationsDefault = "simulation.iterations_default"
+	KeySimulationIterationsMin     = "simulation.iterations_min"
+	KeySimulationIterationsMax     = "simulation.iterations_max"
+	KeySimulationMaxActiveRuns     = "simulation.max_active_runs"
+	KeySimulationConvergenceBP     = "simulation.convergence_threshold_bp"
+)
+
+// F005Defs returns the F-005 (simulation) setting definitions, registered by
+// the risk service. The profiles bound the loosening side; the service
+// keeps the other limits (design §4.3, §7): iterations_min at least 1,000,
+// the default between the minimum and the maximum, the convergence
+// threshold at least 10 basis points.
+func F005Defs() []Def {
+	return []Def{
+		{Key: KeySimulationIterationsDefault, Kind: KindInt, Direction: HigherIsStricter, Controls: []string{"RA-3"},
+			Description: "Iterations of a simulation run when the analyst does not choose"},
+		{Key: KeySimulationIterationsMin, Kind: KindInt, Direction: HigherIsStricter, Controls: []string{"RA-3"},
+			Description: "The fewest iterations a simulation run may have"},
+		{Key: KeySimulationIterationsMax, Kind: KindInt, Direction: LowerIsStricter, Controls: []string{"SC-5"},
+			Description: "The most iterations a simulation run may have"},
+		{Key: KeySimulationMaxActiveRuns, Kind: KindInt, Direction: LowerIsStricter, Controls: []string{"SC-5"},
+			Description: "Simulation runs a person may have queued or running at once"},
+		{Key: KeySimulationConvergenceBP, Kind: KindInt, Direction: LowerIsStricter, Controls: []string{"RA-3"},
+			Description: "Relative standard error of the mean annualized loss, in basis points, above which a run is flagged as not converged"},
+	}
+}
+
 // F004Defs returns the F-004 (estimate capture and calibration) setting
 // definitions, registered by the risk service. Only the loosening side is
 // bounded by the profiles; the other limits (an exercise of at most 50
@@ -127,9 +156,11 @@ func F002Defs() []Def {
 }
 
 // ReleaseDefs are the setting definitions a release binds: F-001's,
-// F-002's and F-004's. Profile packages cover exactly these
+// F-002's, F-004's and F-005's. Profile packages cover exactly these
 // (internal/profilegen).
-func ReleaseDefs() []Def { return append(append(F001Defs(), F002Defs()...), F004Defs()...) }
+func ReleaseDefs() []Def {
+	return append(append(append(F001Defs(), F002Defs()...), F004Defs()...), F005Defs()...)
+}
 
 const day = 24 * time.Hour
 
@@ -205,6 +236,12 @@ func BuiltinProfiles() []Profile {
 			KeyCalibrationWindow:       {Default: 365 * day, Weakest: 30 * day},
 			KeyCalibrationMinAnswers:   {Default: 20, Weakest: 10},
 			KeyCalibrationRetention:    {Default: 1095 * day, Weakest: 2557 * day},
+			// F-005 (design §7): the same in every family.
+			KeySimulationIterationsDefault: {Default: 100_000, Weakest: 10_000},
+			KeySimulationIterationsMin:     {Default: 10_000, Weakest: 1_000},
+			KeySimulationIterationsMax:     {Default: 1_000_000, Weakest: 2_000_000},
+			KeySimulationMaxActiveRuns:     {Default: 5, Weakest: 50},
+			KeySimulationConvergenceBP:     {Default: 100, Weakest: 500},
 		}
 	}
 
