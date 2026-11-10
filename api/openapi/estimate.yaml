@@ -21,6 +21,7 @@ tags:
   - { name: requests, description: "Estimate requests (F-004 R-01)" }
   - { name: inbox, description: "The estimator's requests and answers (F-004 R-02)" }
   - { name: calibration, description: "Calibration exercises and records (F-004 R-05, R-07)" }
+  - { name: question-sets, description: "Calibration question sets (F-004 R-06)" }
 components:
   securitySchemes:
     internalJWT: { type: http, scheme: bearer, bearerFormat: JWT }
@@ -103,6 +104,185 @@ components:
         max: { type: string, description: "A decimal" }
         confidence: { type: string, description: "A decimal between 0 and 1, exclusive" }
 paths:
+  /api/v1/calibration/question-sets:
+    get:
+      operationId: listQuestionSets
+      tags: [question-sets]
+      summary: Every question set, shipped and custom
+      x-permission: calibration.manage (at the root)
+      responses:
+        "200":
+          description: Done
+          content: { application/json: { schema: { type: object } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createQuestionSet
+      tags: [question-sets]
+      summary: Create a custom question set, as a draft
+      x-permission: calibration.manage (at the root)
+      x-reason-exempt: question set changes are recorded with what changed
+      x-audit-events: [calibration.question_set_changed]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              additionalProperties: false
+              properties:
+                name: { type: string, minLength: 1, maxLength: 200 }
+                description: { type: string, maxLength: 10000 }
+      responses:
+        "201":
+          description: Done
+          content: { application/json: { schema: { type: object } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/calibration/question-sets/{id}:
+    get:
+      operationId: getQuestionSet
+      tags: [question-sets]
+      summary: A set with its questions' latest versions, answers and sources
+      x-permission: calibration.manage (at the root)
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "200":
+          description: Done
+          content: { application/json: { schema: { type: object } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/calibration/question-sets/{id}/questions:
+    post:
+      operationId: addQuestion
+      tags: [question-sets]
+      summary: Add a question to a custom set
+      x-permission: calibration.manage (at the root)
+      x-reason-exempt: question set changes are recorded with what changed
+      x-audit-events: [calibration.question_set_changed]
+      parameters:
+        - $ref: "#/components/parameters/ID"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                kind: { enum: [range, binary], description: "Not for editing: a question's kind does not change" }
+                text: { type: string, minLength: 1, maxLength: 1000 }
+                unit: { type: [string, "null"], maxLength: 100, description: "Range questions only" }
+                answer: { type: string, description: "A decimal (range) or true or false (binary)" }
+                source: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "201":
+          description: Done
+          content: { application/json: { schema: { type: object } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/calibration/question-sets/{id}/activate:
+    post:
+      operationId: activateQuestionSet
+      tags: [question-sets]
+      summary: "Activate a draft custom set: its questions go into new exercises"
+      x-permission: calibration.manage (at the root)
+      x-reason-exempt: question set changes are recorded with what changed
+      x-audit-events: [calibration.question_set_changed]
+      parameters:
+        - $ref: "#/components/parameters/ID"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Done
+          content: { application/json: { schema: { type: object } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/calibration/question-sets/{id}/retire:
+    post:
+      operationId: retireQuestionSet
+      tags: [question-sets]
+      summary: "Retire a custom set: no new exercise draws from it"
+      x-permission: calibration.manage (at the root)
+      x-reason-exempt: question set changes are recorded with what changed
+      x-audit-events: [calibration.question_set_changed]
+      parameters:
+        - $ref: "#/components/parameters/ID"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Done
+          content: { application/json: { schema: { type: object } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/calibration/questions/{id}:
+    put:
+      operationId: editQuestion
+      tags: [question-sets]
+      summary: Save a new version of a question of a custom set
+      x-permission: calibration.manage (at the root)
+      x-reason-exempt: question set changes are recorded with what changed
+      x-audit-events: [calibration.question_set_changed]
+      parameters:
+        - $ref: "#/components/parameters/ID"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                kind: { enum: [range, binary], description: "Not for editing: a question's kind does not change" }
+                text: { type: string, minLength: 1, maxLength: 1000 }
+                unit: { type: [string, "null"], maxLength: 100, description: "Range questions only" }
+                answer: { type: string, description: "A decimal (range) or true or false (binary)" }
+                source: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "200":
+          description: Done
+          content: { application/json: { schema: { type: object } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/calibration/questions/{id}/retire:
+    post:
+      operationId: retireQuestion
+      tags: [question-sets]
+      summary: Retire a question of a custom set
+      x-permission: calibration.manage (at the root)
+      x-reason-exempt: question set changes are recorded with what changed
+      x-audit-events: [calibration.question_set_changed]
+      parameters:
+        - $ref: "#/components/parameters/ID"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Done
+          content: { application/json: { schema: { type: object } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /api/v1/calibration/exercises:
     post:
       operationId: startExercise

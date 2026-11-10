@@ -46,6 +46,15 @@ func fail(w http.ResponseWriter, err error) {
 		problem(w, http.StatusUnauthorized, "unauthenticated", "", nil)
 	case errors.As(err, &pg) && pg.Code == "42501":
 		problem(w, http.StatusForbidden, "forbidden", "", nil)
+	case errors.As(err, &pg) && pg.Code == "PF016":
+		// A refused value: the database lists each problem as "pointer: message".
+		var ps []map[string]string
+		for _, line := range strings.Split(pg.Detail, "\n") {
+			if ptr, msg, ok := strings.Cut(line, ": "); ok {
+				ps = append(ps, map[string]string{"pointer": ptr, "message": msg})
+			}
+		}
+		problem(w, http.StatusUnprocessableEntity, "invalid_value", strings.TrimPrefix(pg.Message, "estimate: "), map[string]any{"problems": ps})
 	case errors.As(err, &pg) && pg.Code == "PF022":
 		// A limit or a state: the database's reason is for the user.
 		problem(w, http.StatusConflict, "refused", strings.TrimPrefix(pg.Message, "estimate."), nil)

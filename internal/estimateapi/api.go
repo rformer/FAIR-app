@@ -44,6 +44,15 @@
 //	POST /api/v1/calibration/exercises/{id}/submit  submit it; scored at once
 //	GET  /api/v1/calibration/me                     one's own record
 //	GET  /api/v1/calibration/people/{user}?bu=      another person's, as far as one may see it
+//
+// T-11 serves question sets (calibration.manage, at the root):
+//
+//	GET|POST /api/v1/calibration/question-sets                 list; create a custom set (a draft)
+//	GET      /api/v1/calibration/question-sets/{id}            a set with its questions and answers
+//	POST     /api/v1/calibration/question-sets/{id}/questions  add a question
+//	POST     /api/v1/calibration/question-sets/{id}/activate|retire
+//	PUT      /api/v1/calibration/questions/{id}                a new version of a question
+//	POST     /api/v1/calibration/questions/{id}/retire
 package estimateapi
 
 import (
@@ -99,6 +108,14 @@ var routes = []route{
 	{"POST", "/api/v1/calibration/exercises/{id}/submit", (*API).submitExercise, false},
 	{"GET", "/api/v1/calibration/me", (*API).getMyCalibration, false},
 	{"GET", "/api/v1/calibration/people/{user}", (*API).getPersonCalibration, false},
+	{"GET", "/api/v1/calibration/question-sets", (*API).listQuestionSets, false},
+	{"POST", "/api/v1/calibration/question-sets", (*API).createQuestionSet, false},
+	{"GET", "/api/v1/calibration/question-sets/{id}", (*API).getQuestionSet, false},
+	{"POST", "/api/v1/calibration/question-sets/{id}/questions", (*API).addQuestion, false},
+	{"POST", "/api/v1/calibration/question-sets/{id}/activate", (*API).activateQuestionSet, false},
+	{"POST", "/api/v1/calibration/question-sets/{id}/retire", (*API).retireQuestionSet, false},
+	{"PUT", "/api/v1/calibration/questions/{id}", (*API).editQuestion, false},
+	{"POST", "/api/v1/calibration/questions/{id}/retire", (*API).retireQuestion, false},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).

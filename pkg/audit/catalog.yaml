@@ -372,6 +372,12 @@ events:
     requires: [target]
     attributes: [class, questions]
     description: "A person submitted a calibration exercise; it was scored at once (F-004 T-10, AC-22, AC-23)"
+  - type: calibration.question_set_changed
+    category: configuration
+    severities: [low]
+    requires: [target]
+    attributes: [action, question]
+    description: "A custom calibration question set was created, activated or retired, or one of its questions added, edited or retired (F-004 T-11, AC-25)"
   - type: calibration.record_viewed
     category: risk_data
     severities: [low]

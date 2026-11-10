@@ -80,12 +80,21 @@ type StarterSync struct {
 	Removed []string `json:"removed"`
 }
 
+// BankSync is what estimate.sync_bank reports: shipped calibration
+// questions added, changed (a new version) and retired (F-004 T-11).
+type BankSync struct {
+	Added   []string `json:"added"`
+	Changed []string `json:"changed"`
+	Retired []string `json:"retired"`
+}
+
 // Release is what a build ships besides its migrations.
 type Release struct {
 	Catalog         []byte   // catalog.SyncPayload, for iam.sync_release
 	ProfilePackages [][]byte // profile packages, checked against their manifest (profilepkg.LoadRelease)
 	Events          []byte   // audit.(*Catalog).SyncPayload, for audit.sync_event_types
 	Starter         []byte   // starter.SyncPayload, for risk.sync_starter (F-003 T-10)
+	Bank            []byte   // bank.SyncPayload, for estimate.sync_bank (F-004 T-11)
 }
 
 // Result summarizes a run.
@@ -95,6 +104,7 @@ type Result struct {
 	Packages PackageSync
 	Events   EventSync
 	Starter  StarterSync
+	Bank     BankSync
 }
 
 // ConnConfig builds the migrator's connection (see dbconn.Config). The user
@@ -124,6 +134,9 @@ func Run(ctx context.Context, conn *pgx.Conn, migrations fs.FS, rel Release) (Re
 	}
 	if len(rel.Starter) == 0 {
 		return res, errors.New("migrate: the release has no starter library")
+	}
+	if len(rel.Bank) == 0 {
+		return res, errors.New("migrate: the release has no calibration question bank")
 	}
 	types, err := resourceTypes(rel.Catalog)
 	if err != nil {
@@ -223,7 +236,13 @@ REVOKE ALL ON fair_meta.schema_migrations FROM PUBLIC;`).ReadAll()
 		if err := tx.QueryRow(ctx, "SELECT risk.sync_starter($1::jsonb)", string(rel.Starter)).Scan(&out); err != nil {
 			return fmt.Errorf("starter library: %w", err)
 		}
-		return json.Unmarshal(out, &res.Starter)
+		if err := json.Unmarshal(out, &res.Starter); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx, "SELECT estimate.sync_bank($1::jsonb)", string(rel.Bank)).Scan(&out); err != nil {
+			return fmt.Errorf("calibration question bank: %w", err)
+		}
+		return json.Unmarshal(out, &res.Bank)
 	})
 	if err != nil {
 		return res, fmt.Errorf("migrate: %w", err)

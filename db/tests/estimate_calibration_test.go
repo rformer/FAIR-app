@@ -58,7 +58,9 @@ func TestCalibration(t *testing.T) {
 	ra.drain()
 	dana := ra.adminQuery("SELECT id FROM iam.app_user WHERE email = 'dana@example.test'")
 
-	// A question set: 15 range questions (truth 100·i) and 15 true-or-false.
+	// A question set: 15 range questions (truth 100·i) and 15 true-or-false,
+	// alone: the shipped bank is retired for this test.
+	ra.admin(ra.db, "UPDATE estimate.question_set SET status = 'retired' WHERE origin = 'shipped'")
 	var q strings.Builder
 	q.WriteString("INSERT INTO estimate.question_set (id, origin, name, status, release) VALUES ('bbbbbbbb-0000-4000-8000-000000000000', 'shipped', 'Test set', 'active', 'test');\n")
 	for i := 1; i <= 15; i++ {

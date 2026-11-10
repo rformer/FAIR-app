@@ -28,6 +28,7 @@ import (
 
 	fairdb "github.com/rformer/fair-app/db"
 	"github.com/rformer/fair-app/internal/access/catalog"
+	"github.com/rformer/fair-app/internal/estimate/bank"
 	"github.com/rformer/fair-app/internal/migrate"
 	"github.com/rformer/fair-app/internal/profilepkg"
 	"github.com/rformer/fair-app/internal/risk/starter"
@@ -142,11 +143,15 @@ func (e *env) migrate(dir string) (migrate.Result, error) {
 	if err != nil {
 		return migrate.Result{}, err
 	}
+	questions, err := bank.SyncPayload()
+	if err != nil {
+		return migrate.Result{}, err
+	}
 	starterLib, err := starter.SyncPayload()
 	if err != nil {
 		return migrate.Result{}, err
 	}
-	return migrate.Run(ctx, conn, migrations, migrate.Release{Catalog: payload, ProfilePackages: pkgs, Events: events, Starter: starterLib})
+	return migrate.Run(ctx, conn, migrations, migrate.Release{Catalog: payload, ProfilePackages: pkgs, Events: events, Starter: starterLib, Bank: questions})
 }
 
 // auditEventPayload is the build's security event catalog (F-002 T-02).
