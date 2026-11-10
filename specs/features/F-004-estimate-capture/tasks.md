@@ -31,7 +31,7 @@ Every task that adds a migration follows the immutability rule. Every new event 
 ## Phase D — Interface
 | # | Task | Traces to | Verification | Size | Status |
 |---|---|---|---|---|---|
-| T-12 | Estimator pages in `web/src/estimate`: inbox, answer form with the aids (definition, preview, equivalent bet, warnings, reference classes), drafts and submission; the aids in the F-003 scenario editor | AC-07 to AC-12, AC-14 | Playwright and axe (WCAG 2.1 AA) in `scripts/ui-e2e.sh` against the real API | L | Not started |
+| T-12 | Estimator pages in `web/src/estimate`: inbox, answer form with the aids (definition, preview, equivalent bet, warnings, reference classes), drafts and submission; the aids in the F-003 scenario editor | AC-07 to AC-12, AC-14 | Playwright and axe (WCAG 2.1 AA) in `scripts/ui-e2e.sh` against the real API | L | Done |
 | T-13 | Analyst pages: create a request from a scenario (factors, context, estimators, references, due date), request status and changes, review side by side with scores and pool previews, accept; provenance on the scenario page; the reference-class editor on the library pages (counts or losses, period, sources) | AC-01 to AC-06, AC-13, AC-15 to AC-19 | Playwright and axe in `scripts/ui-e2e.sh` | L | Not started |
 | T-14 | Calibration pages: exercises (keyboard only, no time limits), feedback, own record and history; question set administration | AC-20 to AC-27 | Playwright and axe in `scripts/ui-e2e.sh` | M | Not started |
 
@@ -52,3 +52,4 @@ Every task that adds a migration follows the immutability rule. Every new event 
 - 2026-11-09: Initial draft.
 - 2026-11-09: **Approved** by Robert Former.
 - 2026-11-09: T-13 gains the reference-class editor on the library pages (AC-13): no task built it (found in T-03; decided with Robert Former).
+- 2026-11-10: T-12: the estimator pages in `web/src/estimate` (routes `/estimates`, `/estimates/{id}`; nav item Estimate requests): the inbox (soonest due first, answered of total; no `estimate.submit` anywhere is shown as an empty inbox), the request (instructions, the shared context, reference classes summarised and labelled as the organization's own data), per factor its definition and an estimate or a decline with a reason, saved as drafts or submitted; `EstimateAids` (warnings, equivalent bet, illustrative curve with a text alternative; nothing without the route) in `EstimateFields`, so the F-003 scenario editor shows them too. The UI harness serves the estimate API with the risk API (upstream `risk`) and seeds `estimator` with a request; `web/e2e/estimates.spec.ts`.

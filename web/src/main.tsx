@@ -3,15 +3,25 @@ import { createRoot } from "react-dom/client";
 import { describe, getMe, send, type Me } from "./api";
 import { AuditPage } from "./audit/AuditPage";
 import { BannerPage } from "./banner";
+import { AnswerPage } from "./estimate/AnswerPage";
+import { Inbox } from "./estimate/Inbox";
 import { PosturePage } from "./posture/PosturePage";
-import { EntryEditor, EntryList, EntryPage, type EntrySection } from "./risk/Entries";
+import {
+  EntryEditor,
+  EntryList,
+  EntryPage,
+  type EntrySection,
+} from "./risk/Entries";
 import { ScenarioEditor } from "./risk/ScenarioEditor";
 import { ScenarioList } from "./risk/ScenarioList";
 import { ScenarioPage } from "./risk/ScenarioPage";
 import { TransferPage } from "./risk/Transfer";
 import "./styles.css";
 
-type SessionState = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; me: Me };
+type SessionState =
+  | { kind: "loading" }
+  | { kind: "error"; message: string }
+  | { kind: "ready"; me: Me };
 
 function App() {
   // The session first: until the system-use banner is acknowledged (F-001
@@ -43,7 +53,9 @@ function App() {
       <BannerPage
         text={banner.text ?? ""}
         onAcknowledge={async () => {
-          await send("POST", "/api/v1/auth/banner/ack", { version: banner.version });
+          await send("POST", "/api/v1/auth/banner/ack", {
+            version: banner.version,
+          });
           await load();
         }}
       />
@@ -52,15 +64,17 @@ function App() {
   // The platform shell's routing arrives with later features: the path
   // chooses the page (the gateway serves the app for every route).
   const path = window.location.pathname;
-  const section = path.startsWith("/audit")
-    ? "audit"
-    : path.startsWith("/scenarios") || path.startsWith("/risk/")
-      ? "scenarios"
-      : path.startsWith("/library")
-        ? "library"
-        : path.startsWith("/controls")
-          ? "controls"
-          : "posture";
+  const section = path.startsWith("/estimates")
+    ? "estimates"
+    : path.startsWith("/audit")
+      ? "audit"
+      : path.startsWith("/scenarios") || path.startsWith("/risk/")
+        ? "scenarios"
+        : path.startsWith("/library")
+          ? "library"
+          : path.startsWith("/controls")
+            ? "controls"
+            : "posture";
   const current = (s: string) => (section === s ? "page" : undefined);
   return (
     <>
@@ -74,6 +88,11 @@ function App() {
             <li>
               <a href="/scenarios" aria-current={current("scenarios")}>
                 Scenarios
+              </a>
+            </li>
+            <li>
+              <a href="/estimates" aria-current={current("estimates")}>
+                Estimate requests
               </a>
             </li>
             <li>
@@ -100,7 +119,9 @@ function App() {
         </nav>
       </header>
       <main id="main" tabIndex={-1}>
-        {section === "audit" ? (
+        {section === "estimates" ? (
+          <EstimateRoutes path={path} />
+        ) : section === "audit" ? (
           <AuditPage />
         ) : section === "scenarios" ? (
           <ScenarioRoutes path={path} />
@@ -125,14 +146,40 @@ function ScenarioRoutes({ path }: { path: string }) {
   return m[2] ? <ScenarioEditor id={id} /> : <ScenarioPage id={id} />;
 }
 
+// F-004 T-12: /estimates (the estimator's inbox), /estimates/{id}.
+function EstimateRoutes({ path }: { path: string }) {
+  if (path === "/estimates" || path === "/estimates/") return <Inbox />;
+  const m = /^\/estimates\/([0-9a-f-]{36})$/.exec(path);
+  return m ? <AnswerPage id={m[1] ?? ""} /> : <p role="alert">Not found.</p>;
+}
+
 // F-003 T-13: /library and /controls, /new, /{id}, /{id}/edit.
-function EntryRoutes({ section, path }: { section: EntrySection; path: string }) {
-  if (path === `/${section}` || path === `/${section}/`) return <EntryList section={section} />;
-  if (path === `/${section}/new`) return <EntryEditor section={section} kind={new URLSearchParams(window.location.search).get("kind") ?? undefined} />;
+function EntryRoutes({
+  section,
+  path,
+}: {
+  section: EntrySection;
+  path: string;
+}) {
+  if (path === `/${section}` || path === `/${section}/`)
+    return <EntryList section={section} />;
+  if (path === `/${section}/new`)
+    return (
+      <EntryEditor
+        section={section}
+        kind={
+          new URLSearchParams(window.location.search).get("kind") ?? undefined
+        }
+      />
+    );
   const m = new RegExp(`^/${section}/([0-9a-f-]{36})(/edit)?$`).exec(path);
   if (!m) return <p role="alert">Not found.</p>;
   const id = m[1] ?? "";
-  return m[2] ? <EntryEditor section={section} id={id} /> : <EntryPage section={section} id={id} />;
+  return m[2] ? (
+    <EntryEditor section={section} id={id} />
+  ) : (
+    <EntryPage section={section} id={id} />
+  );
 }
 
 const root = document.getElementById("root");

@@ -168,3 +168,12 @@ form.editor fieldset { border: 1px solid var(--border); border-radius: var(--rad
 form.editor fieldset.checks { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; }
 form.editor fieldset.checks legend { width: 100%; }
 form.editor fieldset.estimate legend, form.editor fieldset.group legend { font-weight: 600; }
+
+/* F-004 T-12: the estimating aids and the answer form. */
+.aids { margin: 0.5rem 0 0.75rem; }
+.aids .warnings { background: var(--warn-bg); color: var(--warn-fg); border: 1px solid var(--warn-fg); border-radius: var(--radius); padding: 0.5rem 0.75rem 0.5rem 1.75rem; margin: 0 0 0.5rem; }
+.aids .curve { margin: 0 0 0.25rem; }
+.aids .bet { margin: 0.25rem 0 0; }
+.prewrap { white-space: pre-wrap; }
+ul.plain { padding-left: 1.25rem; }
+fieldset.plain { border: 0; padding: 0; margin: 0; min-width: 0; }

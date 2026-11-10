@@ -17,6 +17,7 @@ import (
 	"github.com/rformer/fair-app/internal/approvals"
 	auditsvc "github.com/rformer/fair-app/internal/audit"
 	"github.com/rformer/fair-app/internal/auditapi"
+	"github.com/rformer/fair-app/internal/estimateapi"
 	"github.com/rformer/fair-app/internal/gateway"
 	"github.com/rformer/fair-app/internal/posture"
 	"github.com/rformer/fair-app/internal/postureapi"
@@ -45,7 +46,7 @@ func TestPostureUIHarness(t *testing.T) {
 	// Posture page's audit links open populated histories (AC-37).
 	ae.set.Evaluator.Audit = audit.WithTrail(ae.set.Evaluator.Audit, audit.Trail{DB: ae.set.Evaluator.DB})
 	seedPostureScenario(t, ae)
-	seedRiskScenario(t, e) // F-003 T-12
+	scenario := seedRiskScenario(t, e) // F-003 T-12
 
 	pool := e.posturePool()
 	api := &postureapi.API{DB: pool, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool), MaxAge: time.Second}), Audit: audit.NewMemory()}
@@ -80,9 +81,20 @@ func TestPostureUIHarness(t *testing.T) {
 	rp := e.appPool()
 	riskAPI := &riskapi.API{DB: rp, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(rp), MaxAge: time.Second}),
 		Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: rp})}
-	riskSrv := httptest.NewServer(riskAPI.Handler(ae.keys, nil))
+	// F-004 T-12: the estimate API, mounted beside it as cmd/risk does.
+	estimateAPI := &estimateapi.API{DB: rp, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(rp), MaxAge: time.Second}),
+		Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: rp})}
+	riskMux := http.NewServeMux()
+	riskMux.Handle("/", riskAPI.Handler(ae.keys, nil))
+	eh := estimateAPI.Handler(ae.keys, nil)
+	for _, prefix := range estimateapi.Prefixes {
+		riskMux.Handle(prefix, eh)
+		riskMux.Handle(prefix+"/", eh)
+	}
+	riskSrv := httptest.NewServer(riskMux)
 	defer riskSrv.Close()
 	riskUp, _ := url.Parse(riskSrv.URL)
+	seedEstimateRequest(t, e, ae.keys, riskSrv.URL, scenario)
 	// The UI: built assets, and index.html for the app's routes.
 	ui := gateway.StaticUI(dist)
 	g := &gateway.Gateway{
@@ -254,7 +266,8 @@ func seedPostureScenario(t *testing.T, ae apiEnv) {
 // analyst at the root, the currency, a library (asset, threat community,
 // control) and a scenario with two versions whose threat community has a
 // newer version to adopt. "nobody" (Executive Viewer) can read, not edit.
-func seedRiskScenario(t *testing.T, e *env) {
+// It returns the scenario's id.
+func seedRiskScenario(t *testing.T, e *env) string {
 	t.Helper()
 	// A second BU under the root, for moves and imports (T-13).
 	e.mustOwner("INSERT INTO iam.bu (name, code, parent_id, restricted) SELECT 'Claims', 'CLAIMS', id, false FROM iam.bu WHERE parent_id IS NULL")
@@ -285,4 +298,28 @@ func seedRiskScenario(t *testing.T, e *env) {
 		t.Fatal(err)
 	}
 	t.Log("risk scenario seeded")
+	return s
+}
+
+// seedEstimateRequest builds what the estimator pages show (F-004 T-12): an
+// estimator at the root ("estimator", Estimator only) and a request on the
+// seeded scenario for contact frequency and response costs, with a
+// reference class of the organization's own incident counts.
+func seedEstimateRequest(t *testing.T, e *env, keys *authz.LocalKeys, url, scenario string) {
+	t.Helper()
+	e.mustOwner("INSERT INTO iam.app_user (email, display_name) VALUES ('estimator@example.test', 'Ellis Estimator')")
+	e.mustOwner(grant("admin", "user:estimator", "Estimator", "ENTERPRISE"))
+	e.drain()
+	r := riskEnv{e, map[string]string{"ENTERPRISE": e.adminQuery("SELECT id FROM iam.bu WHERE code = 'ENTERPRISE'")}}
+	rc := r.create(t, "riskanalyst", "reference_class", r.bu["ENTERPRISE"], modeltest.ReferenceClass())
+	ea := &riskAPIEnv{riskEnv: r, url: url, keys: keys, n: 200000}
+	got := ea.call(t, "POST", "riskanalyst", "/api/v1/estimates/requests", map[string]any{"scenario_id": scenario, "title": "Contact frequency and response costs",
+		"instructions": "Answer from your own experience of the service desk.", "due_at": time.Now().Add(72 * time.Hour).UTC().Format(time.RFC3339),
+		"factors":    []any{"/lef/tef/contact_frequency", "/primary_loss/response"},
+		"estimators": []any{e.adminQuery("SELECT id FROM iam.app_user WHERE email = 'estimator@example.test'")},
+		"references": []any{map[string]any{"id": rc, "version": 1}}})
+	if got.code != 201 {
+		t.Fatalf("seed estimate request: %d %s", got.code, got.raw)
+	}
+	t.Log("estimate request seeded")
 }

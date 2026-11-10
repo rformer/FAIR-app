@@ -107,6 +107,9 @@ test("creating a scenario: every problem listed and linked, then saved (AC-01 to
   await lef.getByLabel("Minimum").fill("0.5");
   await lef.getByLabel("Most likely").fill("1");
   await lef.getByLabel("Maximum").fill("3");
+  // F-004 T-12 (AC-11, AC-12): the estimating aids in the scenario editor too.
+  await expect(lef.getByText(/Would you rather win a prize if the true value is between 0.5 and 3/)).toBeVisible();
+  await expect(lef.getByRole("img", { name: /Illustrative curve of the range/ })).toBeVisible();
   await lef.getByLabel("Rationale").fill("Two thefts in the last four years.");
   await lef.getByLabel("Source 1", { exact: true }).fill("Facilities incident log");
   await page.getByRole("region", { name: "Primary loss" }).getByRole("checkbox", { name: "Response" }).check();
