@@ -1,0 +1,150 @@
+# NIST SP 800-53 Rev 5 control implementation statements for F-004
+# (calibrated estimate capture), task T-17. Source for the platform's OSCAL
+# component definition (F-014 assembles the features' files); checked by
+# internal/compliance tests: the controls are exactly F-004's control
+# mapping, every evidence path and test exists, and the OSCAL output
+# validates against the pinned schema.
+#
+# responsibility, per deployment mode (ADR-005):
+#   provider  the platform (and, in SaaS, the vendor operating it) meets it
+#   shared    the platform provides the mechanism; the customer operates it
+#   customer  the customer meets it
+# customer: what the customer does wherever the responsibility is shared
+# or customer. Evidence tests are "<package dir>:<test name>".
+feature: F-004
+title: Calibrated estimate capture
+status: approved # signed off by Robert Former, 2026-11-10
+controls:
+  - id: ac-3
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Estimate requests belong to their scenario's business unit and are
+      protected as scenarios are: the service checks the permission at that
+      business unit and the database applies forced row-level security under
+      the signed database context (ADR-007). Estimators hold no scenario
+      permissions; they reach a request and their own answers only through
+      definer functions that take the caller from the signed context and
+      check, on every call, that the caller is a current estimator of the
+      request holding estimate.submit at its business unit. Removing an
+      estimator or revoking the permission ends their access at once. The
+      application's database role has no privileges on answers, exercises,
+      questions or calibration scores; question answers are returned only to
+      managers and, after submission, to the person who answered them.
+      Another person's calibration is shown only to a holder of
+      estimate.request where that person estimates (class and hit rate) or
+      of calibration.audit (scores and history), never their exercises.
+    evidence:
+      code: [db/migrations/0094_estimate_schema.sql, db/migrations/0096_estimate_answers.sql, db/migrations/0098_calibration.sql,
+             db/migrations/0099_question_sets.sql, db/migrations/0100_estimate_estimators.sql, internal/estimateapi]
+      tests: ["db/tests:TestSTRIDEF004AnswerAuthor", "db/tests:TestSTRIDEF004EstimatorScope", "db/tests:TestSTRIDEF004Independence",
+              "db/tests:TestSTRIDEF004QuestionSecrecy", "db/tests:TestSTRIDEF004CalibrationPrivacy", "db/tests:TestEstimateSchema",
+              "db/tests:TestRLSHarnessEveryBUOwnedTable"]
+
+  - id: ac-6
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Asking for estimates, giving them, practising calibration, managing
+      question sets and auditing calibration are separate permissions. The
+      built-in Estimator role holds only estimate.submit and calibration.take:
+      an estimator cannot read or edit the scenario, see other estimators'
+      answers, or accept answers. Accepting needs estimate.request and
+      scenario.edit at the request's business unit, and the database
+      re-computes and verifies what is accepted. Calibration practice is a
+      read action, so granting it gives no write scope.
+    customer: >-
+      Grant the Estimator role to the subject-matter experts at the business
+      units they estimate for, calibration.manage and calibration.audit to
+      few people, and review them in F-001's access reviews.
+    evidence:
+      code: [internal/access/catalog/release/builtin_roles.json, internal/estimateapi/accept.go, db/migrations/0097_estimate_acceptance.sql]
+      tests: ["db/tests:TestSTRIDEF004Escalation", "db/tests:TestCatalogVersion3Upgrade", "db/tests:TestEstimateAcceptance",
+              "db/tests:TestSTRIDEF004CombinationChecked"]
+
+  - id: au-2
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      F-004 adds its events to the security event catalog: requests created,
+      changed, cancelled, affected by a scenario change and closed; answers
+      submitted; answers accepted into a scenario version; calibration
+      exercises submitted; question sets changed; another person's
+      calibration record viewed; and calibration records purged. Each entry
+      names the attributes it carries, never an answer's values.
+    customer: >-
+      Decide which estimate and calibration events to forward to the SIEM
+      and alert on, for example views of calibration records.
+    evidence:
+      code: [pkg/audit/catalog.yaml]
+      tests: ["pkg/audit:TestCatalogMatchesCode", "db/tests:TestEstimateAuditEvents", "db/tests:TestSTRIDEF004CalibrationPrivacy"]
+
+  - id: au-12
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Every change records its event in the change's own transaction, with
+      the actor from the signed context and the request's business unit:
+      sending and changing requests, each submitted answer, acceptance
+      (with the scenario version saved alongside it), exercises and
+      question set changes. Reading another person's calibration record is
+      recorded in the read's transaction. The accepted estimate itself
+      carries its provenance: the request, the method, the answers and
+      revisions used, their estimators and their calibration at the time.
+    customer: >-
+      Monitor the audit trail's capacity and forwarding (F-002).
+    evidence:
+      code: [internal/estimateapi/requests.go, internal/estimateapi/accept.go, internal/estimateapi/inbox.go, pkg/audit/trail.go]
+      tests: ["db/tests:TestEstimateAuditEvents", "db/tests:TestEstimateAcceptance", "db/tests:TestQuestionSets", "db/tests:TestCalibration"]
+
+  - id: ra-3
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      The platform supports risk assessment with structured expert
+      judgement: analysts ask named subject-matter experts for estimates of
+      a scenario's factors, sharing only the context they choose and the
+      organization's own reference data, labelled as such. Experts answer
+      independently, with estimating aids (warnings, the equivalent-bet
+      prompt and an illustrative curve) that advise but never refuse.
+      Answers are combined deterministically by one answer, an equal-weight
+      pool or a calibration-weighted pool, or replaced by the analyst's own
+      estimate, and the result is saved as a new scenario version with its
+      provenance. Calibration exercises from a reviewed, sourced question
+      bank measure how well each expert's ranges hold the truth; the scoring
+      rules are documented for users.
+    customer: >-
+      Choose the experts, the factors to ask for and the method of
+      combining; keep reference classes current; encourage experts to
+      practise calibration.
+    evidence:
+      code: [internal/estimate, internal/estimate/bank/questions.json, docs/guides/calibration.md, web/src/estimate]
+      tests: ["internal/estimate:TestPool", "internal/estimate:TestScore", "internal/estimate:TestWarnings", "internal/estimate/bank:TestShippedBank",
+              "db/tests:TestEstimateAcceptance", "db/tests:TestCalibration", "db/tests:TestEstimateRequestsAPI"]
+
+  - id: si-10
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Requests, answers, exercise answers and questions are validated by the
+      service and again by the database: answers are checked as F-003 checks
+      an estimate, accepted estimates' provenance is re-computed from the
+      stored revisions and refused on any mismatch, and request bodies refuse
+      unknown fields. Sizes are bounded (60 factors, 50 estimators, 20
+      references per request, 20 open requests per scenario, 100 revisions
+      per answer, 10 to 50 questions per exercise, 64 KiB bodies), settings
+      are checked against their bounds, and values that look like secrets
+      are refused.
+    evidence:
+      code: [internal/estimateapi/api.go, db/migrations/0094_estimate_schema.sql, db/migrations/0097_estimate_acceptance.sql]
+      tests: ["db/tests:TestEstimateLimits", "db/tests:TestEstimateSchema", "db/tests:TestSTRIDEF004CombinationChecked",
+              "db/tests:TestSTRIDEF004AnswerTamper", "internal/estimate/bank:TestParseRefuses"]
+
+  - id: si-12
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Calibration records are personal data. Exercises and scores older
+      than the calibration.retention setting (default three years) are
+      purged by the risk service's daily job, each person's latest score
+      kept, and every purge is recorded. Answers to estimate requests are
+      kept with their requests as the provenance of accepted estimates.
+    customer: >-
+      Set calibration.retention to the organization's retention schedule for
+      personnel records.
+    evidence:
+      code: [internal/estimate/jobs.go, db/migrations/0098_calibration.sql, pkg/settings/profiles.go]
+      tests: ["db/tests:TestCalibration", "db/tests:TestSTRIDEF004CalibrationPrivacy", "db/tests:TestEstimateSettings"]
