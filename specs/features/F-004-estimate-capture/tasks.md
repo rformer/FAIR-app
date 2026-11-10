@@ -1,0 +1,53 @@
+# F-004 Calibrated Estimate Capture — Tasks
+Status: **Approved** (Robert Former, 2026-11-09) | Design: Approved 2026-11-09
+
+Sizing: S ≤ 1 day · M = 2–3 days · L = up to 1 week (split when picked up).
+Prerequisites: F-001 (RBAC, the permission catalog and its upgrades), F-002 (audit trail), F-003 (scenarios, library, validation, export), F-015 (settings). All are done.
+Every task that adds a migration follows the immutability rule. Every new event type gets a catalog entry with the task that first emits it. Every new route is linted by `scripts/openapi-lint.sh`. Every new BU-owned table gets an `rlstest` fixture.
+
+## Phase A — Foundations
+| # | Task | Traces to | Verification | Size | Status |
+|---|---|---|---|---|---|
+| T-01 | Permission catalog version 3 (design §12): `estimate.request`, `estimate.submit`, `calibration.take`, `calibration.manage`, `calibration.audit`; the built-in Estimator role; Risk Analyst, Platform Admin, Auditor and every built-in role gain theirs. Synced by `iam.sync_release` with catalog notices | §12; Users & roles | DB tests: an upgraded installation has the permissions and role; notices recorded; custom roles keep working; F-001 statements' permission references re-checked | S | Not started |
+| T-02 | F-004 settings (design §7) as `settings.F004Defs()`, bindings, packages 1.4.0; the risk service registers them | AC-05, AC-20, AC-21, AC-23, AC-30; §7 | Settings tests (bounds, stricter direction); release-check passes; the risk service refuses to start on an unbound key | S | Not started |
+| T-03 | F-003 model changes (migration; design §3.5, §3.8, §12): library kind `reference_class` (Go validator, schema, `risk.check_document`); estimate `elicitation` member and source type `elicitation` (Go and SQL checks of structure; the pool re-computation follows in T-08); parity corpus extended; JSON Schemas and `docs/formats/fair-risk-v1.md` updated | AC-13, AC-18, AC-31; §3.5, §3.8 | `TestRiskValidationParity` over the new cases; library API creates, versions and inherits reference classes; export and import round-trip both | M | Not started |
+| T-04 | Schema `estimate` (migration): tables of §4.1 with `apply_bu_rls` for the BU-owned ones (RLS harness fixtures; calibration tables registered as person-owned exceptions), bootstrap role `estimate_definer`, append-only answers, limits (§4.4) | AC-07, AC-09; §4.1, §4.4 | DB tests: app_rw has no privileges on answers or calibration tables; append-only for every role; RLS harness passes; limits refused | M | Not started |
+
+## Phase B — Requests and answers
+| # | Task | Traces to | Verification | Size | Status |
+|---|---|---|---|---|---|
+| T-05 | `internal/estimate`: factor glossary (definitions from Open FAIR, units), factor list from `model.Taxonomy`, context snapshot, warnings (§3.7); `POST /estimates/warnings` | AC-01, AC-02, AC-11, AC-12; §3.1, §3.2, §3.7 | Unit tests: factors match the taxonomy for every level combination in the corpus; each warning and its threshold; no warning refuses | M | Not started |
+| T-06 | Requests API (`api/openapi/estimate.yaml`; gateway segments `estimates`, `calibration`): create, list, read, change, cancel; notices; affected marking from move, archive and new versions (F-003 functions amended by migration); catalog entries | AC-01 to AC-06; §5, §6.1, §6.4 | DB tests through the API: permissions (estimate.request and scenario.edit; 404 and 403), estimators must hold estimate.submit, factors checked, context snapshot exact, affected marks for each cause, notices queued, events recorded | L | Not started |
+| T-07 | Estimator functions and inbox: `my_requests`, `request_for_estimator`, `save_answer` (drafts, revisions, declines, score snapshot), completion; `GET /estimates/inbox`, `PUT …/answers`; due-date closing and reminders (leader job) | AC-04, AC-05, AC-07 to AC-10; §3.3, §6.2, §6.7 | DB tests: an estimator sees exactly their requests and own answers, never the scenario or others' answers or drafts; removed or unpermitted estimators refused; revisions kept; closing at the due date; reminders queued once | L | Not started |
+| T-08 | Combination and acceptance: `estimate.Pool` (single, equal, calibration, own; exact arithmetic, rounding), `GET …/answers` with previews, `POST …/accept` saving the scenario version with `elicitation` provenance; the database re-computes pools in `risk.check_document`; Go/SQL parity over pool cases; `accepted_version` | AC-15 to AC-19; §3.4, §3.5, §6.3 | Unit tests: pools exact and deterministic, ordered, weights per class; DB tests: acceptance in one transaction, stale version 409, provenance re-checked (a forged pool refused), partial acceptance, provenance shown on the scenario | L | Not started |
+
+## Phase C — Calibration
+| # | Task | Traces to | Verification | Size | Status |
+|---|---|---|---|---|---|
+| T-09 | Scoring (§3.6) in `internal/estimate`: binomial band, binary z-test, Brier, classes, weights; `docs/guides/calibration.md` | AC-23; §3.6 | Unit tests: band edges at several n, binary cases, not-measured threshold, classes; property tests: perfect answers are calibrated, all-miss is overconfident | M | Not started |
+| T-10 | Exercises and records: `start_exercise`, `exercise`, `submit_exercise`, `my_calibration`, `calibration_of` (visibility rules, audited views), score history, retention purge (leader job); API `/calibration/exercises`, `/me`, `/people/{user}` | AC-20 to AC-23, AC-27 to AC-30; §4.2, §4.3, §6.5 | DB tests: no truth before submission; question reuse period; scores recomputed; visibility for the person, requesters (score only) and auditors; each view of another's record audited; purge keeps answer snapshots and the latest score | L | Not started |
+| T-11 | Question sets: the shipped bank `internal/estimate/bank/questions.json` (120 questions: 60 range, 60 binary, each sourced), synced by `iam migrate` (`estimate.sync_bank`); custom sets for `calibration.manage` (create, edit, activate, retire; versions); text, answers and sources reviewed by Robert Former | AC-24 to AC-26; §6.6 | Bank tests (counts, sources present, units, no duplicates); DB tests: shipped sets read-only, custom set lifecycle, retired questions excluded, answers never in takers' views; review recorded | M | Not started |
+
+## Phase D — Interface
+| # | Task | Traces to | Verification | Size | Status |
+|---|---|---|---|---|---|
+| T-12 | Estimator pages in `web/src/estimate`: inbox, answer form with the aids (definition, preview, equivalent bet, warnings, reference classes), drafts and submission; the aids in the F-003 scenario editor | AC-07 to AC-12, AC-14 | Playwright and axe (WCAG 2.1 AA) in `scripts/ui-e2e.sh` against the real API | L | Not started |
+| T-13 | Analyst pages: create a request from a scenario (factors, context, estimators, references, due date), request status and changes, review side by side with scores and pool previews, accept; provenance on the scenario page | AC-01 to AC-06, AC-15 to AC-19 | Playwright and axe in `scripts/ui-e2e.sh` | L | Not started |
+| T-14 | Calibration pages: exercises (keyboard only, no time limits), feedback, own record and history; question set administration | AC-20 to AC-27 | Playwright and axe in `scripts/ui-e2e.sh` | M | Not started |
+
+## Phase E — Assurance
+| # | Task | Traces to | Verification | Size | Status |
+|---|---|---|---|---|---|
+| T-15 | Benchmark gate `TestBenchmarkGateEstimates`: 10,000 open requests at F-001 target scale; inbox and review ≤ 300 ms p95; exercise scoring ≤ 1 s p95 | Requirements NFR | Bench gate passes in CI | S | Not started |
+| T-16 | STRIDE suite for design §8 (`db/tests/stride_f004_test.go`, rows in `TestSTRIDECatalog`) | Q5; §8 | `make test-stride` covers every §8 row | M | Not started |
+| T-17 | Control implementation statements `compliance/statements/F-004.yaml` (AC-3, AC-6, AU-2, AU-12, RA-3, SI-10, SI-12), built into the component definition; Robert Former signs off | S1, Q1 | `internal/compliance` checks pass; sign-off recorded | S | Not started |
+
+## Definition of Done
+- All linked acceptance criteria have passing automated tests.
+- Audit events emitted per design §9, each in the catalog.
+- API contract updated and linted.
+- Security review notes recorded (STRIDE rows and tests).
+
+## Change Log
+- 2026-11-09: Initial draft.
+- 2026-11-09: **Approved** by Robert Former.
