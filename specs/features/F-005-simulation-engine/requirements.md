@@ -72,6 +72,9 @@ F-005 turns a scenario into numbers. It runs a Monte Carlo simulation of an F-00
 - Deployment modes: identical in SaaS, self-hosted and air-gapped; the engine needs no outbound network access (A7).
 - Secure defaults: iteration count, concurrency and result retention are F-015 settings with bounds; the defaults favour accuracy (enough iterations for the convergence warning not to fire on typical scenarios).
 
+## Control mapping (NIST SP 800-53r5)
+AC-3, AU-2, AU-12, CM-3, RA-3, SC-8, SC-13, SI-7, SI-10.
+
 ## Out of scope
 - Drawing results (charts, tables, exports): F-006.
 - The risk register and its business unit roll-ups as managed objects: F-007; F-005 offers aggregates of chosen runs.
@@ -101,3 +104,4 @@ F-005 turns a scenario into numbers. It runs a Monte Carlo simulation of an F-00
 - 2026-11-10: Initial draft; scope decisions (confidence-honouring Beta-PERT for every estimate, asynchronous runs, core results with sensitivity, aggregation and convergence diagnostics, bit-for-bit reproducibility per engine version) taken with Robert Former.
 - 2026-11-10: **Approved** by Robert Former, with the open questions' proposals as stated (to be settled in the design).
 - 2026-11-10: AC-15 to AC-17 amended in the design (decided with Robert Former): bit-for-bit identical results on the same engine version and CPU architecture; runs record the architecture, and a reproduction on another architecture is labelled as one on another engine version is.
+- 2026-11-10: Control mapping added (AC-3, AU-2, AU-12, CM-3, RA-3, SC-8, SC-13, SI-7, SI-10), approved by Robert Former with the tasks.
