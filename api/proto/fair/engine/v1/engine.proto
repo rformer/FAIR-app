@@ -1,0 +1,146 @@
+// F-005 T-03 (design §2, §3.6, §6.1, §6.4; ADR-013): the contract between
+// the risk service and the simulation engine (constitution A2, ADR-002:
+// internal services use gRPC). Transport: mTLS (TLS 1.2+) terminated by
+// engine-gate, which accepts only the risk service's pinned client
+// certificate and forwards to the engine's Unix socket.
+//
+// Numbers that feed results travel as IEEE 754 float64 arrays in little-
+// endian order (series) or as JSON objects whose numbers are the shortest
+// round-trip decimal strings (summaries), so the risk service stores and
+// digests exactly what the engine computed (design §6.3).
+syntax = "proto3";
+
+package fair.engine.v1;
+
+option go_package = "github.com/rformer/fair-app/internal/api/enginev1;enginev1";
+
+// Engine simulates scenarios and aggregates runs. It is stateless: every
+// call carries all it needs, and nothing outlives the call.
+service Engine {
+  // Info describes the engine: its version, the CPU architecture it runs on
+  // and the validation record of its image. The risk service refuses an
+  // engine whose validation did not pass (F-005-AC-21).
+  rpc Info(InfoRequest) returns (EngineInfo);
+  // Simulate runs an input bundle for the given control sets and streams
+  // progress, then each set's summary and series, then done. Cancelling
+  // the call stops the work.
+  rpc Simulate(SimulateRequest) returns (stream SimulateEvent);
+  // Aggregate combines members' series: the header first, then every
+  // member's series in chunks; it streams progress, the summary, the
+  // aggregate's series, then done.
+  rpc Aggregate(stream AggregateInput) returns (stream AggregateEvent);
+}
+
+message InfoRequest {}
+
+message EngineInfo {
+  string version = 1;        // the engine release, e.g. "1.0.0" (the model is part of it)
+  string architecture = 2;   // amd64 | arm64
+  Validation validation = 3;
+}
+
+// Validation is the image's record of the statistical validation suite
+// (design §3.6), written at image build.
+message Validation {
+  string suite_version = 1;
+  bool passed = 2;
+  int64 run_at_unix_ms = 3;
+  string detail_json = 4;    // a JSON object: per check, its result and tolerance
+}
+
+message SimulateRequest {
+  bytes bundle = 1;                    // the canonical fair.scenario-input.v1 bundle (F-003 T-08)
+  uint64 seed = 2;
+  uint32 iterations = 3;
+  repeated string control_sets = 4;    // names of the bundle's scenario's control sets; the current set first
+  uint32 convergence_threshold_bp = 5; // simulation.convergence_threshold_bp
+  string run_id = 6;                   // for the engine's logs only
+}
+
+message SimulateEvent {
+  oneof event {
+    Progress progress = 1;
+    ControlSetResult result = 2;
+    SeriesChunk series = 3;
+    Done done = 4;
+    Failure failure = 5;               // the last event when the run cannot be computed
+  }
+}
+
+message Progress {
+  uint64 done = 1;   // iterations computed (over every control set and sensitivity pass)
+  uint64 total = 2;
+}
+
+message ControlSetResult {
+  string control_set = 1;
+  string summary_json = 2;   // a JSON object: summaries, curve, breakdown, comparison, convergence, sensitivity (design §3.4)
+}
+
+// SeriesChunk is part of a per-year annualized loss array: values holds
+// float64 little-endian, for iterations [offset, offset + len(values)/8).
+message SeriesChunk {
+  string control_set = 1;    // a run's control set; empty for an aggregate's own series
+  uint64 offset = 2;
+  bytes values = 3;          // at most 1 MiB
+}
+
+message Done {
+  repeated Warning warnings = 1;
+}
+
+// Warning is a flag on a run (design §3.1, §3.2, §3.4): a sampling
+// fallback, a clipped or capped control, an unmodelled removal, the
+// large-frequency approximation, or not_converged.
+message Warning {
+  string code = 1;           // ^[a-z_]+$
+  string pointer = 2;        // the estimate's place in the scenario, if any
+  string control_set = 3;    // if it concerns one set
+  string detail = 4;
+}
+
+message Failure {
+  string code = 1;           // invalid_bundle | unsupported | internal
+  string detail = 2;
+}
+
+message AggregateInput {
+  oneof input {
+    AggregateHeader header = 1;
+    MemberChunk series = 2;
+  }
+}
+
+message AggregateHeader {
+  string aggregate_id = 1;   // for the engine's logs only
+  uint64 seed = 2;
+  uint32 iterations = 3;
+  repeated Member members = 4;
+}
+
+message Member {
+  uint32 position = 1;
+  string run_id = 2;
+  string control_set = 3;
+  string scenario_name = 4;  // for the contribution table
+}
+
+message MemberChunk {
+  uint32 position = 1;
+  uint64 offset = 2;
+  bytes values = 3;          // float64 little-endian, at most 1 MiB
+}
+
+message AggregateEvent {
+  oneof event {
+    Progress progress = 1;
+    AggregateResult result = 2;
+    SeriesChunk series = 3;
+    Done done = 4;
+    Failure failure = 5;
+  }
+}
+
+message AggregateResult {
+  string summary_json = 1;   // a JSON object: summaries, curve, contributions (design §3.5)
+}

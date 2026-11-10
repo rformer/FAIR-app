@@ -209,6 +209,22 @@ jobs:
         with:
           version: v2.15.0
 
+  # F-005 T-03: the generated gRPC code (Go and the engine's Python) is
+  # exactly what the protos and the pinned generators produce.
+  proto:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Regenerate the Go code
+        run: docker run --rm -v "$PWD:/src" -w /src golang:1.26-bookworm bash scripts/gen-proto.sh
+      - name: Regenerate the Python code
+        run: docker run --rm -v "$PWD:/src" -w /src python:3.12-slim-bookworm bash scripts/gen-proto-py.sh
+      - name: No differences
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" .
+          git add -N internal/api engine/fairsim/_proto
+          git diff --exit-code -- internal/api engine/fairsim/_proto
+
   # F-001 T-42 (design §6): the OpenAPI documents pass Spectral (spectral:oas
   # and the platform's conventions), and the convention rules pass their
   # self-test.
