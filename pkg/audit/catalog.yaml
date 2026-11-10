@@ -31,6 +31,62 @@ events:
     bu: required
     attributes: [assignment, bu, campaign, decision, kind, mapping, outcome, principal, role]
     description: "An access review item was certified or revoked, by a reviewer or by the campaign's revoke policy (AC-49)"
+  - type: analysis.aggregate_created
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [iterations, members, name]
+    description: "An aggregate of succeeded simulation runs was requested at a business unit (F-005 T-02, AC-18)"
+  - type: analysis.aggregate_failed
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [failure, requested_by]
+    description: "An aggregate could not be computed; nothing of it was kept (F-005 T-02, AC-18)"
+  - type: analysis.aggregate_succeeded
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [members, requested_by, result_digest]
+    description: "An aggregate's loss distribution was computed and stored with its digest (F-005 T-02, AC-18, AC-19)"
+  - type: analysis.run_cancelled
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [bundle_digest, scenario]
+    description: "A queued or running simulation run was cancelled, with a reason (F-005 T-02, AC-03)"
+  - type: analysis.run_failed
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [bundle_digest, failure, requested_by, scenario]
+    description: "A simulation run failed; no partial results were kept (F-005 T-02, AC-04)"
+  - type: analysis.run_reproduced
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [outcome, reproduction, requested_by, result_digest]
+    description: "A reproduction of a simulation run finished: its results matched, did not match, or came from another engine version or architecture (F-005 T-02, AC-16)"
+  - type: analysis.run_requested
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [bundle_digest, control_sets, iterations, scenario, version]
+    description: "A simulation run of a scenario version's input bundle was queued (F-005 T-02, AC-01)"
+  - type: analysis.run_succeeded
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [bundle_digest, engine_version, requested_by, result_digest, scenario, version]
+    description: "A simulation run succeeded; its results were stored with their digest (F-005 T-02, AC-11, AC-15)"
   - type: approval.approved
     category: approval
     severities: [high]

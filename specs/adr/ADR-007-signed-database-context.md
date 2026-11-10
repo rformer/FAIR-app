@@ -81,3 +81,17 @@ Status: Accepted (Robert Former, 2026-11-10; F-004 T-04)
 - The RLS harness checks the two policies against the registry: the recorded role alone, `true`, the right commands, and no privileges beyond `SELECT` and `UPDATE`.
 - Application roles are unaffected: their access remains the BU policies.
 - Used for `estimate_definer` on F-004's request tables in v1.
+
+## Amendment 4: restrictive select (2026-11-10)
+Status: Accepted (Robert Former, 2026-11-10; F-005 T-02)
+
+**Context.** F-005's aggregates combine simulation runs of several scenarios. An aggregate belongs to the business unit its requester chose, but it must be visible only to a reader who can also see every member run: otherwise it would reveal results of a restricted or other business unit through the sum. The BU policies are permissive, and PostgreSQL ORs permissive policies together, so another permissive policy would widen access rather than narrow it; `authz.apply_bu_rls` refuses any other policy.
+
+**Decision.**
+- `authz.restrict_select(table, expression)` adds one policy `bu_restrict` to a registered BU-owned table: `AS RESTRICTIVE FOR SELECT TO app_rw USING (<expression>)`. A restrictive policy is ANDed with the permissive ones, so it can only narrow what the BU policies allow.
+- The expression is recorded in `iam.bu_owned_tables.restriction`; `authz.apply_bu_rls` keeps the policy when it re-applies a table's BU policies.
+- It applies to the application role. Definer roles keep the access their own policies give (amendment 3), since their functions check the caller themselves.
+
+**Consequences.**
+- The RLS harness checks `bu_restrict` against the registry: restrictive, SELECT, `app_rw` alone, with an expression; every other policy must be permissive.
+- Used for `analysis.aggregate` and `analysis.aggregate_member` in v1: every member run in the reader's read scope, checked by the definer function `analysis.members_visible` (two tables' policies referring to each other would recurse).

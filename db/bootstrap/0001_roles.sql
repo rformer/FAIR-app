@@ -28,6 +28,10 @@
 --                           estimators' and jobs' access to requests, answers,
 --                           calibration; RLS admits it only where a table
 --                           allows it (ADR-007 amendment 3)
+--   analysis_definer NOLOGIN owns the analysis schema's functions (F-005 T-02):
+--                           requests' checks, the worker's state changes,
+--                           cancellation; RLS admits it only where a table
+--                           allows it (ADR-007 amendment 3)
 --
 -- Required psql variables: dbname, migrator_password, rw_password,
 -- engine_password, posture_password, gateway_password, audit_password
@@ -38,7 +42,7 @@ DO $$
 DECLARE
   r text;
 BEGIN
-  FOREACH r IN ARRAY ARRAY['fair_owner', 'authz_definer', 'posture_definer', 'rollup_definer', 'bu_guard_definer', 'audit_definer', 'risk_definer', 'estimate_definer'] LOOP
+  FOREACH r IN ARRAY ARRAY['fair_owner', 'authz_definer', 'posture_definer', 'rollup_definer', 'bu_guard_definer', 'audit_definer', 'risk_definer', 'estimate_definer', 'analysis_definer'] LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
       EXECUTE format('CREATE ROLE %I NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS', r);
     END IF;
@@ -87,6 +91,8 @@ GRANT audit_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
 GRANT risk_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
 -- And for estimate capture (F-004 T-04).
 GRANT estimate_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
+-- And for simulation (F-005 T-02).
+GRANT analysis_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
 
 -- Lock down the database: nobody connects unless granted.
 REVOKE ALL ON DATABASE :"dbname" FROM PUBLIC;

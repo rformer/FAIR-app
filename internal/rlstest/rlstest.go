@@ -16,7 +16,10 @@
 //     rollup_definer and bu_guard_definer; and, for a table with a
 //     registered definer (ADR-007 amendment 3; F-004), bu_definer_select
 //     and bu_definer_update for that role alone, every row, the role
-//     holding SELECT and UPDATE and nothing else;
+//     holding SELECT and UPDATE and nothing else; and, for a table with a
+//     registered restriction (ADR-007 amendment 4; F-005), bu_restrict:
+//     RESTRICTIVE, SELECT, for app_rw alone, the registered expression;
+//     every other policy permissive;
 //   - context: missing, malformed, forged, wrong-key, expired, overlong and
 //     stale tokens see and change nothing;
 //   - writes: write scope, not read scope, governs inserts, updates and
@@ -104,6 +107,7 @@ type run struct {
 	rt       string
 	shared   bool   // registered shared_down (inherited read)
 	definer  string // registered definer role (ADR-007 amendment 3), or ""
+	restrict string // registered restriction (ADR-007 amendment 4), or ""
 	key      authz.ContextKey
 	userID   string
 	version  int64
@@ -146,7 +150,8 @@ func randHex(n int) string {
 
 func (r *run) setup() error {
 	a := r.env.Admin
-	if err := a.QueryRow(r.ctx, "SELECT resource_type, shared_down, coalesce(definer::text, '') FROM iam.bu_owned_tables WHERE table_name = $1::regclass", r.fx.Table).Scan(&r.rt, &r.shared, &r.definer); err != nil {
+	if err := a.QueryRow(r.ctx, "SELECT resource_type, shared_down, coalesce(definer::text, ''), coalesce(restriction, '') FROM iam.bu_owned_tables WHERE table_name = $1::regclass",
+		r.fx.Table).Scan(&r.rt, &r.shared, &r.definer, &r.restrict); err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
@@ -312,7 +317,10 @@ func (r *run) structure() {
 	if r.definer != "" {
 		want["bu_definer_select"], want["bu_definer_update"] = "r", "w"
 	}
-	rows, err := r.env.Admin.Query(r.ctx, `SELECT polname, polcmd::text,
+	if r.restrict != "" {
+		want["bu_restrict"] = "r"
+	}
+	rows, err := r.env.Admin.Query(r.ctx, `SELECT polname, polcmd::text, polpermissive,
 		coalesce(pg_get_expr(polqual, polrelid), ''), coalesce(pg_get_expr(polwithcheck, polrelid), ''),
 		(SELECT string_agg(CASE WHEN o = 0 THEN 'PUBLIC' ELSE o::regrole::text END, ',' ORDER BY o) FROM unnest(polroles) o)
 		FROM pg_policy WHERE polrelid = $1::regclass`, r.fx.Table)
@@ -323,7 +331,8 @@ func (r *run) structure() {
 	seen := map[string]bool{}
 	for rows.Next() {
 		var name, cmd, qual, check, roles string
-		if err := rows.Scan(&name, &cmd, &qual, &check, &roles); err != nil {
+		var permissive bool
+		if err := rows.Scan(&name, &cmd, &permissive, &qual, &check, &roles); err != nil {
 			r.fail("structure", "policy scan: %v", err)
 			continue
 		}
@@ -335,6 +344,16 @@ func (r *run) structure() {
 		}
 		if cmd != wantCmd {
 			r.fail("structure", "policy %s applies to command %s, want %s", name, cmd, wantCmd)
+		}
+		if name == "bu_restrict" {
+			// Narrows the application role's reads only (ADR-007 amendment 4).
+			if permissive || roles != "app_rw" || check != "" || qual == "" {
+				r.fail("structure", "policy bu_restrict (permissive %v, roles %s, %q) must be RESTRICTIVE, for app_rw alone, with the registered expression", permissive, roles, qual)
+			}
+			continue
+		}
+		if !permissive {
+			r.fail("structure", "policy %s is restrictive; only bu_restrict may be", name)
 		}
 		if name == "bu_guard" {
 			// Every row, for the archive guard's count alone (AC-18).
