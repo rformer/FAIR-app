@@ -4,6 +4,7 @@ import { describe, getMe, send, type Me } from "./api";
 import { AuditPage } from "./audit/AuditPage";
 import { BannerPage } from "./banner";
 import { AnswerPage } from "./estimate/AnswerPage";
+import { CalibrationPage, ExercisePage, QuestionSetPage, QuestionSets } from "./estimate/Calibration";
 import { Inbox } from "./estimate/Inbox";
 import { RequestForm, RequestPage } from "./estimate/Requests";
 import { PosturePage } from "./posture/PosturePage";
@@ -67,6 +68,8 @@ function App() {
   const path = window.location.pathname;
   const section = path.startsWith("/estimates")
     ? "estimates"
+    : path.startsWith("/calibration")
+    ? "calibration"
     : path.startsWith("/audit")
       ? "audit"
       : path.startsWith("/scenarios") || path.startsWith("/risk/")
@@ -97,6 +100,11 @@ function App() {
               </a>
             </li>
             <li>
+              <a href="/calibration" aria-current={current("calibration")}>
+                Calibration
+              </a>
+            </li>
+            <li>
               <a href="/library" aria-current={current("library")}>
                 Library
               </a>
@@ -122,6 +130,8 @@ function App() {
       <main id="main" tabIndex={-1}>
         {section === "estimates" ? (
           <EstimateRoutes path={path} />
+        ) : section === "calibration" ? (
+          <CalibrationRoutes path={path} />
         ) : section === "audit" ? (
           <AuditPage />
         ) : section === "scenarios" ? (
@@ -156,6 +166,17 @@ function EstimateRoutes({ path }: { path: string }) {
   if (r) return <RequestPage id={r[1] ?? ""} />;
   const m = /^\/estimates\/([0-9a-f-]{36})$/.exec(path);
   return m ? <AnswerPage id={m[1] ?? ""} /> : <p role="alert">Not found.</p>;
+}
+
+// F-004 T-14: /calibration, /calibration/exercises/{id},
+// /calibration/question-sets[/{id}].
+function CalibrationRoutes({ path }: { path: string }) {
+  if (path === "/calibration" || path === "/calibration/") return <CalibrationPage />;
+  if (path === "/calibration/question-sets") return <QuestionSets />;
+  const e = /^\/calibration\/exercises\/([0-9a-f-]{36})$/.exec(path);
+  if (e) return <ExercisePage id={e[1] ?? ""} />;
+  const s = /^\/calibration\/question-sets\/([0-9a-f-]{36})$/.exec(path);
+  return s ? <QuestionSetPage id={s[1] ?? ""} /> : <p role="alert">Not found.</p>;
 }
 
 // F-003 T-13: /library and /controls, /new, /{id}, /{id}/edit.
