@@ -366,6 +366,24 @@ events:
     requires: [target]
     attributes: [catalog_version]
     description: "A release retired a permission"
+  - type: calibration.exercise_submitted
+    category: risk_data
+    severities: [info]
+    requires: [target]
+    attributes: [class, questions]
+    description: "A person submitted a calibration exercise; it was scored at once (F-004 T-10, AC-22, AC-23)"
+  - type: calibration.record_viewed
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    attributes: [as, bu]
+    description: "Someone viewed another person's calibration record: a requester (score only) or an auditor (F-004 T-10, AC-28, AC-29)"
+  - type: calibration.records_purged
+    category: risk_data
+    severities: [info]
+    requires: [target]
+    attributes: [exercises, scores]
+    description: "Calibration exercises and score history past the retention period were deleted, each person's latest score kept (F-004 T-10, AC-30)"
   - type: control.created
     category: risk_data
     severities: [low]

@@ -15,20 +15,18 @@ const (
 	ClassNotMeasured    = "not_measured"
 )
 
-// RangeTarget is the confidence of range questions: a calibrated person's
-// 90% ranges contain the truth 90% of the time.
-const RangeTarget = 0.9
+// The scoring is exact (integers and decimals), so that the database's
+// estimate.compute_score gives the same score, digit for digit (F-004
+// T-10): the database scores, this is the reference it is tested against.
 
-// bandTail is each tail of the tolerance band: a central 90% interval.
-const bandTail = 0.05
+// zLimit2 is the square of the binary test's two-sided 90% limit (1.6449),
+// as a decimal: |z| > 1.6449 exactly when z² > 2.70569601.
+var zLimit2 = big.NewRat(270569601, 100000000)
 
-// zLimit is the binary test's two-sided 90% limit.
-const zLimit = 1.6448536269514722
-
-// BinaryAnswer is one true-or-false answer: the confidence (0.5 to 1) that
-// the chosen answer is right, and whether it was.
+// BinaryAnswer is one true-or-false answer: the confidence (a decimal from
+// 0.5 to 1) that the chosen answer is right, and whether it was.
 type BinaryAnswer struct {
-	Confidence float64
+	Confidence string
 	Correct    bool
 }
 
@@ -62,45 +60,39 @@ type Score struct {
 
 // Band is the central 90% interval [lo, hi] of hits among n answers of a
 // perfectly calibrated person: P(K < lo) ≤ 5% and P(K > hi) ≤ 5% for K ~
-// Binomial(n, 0.9).
+// Binomial(n, 0.9). Exactly: with Sₖ = Σᵢ≤ₖ C(n, i)·9ⁱ, P(K ≤ k) = Sₖ / 10ⁿ,
+// lo is the least k with 20·Sₖ > 10ⁿ and hi the least with 20·Sₖ ≥ 19·10ⁿ.
 func Band(n int) [2]int {
 	if n <= 0 {
 		return [2]int{0, 0}
 	}
-	cdf := 0.0
-	lo, hi := -1, -1
+	total := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(n)), nil)
+	low := total
+	high := new(big.Int).Mul(total, big.NewInt(19))
+	term := big.NewInt(1) // C(n, k)·9ᵏ
+	sum := new(big.Int)
+	twenty := big.NewInt(20)
+	lo, hi := -1, n
 	for k := 0; k <= n; k++ {
-		cdf += binomPMF(n, k, RangeTarget)
-		if lo < 0 && cdf > bandTail {
+		sum.Add(sum, term)
+		s20 := new(big.Int).Mul(sum, twenty)
+		if lo < 0 && s20.Cmp(low) > 0 {
 			lo = k
 		}
-		if hi < 0 && cdf >= 1-bandTail {
+		if s20.Cmp(high) >= 0 {
 			hi = k
 			break
 		}
-	}
-	if hi < 0 {
-		hi = n
+		// C(n, k+1)·9^(k+1) = C(n, k)·9ᵏ · 9·(n−k)/(k+1), exact.
+		term.Mul(term, big.NewInt(int64(9*(n-k))))
+		term.Quo(term, big.NewInt(int64(k+1)))
 	}
 	return [2]int{lo, hi}
-}
-
-func binomPMF(n, k int, p float64) float64 {
-	lc, _ := math.Lgamma(float64(n + 1))
-	lk, _ := math.Lgamma(float64(k + 1))
-	lnk, _ := math.Lgamma(float64(n - k + 1))
-	return math.Exp(lc - lk - lnk + float64(k)*math.Log(p) + float64(n-k)*math.Log1p(-p))
 }
 
 func places(r *big.Rat, n int) string {
 	d, _ := canon.Decimal(r.FloatString(n))
 	return d
-}
-
-func placesF(x float64, n int) string {
-	r := new(big.Rat)
-	r.SetFloat64(x)
-	return places(r, n)
 }
 
 // ScoreOf scores range answers (whether each range held the truth) and
@@ -132,34 +124,43 @@ func ScoreOf(ranges []bool, binary []BinaryAnswer, minAnswers int) Score {
 
 	s.Binary.N = len(binary)
 	s.Binary.Class = ClassNotMeasured
-	var mu, varSum, brier float64
+	mu, varSum, brier := new(big.Rat), new(big.Rat), new(big.Rat)
+	one := big.NewRat(1, 1)
 	for _, b := range binary {
-		y := 0.0
+		c, err := rat(b.Confidence)
+		if err != nil {
+			continue
+		}
+		y := new(big.Rat)
 		if b.Correct {
-			y = 1
+			y = one
 			s.Binary.Correct++
 		}
-		mu += b.Confidence
-		varSum += b.Confidence * (1 - b.Confidence)
-		brier += (b.Confidence - y) * (b.Confidence - y)
+		mu.Add(mu, c)
+		varSum.Add(varSum, new(big.Rat).Mul(c, new(big.Rat).Sub(one, c)))
+		d := new(big.Rat).Sub(c, y)
+		brier.Add(brier, d.Mul(d, d))
 	}
 	if s.Binary.N > 0 {
-		s.Binary.Expected = placesF(mu, 4)
-		s.Binary.Brier = placesF(brier/float64(s.Binary.N), 4)
-		diff := float64(s.Binary.Correct) - mu
-		var z float64
-		switch {
-		case varSum > 0:
-			z = diff / math.Sqrt(varSum)
-			s.Binary.Z = placesF(z, 4)
-		case diff < 0:
-			z = math.Inf(-1) // certain of every answer, and wrong at least once
+		s.Binary.Expected = places(mu, 4)
+		s.Binary.Brier = places(new(big.Rat).Quo(brier, big.NewRat(int64(s.Binary.N), 1)), 4)
+		diff := new(big.Rat).Sub(big.NewRat(int64(s.Binary.Correct), 1), mu)
+		// z² = diff² / σ²; the sign of z is diff's.
+		outside := false
+		if varSum.Sign() > 0 {
+			z2 := new(big.Rat).Quo(new(big.Rat).Mul(diff, diff), varSum)
+			outside = z2.Cmp(zLimit2) > 0
+			df, _ := diff.Float64()
+			vf, _ := varSum.Float64()
+			s.Binary.Z = places(new(big.Rat).SetFloat64(math.Round(df/math.Sqrt(vf)*1e4)/1e4), 4)
+		} else {
+			outside = diff.Sign() != 0 // certain of every answer: any miss is decisive
 		}
 		if s.Binary.N >= minAnswers {
 			switch {
-			case z < -zLimit:
+			case outside && diff.Sign() < 0:
 				s.Binary.Class = ClassOverconfident
-			case z > zLimit:
+			case outside && diff.Sign() > 0:
 				s.Binary.Class = ClassUnderconfident
 			default:
 				s.Binary.Class = ClassCalibrated

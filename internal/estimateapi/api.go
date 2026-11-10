@@ -34,6 +34,16 @@
 //	GET /api/v1/estimates/inbox                  the requests addressed to the caller
 //	GET /api/v1/estimates/inbox/{id}             one, as its estimator sees it
 //	PUT /api/v1/estimates/inbox/{id}/answers     save drafts or submit answers
+//
+// T-10 serves calibration (calibration.take for one's own exercises and
+// record; estimate.request at a shared BU, or calibration.audit, for
+// another person's, each view recorded):
+//
+//	POST /api/v1/calibration/exercises              start (or resume) an exercise
+//	GET  /api/v1/calibration/exercises/{id}         an exercise; truths once submitted
+//	POST /api/v1/calibration/exercises/{id}/submit  submit it; scored at once
+//	GET  /api/v1/calibration/me                     one's own record
+//	GET  /api/v1/calibration/people/{user}?bu=      another person's, as far as one may see it
 package estimateapi
 
 import (
@@ -59,6 +69,9 @@ type API struct {
 	DB    *pgxpool.Pool // app_rw
 	Authz riskapi.Authorizer
 	Audit audit.Emitter
+	// Settings gives F-004's calibration settings (the built-in defaults
+	// when nil).
+	Settings Settings
 }
 
 type route struct {
@@ -81,6 +94,11 @@ var routes = []route{
 	{"GET", "/api/v1/estimates/inbox", (*API).listInbox, false},
 	{"GET", "/api/v1/estimates/inbox/{id}", (*API).getInboxRequest, false},
 	{"PUT", "/api/v1/estimates/inbox/{id}/answers", (*API).saveAnswers, false},
+	{"POST", "/api/v1/calibration/exercises", (*API).startExercise, false},
+	{"GET", "/api/v1/calibration/exercises/{id}", (*API).getExercise, false},
+	{"POST", "/api/v1/calibration/exercises/{id}/submit", (*API).submitExercise, false},
+	{"GET", "/api/v1/calibration/me", (*API).getMyCalibration, false},
+	{"GET", "/api/v1/calibration/people/{user}", (*API).getPersonCalibration, false},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).
@@ -94,7 +112,7 @@ func Routes() []string {
 }
 
 // Prefixes are the path prefixes the API owns (for the service's mux).
-var Prefixes = []string{"/api/v1/estimates"}
+var Prefixes = []string{"/api/v1/estimates", "/api/v1/calibration"}
 
 // Handler returns the API with authentication, and idempotency in front of
 // every route that is not exempt.

@@ -37,7 +37,7 @@ func TestBand(t *testing.T) {
 
 // Classes for ranges and binary answers, the minimum, and the overall class.
 func TestScore(t *testing.T) {
-	bin := func(conf float64, correct, wrong int) []estimate.BinaryAnswer {
+	bin := func(conf string, correct, wrong int) []estimate.BinaryAnswer {
 		var out []estimate.BinaryAnswer
 		for i := 0; i < correct; i++ {
 			out = append(out, estimate.BinaryAnswer{Confidence: conf, Correct: true})
@@ -59,11 +59,11 @@ func TestScore(t *testing.T) {
 		{"overconfident just below it", hits(20, 15), nil, "overconfident", "overconfident", "not_measured", "0.75"},
 		{"every range held", hits(20, 20), nil, "calibrated", "calibrated", "not_measured", "1"},
 		{"underconfident at 100", hits(100, 100), nil, "underconfident", "underconfident", "not_measured", "1"},
-		{"binary only, calibrated", nil, bin(0.7, 14, 6), "calibrated", "not_measured", "calibrated", ""},
-		{"binary only, overconfident", nil, bin(0.9, 10, 10), "overconfident", "not_measured", "overconfident", ""},
-		{"binary only, underconfident", nil, bin(0.5, 18, 2), "underconfident", "not_measured", "underconfident", ""},
-		{"certain and once wrong", nil, bin(1, 19, 1), "overconfident", "not_measured", "overconfident", ""},
-		{"ranges decide over binary", hits(20, 18), bin(0.9, 10, 10), "calibrated", "calibrated", "overconfident", "0.9"},
+		{"binary only, calibrated", nil, bin("0.7", 14, 6), "calibrated", "not_measured", "calibrated", ""},
+		{"binary only, overconfident", nil, bin("0.9", 10, 10), "overconfident", "not_measured", "overconfident", ""},
+		{"binary only, underconfident", nil, bin("0.5", 18, 2), "underconfident", "not_measured", "underconfident", ""},
+		{"certain and once wrong", nil, bin("1", 19, 1), "overconfident", "not_measured", "overconfident", ""},
+		{"ranges decide over binary", hits(20, 18), bin("0.9", 10, 10), "calibrated", "calibrated", "overconfident", "0.9"},
 	} {
 		s := estimate.ScoreOf(c.ranges, c.binary, 20)
 		if s.Class != c.class || s.Ranges.Class != c.rc || s.Binary.Class != c.bc || s.Ranges.Rate != c.rate {
@@ -72,7 +72,7 @@ func TestScore(t *testing.T) {
 	}
 	// The Brier score and the stored shape (estimate.save_answer reads class
 	// and ranges.rate).
-	s := estimate.ScoreOf(hits(20, 18), bin(0.8, 8, 2), 20)
+	s := estimate.ScoreOf(hits(20, 18), bin("0.8", 8, 2), 20)
 	if s.Binary.Brier != "0.16" || s.Binary.Expected != "8" || s.Binary.Z != "0" {
 		t.Fatalf("binary figures: %+v", s.Binary)
 	}

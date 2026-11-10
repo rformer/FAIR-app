@@ -235,7 +235,25 @@ func run() error {
 			return 48 * time.Hour // the default of every built-in profile
 		}
 		return d
-	}, OnError: func(err error) { logger.Error("estimate jobs", "error", err.Error()) }}
+	}, OnError: func(err error) { logger.Error("estimate jobs", "error", err.Error()) },
+		Window: func() time.Duration {
+			if d, err := sc.Duration(settings.KeyCalibrationWindow, ""); err == nil {
+				return d
+			}
+			return 365 * 24 * time.Hour
+		},
+		MinAnswers: func() int {
+			if n, err := sc.Int(settings.KeyCalibrationMinAnswers, ""); err == nil {
+				return n
+			}
+			return 20
+		},
+		Retention: func() time.Duration {
+			if d, err := sc.Duration(settings.KeyCalibrationRetention, ""); err == nil {
+				return d
+			}
+			return 3 * 365 * 24 * time.Hour
+		}}
 	leader := auditsvc.Leader{Pool: pool, Key: estimate.RiskLeaderLockKey, OnChange: func(leading bool) {
 		logger.Info("leader", "leading", leading, "replica", os.Getenv("POD_NAME"))
 	}}
@@ -276,7 +294,7 @@ func run() error {
 			srv.Mux().Handle(prefix+"/", h)
 		}
 		// The estimate API (F-004 design §5), on the same grants.
-		eh := server.SecurityHeaders((&estimateapi.API{DB: pool, Authz: grants, Audit: emitter}).Handler(jwtKeys, nil))
+		eh := server.SecurityHeaders((&estimateapi.API{DB: pool, Authz: grants, Audit: emitter, Settings: sc}).Handler(jwtKeys, nil))
 		for _, prefix := range estimateapi.Prefixes {
 			srv.Mux().Handle(prefix, eh)
 			srv.Mux().Handle(prefix+"/", eh)
