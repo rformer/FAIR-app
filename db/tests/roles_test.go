@@ -42,9 +42,19 @@ type env struct {
 	secrets  map[string]string // role -> password file
 	adminEnv []string
 	install  migrate.Result // result of the first migration run
+	// release, when set, replaces the shipped permission catalog in
+	// migrations (setupWith), for upgrade tests.
+	release func() (*catalog.Catalog, *catalog.BuiltinRoles, error)
 }
 
 func setup(t *testing.T) *env {
+	t.Helper()
+	return setupWith(t, nil)
+}
+
+// setupWith is setup with the permission catalog rel installs instead of
+// the shipped one (nil: the shipped one).
+func setupWith(t *testing.T, rel func() (*catalog.Catalog, *catalog.BuiltinRoles, error)) *env {
 	t.Helper()
 	if os.Getenv("FAIR_TEST_PG") != "1" {
 		t.Skip("set FAIR_TEST_PG=1 and libpq admin variables to run database tests")
@@ -55,7 +65,7 @@ func setup(t *testing.T) *env {
 	_, file, _, _ := runtime.Caller(0)
 	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 
-	e := &env{t: t, root: root, db: "fairtest_" + randHex(6), secrets: map[string]string{}, adminEnv: os.Environ()}
+	e := &env{t: t, root: root, db: "fairtest_" + randHex(6), secrets: map[string]string{}, adminEnv: os.Environ(), release: rel}
 	dir := t.TempDir()
 	for _, r := range []string{"app_migrator", "app_rw", "app_engine", "app_posture", "app_gateway", "app_audit"} {
 		p := filepath.Join(dir, r)
@@ -110,6 +120,9 @@ func (e *env) migrate(dir string) (migrate.Result, error) {
 		return migrate.Result{}, err
 	}
 	c, roles, err := catalog.Release()
+	if e.release != nil {
+		c, roles, err = e.release()
+	}
 	if err != nil {
 		return migrate.Result{}, err
 	}

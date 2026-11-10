@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "permissions": [
     {"key": "acceptance.approve", "resource_type": "acceptance", "action": "approve", "privileged": true, "risk_data": true, "introduced_in": 1},
     {"key": "acceptance.request", "resource_type": "acceptance", "action": "write", "privileged": false, "risk_data": true, "introduced_in": 1},
@@ -22,11 +22,16 @@
     {"key": "bu.manage", "resource_type": "bu", "action": "admin", "privileged": true, "risk_data": false, "introduced_in": 1},
     {"key": "bu.restrict", "resource_type": "bu", "action": "admin", "privileged": true, "risk_data": false, "introduced_in": 1},
     {"key": "bu.view", "resource_type": "bu", "action": "read", "privileged": false, "risk_data": false, "introduced_in": 1},
+    {"key": "calibration.audit", "resource_type": "calibration", "action": "read", "privileged": true, "risk_data": false, "introduced_in": 3},
+    {"key": "calibration.manage", "resource_type": "calibration", "action": "admin", "privileged": true, "risk_data": false, "introduced_in": 3},
+    {"key": "calibration.take", "resource_type": "calibration", "action": "read", "privileged": false, "risk_data": false, "introduced_in": 3},
     {"key": "control.edit", "resource_type": "control", "action": "write", "privileged": false, "risk_data": true, "introduced_in": 1},
     {"key": "control.view", "resource_type": "control", "action": "read", "privileged": false, "risk_data": true, "introduced_in": 1},
     {"key": "drift.acknowledge", "resource_type": "drift", "action": "write", "privileged": false, "risk_data": false, "introduced_in": 1},
     {"key": "entitlement.export", "resource_type": "entitlement", "action": "export", "privileged": true, "risk_data": false, "introduced_in": 1},
     {"key": "entitlement.view", "resource_type": "entitlement", "action": "read", "privileged": true, "risk_data": false, "introduced_in": 1},
+    {"key": "estimate.request", "resource_type": "estimate", "action": "write", "privileged": false, "risk_data": true, "introduced_in": 3},
+    {"key": "estimate.submit", "resource_type": "estimate", "action": "write", "privileged": false, "risk_data": true, "introduced_in": 3},
     {"key": "exception.renew", "resource_type": "exception", "action": "write", "privileged": false, "risk_data": false, "introduced_in": 1},
     {"key": "framework.manage", "resource_type": "framework", "action": "admin", "privileged": true, "risk_data": false, "introduced_in": 1},
     {"key": "idp.manage", "resource_type": "idp", "action": "admin", "privileged": true, "risk_data": false, "introduced_in": 1},

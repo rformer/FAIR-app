@@ -241,3 +241,4 @@ Packages 1.4.0.
 ## Change Log
 - 2026-11-09: Initial draft; design decisions (risk service with schema `estimate`, quantile-averaging pools, hit rate with binomial tolerance, a 120-question shipped bank) taken with Robert Former.
 - 2026-11-09: Approved by Robert Former.
+- 2026-11-09: T-01: permission catalog version 3 (`internal/access/catalog/release`, F-001 `permission-catalog.md`): calibration keys are classified as not risk data, so Platform Admin keeps no risk-data access; `calibration.manage` and `calibration.audit` are privileged; `calibration.take` is a read action (decided with Robert Former): it writes only the person's own record, and as a write it gave view-only roles a business-unit write scope that access reviews would misread. `TestCatalogVersion3Upgrade` installs version 2 (`setupWith`) and upgrades it.
