@@ -26,6 +26,7 @@ import {
   type LibraryKind,
   type LossProfileDoc,
   type Problem,
+  type ReferenceClassDoc,
   type StarterEntry,
   type ThreatCommunityDoc,
 } from "./types";
@@ -33,7 +34,8 @@ import {
 // F-003 T-13 (AC-08, AC-11, AC-12, AC-14, AC-22, AC-27): the library
 // (assets, asset groups, threat communities, loss profiles) and controls:
 // lists with inherited entries marked, an entry's page with its versions,
-// the editors, and the starter library with its copy action.
+// the editors, and the starter library with its copy action. F-004 T-13
+// (AC-13): reference classes, the customer's own counts or losses.
 
 export type EntrySection = "library" | "controls";
 
@@ -64,7 +66,7 @@ export function EntryList({ section, search = window.location.search }: { sectio
       <h1>{title(section)}</h1>
       <p className="lede">
         {section === "library"
-          ? "Assets, asset groups, threat communities and loss profiles, shared down the business unit tree."
+          ? "Assets, asset groups, threat communities, loss profiles and reference classes, shared down the business unit tree."
           : "Safeguards and their effect on FAIR factors, shared down the business unit tree."}
       </p>
       {bus.edit.length > 0 ? (
@@ -294,7 +296,7 @@ export function EntryPage({ section, id }: { section: EntrySection; id: string }
               ) : null}
             </p>
             <p className="actions">
-              {mayEdit && !h.archived_at && d.kind !== "reference_class" ? (
+              {mayEdit && !h.archived_at ? (
                 <a className="react-aria-Button" href={`/${section}/${id}/edit`}>
                   Edit
                 </a>
@@ -374,6 +376,8 @@ function blankDoc(kind: LibraryKind | "control"): EntryDoc {
       return { ...base, kind, magnitudes: {} };
     case "control":
       return { ...base, kind, effects: [{ factor: "resistance_strength", estimate: newEstimate("percentile") }] };
+    case "reference_class":
+      return { ...base, kind, period: { start: "", end: "" }, data: { kind: "counts", series: [{ start: "", end: "", count: 0 }] }, sources: [{ type: "dataset", ref: "" }] };
   }
 }
 
@@ -495,7 +499,7 @@ function EditorForm({ section, initial, view }: { section: EntrySection; initial
           ) : doc.kind === "control" ? (
             <ControlFields doc={doc} currency={currency} set={set} />
           ) : (
-            <p>Reference classes are edited through the API for now.</p>
+            <ReferenceFields doc={doc} currency={currency} set={set} />
           )}
         </Section>
         <Section id="save" title="Save">
@@ -598,6 +602,123 @@ function LossFields({ doc, currency, set }: { doc: LossProfileDoc; currency: str
       {FORMS.filter((f) => m[f]).map((f: Form) => (
         <EstimateFields key={f} legend={FORM_LABELS[f]} pointer={`/magnitudes/${f}`} value={m[f]!} currency={currency} onChange={(e) => set({ magnitudes: { ...m, [f]: e } } as Partial<LossProfileDoc>)} />
       ))}
+    </>
+  );
+}
+
+/** AC-13: a reference class: the period, counts or losses, the sources. */
+function ReferenceFields({ doc, currency, set }: { doc: ReferenceClassDoc; currency: string | null; set: (p: Partial<EntryDoc>) => void }) {
+  const put = (p: Partial<ReferenceClassDoc>) => set(p as Partial<EntryDoc>);
+  const d = doc.data;
+  const date = (label: string, pointer: string, value: string, onChange: (v: string) => void) => (
+    <div className="field">
+      <label htmlFor={fieldId(pointer)}>{label}</label>
+      <input id={fieldId(pointer)} type="date" value={value} onChange={(e) => onChange(e.target.value)} />
+    </div>
+  );
+  const [amounts, setAmounts] = useState(d.kind === "losses" ? d.amounts.join("\n") : "");
+  return (
+    <>
+      <p className="muted">Your organization&apos;s own data, shown to estimators as such: never industry data.</p>
+      <fieldset className="group" id={fieldId("/period")}>
+        <legend>Period covered</legend>
+        <div className="grid">
+          {date("Start", "/period/start", doc.period.start, (start) => put({ period: { ...doc.period, start } }))}
+          {date("End", "/period/end", doc.period.end, (end) => put({ period: { ...doc.period, end } }))}
+        </div>
+      </fieldset>
+      <fieldset className="checks" id={fieldId("/data/kind")}>
+        <legend>Data</legend>
+        <label>
+          <input type="radio" name="data-kind" checked={d.kind === "counts"} onChange={() => put({ data: { kind: "counts", series: [{ start: doc.period.start, end: doc.period.end, count: 0 }] } })} /> Event counts over periods
+        </label>
+        <label>
+          <input
+            type="radio"
+            name="data-kind"
+            checked={d.kind === "losses"}
+            onChange={() => {
+              setAmounts("");
+              put({ data: { kind: "losses", unit: "currency", amounts: [] } });
+            }}
+          />{" "}
+          Observed loss amounts{currency ? ` (${currency})` : ""}
+        </label>
+      </fieldset>
+      {d.kind === "counts" ? (
+        <fieldset className="group" id={fieldId("/data/series")}>
+          <legend>Event counts</legend>
+          {d.series.map((s, i) => {
+            const row = (p: Partial<(typeof d.series)[number]>) => put({ data: { ...d, series: d.series.map((x, j) => (j === i ? { ...x, ...p } : x)) } });
+            return (
+              <div className="grid" key={i}>
+                {date(`Period ${i + 1} start`, `/data/series/${i}/start`, s.start, (start) => row({ start }))}
+                {date(`Period ${i + 1} end`, `/data/series/${i}/end`, s.end, (end) => row({ end }))}
+                <div className="field">
+                  <label htmlFor={fieldId(`/data/series/${i}/count`)}>Period {i + 1} events</label>
+                  <input
+                    id={fieldId(`/data/series/${i}/count`)}
+                    inputMode="numeric"
+                    value={String(s.count)}
+                    onChange={(e) => row({ count: /^\d+$/.test(e.target.value) ? Number(e.target.value) : 0 })}
+                  />
+                </div>
+                {d.series.length > 1 ? (
+                  <div className="field">
+                    <button type="button" className="btn" onClick={() => put({ data: { ...d, series: d.series.filter((_, j) => j !== i) } })}>
+                      Remove period {i + 1}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+          <button type="button" className="btn" onClick={() => put({ data: { ...d, series: [...d.series, { start: d.series.at(-1)?.end ?? "", end: "", count: 0 }] } })}>
+            Add a period
+          </button>
+        </fieldset>
+      ) : (
+        <div className="field">
+          <label htmlFor={fieldId("/data/amounts")}>Observed losses, one amount per line</label>
+          <textarea
+            id={fieldId("/data/amounts")}
+            rows={5}
+            value={amounts}
+            onChange={(e) => {
+              setAmounts(e.target.value);
+              put({ data: { kind: "losses", unit: "currency", amounts: e.target.value.split(/\r?\n/).map((a) => a.trim().replace(/,/g, "")).filter((a) => a !== "") } });
+            }}
+          />
+        </div>
+      )}
+      <h3>Sources</h3>
+      {doc.sources.map((s, i) => (
+        <div className="grid" key={i}>
+          <div className="field">
+            <label htmlFor={fieldId(`/sources/${i}/type`)}>Source {i + 1} type</label>
+            <select id={fieldId(`/sources/${i}/type`)} value={s.type} onChange={(e) => put({ sources: doc.sources.map((x, j) => (j === i ? { ...x, type: e.target.value } : x)) })}>
+              <option value="dataset">Dataset</option>
+              <option value="document">Document</option>
+              <option value="person">Person</option>
+              <option value="integration">Integration</option>
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor={fieldId(`/sources/${i}/ref`)}>Source {i + 1}</label>
+            <input id={fieldId(`/sources/${i}/ref`)} value={s.ref} onChange={(e) => put({ sources: doc.sources.map((x, j) => (j === i ? { ...x, ref: e.target.value } : x)) })} />
+          </div>
+          {doc.sources.length > 1 ? (
+            <div className="field">
+              <button type="button" className="btn" onClick={() => put({ sources: doc.sources.filter((_, j) => j !== i) })}>
+                Remove source {i + 1}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ))}
+      <button type="button" className="btn" onClick={() => put({ sources: [...doc.sources, { type: "document", ref: "" }] })}>
+        Add a source
+      </button>
     </>
   );
 }

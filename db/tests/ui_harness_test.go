@@ -46,7 +46,7 @@ func TestPostureUIHarness(t *testing.T) {
 	// Posture page's audit links open populated histories (AC-37).
 	ae.set.Evaluator.Audit = audit.WithTrail(ae.set.Evaluator.Audit, audit.Trail{DB: ae.set.Evaluator.DB})
 	seedPostureScenario(t, ae)
-	scenario := seedRiskScenario(t, e) // F-003 T-12
+	scenario, second := seedRiskScenario(t, e) // F-003 T-12; F-004 T-13
 
 	pool := e.posturePool()
 	api := &postureapi.API{DB: pool, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool), MaxAge: time.Second}), Audit: audit.NewMemory()}
@@ -94,7 +94,7 @@ func TestPostureUIHarness(t *testing.T) {
 	riskSrv := httptest.NewServer(riskMux)
 	defer riskSrv.Close()
 	riskUp, _ := url.Parse(riskSrv.URL)
-	seedEstimateRequest(t, e, ae.keys, riskSrv.URL, scenario)
+	seedEstimateRequest(t, e, ae.keys, riskSrv.URL, scenario, second)
 	// The UI: built assets, and index.html for the app's routes.
 	ui := gateway.StaticUI(dist)
 	g := &gateway.Gateway{
@@ -266,8 +266,9 @@ func seedPostureScenario(t *testing.T, ae apiEnv) {
 // analyst at the root, the currency, a library (asset, threat community,
 // control) and a scenario with two versions whose threat community has a
 // newer version to adopt. "nobody" (Executive Viewer) can read, not edit.
-// It returns the scenario's id.
-func seedRiskScenario(t *testing.T, e *env) string {
+// It returns the scenario's id, and that of a second scenario on the same
+// library ("Phishing of claims staff") for the analyst's estimate pages.
+func seedRiskScenario(t *testing.T, e *env) (string, string) {
 	t.Helper()
 	// A second BU under the root, for moves and imports (T-13).
 	e.mustOwner("INSERT INTO iam.bu (name, code, parent_id, restricted) SELECT 'Claims', 'CLAIMS', id, false FROM iam.bu WHERE parent_id IS NULL")
@@ -297,18 +298,22 @@ func seedRiskScenario(t *testing.T, e *env) string {
 	if err := r.addVersion("riskanalyst", "library_version", tc, 2, b, dg); err != nil {
 		t.Fatal(err)
 	}
+	second := r.create(t, "riskanalyst", "scenario", root, modeltest.Set(d, "/name", "Phishing of claims staff"))
 	t.Log("risk scenario seeded")
-	return s
+	return s, second
 }
 
 // seedEstimateRequest builds what the estimator pages show (F-004 T-12): an
 // estimator at the root ("estimator", Estimator only) and a request on the
 // seeded scenario for contact frequency and response costs, with a
-// reference class of the organization's own incident counts.
-func seedEstimateRequest(t *testing.T, e *env, keys *authz.LocalKeys, url, scenario string) {
+// reference class of the organization's own incident counts. For the
+// analyst's pages (T-13), a second estimator ("estimator2") and a request on
+// the second scenario that both have answered.
+func seedEstimateRequest(t *testing.T, e *env, keys *authz.LocalKeys, url, scenario, second string) {
 	t.Helper()
-	e.mustOwner("INSERT INTO iam.app_user (email, display_name) VALUES ('estimator@example.test', 'Ellis Estimator')")
+	e.mustOwner("INSERT INTO iam.app_user (email, display_name) VALUES ('estimator@example.test', 'Ellis Estimator'), ('estimator2@example.test', 'Sam Okafor')")
 	e.mustOwner(grant("admin", "user:estimator", "Estimator", "ENTERPRISE"))
+	e.mustOwner(grant("admin", "user:estimator2", "Estimator", "ENTERPRISE"))
 	e.drain()
 	r := riskEnv{e, map[string]string{"ENTERPRISE": e.adminQuery("SELECT id FROM iam.bu WHERE code = 'ENTERPRISE'")}}
 	rc := r.create(t, "riskanalyst", "reference_class", r.bu["ENTERPRISE"], modeltest.ReferenceClass())
@@ -321,5 +326,28 @@ func seedEstimateRequest(t *testing.T, e *env, keys *authz.LocalKeys, url, scena
 	if got.code != 201 {
 		t.Fatalf("seed estimate request: %d %s", got.code, got.raw)
 	}
-	t.Log("estimate request seeded")
+	ids := []any{e.adminQuery("SELECT id FROM iam.app_user WHERE email = 'estimator@example.test'"),
+		e.adminQuery("SELECT id FROM iam.app_user WHERE email = 'estimator2@example.test'")}
+	got = ea.call(t, "POST", "riskanalyst", "/api/v1/estimates/requests", map[string]any{"scenario_id": second, "title": "Phishing frequency and response",
+		"due_at": time.Now().Add(72 * time.Hour).UTC().Format(time.RFC3339), "factors": []any{"/lef/tef/contact_frequency", "/primary_loss/response"},
+		"estimators": ids})
+	if got.code != 201 {
+		t.Fatalf("seed second request: %d %s", got.code, got.raw)
+	}
+	rid := got.body["id"].(string)
+	est := func(unit, lo, ml, hi, ref string) map[string]any {
+		return map[string]any{"min": lo, "ml": ml, "max": hi, "unit": unit, "confidence": "0.9", "rationale": "What I have seen at the service desk.",
+			"sources": []any{map[string]any{"type": "person", "ref": ref}}}
+	}
+	for user, answers := range map[string][]any{
+		"estimator": {map[string]any{"pointer": "/lef/tef/contact_frequency", "estimate": est("events_per_year", "2", "5", "10", "Ellis's notes")},
+			map[string]any{"pointer": "/primary_loss/response", "declined": "Not my area"}},
+		"estimator2": {map[string]any{"pointer": "/lef/tef/contact_frequency", "estimate": est("events_per_year", "4", "7", "12", "SOC tickets")},
+			map[string]any{"pointer": "/primary_loss/response", "estimate": est("currency", "40000", "120000", "500000", "Past invoices")}},
+	} {
+		if got := ea.call(t, "PUT", user, "/api/v1/estimates/inbox/"+rid+"/answers", map[string]any{"submit": true, "answers": answers}); got.code != 200 {
+			t.Fatalf("seed %s answers: %d %s", user, got.code, got.raw)
+		}
+	}
+	t.Log("estimate requests seeded")
 }

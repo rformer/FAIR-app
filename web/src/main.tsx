@@ -5,6 +5,7 @@ import { AuditPage } from "./audit/AuditPage";
 import { BannerPage } from "./banner";
 import { AnswerPage } from "./estimate/AnswerPage";
 import { Inbox } from "./estimate/Inbox";
+import { RequestForm, RequestPage } from "./estimate/Requests";
 import { PosturePage } from "./posture/PosturePage";
 import {
   EntryEditor,
@@ -149,6 +150,10 @@ function ScenarioRoutes({ path }: { path: string }) {
 // F-004 T-12: /estimates (the estimator's inbox), /estimates/{id}.
 function EstimateRoutes({ path }: { path: string }) {
   if (path === "/estimates" || path === "/estimates/") return <Inbox />;
+  // F-004 T-13: the analyst's side.
+  if (path === "/estimates/requests/new") return <RequestForm />;
+  const r = /^\/estimates\/requests\/([0-9a-f-]{36})$/.exec(path);
+  if (r) return <RequestPage id={r[1] ?? ""} />;
   const m = /^\/estimates\/([0-9a-f-]{36})$/.exec(path);
   return m ? <AnswerPage id={m[1] ?? ""} /> : <p role="alert">Not found.</p>;
 }

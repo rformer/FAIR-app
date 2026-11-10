@@ -343,6 +343,30 @@ const requestColumns = `q.id::text, q.bu_id::text, q.scenario_id::text, q.scenar
 	(SELECT count(*)::int FROM estimate.request_factor f WHERE f.request_id = q.id),
 	(SELECT count(*)::int FROM estimate.request_estimator e WHERE e.request_id = q.id AND e.removed_at IS NULL)`
 
+// listEstimators lists the people the caller may name as estimators at a
+// BU (AC-01): id and name of each active person holding estimate.submit
+// there, for a holder of estimate.request and scenario.edit at it; 404
+// otherwise (estimate.estimators, migration 0100).
+func (a *API) listEstimators(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	if !a.anywhere(w, r, p, []authz.Permission{permEstimateRequest}) {
+		return
+	}
+	bu := r.URL.Query().Get("bu")
+	if !uuidRE.MatchString(bu) {
+		problem(w, http.StatusBadRequest, "invalid_value", "bu (a UUID) is required", nil)
+		return
+	}
+	var out json.RawMessage
+	err := authz.WithDBContext(r.Context(), a.DB, p.DBToken, func(tx pgx.Tx) error {
+		return tx.QueryRow(r.Context(), "SELECT estimate.estimators($1)", bu).Scan(&out)
+	})
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"estimators": out})
+}
+
 // listRequests lists a scenario's requests, newest first (AC-04).
 func (a *API) listRequests(w http.ResponseWriter, r *http.Request, p authz.Principal) {
 	if !a.anywhere(w, r, p, []authz.Permission{permScenarioView}) {

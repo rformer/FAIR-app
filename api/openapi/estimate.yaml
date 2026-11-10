@@ -574,6 +574,35 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
+  /api/v1/estimates/estimators:
+    get:
+      operationId: listEstimators
+      tags: [requests]
+      summary: The people who may be named as estimators at a BU
+      description: >-
+        For a holder of estimate.request and scenario.edit at `bu`: the id and display name of each
+        active person (not a service account) holding estimate.submit there, by name, at most 500
+        (AC-01). No calibration; that is behind /api/v1/calibration/people/{user}.
+      x-permission: estimate.request and scenario.edit at bu
+      parameters:
+        - { name: bu, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: The people
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [estimators]
+                properties:
+                  estimators:
+                    type: array
+                    items:
+                      type: object
+                      required: [user_id, name]
+                      properties: { user_id: { type: string, format: uuid }, name: { type: string } }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /api/v1/estimates/requests:
     get:
       operationId: listRequests

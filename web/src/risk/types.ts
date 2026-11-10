@@ -200,10 +200,10 @@ export function at(doc: unknown, pointer: string): unknown {
 
 // F-003 T-13: library entries and controls.
 
-export const LIBRARY_KINDS = ["asset", "asset_group", "threat_community", "loss_profile"] as const;
+export const LIBRARY_KINDS = ["asset", "asset_group", "threat_community", "loss_profile", "reference_class"] as const;
 export type LibraryKind = (typeof LIBRARY_KINDS)[number];
 
-export const KIND_LABELS: Record<LibraryKind | "control" | "reference_class", string> = {
+export const KIND_LABELS: Record<LibraryKind | "control", string> = {
   asset: "Asset",
   asset_group: "Asset group",
   threat_community: "Threat community",
@@ -270,8 +270,7 @@ export interface ControlDoc {
   effects: Effect[];
 }
 
-// F-004 T-03: reference classes are shown read-only; they are created
-// through the API until their pages exist.
+// F-004 T-03, T-13: reference classes, the customer's own data (AC-13).
 export interface ReferenceClassDoc {
   kind: "reference_class";
   schema_version: 1;
@@ -295,7 +294,7 @@ export interface EntryView {
 export interface StarterEntry {
   key: string;
   release: string;
-  kind: LibraryKind;
+  kind: Exclude<LibraryKind, "reference_class">;
   name: string;
   illustrative: boolean;
   guidance: string;

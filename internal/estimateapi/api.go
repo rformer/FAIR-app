@@ -93,6 +93,7 @@ type route struct {
 
 var routes = []route{
 	{"POST", "/api/v1/estimates/warnings", (*API).checkEstimate, true},
+	{"GET", "/api/v1/estimates/estimators", (*API).listEstimators, false},
 	{"GET", "/api/v1/estimates/requests", (*API).listRequests, false},
 	{"POST", "/api/v1/estimates/requests", (*API).createRequest, false},
 	{"GET", "/api/v1/estimates/requests/{id}", (*API).getRequest, false},
