@@ -1,0 +1,18 @@
+# F-004 T-02: binding for calibration.retention: SI-12, PT-2; calibration record retention (F-004 design §7).
+setting: calibration.retention
+type: duration
+direction: lower_is_stricter
+bu_scopable: false
+profiles:
+  fedramp-moderate:
+    default: "1095d"
+    bound: { max: "2557d" }
+    platform_choice: "Calibration records are personal data (F-004 AC-30): kept three years; at most seven"
+  cmmc-l2-r2:
+    default: "1095d"
+    bound: { max: "2557d" }
+    platform_choice: "Not a security parameter of 800-171; matches FedRAMP Moderate"
+  enterprise-baseline:
+    default: "1095d"
+    bound: { max: "2557d" }
+    platform_choice: "Matches FedRAMP Moderate"

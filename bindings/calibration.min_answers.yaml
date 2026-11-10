@@ -1,0 +1,18 @@
+# F-004 T-02: binding for calibration.min_answers: calibration minimum answers (F-004 design §7).
+setting: calibration.min_answers
+type: int
+direction: higher_is_stricter
+bu_scopable: false
+profiles:
+  fedramp-moderate:
+    default: 20
+    bound: { min: 10 }
+    platform_choice: "Calibration scores (F-004 AC-23): 20 answers of a kind before a score is shown; at least 10"
+  cmmc-l2-r2:
+    default: 20
+    bound: { min: 10 }
+    platform_choice: "Not a security parameter of 800-171; matches FedRAMP Moderate"
+  enterprise-baseline:
+    default: 20
+    bound: { min: 10 }
+    platform_choice: "Matches FedRAMP Moderate"

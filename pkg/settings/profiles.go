@@ -74,6 +74,37 @@ const (
 	KeyAuditOTLPDestination   = "audit.otlp_destination"
 )
 
+// F-004 setting keys (design §7).
+const (
+	KeyEstimateReminderLead    = "estimate.reminder_lead"
+	KeyCalibrationExerciseSize = "calibration.exercise_size"
+	KeyCalibrationReusePeriod  = "calibration.reuse_period"
+	KeyCalibrationWindow       = "calibration.window"
+	KeyCalibrationMinAnswers   = "calibration.min_answers"
+	KeyCalibrationRetention    = "calibration.retention"
+)
+
+// F004Defs returns the F-004 (estimate capture and calibration) setting
+// definitions, registered by the risk service. Only the loosening side is
+// bounded by the profiles; the other limits (an exercise of at most 50
+// questions) are the service's (design §4.4).
+func F004Defs() []Def {
+	return []Def{
+		{Key: KeyEstimateReminderLead, Kind: KindDuration, Direction: HigherIsStricter, Controls: []string{"RA-3"},
+			Description: "How long before an estimate request's due date its estimators are reminded"},
+		{Key: KeyCalibrationExerciseSize, Kind: KindInt, Direction: HigherIsStricter, Controls: []string{"RA-3"},
+			Description: "Questions in a calibration exercise (at most 50)"},
+		{Key: KeyCalibrationReusePeriod, Kind: KindDuration, Direction: HigherIsStricter, Controls: []string{"RA-3"},
+			Description: "How long before a person may be given a calibration question they answered again"},
+		{Key: KeyCalibrationWindow, Kind: KindDuration, Direction: HigherIsStricter, Controls: []string{"RA-3"},
+			Description: "How far back calibration answers count towards a person's score"},
+		{Key: KeyCalibrationMinAnswers, Kind: KindInt, Direction: HigherIsStricter, Controls: []string{"RA-3"},
+			Description: "Answers of a kind (range or binary) needed before calibration is measured"},
+		{Key: KeyCalibrationRetention, Kind: KindDuration, Direction: LowerIsStricter, Controls: []string{"SI-12", "PT-2"},
+			Description: "How long calibration exercises and score history are kept (personal data)"},
+	}
+}
+
 // F002Defs returns the F-002 (audit trail) setting definitions, registered
 // by the audit service and bound in bindings/ like F-001's.
 func F002Defs() []Def {
@@ -95,9 +126,10 @@ func F002Defs() []Def {
 	}
 }
 
-// ReleaseDefs are the setting definitions a release binds: F-001's and
-// F-002's. Profile packages cover exactly these (internal/profilegen).
-func ReleaseDefs() []Def { return append(F001Defs(), F002Defs()...) }
+// ReleaseDefs are the setting definitions a release binds: F-001's,
+// F-002's and F-004's. Profile packages cover exactly these
+// (internal/profilegen).
+func ReleaseDefs() []Def { return append(append(F001Defs(), F002Defs()...), F004Defs()...) }
 
 const day = 24 * time.Hour
 
@@ -166,6 +198,13 @@ func BuiltinProfiles() []Profile {
 			KeyAuditBacklogAge:        strict(15 * time.Minute),
 			KeyAuditSyslogDestination: strict(""),
 			KeyAuditOTLPDestination:   strict(""),
+			// F-004 (design §7): the same in every family.
+			KeyEstimateReminderLead:    {Default: 48 * time.Hour, Weakest: time.Hour},
+			KeyCalibrationExerciseSize: {Default: 20, Weakest: 10},
+			KeyCalibrationReusePeriod:  {Default: 180 * day, Weakest: 30 * day},
+			KeyCalibrationWindow:       {Default: 365 * day, Weakest: 30 * day},
+			KeyCalibrationMinAnswers:   {Default: 20, Weakest: 10},
+			KeyCalibrationRetention:    {Default: 1095 * day, Weakest: 2557 * day},
 		}
 	}
 

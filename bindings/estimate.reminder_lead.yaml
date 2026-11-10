@@ -1,0 +1,18 @@
+# F-004 T-02: binding for estimate.reminder_lead: RA-3; reminders of estimate requests (F-004 design §7).
+setting: estimate.reminder_lead
+type: duration
+direction: higher_is_stricter
+bu_scopable: false
+profiles:
+  fedramp-moderate:
+    default: "48h"
+    bound: { min: "1h" }
+    platform_choice: "Estimate requests (F-004 AC-05): two days' notice before a due date; at least an hour"
+  cmmc-l2-r2:
+    default: "48h"
+    bound: { min: "1h" }
+    platform_choice: "Not a security parameter of 800-171; matches FedRAMP Moderate"
+  enterprise-baseline:
+    default: "48h"
+    bound: { min: "1h" }
+    platform_choice: "Matches FedRAMP Moderate"

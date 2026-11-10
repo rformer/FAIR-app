@@ -1,0 +1,18 @@
+# F-004 T-02: binding for calibration.reuse_period: calibration question reuse (F-004 design §7).
+setting: calibration.reuse_period
+type: duration
+direction: higher_is_stricter
+bu_scopable: false
+profiles:
+  fedramp-moderate:
+    default: "180d"
+    bound: { min: "30d" }
+    platform_choice: "Calibration questions (F-004 AC-21): a question returns to the same person after six months at the earliest; at least 30 days"
+  cmmc-l2-r2:
+    default: "180d"
+    bound: { min: "30d" }
+    platform_choice: "Not a security parameter of 800-171; matches FedRAMP Moderate"
+  enterprise-baseline:
+    default: "180d"
+    bound: { min: "30d" }
+    platform_choice: "Matches FedRAMP Moderate"

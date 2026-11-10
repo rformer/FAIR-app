@@ -54,6 +54,7 @@ import (
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
+	"github.com/rformer/fair-app/pkg/settings"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -205,6 +206,24 @@ func run() error {
 		return fmt.Errorf("audit: %w", err) // audit failures fail closed (ADR-006)
 	}
 
+	// F-004's settings (design §7): registered with posture (retried until
+	// the install is seeded), read as every service reads settings; the
+	// service refuses to start while one of them is unbound.
+	sc := settings.NewClient(settings.ClientOptions{Source: settings.DBSource{DB: pool}, Service: "risk", Instance: os.Getenv("POD_NAME")})
+	if err := sc.Register(settings.F004Defs()...); err != nil {
+		return err
+	}
+	go registerF004(ctx, pool, logger)
+	if err := sc.Refresh(ctx); err != nil {
+		return fmt.Errorf("settings: %w", err)
+	}
+	for _, d := range settings.F004Defs() {
+		if _, err := sc.Get(d.Key, ""); err != nil {
+			return fmt.Errorf("settings: %s is not bound by the active profile: %w", d.Key, err)
+		}
+	}
+	go sc.Run(ctx, func(err error) { logger.Error("settings refresh", "error", err.Error()) })
+
 	srv := server.New(server.Options{
 		Addr:        cfg.ListenAddr,
 		TLSCertFile: cfg.TLSCertFile,
@@ -289,6 +308,23 @@ func connect(ctx context.Context, env string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("database: %w", err)
 	}
 	return pool, nil
+}
+
+// registerF004 registers F-004's setting definitions, retrying every 30
+// seconds until it succeeds (posture refuses before the install is seeded).
+func registerF004(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) {
+	for {
+		err := settings.DBRegistrar{DB: pool}.Register(ctx, "F-004", version, settings.F004Defs())
+		if err == nil {
+			return
+		}
+		logger.Warn("registering F-004 settings", "error", err.Error())
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(30 * time.Second):
+		}
+	}
 }
 
 // auditSink is the service's own event emitter (F-001 T-37): the audit
