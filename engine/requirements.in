@@ -1,0 +1,6 @@
+# F-005 T-04: the engine's runtime dependencies (ADR-013). Locked with hashes
+# in requirements.lock by scripts/engine-lock.sh; never install unlocked.
+numpy==2.5.4
+scipy==1.18.1
+grpcio==1.84.2  # matches grpcio-tools in scripts/gen-proto-py.sh
+protobuf==7.35.1  # the generated code needs >= 7.35.1

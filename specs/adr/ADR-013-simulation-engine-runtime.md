@@ -11,6 +11,8 @@ F-005 puts the Monte Carlo engine in Python (ADR-002: NumPy, SciPy). The risk se
 - **Determinism.** Random numbers come from a counter-based generator (Philox4x32-10, written in NumPy integer arithmetic) keyed by the run's seed and a stable identifier of each sampled quantity, and addressed by iteration and event, so no draw depends on how iterations are split across workers or how many events another quantity produced. Reductions that feed results use correctly rounded sums (`math.fsum`) and order statistics, never order-dependent floating-point accumulation. NumPy's runtime CPU feature dispatch is pinned to the architecture's baseline in the image (`NPY_DISABLE_CPU_FEATURES`), and a CI test compares results under different feature sets.
 - **Validation travels with the image.** The image build runs the statistical validation suite and writes its record into the image; the engine reports it and refuses to serve if its startup self-check fails.
 
+**Image (F-005 T-04).** The final stage is distroless static with exactly the Debian libraries Python and the wheels link against, copied with their dpkg records so the SBOM and the vulnerability scan see them. Python's `_ssl` and `_hashlib` modules are removed and the build fails if OpenSSL is linked: the image holds no OpenSSL at all. The distroless cc base was not used because its OpenSSL is a library the engine does not need and whose vulnerabilities would gate every release.
+
 ## Consequences
 - One FIPS story for the platform: the Go module validated for everything else also protects the engine's channel.
 - Two containers in the engine pod, and keys for the gate (`engine-gate/tls`) and for the risk service's client (`risk/engine-client`) in the key layout (F-001 T-41).

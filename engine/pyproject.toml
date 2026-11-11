@@ -1,0 +1,43 @@
+# F-005 T-04 (ADR-013): the simulation engine package. Dependencies are
+# pinned with hashes in requirements.lock (runtime) and
+# requirements-dev.lock (tools); scripts/engine-lock.sh regenerates both.
+[project]
+name = "fairsim"
+version = "0.1.0"
+description = "FAIR Risk Platform Monte Carlo simulation engine (F-005)"
+requires-python = ">=3.12,<3.13"
+dependencies = ["numpy", "scipy", "grpcio", "protobuf"]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["fairsim*"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 140
+extend-exclude = ["fairsim/_proto"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "N", "SIM", "RUF", "PL"]
+ignore = ["PLR2004", "PLR0913"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "PLR0915"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+exclude = ["fairsim/_proto/"]
+packages = ["fairsim", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["fairsim._proto.*", "grpc", "grpc.*", "scipy", "scipy.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"

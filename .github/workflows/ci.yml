@@ -209,6 +209,63 @@ jobs:
         with:
           version: v2.15.0
 
+  # F-005 T-04 (ADR-013): the engine's lint, format, types and tests with the
+  # locked tools, and lock files that regenerate exactly.
+  engine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Lint, format, types, tests
+        run: docker run --rm -v "$PWD:/src" -w /src python:3.12.16-slim-bookworm bash scripts/engine-check.sh
+      - name: Lock files regenerate exactly
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src python:3.12.16-slim-bookworm bash scripts/engine-lock.sh
+          sudo chown -R "$(id -u):$(id -g)" .
+          git diff --exit-code -- engine/requirements.lock engine/requirements-dev.lock
+
+  # F-005 T-04 (ADR-013): the engine image is non-root, runs with a read-only
+  # root filesystem, has no shell, pins NumPy's CPU dispatch, and passes the
+  # vulnerability scan; its SBOM lists every locked dependency.
+  engine-image:
+    needs: [engine]
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: fair-engine
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Build
+        run: docker build --load --target engine -t "$IMAGE:ci" .
+      - name: Verify non-root, read-only root, no shell, CPU dispatch pinned
+        run: |
+          test "$(docker inspect -f '{{.Config.User}}' "$IMAGE:ci")" = "65532:65532"
+          docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges "$IMAGE:ci" > info.json
+          python3 -c 'import json,sys; d=json.load(open("info.json")); sys.exit(0 if d["cpu_dispatch"] and not any(d["cpu_dispatch"].values()) else 1)'
+          if docker run --rm --entrypoint /bin/sh "$IMAGE:ci" -c true; then echo "the image has a shell"; exit 1; fi
+          if docker run --rm --entrypoint /usr/local/bin/python3.12 "$IMAGE:ci" -c "import ssl"; then echo "the engine has TLS"; exit 1; fi
+      - name: SBOM (SPDX)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.IMAGE }}:ci
+          format: spdx-json
+          output-file: engine-sbom.spdx.json
+      - name: Every locked dependency is in the SBOM
+        run: |
+          for p in $(grep -oE '^[a-z0-9_.-]+==' engine/requirements.lock | tr -d '='); do
+            grep -qi "\"name\": *\"$p\"" engine-sbom.spdx.json || { echo "missing from the SBOM: $p"; exit 1; }
+          done
+      - name: Vulnerability scan (fail on HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}:ci
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+      - uses: actions/upload-artifact@v7
+        with:
+          name: engine-sbom
+          path: engine-sbom.spdx.json
+
   # F-005 T-03: the generated gRPC code (Go and the engine's Python) is
   # exactly what the protos and the pinned generators produce.
   proto:

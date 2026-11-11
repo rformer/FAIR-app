@@ -5,3 +5,8 @@ deploy
 db/tests
 **/*_test.go
 coverage.out
+engine/tests
+**/__pycache__
+**/.mypy_cache
+**/.ruff_cache
+**/.pytest_cache

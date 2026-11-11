@@ -1,0 +1,8 @@
+# F-005 T-04: the engine's development tools, locked with the runtime
+# dependencies in requirements-dev.lock by scripts/engine-lock.sh.
+-c requirements.lock
+-r requirements.in
+ruff==0.17.4
+mypy==2.4.1
+pytest==9.2.0
+types-protobuf==7.35.1.20260906
