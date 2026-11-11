@@ -103,7 +103,7 @@ class Model:
     contact_frequency: Input | None
     probability_of_action: Input | None
     vulnerability: Input | None
-    threat_capability: pert.Distribution | None
+    threat_capability: Input | None  # used through its CDF, never drawn
     resistance_strength: Input | None
     primary: Mapping[str, Input]
     secondary: tuple[Group, ...]
@@ -124,6 +124,10 @@ class Model:
         ]
         out += [g.slef for g in self.secondary]
         return out
+
+    def event_inputs(self) -> list[Input]:
+        """Inputs drawn per loss event: each form of primary and of secondary loss."""
+        return [*self.primary.values(), *(x for g in self.secondary for x in g.forms.values())]
 
     def effects(self) -> list[Effect]:
         """Every control effect any set adds or removes, once per quantity and distribution."""
@@ -212,7 +216,7 @@ def read(raw: bytes | Mapping[str, Any], control_sets: Sequence[str]) -> Model:
     lef_ = _obj(s.get("lef"), "/lef")
     level = lef_.get("level")
     lef = tef = cf = poa = vuln = rs = None
-    tcap: pert.Distribution | None = None
+    tcap: Input | None = None
     if level == "lef":
         lef = r.input(lef_.get("estimate"), "/lef/estimate", "events_per_year")
     elif level == "tef_vuln":
@@ -230,13 +234,15 @@ def read(raw: bytes | Mapping[str, Any], control_sets: Sequence[str]) -> Model:
         elif v.get("level") == "derived":
             tc = _obj(v.get("threat_capability"), "/lef/vulnerability/threat_capability")
             if tc.get("source") == "scenario":
-                tcap = r.dist(tc.get("estimate"), "/lef/vulnerability/threat_capability/estimate", "percentile")
+                ptr = "/lef/vulnerability/threat_capability/estimate"
+                tcap = Input(ptr, ptr, r.dist(tc.get("estimate"), ptr, "percentile"))
             elif tc.get("source") == "threat_community":
                 pin = pins.get("/threat_community")
                 if pin is None:
                     raise BundleError("/threat_community: the pinned threat community is not in the bundle")
                 doc = _obj(pin.get("document"), "the threat community")
-                tcap = r.dist(doc.get("threat_capability"), "/threat_community", "percentile", "the threat community's threat capability")
+                d = r.dist(doc.get("threat_capability"), "/threat_community", "percentile", "the threat community's threat capability")
+                tcap = Input("/threat_community/threat_capability", "/threat_community", d)
             else:
                 raise BundleError(f"/lef/vulnerability/threat_capability/source: {tc.get('source')!r} is not a source")
             rs = r.input(v.get("resistance_strength"), "/lef/vulnerability/resistance_strength", "percentile")

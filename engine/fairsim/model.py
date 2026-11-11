@@ -76,6 +76,8 @@ class SetSeries:
     stakeholders: dict[str, ExactSum] = field(default_factory=dict)
     large_frequency_years: int = 0
     events_per_year_sampled: int = EVENTS_EXACT
+    # Each event-level input's per-year total (after reductions), when recorded.
+    form_totals: dict[str, F64] | None = None
 
 
 @dataclass(frozen=True)
@@ -102,23 +104,44 @@ def _moments(inp: bd.Input) -> tuple[float, float]:
 
 
 class _Run:
-    def __init__(self, m: bd.Model, seed: int) -> None:
+    def __init__(self, m: bd.Model, seed: int, fixed: Mapping[str, float] | None = None) -> None:
         self.m = m
         self.seed = seed
         self.flags: list[bd.RunWarning] = []
+        # Inputs held at a quantile (sensitivity, design §3.4): name → probability.
+        self.fixed = dict(fixed or {})
+        self._q: dict[tuple[str, int], float] = {}
 
     def u(self, name: str, i: NDArray[np.int64], k: NDArray[np.int64] | int = 0) -> F64:
         return rng.uniforms(self.seed, self.m.ids[name], i, k)
+
+    def held(self, inp: bd.Input) -> float | None:
+        """The input's fixed value, if it is held."""
+        p = self.fixed.get(inp.name)
+        if p is None:
+            return None
+        key = (inp.name, id(inp.dist))
+        if key not in self._q:
+            self._q[key] = float(inp.dist.quantile(p))
+        return self._q[key]
+
+    def draw(self, inp: bd.Input, i: NDArray[np.int64], k: NDArray[np.int64] | int = 0) -> F64:
+        q = self.held(inp)
+        if q is not None:
+            return np.full(np.broadcast_shapes(np.shape(i), np.shape(k)), q)
+        return inp.dist.ppf(self.u(inp.name, i, k))
+
+    def moments(self, inp: bd.Input) -> tuple[float, float]:
+        q = self.held(inp)
+        return (q, 0.0) if q is not None else _moments(inp)
 
     def flag(self, code: str, cs: str, detail: str = "", pointer: str = "") -> None:
         self.flags.append(bd.RunWarning(code, pointer, cs, detail))
 
     def years(self, it: NDArray[np.int64]) -> tuple[list[_Year], dict[str, F64]]:
         m = self.m
-        vals = {x.name: x.dist.ppf(self.u(x.name, it)) for x in m.year_inputs()}
-        eff: dict[tuple[str, int], F64] = {
-            (e.input.name, id(e.input.dist)): e.input.dist.ppf(self.u(e.input.name, it)) for e in m.effects()
-        }
+        vals = {x.name: self.draw(x, it) for x in m.year_inputs()}
+        eff: dict[tuple[str, int], F64] = {(e.input.name, id(e.input.dist)): self.draw(e.input, it) for e in m.effects()}
         u_events = self.u(bd.EVENTS, it)
         ones = np.ones(it.shape)
         out = []
@@ -159,7 +182,9 @@ class _Run:
                     if rs is None:
                         raise bd.BundleError("/lef/vulnerability: no resistance strength")
                     with np.errstate(divide="ignore"):
-                        v = 1.0 - m.threat_capability.cdf(rs / mult.get(bd.CAPABILITY, ones))
+                        x = rs / mult.get(bd.CAPABILITY, ones)
+                    tc = self.held(m.threat_capability)
+                    v = 1.0 - m.threat_capability.dist.cdf(x) if tc is None else (tc > x).astype(np.float64)
                 elif m.vulnerability is not None:
                     v = vals[m.vulnerability.name]
                 else:
@@ -193,21 +218,38 @@ def _event_cap(events: list[NDArray[np.int16]]) -> int:
     return lo
 
 
-def simulate(m: bd.Model, seed: int, iterations: int, *, chunk: int = CHUNK, progress: Progress | None = None) -> Simulation:
-    """Simulate ``iterations`` years of every control set of the model."""
+def simulate(
+    m: bd.Model,
+    seed: int,
+    iterations: int,
+    *,
+    chunk: int = CHUNK,
+    progress: Progress | None = None,
+    fixed: Mapping[str, float] | None = None,
+    events: bool = True,
+    record: bool = False,
+) -> Simulation:
+    """Simulate ``iterations`` years of every control set of the model.
+
+    ``fixed`` holds inputs at a quantile (by name); ``events=False`` skips
+    the loss-per-event sample; ``record`` keeps each event-level input's
+    per-year totals.
+    """
     if iterations < 1 or iterations > rng.U32:
         raise ValueError("iterations must be between 1 and 2³² − 1")
-    run = _Run(m, seed)
+    run = _Run(m, seed, fixed)
     chunks = _chunks(iterations, chunk)
     total = iterations * len(m.sets)
-    # Pass 1: the year's events, to size the loss-per-event sample.
-    per_set_events: list[list[NDArray[np.int16]]] = [[] for _ in m.sets]
-    for it in chunks:
-        ys, _ = run.years(it)
-        for j, y in enumerate(ys):
-            per_set_events[j].append(np.minimum(y.events, EVENTS_EXACT).astype(np.int16))
-    caps = [_event_cap(e) for e in per_set_events]
-    del per_set_events
+    caps = [0] * len(m.sets)
+    if events:
+        # Pass 1: the year's events, to size the loss-per-event sample.
+        per_set_events: list[list[NDArray[np.int16]]] = [[] for _ in m.sets]
+        for it in chunks:
+            ys, _ = run.years(it)
+            for j, y in enumerate(ys):
+                per_set_events[j].append(np.minimum(y.events, EVENTS_EXACT).astype(np.int16))
+        caps = [_event_cap(e) for e in per_set_events]
+        del per_set_events
 
     series = [
         SetSeries(
@@ -218,6 +260,7 @@ def simulate(m: bd.Model, seed: int, iterations: int, *, chunk: int = CHUNK, pro
             forms={f: ExactSum() for f in m.primary},
             stakeholders={g.stakeholder: ExactSum() for g in m.secondary},
             events_per_year_sampled=caps[j],
+            form_totals={x.name: np.empty(iterations) for x in m.event_inputs()} if record else None,
         )
         for j, cs in enumerate(m.sets)
     ]
@@ -233,7 +276,7 @@ def simulate(m: bd.Model, seed: int, iterations: int, *, chunk: int = CHUNK, pro
         s.event_losses = np.concatenate(event_losses[j]) if event_losses[j] else np.zeros(0)
         if s.large_frequency_years:
             run.flag("large_frequency", s.name, f"{s.large_frequency_years} years with more than {EVENTS_EXACT} loss events")
-        if s.events_per_year_sampled < EVENTS_EXACT:
+        if events and s.events_per_year_sampled < EVENTS_EXACT:
             run.flag("loss_per_event_sampled", s.name, f"the first {s.events_per_year_sampled} events of each year")
     warnings = tuple(dict.fromkeys((*m.warnings, *run.flags)))
     return Simulation(tuple(series), warnings)
@@ -264,9 +307,9 @@ def _chunk(
             loc = np.repeat(np.arange(a, b, dtype=np.int64), cnt)
             k = np.arange(loc.size, dtype=np.int64) - np.repeat(starts[a:b] - starts[a], cnt)
             gi = it[loc]
-            x = {f: inp.dist.ppf(run.u(inp.name, gi, k)) for f, inp in m.primary.items()}
+            x = {f: run.draw(inp, gi, k) for f, inp in m.primary.items()}
             occ = {g.stakeholder: run.u(g.occurrence, gi, k) < slef[g.stakeholder][loc] for g in m.secondary}
-            y = {(g.stakeholder, f): inp.dist.ppf(run.u(inp.name, gi, k)) for g in m.secondary for f, inp in g.forms.items()}
+            y = {(g.stakeholder, f): run.draw(inp, gi, k) for g in m.secondary for f, inp in g.forms.items()}
             for j, yr in enumerate(ys):
                 live = k < exact[j][loc]
                 lj = loc[live]
@@ -276,6 +319,8 @@ def _chunk(
                     o = live & occ[g.stakeholder]
                     for f in g.forms:
                         sec[j][(g.stakeholder, f)] += np.bincount(loc[o], weights=y[(g.stakeholder, f)][o], minlength=n)
+                if not caps[j]:
+                    continue
                 sampled = live & (k < caps[j])
                 ls = loc[sampled]
                 ev = np.zeros(ls.size)
@@ -298,23 +343,28 @@ def _chunk(
         for f, inp in m.primary.items():
             v = prim[j][f]
             if big.any():
-                mu, var = _moments(inp)
+                mu, var = run.moments(inp)
                 z = ndtri(run.u(inp.name, it, APPROX_EVENT))
                 v = v + np.where(big, np.maximum(0.0, extra * mu + np.sqrt(extra * var) * z), 0.0)
             v = v * yr.loss_mult[f]
+            if s.form_totals is not None:
+                s.form_totals[inp.name][it] = v
             s.forms[f].add(v)
             primary = primary + v
         secondary = np.zeros(n)
         for g in m.secondary:
             gv = np.zeros(n)
-            for f in g.forms:
-                gv = gv + sec[j][(g.stakeholder, f)] * yr.loss_mult[f]
+            for f, inp in g.forms.items():
+                fv = sec[j][(g.stakeholder, f)] * yr.loss_mult[f]
+                if s.form_totals is not None:
+                    s.form_totals[inp.name][it] = fv
+                gv = gv + fv
             if big.any():
                 p = slef[g.stakeholder]
                 mean_x = np.zeros(n)
                 var_x = np.zeros(n)
                 for f, inp in g.forms.items():
-                    mu, var = _moments(inp)
+                    mu, var = run.moments(inp)
                     mean_x = mean_x + yr.loss_mult[f] * mu
                     var_x = var_x + yr.loss_mult[f] ** 2 * var
                 mu_y = p * mean_x

@@ -398,5 +398,9 @@ def test_control_set_order() -> None:
 def test_progress() -> None:
     seen: list[tuple[int, int]] = []
     go(sc.corpus(), n=25_000, sets=("Current", "With EDR"), progress=lambda d, t: seen.append((d, t)))
-    assert seen[-1] == (50_000, 50_000)
+    total = seen[-1][1]
+    assert seen[-1] == (total, total)
+    assert {t for _, t in seen} == {total}
+    assert total > 50_000  # the main pass and the sensitivity passes
+    assert (50_000, total) in seen
     assert [d for d, _ in seen] == sorted(d for d, _ in seen)
