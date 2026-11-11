@@ -45,6 +45,12 @@ class ExactSum:
             self._lo += np.bincount(idx, weights=lo.astype(np.float64), minlength=_BUCKETS).astype(np.int64)
         self.count += x.size
 
+    def merge(self, other: ExactSum) -> None:
+        """Add another sum's values (exact, so in any order)."""
+        self._hi += other._hi
+        self._lo += other._lo
+        self.count += other.count
+
     def exact(self) -> Fraction:
         total = Fraction(0)
         for j in np.flatnonzero((self._hi != 0) | (self._lo != 0)):

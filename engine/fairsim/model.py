@@ -25,7 +25,7 @@ Rules the design leaves to the implementation, documented in the guide:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Final
 
@@ -196,12 +196,16 @@ class _Run:
 
 
 def _chunks(iterations: int, chunk: int) -> list[NDArray[np.int64]]:
-    return [np.arange(lo, min(lo + chunk, iterations), dtype=np.int64) for lo in range(0, iterations, chunk)]
+    return [np.arange(lo, hi, dtype=np.int64) for lo, hi in _ranges(iterations, chunk)]
 
 
-def _event_cap(events: list[NDArray[np.int16]]) -> int:
+def _ranges(iterations: int, chunk: int) -> list[tuple[int, int]]:
+    return [(lo, min(lo + chunk, iterations)) for lo in range(0, iterations, chunk)]
+
+
+def _event_cap(events: Sequence[NDArray[np.int16]]) -> int:
     """The largest per-year event count ``e`` keeping the loss-per-event sample within ``EVENT_SAMPLE``."""
-    n = np.concatenate(events).astype(np.int64) if events else np.zeros(0, dtype=np.int64)
+    n = np.concatenate(list(events)).astype(np.int64) if events else np.zeros(0, dtype=np.int64)
 
     def total(e: int) -> int:
         return int(np.minimum(n, e).sum())
@@ -218,6 +222,73 @@ def _event_cap(events: list[NDArray[np.int16]]) -> int:
     return lo
 
 
+class Cancelled(Exception):  # noqa: N818  (a state, not an error)
+    """The run was cancelled."""
+
+
+@dataclass(frozen=True)
+class Task:
+    """One chunk of work: the years ``[lo, hi)``.
+
+    ``kind`` ``events`` counts each set's exactly sampled events per year
+    (the first pass); ``losses`` computes the chunk's results.
+    """
+
+    kind: str
+    lo: int
+    hi: int
+    seed: int
+    fixed: tuple[tuple[str, float], ...] = ()
+    caps: tuple[int, ...] = ()
+    record: bool = False
+
+
+@dataclass
+class SetChunk:
+    """One control set's results for a chunk."""
+
+    ale: F64
+    lef: F64
+    event_losses: F64
+    primary: ExactSum
+    secondary: ExactSum
+    forms: dict[str, ExactSum]
+    stakeholders: dict[str, ExactSum]
+    large_frequency_years: int
+    form_totals: dict[str, F64] | None
+
+
+@dataclass
+class ChunkResult:
+    sets: list[SetChunk]
+    flags: list[bd.RunWarning]
+
+
+TaskResult = list[NDArray[np.int16]] | ChunkResult
+# Runs tasks and yields their results in task order, whatever order they ran in.
+Runner = Callable[[Sequence[Task]], Iterator[TaskResult]]
+
+
+def execute(m: bd.Model, t: Task) -> TaskResult:
+    """Run one task on the model; the same in this process or a worker."""
+    run = _Run(m, t.seed, dict(t.fixed))
+    it = np.arange(t.lo, t.hi, dtype=np.int64)
+    ys, slef = run.years(it)
+    if t.kind == "events":
+        return [np.minimum(y.events, EVENTS_EXACT).astype(np.int16) for y in ys]
+    out = _chunk(run, it, ys, slef, t.caps, t.record)
+    return ChunkResult(out, run.flags)
+
+
+def local(m: bd.Model) -> Runner:
+    """A runner in this process."""
+
+    def runner(tasks: Sequence[Task]) -> Iterator[TaskResult]:
+        return (execute(m, t) for t in tasks)
+
+    return runner
+
+
 def simulate(
     m: bd.Model,
     seed: int,
@@ -228,28 +299,46 @@ def simulate(
     fixed: Mapping[str, float] | None = None,
     events: bool = True,
     record: bool = False,
+    runner: Runner | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> Simulation:
     """Simulate ``iterations`` years of every control set of the model.
 
     ``fixed`` holds inputs at a quantile (by name); ``events=False`` skips
     the loss-per-event sample; ``record`` keeps each event-level input's
-    per-year totals.
+    per-year totals. ``runner`` runs the chunks (in this process by
+    default); results are merged in chunk order and exact sums are
+    order-free, so the result does not depend on the runner. ``cancelled``
+    is checked after every chunk; when it returns true the run stops with
+    ``Cancelled``.
     """
     if iterations < 1 or iterations > rng.U32:
         raise ValueError("iterations must be between 1 and 2³² − 1")
-    run = _Run(m, seed, fixed)
-    chunks = _chunks(iterations, chunk)
+    run_tasks = runner or local(m)
+    ranges = _ranges(iterations, chunk)
+    fx = tuple(sorted((fixed or {}).items()))
     total = iterations * len(m.sets)
-    caps = [0] * len(m.sets)
+
+    def check() -> None:
+        if cancelled is not None and cancelled():
+            raise Cancelled
+
+    caps = tuple(0 for _ in m.sets)
     if events:
         # Pass 1: the year's events, to size the loss-per-event sample.
-        per_set_events: list[list[NDArray[np.int16]]] = [[] for _ in m.sets]
-        for it in chunks:
-            ys, _ = run.years(it)
-            for j, y in enumerate(ys):
-                per_set_events[j].append(np.minimum(y.events, EVENTS_EXACT).astype(np.int16))
-        caps = [_event_cap(e) for e in per_set_events]
-        del per_set_events
+        per_set: list[list[NDArray[np.int16]]] = [[] for _ in m.sets]
+        results = run_tasks([Task("events", lo, hi, seed, fx) for lo, hi in ranges])
+        try:
+            for r in results:
+                check()
+                if not isinstance(r, list):
+                    raise TypeError("an events task returned losses")
+                for j, e in enumerate(r):
+                    per_set[j].append(e)
+        finally:
+            _close(results)
+        caps = tuple(_event_cap(e) for e in per_set)
+        del per_set
 
     series = [
         SetSeries(
@@ -265,21 +354,51 @@ def simulate(
         for j, cs in enumerate(m.sets)
     ]
     event_losses: list[list[F64]] = [[] for _ in m.sets]
+    flags: list[bd.RunWarning] = []
     done = 0
-    for it in chunks:
-        ys, slef = run.years(it)
-        _chunk(run, it, ys, slef, series, event_losses, caps)
-        done += it.size * len(m.sets)
-        if progress is not None:
-            progress(done, total)
+    results = run_tasks([Task("losses", lo, hi, seed, fx, caps, record) for lo, hi in ranges])
+    try:
+        for (lo, hi), r in zip(ranges, results, strict=True):
+            check()
+            if not isinstance(r, ChunkResult):
+                raise TypeError("a losses task returned events")
+            flags += r.flags
+            for j, c in enumerate(r.sets):
+                s = series[j]
+                s.ale[lo:hi] = c.ale
+                s.lef[lo:hi] = c.lef
+                event_losses[j].append(c.event_losses)
+                s.primary.merge(c.primary)
+                s.secondary.merge(c.secondary)
+                for f, fs in c.forms.items():
+                    s.forms[f].merge(fs)
+                for g, gs in c.stakeholders.items():
+                    s.stakeholders[g].merge(gs)
+                s.large_frequency_years += c.large_frequency_years
+                if s.form_totals is not None and c.form_totals is not None:
+                    for name, v in c.form_totals.items():
+                        s.form_totals[name][lo:hi] = v
+            done += (hi - lo) * len(m.sets)
+            if progress is not None:
+                progress(done, total)
+    finally:
+        _close(results)
     for j, s in enumerate(series):
         s.event_losses = np.concatenate(event_losses[j]) if event_losses[j] else np.zeros(0)
         if s.large_frequency_years:
-            run.flag("large_frequency", s.name, f"{s.large_frequency_years} years with more than {EVENTS_EXACT} loss events")
+            flags.append(
+                bd.RunWarning("large_frequency", "", s.name, f"{s.large_frequency_years} years with more than {EVENTS_EXACT} loss events")
+            )
         if events and s.events_per_year_sampled < EVENTS_EXACT:
-            run.flag("loss_per_event_sampled", s.name, f"the first {s.events_per_year_sampled} events of each year")
-    warnings = tuple(dict.fromkeys((*m.warnings, *run.flags)))
+            flags.append(bd.RunWarning("loss_per_event_sampled", "", s.name, f"the first {s.events_per_year_sampled} events of each year"))
+    warnings = tuple(dict.fromkeys((*m.warnings, *flags)))
     return Simulation(tuple(series), warnings)
+
+
+def _close(results: Iterator[TaskResult]) -> None:
+    close = getattr(results, "close", None)
+    if close is not None:
+        close()
 
 
 def _chunk(
@@ -287,10 +406,9 @@ def _chunk(
     it: NDArray[np.int64],
     ys: list[_Year],
     slef: Mapping[str, F64],
-    series: list[SetSeries],
-    event_losses: list[list[F64]],
-    caps: list[int],
-) -> None:
+    caps: Sequence[int],
+    record: bool,
+) -> list[SetChunk]:
     m, n = run.m, it.size
     exact = [np.minimum(y.events, EVENTS_EXACT) for y in ys]
     kmax = np.max(np.stack(exact), axis=0)
@@ -298,6 +416,7 @@ def _chunk(
     starts = ends - kmax
     prim = [{f: np.zeros(n) for f in m.primary} for _ in ys]
     sec = [{(g.stakeholder, f): np.zeros(n) for g in m.secondary for f in g.forms} for _ in ys]
+    event_losses: list[list[F64]] = [[] for _ in ys]
     # Event slices hold whole iterations, so each iteration's sums run in event order from zero.
     a = 0
     while a < n:
@@ -334,11 +453,22 @@ def _chunk(
                 event_losses[j].append(ev)
         a = b
 
+    out = []
     for j, yr in enumerate(ys):
-        s = series[j]
+        c = SetChunk(
+            np.empty(0),
+            yr.lef,
+            np.concatenate(event_losses[j]) if event_losses[j] else np.zeros(0),
+            ExactSum(),
+            ExactSum(),
+            {f: ExactSum() for f in m.primary},
+            {g.stakeholder: ExactSum() for g in m.secondary},
+            0,
+            {} if record else None,
+        )
         extra = np.maximum(yr.events - EVENTS_EXACT, 0).astype(np.float64)
         big = extra > 0
-        s.large_frequency_years += int(big.sum())
+        c.large_frequency_years = int(big.sum())
         primary = np.zeros(n)
         for f, inp in m.primary.items():
             v = prim[j][f]
@@ -347,17 +477,17 @@ def _chunk(
                 z = ndtri(run.u(inp.name, it, APPROX_EVENT))
                 v = v + np.where(big, np.maximum(0.0, extra * mu + np.sqrt(extra * var) * z), 0.0)
             v = v * yr.loss_mult[f]
-            if s.form_totals is not None:
-                s.form_totals[inp.name][it] = v
-            s.forms[f].add(v)
+            if c.form_totals is not None:
+                c.form_totals[inp.name] = v
+            c.forms[f].add(v)
             primary = primary + v
         secondary = np.zeros(n)
         for g in m.secondary:
             gv = np.zeros(n)
             for f, inp in g.forms.items():
                 fv = sec[j][(g.stakeholder, f)] * yr.loss_mult[f]
-                if s.form_totals is not None:
-                    s.form_totals[inp.name][it] = fv
+                if c.form_totals is not None:
+                    c.form_totals[inp.name] = fv
                 gv = gv + fv
             if big.any():
                 p = slef[g.stakeholder]
@@ -371,9 +501,10 @@ def _chunk(
                 var_y = np.maximum(p * (var_x + mean_x**2) - mu_y**2, 0.0)
                 z = ndtri(run.u(g.occurrence, it, APPROX_EVENT))
                 gv = gv + np.where(big, np.maximum(0.0, extra * mu_y + np.sqrt(extra * var_y) * z), 0.0)
-            s.stakeholders[g.stakeholder].add(gv)
+            c.stakeholders[g.stakeholder].add(gv)
             secondary = secondary + gv
-        s.primary.add(primary)
-        s.secondary.add(secondary)
-        s.ale[it] = primary + secondary
-        s.lef[it] = yr.lef
+        c.primary.add(primary)
+        c.secondary.add(secondary)
+        c.ale = primary + secondary
+        out.append(c)
+    return out

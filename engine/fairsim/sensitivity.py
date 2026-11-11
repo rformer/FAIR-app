@@ -21,7 +21,7 @@ have) swings 0.
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Final
 
@@ -92,6 +92,8 @@ def sensitivity(
     *,
     chunk: int = model.CHUNK,
     progress: model.Progress | None = None,
+    runner: model.Runner | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Each control set's sensitivity block. ``main`` is the run's simulation, recorded."""
     n = min(iterations, SAMPLE)
@@ -106,7 +108,7 @@ def sensitivity(
 
     def sim(fixed: Mapping[str, float] | None) -> list[float]:
         nonlocal done
-        out = _means(model.simulate(m, seed, n, chunk=chunk, fixed=fixed, events=False))
+        out = _means(model.simulate(m, seed, n, chunk=chunk, fixed=fixed, events=False, runner=runner, cancelled=cancelled))
         done += n * len(m.sets)
         if progress is not None:
             progress(done, total)
