@@ -22,7 +22,8 @@ extend-exclude = ["fairsim/_proto"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "S", "N", "SIM", "RUF", "PL"]
-ignore = ["PLR2004", "PLR0913"]
+# Mathematical notation (α, β, −, ≤) is intended in docs and comments.
+ignore = ["PLR2004", "PLR0913", "RUF001", "RUF002", "RUF003"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "PLR0915"]

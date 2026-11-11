@@ -27,10 +27,10 @@ An estimate gives `lo ≤ ml ≤ hi` at confidence `c` in a unit with domain `[d
 
 Fallbacks, applied in order and recorded on the run with the estimate's pointer and the fallback's code (AC-07):
 1. `point`: `lo = hi` — the quantity is the constant `lo`.
-2. `domain_low` / `domain_high`: the solution would put `a < d₀` (or `b > d₁`) — that bound is fixed at the domain's edge and the other is solved so the interval holds `c` in total (the tails no longer equal).
-3. `bounds`: no solution within 200 iterations, or both bounds at the domain — a plain Beta-PERT on `[lo, hi]`.
+2. `domain_low` / `domain_high`: the solution would put `a < d₀` (or `b > d₁`) — that bound is fixed at the domain's edge and the other is solved so the interval holds `c` in total (the tails no longer equal). When both would leave the domain, the low side is tried first.
+3. `bounds`: no solution within 200 iterations, or no solution with a bound inside the domain (both bounds would be at it) — a plain Beta-PERT on `[lo, hi]`.
 
-Sampling is by inverse CDF. For speed, each distribution's quantile function is tabulated at 2¹⁶ + 1 equally spaced probabilities and interpolated linearly; the validation suite bounds the table's error against the exact inverse (`scipy.special.betaincinv`) at 1e-6 of the range (§8 of the guide).
+Sampling is by inverse CDF. For speed, each distribution's quantile function is tabulated at 2¹⁶ + 1 equally spaced probabilities and interpolated linearly; cells where interpolation would miss by more than an eighth of the tolerance at their midpoint (the tails, where the density goes to zero) are marked and their draws use the exact inverse. The validation suite bounds the table's error against the exact inverse (`scipy.special.betaincinv`) at 1e-6 of the range (§8 of the guide).
 
 ### 3.2 A simulated year (AC-08, AC-09; OQ1, OQ2, OQ4)
 For iteration `i`, per control set `s`:
@@ -49,7 +49,7 @@ For iteration `i`, per control set `s`:
 Every input is sampled independently (stated on each result, AC-10).
 
 ### 3.3 Random numbers (AC-09, AC-17)
-`u(seed, q, i, k) ∈ (0, 1)` is Philox4x32-10 keyed by the 64-bit seed and a 32-bit quantity id `q`, with counter `(i, k)`, turned into a double from 53 bits. `q` is FNV-1a over the quantity's name: the estimate's JSON pointer in the scenario (or `control:<id>/<effect>` for control effects, `events`, `secondary:<g>`), so the same quantity draws the same numbers in every control set, and adding an estimate does not shift any other's draws. The generator is pure NumPy integer arithmetic on `uint32` arrays; its output is checked against the published Philox test vectors.
+`u(seed, q, i, k) ∈ (0, 1)` is Philox4x32-10 keyed by the 64-bit seed, with counter `(i, k, q, 0)` for the 32-bit quantity id `q` (Philox4x32's key is 64 bits, so `q` takes a counter word), turned into a double from 53 bits (`m · 2⁻⁵³`, with `m = 0` read as 1 so that `u` is never 0). `q` is FNV-1a over the quantity's name: the estimate's JSON pointer in the scenario (or `control:<id>/<effect>` for control effects, `events`, `secondary:<g>`), so the same quantity draws the same numbers in every control set, and adding an estimate does not shift any other's draws. The generator is pure NumPy integer arithmetic on `uint32` arrays; its output is checked against the published Philox test vectors.
 
 ### 3.4 Results (AC-11 to AC-14; OQ6)
 Per control set, from the per-year arrays:
@@ -195,3 +195,4 @@ Identical in SaaS, self-hosted and air-gapped. The engine pod has no egress (Net
 - 2026-11-10: **Approved** by Robert Former, with ADR-013.
 - 2026-11-10: T-01 (decided with Robert Former): the convergence threshold is the integer setting `simulation.convergence_threshold_bp` in basis points (default 100, bounds 10 to 500), since F-015 has no decimal kind. The profiles bound the loosening side (iterations default ≥ 10,000, minimum ≥ 1,000, maximum ≤ 2,000,000, active runs ≤ 50, threshold ≤ 500); the service keeps the other limits. Iterations maximum and active runs map to SC-5.
 - 2026-11-10: T-02 (decided with Robert Former): the aggregate's visibility rule is ADR-007 amendment 4 (`authz.restrict_select`: one RESTRICTIVE select policy `bu_restrict` for app_rw, here calling `analysis.members_visible`), since `apply_bu_rls` admits no other policy and a permissive one would widen access. Requests are invoker functions inserting the run with empty per-set result and series rows (the definer role is never granted INSERT, ADR-007 amendment 3); the worker's calls carry an attempt token from `start_run`. The SQL functions emit every §9 event.
+- 2026-11-10: T-05 (clarifications, approved with the task): the quantity id is Philox's third counter word (the 64-bit key is the seed); `m = 0` maps to `2⁻⁵³` so uniforms are in (0, 1); quantile-table cells too curved for linear interpolation (the tails) use the exact inverse, which is what makes the 1e-6 bound hold with equally spaced probabilities; when both bounds would leave the domain the low side is fixed first, and `bounds` applies only when neither fix has a solution.
