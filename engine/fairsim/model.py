@@ -1,0 +1,329 @@
+"""A simulated year (F-005 design §3.2; AC-08, AC-09).
+
+For each iteration and control set: the year-level quantities, the control
+set's changes from the current set, the frequencies (with Vulnerability
+derived where the scenario derives it), the year's loss events, and each
+event's primary and secondary losses. Every random number is addressed by
+(seed, quantity, iteration, event) (§3.3), so control sets share their
+draws (common random numbers), and the results are the same whatever the
+chunk size: every per-iteration value is computed from that iteration's
+draws alone, and sums run per iteration in event order from zero.
+
+Rules the design leaves to the implementation, documented in the guide:
+
+- A reduction of contact frequency or probability of action multiplies
+  the threat event frequency, or the loss event frequency, when the
+  scenario enters that instead (the product is the same).
+- Event-level draws beyond the first 1,000 events of a year are replaced
+  by a normal sum (``large_frequency``): its uniform is the quantity's at
+  event index 2³² − 1, which no event uses.
+- Loss per event is summarized over at most ``EVENT_SAMPLE`` events per
+  control set: the first ``e`` events of every year, ``e`` the largest
+  that fits (``loss_per_event_sampled``). Events of a year are identically
+  distributed, so the sample is unbiased.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
+from typing import Final
+
+import numpy as np
+from numpy.typing import NDArray
+from scipy.special import ndtri, pdtr, pdtrik
+
+from fairsim import bundle as bd
+from fairsim import rng
+from fairsim.exact import ExactSum
+
+CHUNK: Final = 10_000
+EVENTS_EXACT: Final = 1_000
+EVENT_SLICE: Final = 1_000_000
+EVENT_SAMPLE: Final = 2_000_000
+APPROX_EVENT: Final = rng.U32
+REMOVAL_CAP: Final = 0.999
+
+F64 = NDArray[np.float64]
+I64 = NDArray[np.int64]
+
+Progress = Callable[[int, int], None]
+
+
+def poisson_ppf(u: F64, lam: F64) -> I64:
+    """The Poisson quantile at ``u`` for rates ``lam`` (as ``scipy.stats.poisson.ppf``)."""
+    out = np.zeros(u.shape, dtype=np.int64)
+    pos = lam > 0
+    if pos.any():
+        uu, ll = u[pos], lam[pos]
+        vals = np.ceil(pdtrik(uu, ll))
+        vals1 = np.maximum(vals - 1, 0)
+        out[pos] = np.where(pdtr(vals1, ll) >= uu, vals1, vals).astype(np.int64)
+    return out
+
+
+@dataclass
+class SetSeries:
+    """A control set's per-year results, and its sums for the breakdown."""
+
+    name: str
+    ale: F64
+    lef: F64
+    event_losses: F64
+    primary: ExactSum = field(default_factory=ExactSum)
+    secondary: ExactSum = field(default_factory=ExactSum)
+    forms: dict[str, ExactSum] = field(default_factory=dict)
+    stakeholders: dict[str, ExactSum] = field(default_factory=dict)
+    large_frequency_years: int = 0
+    events_per_year_sampled: int = EVENTS_EXACT
+
+
+@dataclass(frozen=True)
+class Simulation:
+    sets: tuple[SetSeries, ...]
+    warnings: tuple[bd.RunWarning, ...]
+
+
+@dataclass
+class _Year:
+    """One control set's year-level values for a chunk."""
+
+    lef: F64
+    events: I64
+    loss_mult: dict[str, F64]
+
+
+def _moments(inp: bd.Input) -> tuple[float, float]:
+    f = inp.fit
+    if f.constant:
+        return f.a, 0.0
+    w, s = f.b - f.a, f.alpha + f.beta
+    return f.a + f.alpha / s * w, f.alpha * f.beta / (s * s * (s + 1)) * w * w
+
+
+class _Run:
+    def __init__(self, m: bd.Model, seed: int) -> None:
+        self.m = m
+        self.seed = seed
+        self.flags: list[bd.RunWarning] = []
+
+    def u(self, name: str, i: NDArray[np.int64], k: NDArray[np.int64] | int = 0) -> F64:
+        return rng.uniforms(self.seed, self.m.ids[name], i, k)
+
+    def flag(self, code: str, cs: str, detail: str = "", pointer: str = "") -> None:
+        self.flags.append(bd.RunWarning(code, pointer, cs, detail))
+
+    def years(self, it: NDArray[np.int64]) -> tuple[list[_Year], dict[str, F64]]:
+        m = self.m
+        vals = {x.name: x.dist.ppf(self.u(x.name, it)) for x in m.year_inputs()}
+        eff: dict[tuple[str, int], F64] = {
+            (e.input.name, id(e.input.dist)): e.input.dist.ppf(self.u(e.input.name, it)) for e in m.effects()
+        }
+        u_events = self.u(bd.EVENTS, it)
+        ones = np.ones(it.shape)
+        out = []
+        for cs in m.sets:
+            mult: dict[str, F64] = {}
+            rs = vals[m.resistance_strength.name] if m.resistance_strength is not None else None
+            for e in cs.added:
+                r = eff[(e.input.name, id(e.input.dist))]
+                if e.factor == bd.RESISTANCE:
+                    if rs is not None:
+                        rs = np.maximum(rs, r)
+                elif e.factor != bd.CAPABILITY or m.derived_vulnerability:
+                    mult[e.factor] = mult.get(e.factor, ones) * (1.0 - r)
+            for e in cs.removed:
+                r = eff[(e.input.name, id(e.input.dist))]
+                if e.factor == bd.RESISTANCE or (e.factor == bd.CAPABILITY and not m.derived_vulnerability):
+                    continue
+                if np.any(r > REMOVAL_CAP):
+                    self.flag(
+                        "reduction_capped", cs.name, f"{e.factor} of control {e.control}: removal capped at {REMOVAL_CAP}", e.input.pointer
+                    )
+                mult[e.factor] = mult.get(e.factor, ones) / (1.0 - np.minimum(r, REMOVAL_CAP))
+            m_cf, m_poa = mult.get("contact_frequency", ones), mult.get("probability_of_action", ones)
+            if m.lef is not None:
+                lef = vals[m.lef.name] * m_cf * m_poa
+            else:
+                if m.contact_frequency is not None and m.probability_of_action is not None:
+                    poa = vals[m.probability_of_action.name] * m_poa
+                    if np.any(poa > 1.0):
+                        self.flag("probability_clipped", cs.name, "probability of action clipped at 1", m.probability_of_action.pointer)
+                        poa = np.minimum(poa, 1.0)
+                    tef = vals[m.contact_frequency.name] * m_cf * poa
+                elif m.tef is not None:
+                    tef = vals[m.tef.name] * m_cf * m_poa
+                else:
+                    raise bd.BundleError("/lef/tef: no threat event frequency")
+                if m.threat_capability is not None:
+                    if rs is None:
+                        raise bd.BundleError("/lef/vulnerability: no resistance strength")
+                    with np.errstate(divide="ignore"):
+                        v = 1.0 - m.threat_capability.cdf(rs / mult.get(bd.CAPABILITY, ones))
+                elif m.vulnerability is not None:
+                    v = vals[m.vulnerability.name]
+                else:
+                    raise bd.BundleError("/lef/vulnerability: no Vulnerability")
+                lef = tef * v
+            out.append(_Year(lef, poisson_ppf(u_events, lef), {f: mult.get("loss." + f, ones) for f in bd.FORMS}))
+        slef = {g.stakeholder: vals[g.slef.name] for g in m.secondary}
+        return out, slef
+
+
+def _chunks(iterations: int, chunk: int) -> list[NDArray[np.int64]]:
+    return [np.arange(lo, min(lo + chunk, iterations), dtype=np.int64) for lo in range(0, iterations, chunk)]
+
+
+def _event_cap(events: list[NDArray[np.int16]]) -> int:
+    """The largest per-year event count ``e`` keeping the loss-per-event sample within ``EVENT_SAMPLE``."""
+    n = np.concatenate(events).astype(np.int64) if events else np.zeros(0, dtype=np.int64)
+
+    def total(e: int) -> int:
+        return int(np.minimum(n, e).sum())
+
+    if total(EVENTS_EXACT) <= EVENT_SAMPLE:
+        return EVENTS_EXACT
+    lo, hi = 1, EVENTS_EXACT
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if total(mid) <= EVENT_SAMPLE:
+            lo = mid
+        else:
+            hi = mid - 1
+    return lo
+
+
+def simulate(m: bd.Model, seed: int, iterations: int, *, chunk: int = CHUNK, progress: Progress | None = None) -> Simulation:
+    """Simulate ``iterations`` years of every control set of the model."""
+    if iterations < 1 or iterations > rng.U32:
+        raise ValueError("iterations must be between 1 and 2³² − 1")
+    run = _Run(m, seed)
+    chunks = _chunks(iterations, chunk)
+    total = iterations * len(m.sets)
+    # Pass 1: the year's events, to size the loss-per-event sample.
+    per_set_events: list[list[NDArray[np.int16]]] = [[] for _ in m.sets]
+    for it in chunks:
+        ys, _ = run.years(it)
+        for j, y in enumerate(ys):
+            per_set_events[j].append(np.minimum(y.events, EVENTS_EXACT).astype(np.int16))
+    caps = [_event_cap(e) for e in per_set_events]
+    del per_set_events
+
+    series = [
+        SetSeries(
+            cs.name,
+            np.empty(iterations),
+            np.empty(iterations),
+            np.empty(0),
+            forms={f: ExactSum() for f in m.primary},
+            stakeholders={g.stakeholder: ExactSum() for g in m.secondary},
+            events_per_year_sampled=caps[j],
+        )
+        for j, cs in enumerate(m.sets)
+    ]
+    event_losses: list[list[F64]] = [[] for _ in m.sets]
+    done = 0
+    for it in chunks:
+        ys, slef = run.years(it)
+        _chunk(run, it, ys, slef, series, event_losses, caps)
+        done += it.size * len(m.sets)
+        if progress is not None:
+            progress(done, total)
+    for j, s in enumerate(series):
+        s.event_losses = np.concatenate(event_losses[j]) if event_losses[j] else np.zeros(0)
+        if s.large_frequency_years:
+            run.flag("large_frequency", s.name, f"{s.large_frequency_years} years with more than {EVENTS_EXACT} loss events")
+        if s.events_per_year_sampled < EVENTS_EXACT:
+            run.flag("loss_per_event_sampled", s.name, f"the first {s.events_per_year_sampled} events of each year")
+    warnings = tuple(dict.fromkeys((*m.warnings, *run.flags)))
+    return Simulation(tuple(series), warnings)
+
+
+def _chunk(
+    run: _Run,
+    it: NDArray[np.int64],
+    ys: list[_Year],
+    slef: Mapping[str, F64],
+    series: list[SetSeries],
+    event_losses: list[list[F64]],
+    caps: list[int],
+) -> None:
+    m, n = run.m, it.size
+    exact = [np.minimum(y.events, EVENTS_EXACT) for y in ys]
+    kmax = np.max(np.stack(exact), axis=0)
+    ends = np.cumsum(kmax)
+    starts = ends - kmax
+    prim = [{f: np.zeros(n) for f in m.primary} for _ in ys]
+    sec = [{(g.stakeholder, f): np.zeros(n) for g in m.secondary for f in g.forms} for _ in ys]
+    # Event slices hold whole iterations, so each iteration's sums run in event order from zero.
+    a = 0
+    while a < n:
+        b = max(int(np.searchsorted(ends, starts[a] + EVENT_SLICE, side="right")), a + 1)
+        cnt = kmax[a:b]
+        if int(cnt.sum()) > 0:
+            loc = np.repeat(np.arange(a, b, dtype=np.int64), cnt)
+            k = np.arange(loc.size, dtype=np.int64) - np.repeat(starts[a:b] - starts[a], cnt)
+            gi = it[loc]
+            x = {f: inp.dist.ppf(run.u(inp.name, gi, k)) for f, inp in m.primary.items()}
+            occ = {g.stakeholder: run.u(g.occurrence, gi, k) < slef[g.stakeholder][loc] for g in m.secondary}
+            y = {(g.stakeholder, f): inp.dist.ppf(run.u(inp.name, gi, k)) for g in m.secondary for f, inp in g.forms.items()}
+            for j, yr in enumerate(ys):
+                live = k < exact[j][loc]
+                lj = loc[live]
+                for f in m.primary:
+                    prim[j][f] += np.bincount(lj, weights=x[f][live], minlength=n)
+                for g in m.secondary:
+                    o = live & occ[g.stakeholder]
+                    for f in g.forms:
+                        sec[j][(g.stakeholder, f)] += np.bincount(loc[o], weights=y[(g.stakeholder, f)][o], minlength=n)
+                sampled = live & (k < caps[j])
+                ls = loc[sampled]
+                ev = np.zeros(ls.size)
+                for f in m.primary:
+                    ev = ev + x[f][sampled] * yr.loss_mult[f][ls]
+                for g in m.secondary:
+                    gs = np.zeros(ls.size)
+                    for f in g.forms:
+                        gs = gs + y[(g.stakeholder, f)][sampled] * yr.loss_mult[f][ls]
+                    ev = ev + np.where(occ[g.stakeholder][sampled], gs, 0.0)
+                event_losses[j].append(ev)
+        a = b
+
+    for j, yr in enumerate(ys):
+        s = series[j]
+        extra = np.maximum(yr.events - EVENTS_EXACT, 0).astype(np.float64)
+        big = extra > 0
+        s.large_frequency_years += int(big.sum())
+        primary = np.zeros(n)
+        for f, inp in m.primary.items():
+            v = prim[j][f]
+            if big.any():
+                mu, var = _moments(inp)
+                z = ndtri(run.u(inp.name, it, APPROX_EVENT))
+                v = v + np.where(big, np.maximum(0.0, extra * mu + np.sqrt(extra * var) * z), 0.0)
+            v = v * yr.loss_mult[f]
+            s.forms[f].add(v)
+            primary = primary + v
+        secondary = np.zeros(n)
+        for g in m.secondary:
+            gv = np.zeros(n)
+            for f in g.forms:
+                gv = gv + sec[j][(g.stakeholder, f)] * yr.loss_mult[f]
+            if big.any():
+                p = slef[g.stakeholder]
+                mean_x = np.zeros(n)
+                var_x = np.zeros(n)
+                for f, inp in g.forms.items():
+                    mu, var = _moments(inp)
+                    mean_x = mean_x + yr.loss_mult[f] * mu
+                    var_x = var_x + yr.loss_mult[f] ** 2 * var
+                mu_y = p * mean_x
+                var_y = np.maximum(p * (var_x + mean_x**2) - mu_y**2, 0.0)
+                z = ndtri(run.u(g.occurrence, it, APPROX_EVENT))
+                gv = gv + np.where(big, np.maximum(0.0, extra * mu_y + np.sqrt(extra * var_y) * z), 0.0)
+            s.stakeholders[g.stakeholder].add(gv)
+            secondary = secondary + gv
+        s.primary.add(primary)
+        s.secondary.add(secondary)
+        s.ale[it] = primary + secondary
+        s.lef[it] = yr.lef

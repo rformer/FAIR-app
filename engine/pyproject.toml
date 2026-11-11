@@ -23,7 +23,8 @@ extend-exclude = ["fairsim/_proto"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "S", "N", "SIM", "RUF", "PL"]
 # Mathematical notation (α, β, −, ≤) is intended in docs and comments.
-ignore = ["PLR2004", "PLR0913", "RUF001", "RUF002", "RUF003"]
+# Numerical code is long and branchy by nature: no length or branch limits.
+ignore = ["PLR2004", "PLR0912", "PLR0913", "PLR0915", "PLR0917", "RUF001", "RUF002", "RUF003"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "PLR0915"]
@@ -32,7 +33,7 @@ ignore = ["PLR2004", "PLR0913", "RUF001", "RUF002", "RUF003"]
 python_version = "3.12"
 strict = true
 exclude = ["fairsim/_proto/"]
-packages = ["fairsim", "tests"]
+files = ["fairsim", "tests"]
 
 [[tool.mypy.overrides]]
 module = ["fairsim._proto.*", "grpc", "grpc.*", "scipy", "scipy.*"]
