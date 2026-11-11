@@ -376,6 +376,7 @@ jobs:
           - { component: gateway, smoke: "" }
           - { component: audit, smoke: "" }
           - { component: risk, smoke: "" }
+          - { component: engine-gate, smoke: "" } # F-005 T-10
     permissions:
       contents: read
       packages: write   # push to GHCR (main only)

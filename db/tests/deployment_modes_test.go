@@ -19,6 +19,7 @@ import (
 
 	auditsvc "github.com/rformer/fair-app/internal/audit"
 	"github.com/rformer/fair-app/internal/config"
+	"github.com/rformer/fair-app/internal/enginegate"
 	"github.com/rformer/fair-app/internal/keys"
 	"github.com/rformer/fair-app/internal/migrate"
 	"github.com/rformer/fair-app/internal/posture"
@@ -101,11 +102,42 @@ func deploymentMode(t *testing.T, mode string) {
 	riskCheck := func(v map[string]string) error {
 		return risksvc.CheckInstall(risksvc.InstallCheck{Env: "production", Mode: mode, Getenv: func(k string) string { return v[k] }})
 	}
-	if err := riskCheck(map[string]string{"FAIR_JWT_KEYS_DIR": "/keys/jwt"}); err != nil {
+	// F-005 T-10 (design §11): and the engine, through engine-gate, with
+	// its client keys.
+	riskVars := map[string]string{"FAIR_JWT_KEYS_DIR": "/keys/jwt", "FAIR_ENGINE_ADDR": "engine.fair-platform.svc:8444", "FAIR_ENGINE_CLIENT_DIR": "/keys/engine-client"}
+	if err := riskCheck(riskVars); err != nil {
 		t.Errorf("a complete %s risk install refused: %v", mode, err)
 	}
 	if err := riskCheck(map[string]string{}); err == nil {
 		t.Errorf("risk without its JWT keys in %s mode", mode)
+	}
+	for _, k := range []string{"FAIR_ENGINE_ADDR", "FAIR_ENGINE_CLIENT_DIR"} {
+		v := maps.Clone(riskVars)
+		delete(v, k)
+		if err := riskCheck(v); err == nil {
+			t.Errorf("risk without %s in %s mode", k, mode)
+		}
+	}
+
+	// F-005 T-10: engine-gate needs its TLS directory (from the key store)
+	// and the engine's socket, the same in every mode (no egress at all).
+	kd := t.TempDir()
+	if _, err := keys.Init(kd, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	gateVars := map[string]string{"FAIR_ENGINE_GATE_TLS_DIR": filepath.Join(kd, keys.EngineGate, keys.TLSDir), "FAIR_ENGINE_SOCKET": "/run/engine/engine.sock"}
+	gateCheck := func(v map[string]string) error {
+		return enginegate.CheckInstall(enginegate.InstallCheck{Env: "production", Getenv: func(k string) string { return v[k] }})
+	}
+	if err := gateCheck(gateVars); err != nil {
+		t.Errorf("a complete %s engine-gate install refused: %v", mode, err)
+	}
+	for _, k := range []string{"FAIR_ENGINE_GATE_TLS_DIR", "FAIR_ENGINE_SOCKET"} {
+		v := maps.Clone(gateVars)
+		delete(v, k)
+		if err := gateCheck(v); err == nil {
+			t.Errorf("engine-gate without %s in %s mode", k, mode)
+		}
 	}
 
 	// F-002 T-21 (design §7): air-gapped installs forward the audit trail

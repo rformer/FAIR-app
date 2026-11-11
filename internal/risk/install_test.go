@@ -17,6 +17,10 @@ func TestCheckInstall(t *testing.T) {
 			t.Errorf("%s: development: %v", mode, err)
 		}
 		env["FAIR_JWT_KEYS_DIR"] = "/keys/jwt"
+		if err := CheckInstall(InstallCheck{Env: "production", Mode: mode, Getenv: get}); err == nil {
+			t.Errorf("%s: production without the engine (F-005 T-10)", mode)
+		}
+		env["FAIR_ENGINE_ADDR"], env["FAIR_ENGINE_CLIENT_DIR"] = "engine.fair-platform.svc:8444", "/keys/engine-client"
 		if err := CheckInstall(InstallCheck{Env: "production", Mode: mode, Getenv: get}); err != nil {
 			t.Errorf("%s: %v", mode, err)
 		}

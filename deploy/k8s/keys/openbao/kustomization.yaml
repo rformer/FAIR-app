@@ -8,4 +8,4 @@ generatorOptions:
   disableNameSuffixHash: true
 configMapGenerator:
   - name: fair-openbao-agent
-    files: [gateway.hcl, gateway.ctmpl, iam.hcl, iam.ctmpl, posture.hcl, posture.ctmpl, audit.hcl, audit.ctmpl, risk.hcl, risk.ctmpl]
+    files: [gateway.hcl, gateway.ctmpl, iam.hcl, iam.ctmpl, posture.hcl, posture.ctmpl, audit.hcl, audit.ctmpl, risk.hcl, risk.ctmpl, engine-gate.hcl, engine-gate.ctmpl]

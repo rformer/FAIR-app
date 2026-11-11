@@ -20,8 +20,8 @@ import (
 
 const keysUsage = `usage:
   iam keys init -dir DIR                      create every key (never overwrites)
-  iam keys upgrade -dir DIR                   add the keys of services newer than DIR (F-002: audit/; F-003: risk/)
-  iam keys rotate -dir DIR -kind KIND         add a key: jwt, login-ticket, db-context or checkpoint
+  iam keys upgrade -dir DIR                   add the keys of services newer than DIR (F-002: audit/; F-003: risk/; F-005: the engine channel)
+  iam keys rotate -dir DIR -kind KIND         add a key: jwt, login-ticket, db-context, checkpoint or engine
   iam keys check -dir DIR                     check a key directory as a whole
   iam keys register -dir DIR                  add the gateway's DB-context key to the database
   iam keys retire-db-context -id ID           retire a DB-context key the gateway no longer uses`
@@ -45,7 +45,7 @@ func keysCommand(args []string, out io.Writer) error {
 	}
 	fs := flag.NewFlagSet("keys "+args[0], flag.ContinueOnError)
 	dir := fs.String("dir", "", "the key directory (one subdirectory per service)")
-	kind := fs.String("kind", "", "rotate: jwt, login-ticket, db-context or checkpoint")
+	kind := fs.String("kind", "", "rotate: jwt, login-ticket, db-context, checkpoint or engine")
 	id := fs.String("id", "", "retire-db-context: the key id")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err

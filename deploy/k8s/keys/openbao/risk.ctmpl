@@ -4,4 +4,5 @@
      key directory can hold are written. The output below is the readiness
      marker. */ -}}
 {{- with secret "secret/data/fair/risk/jwt" }}{{ range $name, $value := .Data.data }}{{ if regexMatch "^[A-Za-z0-9_-][A-Za-z0-9_.-]*$" $name }}{{ writeToFile (printf "/keys/jwt/%s" $name) "65532" "65532" "0640" $value }}{{ end }}{{ end }}{{ end }}
+{{- with secret "secret/data/fair/risk/engine-client" }}{{ range $name, $value := .Data.data }}{{ if regexMatch "^[A-Za-z0-9_-][A-Za-z0-9_.-]*$" $name }}{{ writeToFile (printf "/keys/engine-client/%s" $name) "65532" "65532" "0640" $value }}{{ end }}{{ end }}{{ end }}
 rendered

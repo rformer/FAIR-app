@@ -85,10 +85,19 @@ func serviceDirs(svc string) []string {
 	return dirs
 }
 
+// deploymentOf names the Deployment holding a service's container: the
+// gate runs in the engine's pod (F-005 T-10).
+func deploymentOf(svc string) string {
+	if svc == EngineGate {
+		return "engine"
+	}
+	return svc
+}
+
 func deployment(t *testing.T, ds []map[string]any, svc string) map[string]any {
 	t.Helper()
 	for _, d := range ds {
-		if d["kind"] == "Deployment" && at(d, "metadata", "name") == svc {
+		if d["kind"] == "Deployment" && at(d, "metadata", "name") == deploymentOf(svc) {
 			return d
 		}
 	}
@@ -117,7 +126,7 @@ func checkEnv(t *testing.T, file string, d map[string]any, svc string) {
 // TestDeployManifests ties deploy/k8s/keys to the layout (F-001 T-41):
 // every mode delivers the same directories at the same paths.
 func TestDeployManifests(t *testing.T) {
-	services := []string{Gateway, IAM, Posture, Audit, Risk}
+	services := []string{Gateway, IAM, Posture, Audit, Risk, EngineGate}
 
 	t.Run("secret-mounts", func(t *testing.T) {
 		ds := docs(t, "secret-mounts.yaml")
@@ -163,9 +172,13 @@ func TestDeployManifests(t *testing.T) {
 					continue
 				}
 				delete(want, name)
-				_, rest, _ := strings.Cut(name, "fair-")
 				key, _ := at(d, "spec", "dataFrom", 0, "extract", "key").(string)
-				svc, dir, _ := strings.Cut(rest, "-")
+				var svc, dir string
+				for _, m := range Mounts {
+					if "fair-"+m.Service+"-"+m.Dir == name {
+						svc, dir = m.Service, m.Dir
+					}
+				}
 				if !strings.HasSuffix(key, "/"+svc+"/"+dir) || at(d, "spec", "target", "name") != name || at(d, "spec", "data") != nil ||
 					at(d, "spec", "target", "template", "data") != nil {
 					t.Errorf("ExternalSecret %s: %v", name, d["spec"])

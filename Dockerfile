@@ -8,6 +8,7 @@
 #   docker build --target audit .           audit trail service (F-002 T-05), with /fair-audit-verify (T-10)
 #   docker build --target risk .            risk data service (F-003 T-04)
 #   docker build --target engine .          simulation engine, Python (F-005 T-04, ADR-013)
+#   docker build --target engine-gate .     the engine's mTLS gate, Go FIPS (F-005 T-10)
 # - FIPS 140-3: built with GOFIPS140=v1.0.0; go.mod sets fips140=on at runtime.
 # - Static, CGO-free binary on distroless: no shell, no package manager.
 # - Runs as non-root (65532) and works with a read-only root filesystem.
@@ -33,7 +34,7 @@ COPY profiles/packages ./profiles/packages
 COPY third_party/oscal/oscal.go third_party/oscal/MANIFEST.json ./third_party/oscal/
 COPY third_party/oscal/schemas/oscal_complete_schema.json ./third_party/oscal/schemas/
 ARG VERSION=dev
-RUN for c in iam posture posture-scanner fips-probe gateway audit risk; do \
+RUN for c in iam posture posture-scanner fips-probe gateway audit risk engine-gate; do \
       go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/$c ./cmd/$c || exit 1; \
     done && \
     go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/fair-audit-verify ./cmd/audit-verify
@@ -68,6 +69,12 @@ COPY --from=build /out/risk /risk
 USER 65532:65532
 EXPOSE 8443
 ENTRYPOINT ["/risk"]
+
+FROM gcr.io/distroless/static-debian12:nonroot AS engine-gate
+COPY --from=build /out/engine-gate /engine-gate
+USER 65532:65532
+EXPOSE 8444 8081
+ENTRYPOINT ["/engine-gate"]
 
 FROM gcr.io/distroless/static-debian12:nonroot AS gateway
 COPY --from=build /out/gateway /gateway

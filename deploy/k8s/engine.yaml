@@ -1,0 +1,121 @@
+# Reference manifest for the simulation engine (F-005 T-10, design §2, §11;
+# ADR-013). The supported install path is the Helm/Zarf bundle from F-014;
+# this file documents the hardening every chart must preserve.
+#
+# One pod, two containers:
+# - engine: the Python engine (fairsim). It listens on no network port, only
+#   on a Unix socket in an in-memory volume shared with the gate; it holds no
+#   credentials and keeps nothing after a run. It refuses to serve if its
+#   startup self-check fails (design §3.6).
+# - engine-gate: Go, FIPS 140 module. Terminates mutual TLS 1.2+ with the
+#   risk service's certificate pinned and forwards to the socket. Its keys
+#   come from the mode's key store (deploy/k8s/keys: engine-gate/tls).
+# Ingress from the risk service only; no egress at all (the OpenBao overlay
+# adds its agent's egress to OpenBao in self-hosted installs).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: engine
+  namespace: fair-platform
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: engine
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: engine, app.kubernetes.io/part-of: fair-platform }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app.kubernetes.io/name: engine }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: engine, app.kubernetes.io/part-of: fair-platform }
+    spec:
+      serviceAccountName: engine
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: engine
+          image: ghcr.io/rformer/fair-engine:REPLACE_WITH_DIGEST
+          # Worker processes: one per CPU requested.
+          args: ["serve", "--socket", "/run/engine/engine.sock", "--workers", "4"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: "4", memory: 4Gi }
+            limits: { memory: 8Gi }
+          volumeMounts:
+            - { name: socket, mountPath: /run/engine }
+        - name: engine-gate
+          image: ghcr.io/rformer/fair-engine-gate:REPLACE_WITH_DIGEST
+          ports:
+            - { name: grpc-mtls, containerPort: 8444 }
+            - { name: health, containerPort: 8081 }
+          env:
+            - { name: FAIR_ENV, value: production }
+            - { name: FAIR_ENGINE_SOCKET, value: /run/engine/engine.sock }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          livenessProbe:
+            httpGet: { path: /healthz, port: health }
+            periodSeconds: 10
+          readinessProbe:
+            # Ready when the engine's socket accepts (after its self-check).
+            httpGet: { path: /readyz, port: health }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits: { memory: 128Mi }
+          volumeMounts:
+            - { name: socket, mountPath: /run/engine }
+      volumes:
+        - name: socket
+          emptyDir: { medium: Memory, sizeLimit: 1Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: engine
+  namespace: fair-platform
+spec:
+  selector: { app.kubernetes.io/name: engine }
+  ports: [{ name: grpc-mtls, port: 8444, targetPort: grpc-mtls }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: engine-ingress-from-risk
+  namespace: fair-platform
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: engine }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: risk }
+      ports: [{ port: 8444, protocol: TCP }]
+---
+# No egress: the engine needs nothing outside its pod (design §8, §11).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: engine-no-egress
+  namespace: fair-platform
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: engine }
+  policyTypes: [Egress]
+  egress: []

@@ -19,6 +19,8 @@
 //	iam/login-ticket/<kid>.pem           login-ticket signing key (ES256, private)  FAIR_LOGIN_TICKET_KEYS_DIR
 //	iam/secrets/token-pepper             service-account secrets (= the gateway's)  FAIR_TOKEN_PEPPER_FILE
 //	posture/jwt/<kid>.pem                the gateway's JWT keys (public)            FAIR_JWT_KEYS_DIR
+//	risk/engine-client/...               the engine channel's client side (engine.go)
+//	engine-gate/tls/...                  the engine channel's server side (engine.go)
 //
 // Secrets are base64url text (32 random bytes), so every store carries them
 // unchanged. Each signing directory holds exactly one private key; rotation
@@ -96,6 +98,8 @@ var Mounts = []Mount{
 	{Audit, JWTDir, map[string]string{"FAIR_JWT_KEYS_DIR": MountRoot + "/jwt"}},
 	{Audit, CheckpointDir, map[string]string{"FAIR_AUDIT_CHECKPOINT_KEYS_DIR": MountRoot + "/checkpoint"}},
 	{Risk, JWTDir, map[string]string{"FAIR_JWT_KEYS_DIR": MountRoot + "/jwt"}},
+	{Risk, EngineClientDir, map[string]string{"FAIR_ENGINE_CLIENT_DIR": MountRoot + "/" + EngineClientDir}}, // F-005 T-10
+	{EngineGate, TLSDir, map[string]string{"FAIR_ENGINE_GATE_TLS_DIR": MountRoot + "/" + TLSDir}},
 }
 
 // SecretLen is the random bytes in each pepper and the DB-context secret.
@@ -107,6 +111,7 @@ const (
 	KindTicket     = "login-ticket"
 	KindDBContext  = "db-context"
 	KindCheckpoint = "checkpoint"
+	// KindEngine (engine.go) rotates the engine channel's certificates.
 )
 
 // jwtVerifiers hold the gateway's internal-JWT public keys.
@@ -122,7 +127,7 @@ type Set struct {
 // Init creates every key into dir (one subdirectory per service). It never
 // overwrites: an existing file is an error and nothing is written over it.
 func Init(dir string, now time.Time) (Set, error) {
-	for _, p := range []string{Gateway, IAM, Posture, Audit, Risk} {
+	for _, p := range []string{Gateway, IAM, Posture, Audit, Risk, EngineGate} {
 		if _, err := os.Stat(filepath.Join(dir, p)); err == nil {
 			return Set{}, fmt.Errorf("keys: %s already exists; keys are never overwritten (use rotate, or upgrade to add a new service's keys)", filepath.Join(dir, p))
 		}
@@ -154,13 +159,15 @@ func Init(dir string, now time.Time) (Set, error) {
 	w.file(filepath.Join(dir, IAM, SecretsDir, TokenPepper), token)
 	w.file(filepath.Join(dir, Gateway, SecretsDir, DBContextKey), secret())
 	w.file(filepath.Join(dir, Gateway, SecretsDir, DBContextID), []byte(s.DBContext+"\n"))
+	writeEngine(w, dir, now, nil, nil)
 	return s, w.err
 }
 
 // Upgrade adds the key directories of services newer than a key directory:
 // audit/ (F-002 T-05: the gateway's internal-JWT public keys and a new
-// checkpoint signing key) and risk/ (F-003 T-04: the internal-JWT public
-// keys). It returns the services it added; nothing when the directory is
+// checkpoint signing key), risk/ (F-003 T-04: the internal-JWT public
+// keys) and the engine channel (F-005 T-10: risk/engine-client/ and
+// engine-gate/). It returns what it added; nothing when the directory is
 // complete. It never overwrites.
 func Upgrade(dir string, now time.Time) ([]string, error) {
 	for _, p := range []string{Gateway, IAM, Posture} {
@@ -174,8 +181,19 @@ func Upgrade(dir string, now time.Time) ([]string, error) {
 			missing = append(missing, p)
 		}
 	}
-	if len(missing) == 0 {
+	_, errClient := os.Stat(filepath.Join(dir, Risk, EngineClientDir))
+	_, errGate := os.Stat(filepath.Join(dir, EngineGate))
+	if (errClient == nil) != (errGate == nil) {
+		return nil, fmt.Errorf("keys: only one side of the engine channel exists (%s/%s, %s/); restore the other from the store", Risk, EngineClientDir, EngineGate)
+	}
+	engine := errGate != nil
+	if len(missing) == 0 && !engine {
 		return nil, nil
+	}
+	if len(missing) == 0 {
+		w := &writer{}
+		writeEngine(w, dir, now, nil, nil)
+		return []string{EngineGate}, w.err
 	}
 	signers, err := privateKeys(filepath.Join(dir, Gateway, JWTDir))
 	if err != nil {
@@ -211,6 +229,10 @@ func Upgrade(dir string, now time.Time) ([]string, error) {
 			}
 			w.private(filepath.Join(dir, Audit, CheckpointDir, kid("checkpoint", now)+".pem"), checkpoint)
 		}
+	}
+	if engine {
+		writeEngine(w, dir, now, nil, nil)
+		missing = append(missing, EngineGate)
 	}
 	if w.err != nil {
 		return nil, w.err
@@ -298,13 +320,15 @@ func Rotate(dir, kind string, now time.Time) (string, error) {
 			w.public(filepath.Join(sdir, old+".pem"), &ok.PublicKey)
 		}
 		return id, w.err
+	case KindEngine:
+		return rotateEngine(dir, now)
 	case KindDBContext:
 		id := kid("ctx", now)
 		w.file(filepath.Join(dir, Gateway, SecretsDir, DBContextKey), secret())
 		w.file(filepath.Join(dir, Gateway, SecretsDir, DBContextID), []byte(id+"\n"))
 		return id, w.err
 	}
-	return "", fmt.Errorf("keys: unknown kind %q (jwt, login-ticket, db-context or checkpoint)", kind)
+	return "", fmt.Errorf("keys: unknown kind %q (jwt, login-ticket, db-context, checkpoint or engine)", kind)
 }
 
 // Check verifies a key directory as a whole: every file each service needs
@@ -350,7 +374,7 @@ func Check(dir string) error {
 	} else if id == "" {
 		bad("%s: empty", filepath.Join(Gateway, SecretsDir, DBContextID))
 	}
-	errs = append(errs, CheckPermissions(dir))
+	errs = append(errs, checkEngine(dir, time.Now()), CheckPermissions(dir))
 	return errors.Join(errs...)
 }
 
@@ -402,6 +426,7 @@ var SecretVars = []string{
 	"FAIR_DB_CONTEXT_KEY_FILE", "FAIR_DB_PASSWORD_FILE", "FAIR_TLS_KEY_FILE", "FAIR_EXPORT_SIGNING_KEY_FILE",
 	"FAIR_SECOPS_SECRET_FILE", "FAIR_SCANNER_GRPC_KEY_FILE", "FAIR_AUDIT_CHECKPOINT_KEYS_DIR",
 	"FAIR_AUDIT_WORM_ACCESS_KEY_FILE", "FAIR_AUDIT_WORM_SECRET_KEY_FILE",
+	"FAIR_ENGINE_CLIENT_DIR", "FAIR_ENGINE_GATE_TLS_DIR",
 }
 
 // CheckMounted is the services' startup check (production): the key and

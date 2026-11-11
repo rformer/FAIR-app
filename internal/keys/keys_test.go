@@ -352,8 +352,9 @@ func TestAuditKeys(t *testing.T) {
 	}
 
 	// A directory made before F-003 (and one before F-002) gets risk/ with
-	// every public key the gateway holds, after a rotation too.
-	for _, gone := range [][]string{{Risk}, {Audit, Risk}} {
+	// every public key the gateway holds, after a rotation too, and the
+	// engine channel (F-005).
+	for _, gone := range [][]string{{Risk, EngineGate}, {Audit, Risk, EngineGate}} {
 		d := t.TempDir()
 		s, err := Init(d, t0)
 		if err != nil {
@@ -386,5 +387,75 @@ func TestAuditKeys(t *testing.T) {
 		if err := Check(d); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// F-005 T-10: the engine channel's keys. Init makes both sides, each pinning
+// the other; rotation keeps the previous pins; an upgrade adds the channel
+// to a directory without it, and refuses a directory with only one side.
+func TestEngineKeys(t *testing.T) {
+	d := t.TempDir()
+	now := time.Now()
+	if _, err := Init(d, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := Check(d); err != nil {
+		t.Fatal(err)
+	}
+	gatePins := filepath.Join(d, EngineGate, TLSDir, ClientPins)
+	first, err := ReadPins(gatePins)
+	if err != nil || len(first) != 1 {
+		t.Fatalf("pins: %v %v", first, err)
+	}
+	if _, err := Rotate(d, KindEngine, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	second, _ := ReadPins(gatePins)
+	if len(second) != 2 || second[1] != first[0] {
+		t.Errorf("after rotation the gate pins %v, want the new and %v", second, first)
+	}
+	if _, err := Rotate(d, KindEngine, now.Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if third, _ := ReadPins(gatePins); len(third) != 2 || third[1] != second[0] {
+		t.Errorf("a second rotation keeps only the previous pin: %v", third)
+	}
+	if err := Check(d); err != nil {
+		t.Fatal(err)
+	}
+
+	// A pin file that does not pin the other side's certificate.
+	if err := os.WriteFile(gatePins, []byte(strings.Repeat("ab", 32)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Check(d); err == nil || !strings.Contains(err.Error(), "does not pin") {
+		t.Errorf("an unpinned client passed: %v", err)
+	}
+	// Expired certificates.
+	if err := checkEngine(d, now.Add(EngineCertValidity+time.Hour)); err == nil {
+		t.Error("expired certificates passed")
+	}
+
+	// Upgrade: no channel yet, then only one side.
+	u := t.TempDir()
+	if _, err := Init(u, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{filepath.Join(u, EngineGate), filepath.Join(u, Risk, EngineClientDir)} {
+		if err := os.RemoveAll(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if added, err := Upgrade(u, now); err != nil || !slices.Equal(added, []string{EngineGate}) {
+		t.Fatalf("upgrade: %v %v", added, err)
+	}
+	if err := Check(u); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(u, EngineGate)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Upgrade(u, now); err == nil {
+		t.Error("an upgrade with only one side of the channel")
 	}
 }

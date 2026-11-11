@@ -31,6 +31,15 @@ func CheckInstall(c InstallCheck) error {
 	if c.Env == "production" && c.Getenv("FAIR_JWT_KEYS_DIR") == "" {
 		errs = append(errs, errors.New("FAIR_JWT_KEYS_DIR is required in production"))
 	}
+	// F-005 T-10 (design §11): the simulation engine, through engine-gate.
+	if c.Env == "production" {
+		if c.Getenv("FAIR_ENGINE_ADDR") == "" {
+			errs = append(errs, errors.New("FAIR_ENGINE_ADDR (engine-gate, e.g. engine.fair-platform.svc:8444) is required in production"))
+		}
+		if c.Getenv("FAIR_ENGINE_CLIENT_DIR") == "" {
+			errs = append(errs, errors.New("FAIR_ENGINE_CLIENT_DIR (the engine client's certificate, key and gate pins) is required in production"))
+		}
+	}
 	return errors.Join(errs...)
 }
 

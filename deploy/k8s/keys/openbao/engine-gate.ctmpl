@@ -1,0 +1,7 @@
+{{- /* F-005 T-10 (as F-001 T-41): renders engine-gate's TLS keys from OpenBao into /keys/tls/<file>,
+     0640, owned by the service's user: the agent rewrites them on every
+     refresh, the gate reads them through a read-only mount (the engine
+     container mounts nothing). Only names a key directory can hold are
+     written. The output below is the readiness marker. */ -}}
+{{- with secret "secret/data/fair/engine-gate/tls" }}{{ range $name, $value := .Data.data }}{{ if regexMatch "^[A-Za-z0-9_-][A-Za-z0-9_.-]*$" $name }}{{ writeToFile (printf "/keys/tls/%s" $name) "65532" "65532" "0640" $value }}{{ end }}{{ end }}{{ end }}
+rendered
