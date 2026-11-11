@@ -12,6 +12,13 @@
 //	GET  /api/v1/analyses/runs/{id}/series/{set}   a set's per-year annual losses (float64 little-endian)
 //	POST /api/v1/analyses/runs/{id}/cancel         the requester, or analysis.run at the run's BU
 //
+// T-12 serves reproductions and aggregates:
+//
+//	POST /api/v1/analyses/runs/{id}/reproduce      a run with the recorded inputs     analysis.run at the run's BU
+//	POST /api/v1/analyses/aggregates               an aggregate of runs' control sets analysis.run at the chosen BU
+//	GET  /api/v1/analyses/aggregates[?bu=]         the aggregates whose members the caller all sees
+//	GET  /api/v1/analyses/aggregates/{id}          one, with members and summary
+//
 // Without analysis.view or analysis.run anywhere the routes do not exist
 // for the caller (404, F-001 AC-25); a run or scenario the caller cannot
 // see is 404 like a missing one. The database records every event (design
@@ -54,8 +61,10 @@ type API struct {
 	Authz riskapi.Authorizer
 	// Enqueue queues a run's job in the request's transaction; nil when no
 	// engine is configured (requests answer 503 engine_unavailable).
-	Enqueue  func(context.Context, pgx.Tx, analysis.SimulateArgs) error
-	Settings Settings
+	Enqueue func(context.Context, pgx.Tx, analysis.SimulateArgs) error
+	// EnqueueAggregate queues an aggregate's job (nil: no engine).
+	EnqueueAggregate func(context.Context, pgx.Tx, analysis.AggregateArgs) error
+	Settings         Settings
 }
 
 type route struct {
@@ -69,6 +78,10 @@ var routes = []route{
 	{"GET", "/api/v1/analyses/runs/{id}", (*API).getRun},
 	{"GET", "/api/v1/analyses/runs/{id}/series/{set}", (*API).getRunSeries},
 	{"POST", "/api/v1/analyses/runs/{id}/cancel", (*API).cancelRun},
+	{"POST", "/api/v1/analyses/runs/{id}/reproduce", (*API).reproduceRun},
+	{"POST", "/api/v1/analyses/aggregates", (*API).createAggregate},
+	{"GET", "/api/v1/analyses/aggregates", (*API).listAggregates},
+	{"GET", "/api/v1/analyses/aggregates/{id}", (*API).getAggregate},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).

@@ -20,6 +20,7 @@ security:
     dbContext: []
 tags:
   - { name: runs, description: "Simulation runs (F-005 R-01 to R-04)" }
+  - { name: aggregates, description: "Aggregates of runs (F-005 R-05)" }
 components:
   securitySchemes:
     internalJWT: { type: http, scheme: bearer, bearerFormat: JWT }
@@ -42,6 +43,9 @@ components:
     Run:
       description: A run
       content: { application/json: { schema: { $ref: "#/components/schemas/Run" } } }
+    Aggregate:
+      description: An aggregate
+      content: { application/json: { schema: { $ref: "#/components/schemas/Aggregate" } } }
   schemas:
     Error:
       type: object
@@ -108,6 +112,40 @@ components:
             properties:
               control_set: { type: string }
               summary: { type: object }
+    Aggregate:
+      type: object
+      required: [id, bu_id, name, seed, iterations, requested_by, requested_at, state, members, member_engine_versions, mixed_engine_versions, seq]
+      properties:
+        id: { type: string, format: uuid }
+        bu_id: { type: string, format: uuid }
+        name: { type: string }
+        seed: { type: string, pattern: "^[0-9]{1,20}$" }
+        iterations: { type: integer }
+        requested_by: { type: string, format: uuid }
+        requested_at: { type: string, format: date-time }
+        state: { type: string, enum: [queued, running, succeeded, failed] }
+        started_at: { type: [string, "null"], format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
+        failure: { type: [string, "null"] }
+        failure_detail: { type: [string, "null"] }
+        engine: { type: [object, "null"], properties: { version: { type: string }, architecture: { type: [string, "null"] } } }
+        result_digest: { type: [string, "null"], pattern: "^[0-9a-f]{64}$" }
+        members:
+          type: array
+          items:
+            type: object
+            properties:
+              position: { type: integer }
+              run_id: { type: string, format: uuid }
+              control_set: { type: string }
+              engine_version: { type: [string, "null"] }
+              scenario_id: { type: string, format: uuid }
+              scenario_version: { type: integer }
+              scenario_name: { type: string }
+        member_engine_versions: { type: array, items: { type: string } }
+        mixed_engine_versions: { type: boolean, description: "Members were computed by different engine versions (design §3.5)" }
+        summary: { type: [object, "null"], description: "Summaries, curve and contributions (design §3.5), once it succeeded" }
+        seq: { type: integer }
 paths:
   /api/v1/analyses/runs:
     post:
@@ -223,3 +261,100 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
+  /api/v1/analyses/runs/{id}/reproduce:
+    post:
+      operationId: reproduceRun
+      tags: [runs]
+      summary: Reproduce a succeeded run
+      description: >-
+        A run with the original's scenario version, seed, iterations and control sets (AC-16; design §6.2).
+        The input bundle is rebuilt and must have the recorded digest (409 bundle_changed). When it
+        succeeds, its reproduction is match or mismatch on the same engine version and architecture,
+        other_version or other_architecture otherwise (analysis.run_reproduced).
+      x-permission: analysis.run at the run's BU
+      x-audit-events: [analysis.run_requested]
+      x-reason-exempt: a reproduction is identified by the run it reproduces
+      parameters:
+        - $ref: "#/components/parameters/ID"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202": { $ref: "#/components/responses/Run" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /api/v1/analyses/aggregates:
+    post:
+      operationId: createAggregate
+      tags: [aggregates]
+      summary: Request an aggregate of runs
+      description: >-
+        Members are control sets of succeeded runs the caller sees, inside the chosen BU's subtree, all
+        with the same iterations (AC-18; design §3.5, §6.4). Members are combined as independent: each
+        member's years are permuted by the aggregate's seed.
+      x-permission: analysis.run at the chosen BU
+      x-audit-events: [analysis.aggregate_created]
+      x-reason-exempt: an aggregate is identified by its name and members, recorded with it
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bu_id, name, members]
+              additionalProperties: false
+              properties:
+                bu_id: { type: string, format: uuid }
+                name: { type: string, minLength: 1, maxLength: 200 }
+                seed: { type: string, pattern: "^[0-9]{1,20}$" }
+                members:
+                  type: array
+                  minItems: 2
+                  maxItems: 200
+                  items:
+                    type: object
+                    required: [run_id, control_set]
+                    additionalProperties: false
+                    properties:
+                      run_id: { type: string, format: uuid }
+                      control_set: { type: string }
+      responses:
+        "202": { $ref: "#/components/responses/Aggregate" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    get:
+      operationId: listAggregates
+      tags: [aggregates]
+      summary: The aggregates whose every member the caller sees, newest first
+      x-permission: analysis.view (BU-scoped, RLS; every member visible, AC-19)
+      parameters:
+        - { name: bu, in: query, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Aggregates
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [aggregates]
+                properties: { aggregates: { type: array, items: { $ref: "#/components/schemas/Aggregate" } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/analyses/aggregates/{id}:
+    get:
+      operationId: getAggregate
+      tags: [aggregates]
+      summary: An aggregate, with its members and, once it succeeded, its summary
+      x-permission: analysis.view (BU-scoped, RLS; every member visible, AC-19)
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "200": { $ref: "#/components/responses/Aggregate" }
+        "404": { $ref: "#/components/responses/Error" }

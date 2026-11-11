@@ -321,12 +321,13 @@ func transient(err error) error {
 	return errModel{FailInternal, status.Convert(err).Message()}
 }
 
-// NewClient is the risk service's River client for analysis jobs: every
-// replica works the queue (workers simulations at once). The caller starts
+// NewClient is the risk service's River client for analysis jobs (runs and
+// aggregates): every replica works the queue (workers jobs at once). The caller starts
 // and stops it.
-func NewClient(pool *pgxpool.Pool, w *Worker, workers int, logger *slog.Logger) (*river.Client[pgx.Tx], error) {
+func NewClient(pool *pgxpool.Pool, w *Worker, aw *AggregateWorker, workers int, logger *slog.Logger) (*river.Client[pgx.Tx], error) {
 	ws := river.NewWorkers()
 	river.AddWorker(ws, w)
+	river.AddWorker(ws, aw)
 	return river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Queues:  map[string]river.QueueConfig{Queue: {MaxWorkers: workers}},
 		Workers: ws,

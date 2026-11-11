@@ -282,6 +282,7 @@ func run() error {
 
 	// F-005 T-11 (design §6.1): runs, worked by every replica.
 	var enqueue func(context.Context, pgx.Tx, analysis.SimulateArgs) error
+	var enqueueAggregate func(context.Context, pgx.Tx, analysis.AggregateArgs) error
 	if addr := os.Getenv("FAIR_ENGINE_ADDR"); addr != "" {
 		conn, err := dialEngine(cfg.Env, addr, os.Getenv("FAIR_ENGINE_CLIENT_DIR"))
 		if err != nil {
@@ -304,7 +305,7 @@ func run() error {
 			}
 			return 100 // the default of every built-in profile
 		}}
-		rc, err := analysis.NewClient(pool, w, workers, logger)
+		rc, err := analysis.NewClient(pool, w, &analysis.AggregateWorker{DB: pool, Engine: w.Engine, Logger: logger}, workers, logger)
 		if err != nil {
 			return fmt.Errorf("river: %w", err)
 		}
@@ -317,6 +318,7 @@ func run() error {
 			_ = rc.Stop(sctx)
 		}()
 		enqueue = analysis.Enqueuer(rc)
+		enqueueAggregate = analysis.AggregateEnqueuer(rc)
 		logger.Info("simulation engine", "addr", addr, "workers", workers)
 	} else {
 		logger.Warn("no simulation engine (FAIR_ENGINE_ADDR): run requests answer 503 engine_unavailable")
@@ -363,7 +365,7 @@ func run() error {
 			srv.Mux().Handle(prefix+"/", eh)
 		}
 		// The analysis API (F-005 design §5).
-		ah := server.SecurityHeaders((&analysisapi.API{DB: pool, Authz: grants, Enqueue: enqueue,
+		ah := server.SecurityHeaders((&analysisapi.API{DB: pool, Authz: grants, Enqueue: enqueue, EnqueueAggregate: enqueueAggregate,
 			Settings: analysisapi.ClientSettings{C: sc}}).Handler(jwtKeys, nil))
 		for _, prefix := range analysisapi.Prefixes {
 			srv.Mux().Handle(prefix, ah)

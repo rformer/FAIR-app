@@ -40,8 +40,10 @@ import (
 type fakeEngine struct {
 	enginev1.UnimplementedEngineServer
 	mu        sync.Mutex
-	mode      string // ok, unavailable_once, unavailable, model_error, block, bad_series
+	mode      string // ok, unavailable_once, unavailable, model_error, block, bad_series, different
 	validated bool
+	version   string
+	arch      string
 	calls     int
 	running   chan struct{}
 }
@@ -50,13 +52,14 @@ func (f *fakeEngine) set(mode string, validated bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.mode, f.validated, f.calls = mode, validated, 0
+	f.version, f.arch = "0.1.0", "amd64"
 	f.running = make(chan struct{}, 1)
 }
 
 func (f *fakeEngine) Info(context.Context, *enginev1.InfoRequest) (*enginev1.EngineInfo, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return &enginev1.EngineInfo{Version: "0.1.0", Architecture: "amd64",
+	return &enginev1.EngineInfo{Version: f.version, Architecture: f.arch,
 		Validation: &enginev1.Validation{SuiteVersion: "1", Passed: f.validated, RunAtUnixMs: 1762800000000}}, nil
 }
 
@@ -111,6 +114,9 @@ func (f *fakeEngine) Simulate(req *enginev1.SimulateRequest, stream enginev1.Eng
 			return err
 		}
 		series := fakeSeries(n, 1.5+float64(j))
+		if mode == "different" {
+			series = fakeSeries(n, 9.5+float64(j))
+		}
 		if mode == "bad_series" {
 			series = series[:len(series)-8]
 		}
@@ -125,14 +131,52 @@ func (f *fakeEngine) Simulate(req *enginev1.SimulateRequest, stream enginev1.Eng
 		{Code: "domain_low", Pointer: "/lef/tef/contact_frequency", Detail: "events_per_year 2 to 12"}}}}})
 }
 
+// Aggregate sums the members' series year by year (the real engine
+// permutes them first; the worker does not care).
+func (f *fakeEngine) Aggregate(stream enginev1.Engine_AggregateServer) error {
+	first, err := stream.Recv()
+	if err != nil {
+		return err
+	}
+	h := first.GetHeader()
+	n := int(h.GetIterations())
+	sum := make([]float64, n)
+	for {
+		in, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		c := in.GetSeries()
+		for i := 0; i < len(c.GetValues())/8; i++ {
+			sum[int(c.GetOffset())+i] += math.Float64frombits(binary.LittleEndian.Uint64(c.GetValues()[8*i:]))
+		}
+	}
+	out := make([]byte, 8*n)
+	for i, v := range sum {
+		binary.LittleEndian.PutUint64(out[8*i:], math.Float64bits(v))
+	}
+	summary := fmt.Sprintf(`{"independence":"Members are combined as independent.","iterations":%d,"members":%d,"ale":{"mean":%v}}`, n, len(h.GetMembers()), sum[0])
+	if err := stream.Send(&enginev1.AggregateEvent{Event: &enginev1.AggregateEvent_Result{Result: &enginev1.AggregateResult{SummaryJson: summary}}}); err != nil {
+		return err
+	}
+	if err := stream.Send(&enginev1.AggregateEvent{Event: &enginev1.AggregateEvent_Series{Series: &enginev1.SeriesChunk{Offset: 0, Values: out}}}); err != nil {
+		return err
+	}
+	return stream.Send(&enginev1.AggregateEvent{Event: &enginev1.AggregateEvent_Done{Done: &enginev1.Done{}}})
+}
+
 type fixedLimits analysis.Limits
 
 func (l fixedLimits) Limits(context.Context) (analysis.Limits, error) { return analysis.Limits(l), nil }
 
 type analysisEnv struct {
 	*riskAPIEnv
-	engine *fakeEngine
-	worker *analysis.Worker
+	engine     *fakeEngine
+	worker     *analysis.Worker
+	aggregates *analysis.AggregateWorker
 }
 
 // analysisAPI serves the analysis API on the risk env's keys, with the
@@ -163,6 +207,7 @@ func analysisAPI(t *testing.T, ra *riskAPIEnv, lim analysis.Limits, engine bool)
 	api := &analysisapi.API{DB: pool, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool)}), Settings: fixedLimits(lim)}
 	if engine {
 		api.Enqueue = analysis.Enqueuer(rc)
+		api.EnqueueAggregate = analysis.AggregateEnqueuer(rc)
 	}
 	srv := httptest.NewServer(api.Handler(ra.keys, nil))
 	t.Cleanup(srv.Close)
@@ -171,7 +216,7 @@ func analysisAPI(t *testing.T, ra *riskAPIEnv, lim analysis.Limits, engine bool)
 	analysisEnvs++
 	aa.n += 200000 * analysisEnvs // its Idempotency-Keys never meet another env's
 	return &analysisEnv{riskAPIEnv: &aa, engine: fe, worker: &analysis.Worker{DB: pool, Engine: enginev1.NewEngineClient(conn),
-		ImageDigest: "sha256:" + strings.Repeat("ab", 32)}}
+		ImageDigest: "sha256:" + strings.Repeat("ab", 32)}, aggregates: &analysis.AggregateWorker{DB: pool, Engine: enginev1.NewEngineClient(conn)}}
 }
 
 var analysisEnvs int
@@ -546,4 +591,30 @@ func TestAnalysisLiveEngine(t *testing.T) {
 		t.Errorf("series: %d bytes", len(raw))
 	}
 	t.Logf("run %s: engine %v, mean annual loss %.0f, result digest %v", id, run.body["engine"], mean, run.body["result_digest"])
+
+	// T-12: an aggregate of this run and a second one, on the real engine.
+	got = ae.call(t, "POST", "analyst", "/api/v1/analyses/runs", map[string]any{"scenario_id": sid, "version": 1, "iterations": 20000, "seed": "43"})
+	if got.code != 202 {
+		t.Fatalf("second run: %d %s", got.code, got.raw)
+	}
+	id2 := got.body["id"].(string)
+	if err := ae.work(t, id2, 1, 3); err != nil || ae.state(id2) != "succeeded" {
+		t.Fatalf("second run: %v %s", err, ae.state(id2))
+	}
+	ae.aggregates.Engine = ae.worker.Engine
+	agg := ae.call(t, "POST", "analyst", "/api/v1/analyses/aggregates", map[string]any{"bu_id": ra.bu["A1"], "name": "Live portfolio", "seed": "5",
+		"members": []map[string]any{{"run_id": id, "control_set": "Current"}, {"run_id": id2, "control_set": "Proposed"}}})
+	if agg.code != 202 {
+		t.Fatalf("aggregate: %d %s", agg.code, agg.raw)
+	}
+	aid := agg.body["id"].(string)
+	if err := ae.aggregates.Attempt(context.Background(), aid, 1, 3); err != nil {
+		t.Fatal(err)
+	}
+	read := ae.call(t, "GET", "analyst", "/api/v1/analyses/aggregates/"+aid, nil)
+	as, _ := read.body["summary"].(map[string]any)
+	if read.body["state"] != "succeeded" || as == nil || len(as["contributions"].([]any)) != 2 {
+		t.Fatalf("the aggregate: %s", read.raw)
+	}
+	t.Logf("aggregate %s: mean annual loss %.0f, result digest %v", aid, as["ale"].(map[string]any)["mean"], read.body["result_digest"])
 }
