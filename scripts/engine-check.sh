@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# The engine's checks (F-005 T-04): lint, format, types and tests, with the
+# The engine's checks (F-005 T-04, T-09): lint, format, types, tests and the
+# validation suite, with the
 # locked tools, in the engine's Python, from the repository root:
 #   docker run --rm -v "$PWD:/src" -w /src python:3.12-slim-bookworm scripts/engine-check.sh
 set -euo pipefail
@@ -11,3 +12,5 @@ ruff check .
 ruff format --check .
 mypy
 python -m pytest -q
+# The statistical validation suite (F-005 T-09, design §3.6).
+python -m fairsim validate --out /tmp/engine-validation.json

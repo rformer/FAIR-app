@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -25,6 +26,21 @@ class SetResult:
 class Run:
     sets: tuple[SetResult, ...]
     warnings: tuple[bundle.RunWarning, ...]
+
+    def digest(self) -> str:
+        """SHA-256 over every set's name, summary (as served) and series, and the warnings.
+
+        For the engine's own checks (validation, self-check, determinism);
+        the risk service's results digest is design §6.3's.
+        """
+        h = hashlib.sha256()
+        for s in self.sets:
+            h.update(s.control_set.encode())
+            h.update(json.dumps(s.summary, sort_keys=True, separators=(",", ":"), allow_nan=False).encode())
+            h.update(np.ascontiguousarray(s.ale, dtype="<f8").tobytes())
+        for w in self.warnings:
+            h.update(repr(w).encode())
+        return h.hexdigest()
 
 
 def run(

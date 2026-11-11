@@ -45,6 +45,7 @@ func run(args []string) error {
 		images := fs.String("images", "", "JSON file: component -> repository@sha256:<digest>")
 		deploy := fs.String("deploy", "deploy/k8s", "reference manifest directories, comma-separated")
 		out := fs.String("out", "", "output file")
+		engineRecord := fs.String("engine-validation", "", "the engine image's /engine/validation.json (required when -images names the engine)")
 		_ = fs.Parse(args[1:])
 		b, err := os.ReadFile(*images) // #nosec G304 G703 -- release-pipeline operator input
 		if err != nil {
@@ -55,6 +56,18 @@ func run(args []string) error {
 			return fmt.Errorf("%s: %w", *images, err)
 		}
 		if m.RBAC, err = releasemanifest.RBACFromDir(strings.Split(*deploy, ",")...); err != nil {
+			return err
+		}
+		if *engineRecord != "" {
+			rec, err := os.ReadFile(*engineRecord) // #nosec G304 G703 -- release-pipeline operator input
+			if err != nil {
+				return err
+			}
+			if m.EngineValidation, err = releasemanifest.EngineValidationFromRecord(m.Images[releasemanifest.EngineComponent], rec); err != nil {
+				return err
+			}
+		}
+		if err := m.Validate(); err != nil {
 			return err
 		}
 		enc, err := releasemanifest.Encode(m)

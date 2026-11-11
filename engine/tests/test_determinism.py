@@ -7,7 +7,6 @@ chunks run in, and with NumPy's CPU dispatch pinned or at its defaults.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import random
@@ -16,14 +15,12 @@ import sys
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 
-import numpy as np
 import pytest
 import scenarios as sc
 
 import fairsim  # noqa: F401  (pins NumPy's dispatch first)
 from fairsim import bundle, cpu, model
 from fairsim.run import Run, run
-from fairsim.server import encode_summary
 from fairsim.workers import Workers
 
 N = 24_000
@@ -32,14 +29,7 @@ SETS = ("Current", "With EDR")
 
 
 def digest(r: Run) -> str:
-    h = hashlib.sha256()
-    for s in r.sets:
-        h.update(s.control_set.encode())
-        h.update(encode_summary(s.summary).encode())
-        h.update(np.ascontiguousarray(s.ale, dtype="<f8").tobytes())
-    for w in r.warnings:
-        h.update(repr(w).encode())
-    return h.hexdigest()
+    return r.digest()
 
 
 @pytest.fixture(scope="module")

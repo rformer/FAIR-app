@@ -210,12 +210,13 @@ jobs:
           version: v2.15.0
 
   # F-005 T-04 (ADR-013): the engine's lint, format, types and tests with the
-  # locked tools, and lock files that regenerate exactly.
+  # locked tools, and lock files that regenerate exactly; T-09: the
+  # statistical validation suite (scripts/engine-check.sh).
   engine:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Lint, format, types, tests
+      - name: Lint, format, types, tests, validation suite
         run: docker run --rm -v "$PWD:/src" -w /src python:3.12.16-slim-bookworm bash scripts/engine-check.sh
       - name: Lock files regenerate exactly
         run: |
@@ -243,6 +244,8 @@ jobs:
           python3 -c 'import json,sys; d=json.load(open("info.json")); sys.exit(0 if d["cpu_dispatch"] and not any(d["cpu_dispatch"].values()) else 1)'
           if docker run --rm --entrypoint /bin/sh "$IMAGE:ci" -c true; then echo "the image has a shell"; exit 1; fi
           if docker run --rm --entrypoint /usr/local/bin/python3.12 "$IMAGE:ci" -c "import ssl"; then echo "the engine has TLS"; exit 1; fi
+          # F-005 T-09: the build ran the validation suite; the image holds a passed record.
+          docker run --rm --entrypoint /usr/local/bin/python3.12 "$IMAGE:ci" -c 'import json,sys; r=json.load(open("/engine/validation.json")); print(r["engine_version"], r["architecture"], r["passed"]); sys.exit(0 if r["passed"] else 1)'
       - name: SBOM (SPDX)
         uses: anchore/sbom-action@v0
         with:

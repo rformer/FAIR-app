@@ -107,6 +107,11 @@ RUN set -eu; mkdir -p /out/root /out/root/var/lib/dpkg/status.d; \
       dpkg -s "$pkg" > "/out/root/var/lib/dpkg/status.d/$pkg"; \
     done; \
     if grep -q -e libssl -e libcrypto /tmp/libs; then echo "OpenSSL in the engine image"; exit 1; fi
+# The statistical validation suite (F-005 T-09, design §3.6) on what the image
+# ships; the build fails unless every check passes, and the record goes into
+# the image for Info, the startup self-check and the release manifest.
+RUN mkdir -p /out/root/engine \
+ && PYTHONPATH=/opt/fairsim:/opt/site PYTHONDONTWRITEBYTECODE=1 /usr/local/bin/python3.12 -m fairsim validate --out /out/root/engine/validation.json
 
 FROM gcr.io/distroless/static-debian12:nonroot AS engine
 COPY --from=engine-build /out/root/ /

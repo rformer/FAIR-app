@@ -7,7 +7,7 @@
 //	profilegen sign -key FILE -out DIR     copy the pinned packages and manifest to DIR with
 //	                                       detached signatures (release pipeline)
 //	profilegen verify -pub FILE -dir DIR   verify a signed release directory
-//	profilegen release-check [-online] [-report FILE]
+//	profilegen release-check [-online] [-report FILE] [-manifest FILE]
 //	                                       release checklist gate (T-07): pins, generated
 //	                                       files, CMMC rule revision (online: against the eCFR)
 //
@@ -29,6 +29,7 @@ import (
 	"github.com/rformer/fair-app/internal/pentest"
 	"github.com/rformer/fair-app/internal/profilegen"
 	"github.com/rformer/fair-app/internal/profilepkg"
+	"github.com/rformer/fair-app/internal/releasemanifest"
 	"github.com/rformer/fair-app/pkg/settings"
 )
 
@@ -66,8 +67,9 @@ func main() {
 		fs := flag.NewFlagSet("release-check", flag.ExitOnError)
 		online := fs.Bool("online", false, "re-check the CMMC rule against the eCFR (release pipeline)")
 		report := fs.String("report", "", "write the report (Markdown) to this file")
+		manifest := fs.String("manifest", "", "the release manifest (unsigned), for the engine validation record (F-005 T-09)")
 		_ = fs.Parse(os.Args[2:])
-		err = releaseCheck(*online, *report)
+		err = releaseCheck(*online, *report, *manifest)
 	default:
 		usage()
 	}
@@ -78,7 +80,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: profilegen profiles | packages | sign -key FILE -out DIR | verify -pub FILE -dir DIR | release-check [-online] [-report FILE]   (run from the repository root)")
+	fmt.Fprintln(os.Stderr, "usage: profilegen profiles | packages | sign -key FILE -out DIR | verify -pub FILE -dir DIR | release-check [-online] [-report FILE] [-manifest FILE]   (run from the repository root)")
 	os.Exit(2)
 }
 
@@ -176,7 +178,7 @@ func verify(pubFile, dir string) error {
 	return nil
 }
 
-func releaseCheck(online bool, reportFile string) error {
+func releaseCheck(online bool, reportFile, manifestFile string) error {
 	var ecfr *profilegen.ECFR
 	if online {
 		ecfr = profilegen.NewECFR()
@@ -196,6 +198,12 @@ func releaseCheck(online bool, reportFile string) error {
 		detail = err.Error()
 	}
 	r.Checks = append(r.Checks, profilegen.Check{Name: "No pen-test finding blocks the release", OK: err == nil, Detail: detail})
+	// F-005 T-09 (AC-21): the engine image passed its validation suite.
+	detail, err = releasemanifest.EngineCheckFile(manifestFile)
+	if err != nil {
+		detail = err.Error()
+	}
+	r.Checks = append(r.Checks, profilegen.Check{Name: "The engine image passed its validation suite", OK: err == nil, Detail: detail})
 	md := r.Markdown()
 	fmt.Print(md)
 	if reportFile != "" {

@@ -302,6 +302,18 @@ def serve(socket_path: str, workers: int, validation_path: str = VALIDATION_PATH
     """Run the engine until SIGTERM or SIGINT."""
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     cpu.check()
+    # The startup self-check (design §3.6): refuse to serve if it fails.
+    from fairsim import validation  # noqa: PLC0415  (only when serving)
+
+    try:
+        record: dict[str, Any] | None = json.loads(Path(validation_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        record = None
+    problems = validation.self_check(record if isinstance(record, dict) else None)
+    if problems:
+        log.error(json.dumps({"event": "self_check_failed", "problems": problems}))
+        return 1
+    log.info(json.dumps({"event": "self_check_passed"}))
     pool = Workers(workers)
     engine = Engine(pool, load_validation(validation_path))
     srv = server(engine, socket_path)

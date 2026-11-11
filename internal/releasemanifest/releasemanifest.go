@@ -38,6 +38,8 @@ type Manifest struct {
 	Release string            `json:"release"`
 	Images  map[string]string `json:"images"` // component -> repository@sha256:<digest>
 	RBAC    []RBACEntry       `json:"rbac"`
+	// EngineValidation is required when Images names the engine (F-005 T-09).
+	EngineValidation *EngineValidation `json:"engine_validation,omitempty"`
 }
 
 // RBACEntry is one platform RBAC object and the hash of its normalized
@@ -79,6 +81,13 @@ func (m *Manifest) Validate() error {
 			return fmt.Errorf("releasemanifest: %s %s: namespace mismatch", e.Kind, e.Name)
 		}
 		seen[e.Key()] = true
+	}
+	if m.EngineValidation != nil {
+		if err := m.EngineValidation.validate(m.Images); err != nil {
+			return err
+		}
+	} else if m.Images[EngineComponent] != "" {
+		return errors.New("releasemanifest: an engine image needs its validation record")
 	}
 	return nil
 }
