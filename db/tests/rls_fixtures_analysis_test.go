@@ -18,6 +18,8 @@ func init() {
 		{Table: "analysis.run", PK: "id", Insert: func(bu string) string { return fmt.Sprintf("SELECT rlsfx.run('%s', false)::text", bu) }},
 		{Table: "analysis.result", PK: "run_id", Insert: func(bu string) string { return fmt.Sprintf("SELECT rlsfx.run('%s', false)::text", bu) }},
 		{Table: "analysis.series", PK: "run_id", Insert: func(bu string) string { return fmt.Sprintf("SELECT rlsfx.run('%s', false)::text", bu) }},
+		// F-005 T-11 (migration 0104): the run's input bundle (analysis data, read with scenario scope too).
+		{Table: "analysis.run_input", PK: "run_id", Insert: func(bu string) string { return fmt.Sprintf("SELECT rlsfx.run('%s', false)::text", bu) }},
 		{Table: "analysis.aggregate", PK: "id", Insert: func(bu string) string { return fmt.Sprintf("SELECT rlsfx.aggregate('%s')::text", bu) }},
 		{Table: "analysis.aggregate_member", PK: "aggregate_id", Insert: func(bu string) string { return fmt.Sprintf("SELECT rlsfx.aggregate('%s')::text", bu) }},
 	} {
@@ -34,7 +36,7 @@ func analysisFixtureFunctions(e *env) {
 	e.admin(e.db, `CREATE FUNCTION rlsfx.run(bu uuid, finished boolean) RETURNS uuid LANGUAGE plpgsql AS $$
 DECLARE s uuid := rlsfx.scenario(bu); id uuid; tok text;
 BEGIN
-  id := analysis.request_run(s, 1, repeat('a', 64), 1, 1000, ARRAY['Current'], NULL, 1000, 2000000, 1000000);
+  id := analysis.request_run(s, 1, convert_to('{"fixture":true}', 'UTF8'), 1, 1000, ARRAY['Current'], NULL, 1000, 2000000, 1000000);
   IF finished THEN
     tok := analysis.start_run(id);
     PERFORM analysis.put_series(id, tok, 'Current', decode(repeat('00', 8000), 'hex'));

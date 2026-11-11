@@ -48,6 +48,10 @@ spec:
             - { name: PGSSLROOTCERT, value: /db-ca/ca.crt }
             # app_rw's password: the risk service writes only under RLS.
             - { name: FAIR_DB_PASSWORD_FILE, value: /secrets/db/password }
+            # F-005 T-11: the simulation engine, through engine-gate (its client
+            # keys come from the key store: FAIR_ENGINE_CLIENT_DIR).
+            - { name: FAIR_ENGINE_ADDR, value: engine.fair-platform.svc:8444 }
+            - { name: FAIR_ENGINE_IMAGE_DIGEST, value: REPLACE_WITH_ENGINE_DIGEST } # sha256:<hex> of the engine image
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

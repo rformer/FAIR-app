@@ -2,6 +2,8 @@ package tests
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"testing"
@@ -49,10 +51,14 @@ func TestAnalysisSchema(t *testing.T) {
 		}
 		return got.body["id"].(string)
 	}
-	digest := strings.Repeat("a", 64)
+	// F-005 T-11 (migration 0104): request_run takes the bundle and records
+	// its SHA-256.
+	bundle := []byte(`{"format":"fair.scenario-input.v1","test":true}`)
+	sum := sha256.Sum256(bundle)
+	digest := hex.EncodeToString(sum[:])
 	const request = "SELECT analysis.request_run($1, 1, $2, 7, $3, $4, $5, 1000, 2000000, $6)::text"
 	run := func(user, sid string, iterations int, sets []string, reproduces any, maxActive int) (string, error) {
-		return q(user, request, sid, digest, iterations, sets, reproduces, maxActive)
+		return q(user, request, sid, bundle, iterations, sets, reproduces, maxActive)
 	}
 	sid := scenario("analyst", ra.bu["A1"])
 
@@ -157,20 +163,20 @@ func TestAnalysisSchema(t *testing.T) {
 	must("", "SELECT analysis.fail_run($1, NULL, 'engine_not_validated', 'validation failed')::text", r3)
 
 	// Reproduction: the original's inputs; compared on finishing.
-	reproduce := func(digestNow string) (string, error) {
-		return q("analyst", "SELECT analysis.request_run($1, 1, $2, 7, 1000, '{Current,Proposed}', $3, 1000, 2000000, 5)::text", sid, digestNow, r1)
+	reproduce := func(bundleNow []byte) (string, error) {
+		return q("analyst", "SELECT analysis.request_run($1, 1, $2, 7, 1000, '{Current,Proposed}', $3, 1000, 2000000, 5)::text", sid, bundleNow, r1)
 	}
-	if _, err := q("analyst", "SELECT analysis.request_run($1, 1, $2, 8, 1000, '{Current,Proposed}', $3, 1000, 2000000, 5)::text", sid, digest, r1); !strings.Contains(pgCode(err), "original's inputs") {
+	if _, err := q("analyst", "SELECT analysis.request_run($1, 1, $2, 8, 1000, '{Current,Proposed}', $3, 1000, 2000000, 5)::text", sid, bundle, r1); !strings.Contains(pgCode(err), "original's inputs") {
 		t.Errorf("a reproduction with another seed: %s", pgCode(err))
 	}
-	if _, err := reproduce(strings.Repeat("d", 64)); !strings.Contains(pgCode(err), "no longer has the original's digest") {
+	if _, err := reproduce([]byte(`{"changed":true}`)); !strings.Contains(pgCode(err), "no longer has the original's digest") {
 		t.Errorf("a changed bundle: %s", pgCode(err))
 	}
 	for _, c := range []struct{ version, arch, digest, want string }{
 		{"1.0.0", "amd64", strings.Repeat("b", 64), "match"}, {"1.0.0", "amd64", strings.Repeat("e", 64), "mismatch"},
 		{"1.1.0", "amd64", strings.Repeat("e", 64), "other_version"}, {"1.0.0", "arm64", strings.Repeat("e", 64), "other_architecture"},
 	} {
-		id, err := reproduce(digest)
+		id, err := reproduce(bundle)
 		if err != nil {
 			t.Fatal(pgCode(err))
 		}

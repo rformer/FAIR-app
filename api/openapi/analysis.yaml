@@ -1,0 +1,225 @@
+openapi: 3.1.0
+info:
+  title: FAIR Analysis API
+  version: "1"
+  contact: { name: FAIR Risk Platform, url: "https://github.com/rformer/FAIR-app" }
+  description: |
+    F-005 design §5. Monte Carlo simulation runs of scenario versions, served by the risk
+    service behind the gateway, which authenticates the session and forwards an internal JWT
+    (ES256, audience `risk`, at most 5 minutes) and the DB context token it was minted with
+    (F-001 design §4, §5.2).
+
+    A run is requested, queued, run by the engine and stored with its results; its state and
+    progress are read while it runs. Results are BU-owned, read under row-level security.
+    Without analysis.view or analysis.run anywhere the routes do not exist for the caller
+    (404, F-001 AC-25). Every input is sampled independently (stated on each result, AC-10).
+servers:
+  - url: /
+security:
+  - internalJWT: []
+    dbContext: []
+tags:
+  - { name: runs, description: "Simulation runs (F-005 R-01 to R-04)" }
+components:
+  securitySchemes:
+    internalJWT: { type: http, scheme: bearer, bearerFormat: JWT }
+    dbContext: { type: apiKey, in: header, name: X-Fair-DB-Context }
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 8, maxLength: 128 }
+    ID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    Error:
+      description: An error
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Run:
+      description: A run
+      content: { application/json: { schema: { $ref: "#/components/schemas/Run" } } }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: >-
+            not_found, forbidden, invalid_request, invalid_value, archived, too_many_runs, finished,
+            bundle_changed, refused, engine_unavailable, unavailable, unauthenticated
+        detail: { type: string }
+    Run:
+      type: object
+      required: [id, bu_id, scenario_id, scenario_version, bundle_digest, seed, iterations, control_sets, requested_by, requested_at,
+        state, progress, warnings, engine, seq]
+      properties:
+        id: { type: string, format: uuid }
+        bu_id: { type: string, format: uuid }
+        scenario_id: { type: string, format: uuid }
+        scenario_version: { type: integer, minimum: 1 }
+        bundle_digest: { type: string, pattern: "^[0-9a-f]{64}$", description: "SHA-256 of the input bundle (F-003 fair.scenario-input.v1)" }
+        seed: { type: string, pattern: "^[0-9]{1,20}$", description: "The 64-bit seed, in decimal" }
+        iterations: { type: integer }
+        control_sets: { type: array, items: { type: string }, description: "The current set first" }
+        requested_by: { type: string, format: uuid }
+        requested_at: { type: string, format: date-time }
+        state: { type: string, enum: [queued, running, succeeded, failed, cancelled] }
+        progress: { type: number, minimum: 0, maximum: 1 }
+        started_at: { type: [string, "null"], format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
+        cancel_reason: { type: [string, "null"] }
+        failure:
+          type: [string, "null"]
+          description: invalid_bundle, engine_not_validated, engine_unavailable, invalid_results, engine_internal
+        failure_detail: { type: [string, "null"] }
+        engine:
+          type: [object, "null"]
+          description: The engine that computed the run (AC-15), from its Info
+          properties:
+            version: { type: string }
+            architecture: { type: [string, "null"], enum: [amd64, arm64, null] }
+            image_digest: { type: [string, "null"] }
+            validation: { type: object }
+        warnings:
+          type: array
+          description: Sampling fallbacks, clipped or unmodelled controls, the large-frequency approximation, not_converged (design §3)
+          items:
+            type: object
+            properties:
+              code: { type: string }
+              pointer: { type: string }
+              control_set: { type: string }
+              detail: { type: string }
+        result_digest: { type: [string, "null"], pattern: "^[0-9a-f]{64}$", description: "Design §6.3" }
+        reproduces: { type: [string, "null"], format: uuid }
+        reproduction: { type: [string, "null"], enum: [match, mismatch, other_version, other_architecture, null] }
+        seq: { type: integer }
+        results:
+          type: array
+          description: Per control set, its summary (design §3.4), once the run succeeded (GET of one run)
+          items:
+            type: object
+            required: [control_set, summary]
+            properties:
+              control_set: { type: string }
+              summary: { type: object }
+paths:
+  /api/v1/analyses/runs:
+    post:
+      operationId: createRun
+      tags: [runs]
+      summary: Request a run of a scenario version
+      description: >-
+        Builds the version's input bundle, records the run and queues it (AC-01, AC-05; design §6.1).
+        The run's control sets are the version's (the current set first) unless named; iterations
+        default to simulation.iterations_default and lie between simulation.iterations_min and
+        simulation.iterations_max; the seed is random unless given. At most
+        simulation.max_active_runs of the requester's runs are queued or running at once.
+      x-permission: analysis.run at the scenario's BU
+      x-audit-events: [analysis.run_requested]
+      x-reason-exempt: a run is identified by its scenario version and inputs, recorded with it
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scenario_id, version]
+              additionalProperties: false
+              properties:
+                scenario_id: { type: string, format: uuid }
+                version: { type: integer, minimum: 1 }
+                control_sets: { type: array, items: { type: string }, maxItems: 20, description: "The current set first" }
+                iterations: { type: integer, minimum: 1 }
+                seed: { type: string, pattern: "^[0-9]{1,20}$" }
+      responses:
+        "202": { $ref: "#/components/responses/Run" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    get:
+      operationId: listRuns
+      tags: [runs]
+      summary: A scenario's runs, newest first
+      x-permission: analysis.view (BU-scoped, RLS)
+      parameters:
+        - { name: scenario, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: before, in: query, schema: { type: integer, minimum: 1 }, description: "A run's seq: the page after it" }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+      responses:
+        "200":
+          description: Runs
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [runs, next_before]
+                properties:
+                  runs: { type: array, items: { $ref: "#/components/schemas/Run" } }
+                  next_before: { type: [integer, "null"] }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/analyses/runs/{id}:
+    get:
+      operationId: getRun
+      tags: [runs]
+      summary: A run, with every set's summary once it succeeded
+      description: State, progress, inputs, engine record, warnings and results (AC-02, AC-11 to AC-15).
+      x-permission: analysis.view (BU-scoped, RLS)
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "200": { $ref: "#/components/responses/Run" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/analyses/runs/{id}/series/{set}:
+    get:
+      operationId: getRunSeries
+      tags: [runs]
+      summary: A succeeded run's per-year annualized losses for one control set
+      description: float64 little-endian, one per iteration in order; X-Fair-Iterations gives the count. For F-006's charts.
+      x-permission: analysis.view (BU-scoped, RLS)
+      parameters:
+        - $ref: "#/components/parameters/ID"
+        - { name: set, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: The series
+          headers:
+            X-Fair-Iterations: { schema: { type: integer } }
+          content: { application/octet-stream: { schema: { type: string, format: binary } } }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/analyses/runs/{id}/cancel:
+    post:
+      operationId: cancelRun
+      tags: [runs]
+      summary: Cancel a queued or running run
+      description: With a reason (AC-03); no partial results are kept (AC-04).
+      x-permission: the requester, or analysis.run at the run's BU
+      x-audit-events: [analysis.run_cancelled]
+      parameters:
+        - $ref: "#/components/parameters/ID"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties: { reason: { type: string, minLength: 1, maxLength: 1000 } }
+      responses:
+        "200": { $ref: "#/components/responses/Run" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }

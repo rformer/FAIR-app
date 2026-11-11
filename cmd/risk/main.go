@@ -26,6 +26,14 @@
 //	FAIR_NATS_URL           NATS, for scope changes (the API's grant cache
 //	                        otherwise refreshes on its own);
 //	                        FAIR_NATS_CREDS_FILE optional
+//	FAIR_ENGINE_ADDR        the simulation engine's gate, host:port (F-005
+//	                        T-11), with FAIR_ENGINE_CLIENT_DIR (the client
+//	                        certificate and the gate's pins); required in
+//	                        production. Outside production unix:///path
+//	                        reaches an engine's socket without a gate.
+//	FAIR_ENGINE_IMAGE_DIGEST the engine image's sha256:<hex>, recorded on
+//	                        every run (optional)
+//	FAIR_ANALYSIS_WORKERS   simulations run at once by this replica (2)
 package main
 
 import (
@@ -38,15 +46,25 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"regexp"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/rformer/fair-app/internal/analysis"
+	"github.com/rformer/fair-app/internal/analysisapi"
+	"github.com/rformer/fair-app/internal/api/enginev1"
 	auditsvc "github.com/rformer/fair-app/internal/audit"
 	"github.com/rformer/fair-app/internal/config"
 	"github.com/rformer/fair-app/internal/dbconn"
+	"github.com/rformer/fair-app/internal/enginetls"
 	"github.com/rformer/fair-app/internal/estimate"
 	"github.com/rformer/fair-app/internal/estimateapi"
 	"github.com/rformer/fair-app/internal/keys"
@@ -262,6 +280,48 @@ func run() error {
 	}}
 	go leader.Run(ctx, jobs.Run, func(err error) { logger.Error("leader", "error", err.Error()) })
 
+	// F-005 T-11 (design §6.1): runs, worked by every replica.
+	var enqueue func(context.Context, pgx.Tx, analysis.SimulateArgs) error
+	if addr := os.Getenv("FAIR_ENGINE_ADDR"); addr != "" {
+		conn, err := dialEngine(cfg.Env, addr, os.Getenv("FAIR_ENGINE_CLIENT_DIR"))
+		if err != nil {
+			return err
+		}
+		defer func() { _ = conn.Close() }()
+		image := os.Getenv("FAIR_ENGINE_IMAGE_DIGEST")
+		if image != "" && !regexp.MustCompile(`^sha256:[0-9a-f]{64}$`).MatchString(image) {
+			return errors.New("FAIR_ENGINE_IMAGE_DIGEST must be sha256:<64 hex>")
+		}
+		workers := 2
+		if v := os.Getenv("FAIR_ANALYSIS_WORKERS"); v != "" {
+			if workers, err = strconv.Atoi(v); err != nil || workers < 1 || workers > 32 {
+				return errors.New("FAIR_ANALYSIS_WORKERS is 1 to 32")
+			}
+		}
+		w := &analysis.Worker{DB: pool, Engine: enginev1.NewEngineClient(conn), ImageDigest: image, Logger: logger, ThresholdBP: func() int {
+			if n, err := sc.Int(settings.KeySimulationConvergenceBP, ""); err == nil {
+				return n
+			}
+			return 100 // the default of every built-in profile
+		}}
+		rc, err := analysis.NewClient(pool, w, workers, logger)
+		if err != nil {
+			return fmt.Errorf("river: %w", err)
+		}
+		if err := rc.Start(ctx); err != nil {
+			return fmt.Errorf("river: %w", err)
+		}
+		defer func() {
+			sctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			_ = rc.Stop(sctx)
+		}()
+		enqueue = analysis.Enqueuer(rc)
+		logger.Info("simulation engine", "addr", addr, "workers", workers)
+	} else {
+		logger.Warn("no simulation engine (FAIR_ENGINE_ADDR): run requests answer 503 engine_unavailable")
+	}
+
 	srv := server.New(server.Options{
 		Addr:        cfg.ListenAddr,
 		TLSCertFile: cfg.TLSCertFile,
@@ -302,6 +362,13 @@ func run() error {
 			srv.Mux().Handle(prefix, eh)
 			srv.Mux().Handle(prefix+"/", eh)
 		}
+		// The analysis API (F-005 design §5).
+		ah := server.SecurityHeaders((&analysisapi.API{DB: pool, Authz: grants, Enqueue: enqueue,
+			Settings: analysisapi.ClientSettings{C: sc}}).Handler(jwtKeys, nil))
+		for _, prefix := range analysisapi.Prefixes {
+			srv.Mux().Handle(prefix, ah)
+			srv.Mux().Handle(prefix+"/", ah)
+		}
 	} else {
 		logger.Warn("the risk API is off: it needs the gateway's JWT keys (FAIR_JWT_KEYS_DIR)")
 	}
@@ -309,6 +376,27 @@ func run() error {
 	err = srv.Run(ctx, cfg.ShutdownTimeout)
 	_ = emitter.Emit(context.Background(), audit.Event{Type: "service.stopped", Severity: audit.SeverityInfo, Actor: "system:risk"})
 	return err
+}
+
+// dialEngine connects to the engine: through engine-gate with the pinned
+// mTLS (internal/enginetls), or, outside production, straight to an
+// engine's Unix socket.
+func dialEngine(env, addr, clientDir string) (*grpc.ClientConn, error) {
+	opts := []grpc.DialOption{grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(16 << 20))}
+	if strings.HasPrefix(addr, "unix://") {
+		if env == "production" {
+			return nil, errors.New("FAIR_ENGINE_ADDR: production reaches the engine through engine-gate (host:port), never a socket")
+		}
+		return grpc.NewClient(addr, append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))...)
+	}
+	if clientDir == "" {
+		return nil, errors.New("FAIR_ENGINE_CLIENT_DIR is required with FAIR_ENGINE_ADDR")
+	}
+	tc, err := enginetls.ClientConfig(clientDir, time.Now)
+	if err != nil {
+		return nil, err
+	}
+	return grpc.NewClient("passthrough:///"+addr, append(opts, grpc.WithTransportCredentials(credentials.NewTLS(tc)))...)
 }
 
 // schemaReady checks that the database is reachable, the risk schema is
