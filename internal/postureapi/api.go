@@ -51,9 +51,8 @@ type API struct {
 	// ExportKey signs OSCAL exports (T-35); without it exports answer 503.
 	ExportKey *ecdsa.PrivateKey
 
-	rootOnce sync.Once
-	root     string
-	rootErr  error
+	rootMu sync.Mutex
+	root   string // the root BU once read; a failed read is retried
 }
 
 type route struct {
@@ -139,9 +138,21 @@ func problem(w http.ResponseWriter, status int, code, detail string, extra map[s
 	writeJSON(w, status, body)
 }
 
+// rootBU is the root BU, read once it succeeds. A failed read (for example
+// a request cancelled while it ran) is not kept: the next request reads it
+// again, rather than every later request answering 503.
 func (a *API) rootBU(ctx context.Context) (string, error) {
-	a.rootOnce.Do(func() { a.rootErr = a.DB.QueryRow(ctx, "SELECT posture.root_bu()::text").Scan(&a.root) })
-	return a.root, a.rootErr
+	a.rootMu.Lock()
+	defer a.rootMu.Unlock()
+	if a.root != "" {
+		return a.root, nil
+	}
+	var root string
+	if err := a.DB.QueryRow(ctx, "SELECT posture.root_bu()::text").Scan(&root); err != nil {
+		return "", err
+	}
+	a.root = root
+	return root, nil
 }
 
 // found answers 404 and returns false when the path's id names no object of

@@ -77,3 +77,6 @@ Prerequisite: F-001 Phases 0–1 (DB roles, BU closure, approvals interface, eve
 - F-001 settings stub replaced; F-001 tests green
 - OSCAL exports validate against pinned schemas
 - Threat-model suite green; control statements written
+
+## Change Log
+- 2026-11-13: Fix to T-31 (found during F-007 T-01): the Posture API kept a failed read of the root BU (`sync.Once` cached the error), so a first request cancelled while it ran left every later request answering 503 until the process restarted; it now keeps only a successful read (`TestPostureAPIRootBUAfterCancelledRequest`). This was the intermittent 503 of the UI end-to-end suite.

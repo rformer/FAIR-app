@@ -191,7 +191,7 @@ func TestPostureAPIAccessAndChanges(t *testing.T) {
 
 	// The other read endpoints answer the auditor.
 	for _, path := range []string{"/changes", "/exceptions", "/profiles", "/overlay", "/drift", "/k8s-access",
-		"/profiles/enterprise-baseline/diff?version=1.5.0&against=fedramp-moderate@1.5.0"} {
+		"/profiles/enterprise-baseline/diff?version=1.6.0&against=fedramp-moderate@1.6.0"} {
 		if r := ae.call(t, "auditor", "GET", path, "", nil); r.code != 200 {
 			t.Errorf("GET %s: %d %s", path, r.code, r.raw)
 		}
@@ -304,5 +304,39 @@ func TestPostureAPIAuditTrail(t *testing.T) {
 	r = ae.call(t, "auditor", "GET", "/drift", "", nil)
 	if !strings.Contains(r.raw, `"check_id":"audit_integrity"`) || !strings.Contains(r.raw, `"severity":"critical"`) {
 		t.Fatalf("drift: %s", r.raw)
+	}
+}
+
+// A first request cancelled while it read the root BU does not leave the
+// API answering 503 to every later request (the root BU is kept only once
+// read): the UI harness's pages are often left while their first requests
+// run.
+func TestPostureAPIRootBUAfterCancelledRequest(t *testing.T) {
+	ae := apiFixture(t, settings.ProfileEnterpriseBaseline)
+	pool := ae.e.posturePool()
+	api := &postureapi.API{DB: pool, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool)}), Audit: audit.NewMemory()}
+	h := api.Handler(ae.keys, nil)
+	request := func(ctx context.Context) int {
+		t.Helper()
+		req := httptest.NewRequestWithContext(ctx, "GET", postureapi.Prefix+"/settings", nil)
+		p := ae.e.principal("auditor")
+		tok, err := authz.MintJWT(ae.keys, authz.Claims{Subject: p.UserID, ScopeVersion: p.ScopeVersion, AuthTime: time.Now().Unix(),
+			DBContext: authz.DBContextHash(p.DBToken)}, "posture", 5*time.Minute, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer "+tok)
+		req.Header.Set(server.DBContextHeader, p.DBToken)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if code := request(cancelled); code == 200 {
+		t.Fatalf("a cancelled request answered %d", code)
+	}
+	if code := request(context.Background()); code != 200 {
+		t.Fatalf("the next request answered %d", code)
 	}
 }
