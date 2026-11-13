@@ -1,0 +1,18 @@
+# F-007 T-01: binding for register.analysis_max_age_days: RA-3; days after which a pinned analysis is stale (F-007 design §4).
+setting: register.analysis_max_age_days
+type: int
+direction: lower_is_stricter
+bu_scopable: false
+profiles:
+  fedramp-moderate:
+    default: 365
+    bound: { max: 730 }
+    platform_choice: "Register staleness (F-007 AC-08): an analysis older than 365 days is stale; at most 730"
+  cmmc-l2-r2:
+    default: 365
+    bound: { max: 730 }
+    platform_choice: "Not a security parameter of 800-171; matches FedRAMP Moderate"
+  enterprise-baseline:
+    default: 365
+    bound: { max: 730 }
+    platform_choice: "Matches FedRAMP Moderate"

@@ -231,13 +231,14 @@ func run() error {
 	// the install is seeded), read as every service reads settings; the
 	// service refuses to start while one of them is unbound.
 	sc := settings.NewClient(settings.ClientOptions{Source: settings.DBSource{DB: pool}, Service: "risk", Instance: os.Getenv("POD_NAME")})
-	// F-005's (design §7) likewise.
-	riskDefs := append(settings.F004Defs(), settings.F005Defs()...)
+	// F-005's (design §7) and F-007's (design §4) likewise.
+	riskDefs := append(append(settings.F004Defs(), settings.F005Defs()...), settings.F007Defs()...)
 	if err := sc.Register(riskDefs...); err != nil {
 		return err
 	}
 	go registerDefs(ctx, pool, logger, "F-004", settings.F004Defs())
 	go registerDefs(ctx, pool, logger, "F-005", settings.F005Defs())
+	go registerDefs(ctx, pool, logger, "F-007", settings.F007Defs())
 	if err := sc.Refresh(ctx); err != nil {
 		return fmt.Errorf("settings: %w", err)
 	}

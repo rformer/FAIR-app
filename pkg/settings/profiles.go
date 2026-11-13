@@ -93,6 +93,25 @@ const (
 	KeySimulationConvergenceBP     = "simulation.convergence_threshold_bp"
 )
 
+// F-007 setting keys (design §4).
+const (
+	KeyRegisterIterations     = "register.iterations"
+	KeyRegisterAnalysisMaxAge = "register.analysis_max_age_days"
+)
+
+// F007Defs returns the F-007 (risk register) setting definitions,
+// registered by the risk service. The profiles bound the loosening side;
+// the service keeps the other limits (design §4): the register's iteration
+// count within the simulation bounds, the maximum age at least 30 days.
+func F007Defs() []Def {
+	return []Def{
+		{Key: KeyRegisterIterations, Kind: KindInt, Direction: HigherIsStricter, Controls: []string{"RA-3"},
+			Description: "Iterations a run must have to be pinned as a register risk's analysis"},
+		{Key: KeyRegisterAnalysisMaxAge, Kind: KindInt, Direction: LowerIsStricter, Controls: []string{"RA-3"},
+			Description: "Days after which a register risk's pinned analysis is stale"},
+	}
+}
+
 // F005Defs returns the F-005 (simulation) setting definitions, registered by
 // the risk service. The profiles bound the loosening side; the service
 // keeps the other limits (design §4.3, §7): iterations_min at least 1,000,
@@ -156,10 +175,10 @@ func F002Defs() []Def {
 }
 
 // ReleaseDefs are the setting definitions a release binds: F-001's,
-// F-002's, F-004's and F-005's. Profile packages cover exactly these
+// F-002's, F-004's, F-005's and F-007's. Profile packages cover exactly these
 // (internal/profilegen).
 func ReleaseDefs() []Def {
-	return append(append(append(F001Defs(), F002Defs()...), F004Defs()...), F005Defs()...)
+	return append(append(append(append(F001Defs(), F002Defs()...), F004Defs()...), F005Defs()...), F007Defs()...)
 }
 
 const day = 24 * time.Hour
@@ -242,6 +261,9 @@ func BuiltinProfiles() []Profile {
 			KeySimulationIterationsMax:     {Default: 1_000_000, Weakest: 2_000_000},
 			KeySimulationMaxActiveRuns:     {Default: 5, Weakest: 50},
 			KeySimulationConvergenceBP:     {Default: 100, Weakest: 500},
+			// F-007 (design §4): the same in every family.
+			KeyRegisterIterations:     {Default: 100_000, Weakest: 10_000},
+			KeyRegisterAnalysisMaxAge: {Default: 365, Weakest: 730},
 		}
 	}
 

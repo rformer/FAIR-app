@@ -4,7 +4,7 @@
     "id": "cmmc-l2-r2",
     "title": "CMMC Level 2 (NIST SP 800-171 Rev 2)",
     "family": "cmmc",
-    "version": "1.5.0",
+    "version": "1.6.0",
     "base": "profiles/cmmc-l2-r2/profile.json",
     "sources": [
       {
@@ -123,6 +123,14 @@
       {
         "path": "bindings/fips.enabled.yaml",
         "sha256": "8dc620784e3f75de717416d4b4db83365346c47a69bd777bf654d86373bf1ac2"
+      },
+      {
+        "path": "bindings/register.analysis_max_age_days.yaml",
+        "sha256": "28d7ad5def32c110b33276b02afa42c501d853db09fc1c5d19eb67a94611da91"
+      },
+      {
+        "path": "bindings/register.iterations.yaml",
+        "sha256": "7feb5261e3ab27b90d305016d5545d8196d74d729b2466ddd1f2931b570ea501"
       },
       {
         "path": "bindings/rls.enforced.yaml",
@@ -464,6 +472,26 @@
       ],
       "origin": {
         "platform_choice": "800-171 Rev 2 3.13.11 (SC-13): FIPS-validated cryptography"
+      }
+    },
+    "register.analysis_max_age_days": {
+      "type": "int",
+      "direction": "lower_is_stricter",
+      "bu_scopable": false,
+      "default": 365,
+      "bound": 730,
+      "origin": {
+        "platform_choice": "Not a security parameter of 800-171; matches FedRAMP Moderate"
+      }
+    },
+    "register.iterations": {
+      "type": "int",
+      "direction": "higher_is_stricter",
+      "bu_scopable": false,
+      "default": 100000,
+      "bound": 10000,
+      "origin": {
+        "platform_choice": "Not a security parameter of 800-171; matches FedRAMP Moderate"
       }
     },
     "rls.enforced": {

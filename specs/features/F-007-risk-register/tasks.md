@@ -22,7 +22,7 @@ Rules for every task:
 ## Phase A — Foundations
 | # | Task | Traces to | Verification | Size | Status |
 |---|---|---|---|---|---|
-| T-01 | Settings (design §4): `settings.F007Defs()` (`register.iterations`, `register.analysis_max_age_days`), bindings, packages 1.6.0; the risk service registers them | AC-06, AC-08; §4 | Settings tests (bounds, stricter direction, iterations within the simulation bounds); release-check passes; the risk service refuses to start on an unbound key | S | Not started |
+| T-01 | Settings (design §4): `settings.F007Defs()` (`register.iterations`, `register.analysis_max_age_days`), bindings, packages 1.6.0; the risk service registers them | AC-06, AC-08; §4 | Settings tests (bounds, stricter direction, iterations within the simulation bounds); release-check passes; the risk service refuses to start on an unbound key | S | Done (2026-11-13) |
 | T-02 | F-005 changes (design §5.2): aggregate `purpose`; members that are aggregates (`member_aggregate_id`), recursive `analysis.members_visible`; the worker reads aggregate members' series; the Aggregates list and page show purpose `analysis` only | AC-07, AC-11; §5.2, §10 | DB tests: a nested aggregate worked from two aggregates; hidden unless every leaf is visible; purpose filters the list; F-005's aggregate tests still pass; the RLS harness passes | M | Not started |
 | T-03 | Schema `register` (migration; bootstrap role `register_definer`): risks, versions (PF025), links with the one-open-risk index, treatment and its versions, roll-ups, categories with the default list; `register.check_document` (owner, scenarios in the subtree and visible, pins succeeded, of the scenario, at the register's iterations, with the set); RLS fixtures | AC-01 to AC-06, AC-15, AC-17, AC-21; §3, §5.1 | DB tests: app_rw writes only through the functions; versions append-only for every role; one open risk per scenario; every document rule refused with its pointer; RLS harness passes | L | Not started |
 
@@ -57,3 +57,4 @@ Rules for every task:
 ## Change Log
 - 2026-11-13: Initial draft.
 - 2026-11-13: **Approved** by Robert Former.
+- 2026-11-13: T-01: `settings.F007Defs()` (`register.iterations`, higher is stricter, default 100,000, weakest 10,000; `register.analysis_max_age_days`, lower is stricter, default 365, weakest 730), bindings, packages 1.6.0 with 40 settings; the risk service registers F-007's definitions and refuses to start on an unbound key; `internal/register` (`Limits.Check`: the iteration count within the simulation bounds in force, the maximum age at least 30 days). Tests: `TestRegisterSettings`, `internal/register:TestLimitsCheck`; tests that pin the shipped packages follow 1.6.0, and the synthetic later release is now 1.7.0 (`posture.spec.ts` included).
