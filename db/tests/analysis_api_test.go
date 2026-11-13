@@ -41,7 +41,7 @@ import (
 type fakeEngine struct {
 	enginev1.UnimplementedEngineServer
 	mu        sync.Mutex
-	mode      string // ok, unavailable_once, unavailable, model_error, block, bad_series, different
+	mode      string // ok, unavailable_once, unavailable, model_error, block, bad_series, different, ramp
 	validated bool
 	version   string
 	arch      string
@@ -75,6 +75,29 @@ func fakeSeries(n int, v float64) []byte {
 		binary.LittleEndian.PutUint64(b[8*i:], math.Float64bits(v))
 	}
 	return b
+}
+
+// rampSeries is set j's ramp: year i loses (i mod 10)·(j+1), so a tenth of
+// the years lose nothing in every set (F-006's histograms).
+func rampSeries(n, j int) []byte {
+	b := make([]byte, 8*n)
+	for i := range n {
+		binary.LittleEndian.PutUint64(b[8*i:], math.Float64bits(float64(i%10)*float64(j+1)))
+	}
+	return b
+}
+
+// rampSummary is the summary of set j's ramp, with its comparison with the
+// current set (the ramp of set 0) after the first.
+func rampSummary(j int) string {
+	k := float64(j + 1)
+	s := fmt.Sprintf(`{"independence":"Every input is sampled independently.","ale":{"mean":%v,"percentiles":{"p50":%v,"p90":%v}}`, 4.5*k, 4*k, 9*k)
+	if j > 0 {
+		s += fmt.Sprintf(`,"comparison":{"against":"Current","mean":%v,"difference":{"mean":%v,"percentiles":{"p50":%v}}}`, 4.5*(k-1), 4.5*(k-1), 4*(k-1))
+	} else {
+		s += `,"comparison":null`
+	}
+	return s + "}"
 }
 
 func (f *fakeEngine) Simulate(req *enginev1.SimulateRequest, stream enginev1.Engine_SimulateServer) error {
@@ -111,10 +134,17 @@ func (f *fakeEngine) Simulate(req *enginev1.SimulateRequest, stream enginev1.Eng
 		}
 	}
 	for j, set := range req.GetControlSets() {
-		if err := send(&enginev1.SimulateEvent{Event: &enginev1.SimulateEvent_Result{Result: &enginev1.ControlSetResult{ControlSet: set, SummaryJson: fakeSummary(set, req.GetIterations())}}}); err != nil {
+		summary := fakeSummary(set, req.GetIterations())
+		if mode == "ramp" {
+			summary = rampSummary(j)
+		}
+		if err := send(&enginev1.SimulateEvent{Event: &enginev1.SimulateEvent_Result{Result: &enginev1.ControlSetResult{ControlSet: set, SummaryJson: summary}}}); err != nil {
 			return err
 		}
 		series := fakeSeries(n, 1.5+float64(j))
+		if mode == "ramp" {
+			series = rampSeries(n, j)
+		}
 		if mode == "different" {
 			series = fakeSeries(n, 9.5+float64(j))
 		}

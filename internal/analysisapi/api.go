@@ -19,6 +19,11 @@
 //	GET  /api/v1/analyses/aggregates[?bu=]         the aggregates whose members the caller all sees
 //	GET  /api/v1/analyses/aggregates/{id}          one, with members and summary
 //
+// F-006 T-01 serves histograms of the stored series (F-006 design §3.1):
+//
+//	GET  /api/v1/analyses/runs/{id}/histogram?set=&scale=&relative_to=   a set's annual loss, or its per-year difference from the current set
+//	GET  /api/v1/analyses/aggregates/{id}/histogram?scale=               an aggregate's annual loss
+//
 // Without analysis.view or analysis.run anywhere the routes do not exist
 // for the caller (404, F-001 AC-25); a run or scenario the caller cannot
 // see is 404 like a missing one. The database records every event (design
@@ -82,6 +87,8 @@ var routes = []route{
 	{"POST", "/api/v1/analyses/aggregates", (*API).createAggregate},
 	{"GET", "/api/v1/analyses/aggregates", (*API).listAggregates},
 	{"GET", "/api/v1/analyses/aggregates/{id}", (*API).getAggregate},
+	{"GET", "/api/v1/analyses/runs/{id}/histogram", (*API).getRunHistogram},
+	{"GET", "/api/v1/analyses/aggregates/{id}/histogram", (*API).getAggregateHistogram},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).

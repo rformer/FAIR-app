@@ -21,6 +21,7 @@ security:
 tags:
   - { name: runs, description: "Simulation runs (F-005 R-01 to R-04)" }
   - { name: aggregates, description: "Aggregates of runs (F-005 R-05)" }
+  - { name: results, description: "Views of results (F-006)" }
 components:
   securitySchemes:
     internalJWT: { type: http, scheme: bearer, bearerFormat: JWT }
@@ -55,7 +56,7 @@ components:
           type: string
           description: >-
             not_found, forbidden, invalid_request, invalid_value, archived, too_many_runs, finished,
-            bundle_changed, refused, engine_unavailable, unavailable, unauthenticated
+            bundle_changed, refused, engine_unavailable, unavailable, unauthenticated, not_succeeded
         detail: { type: string }
     Run:
       type: object
@@ -112,6 +113,32 @@ components:
             properties:
               control_set: { type: string }
               summary: { type: object }
+    Histogram:
+      type: object
+      description: >-
+        F-006 design §3.1. Years with a positive loss (or, for a difference, a non-zero difference) in 60 bins; a value
+        falls in the bin whose lower edge is the largest edge at or below it, the last bin closed. Years with no loss
+        (no difference) are `zero`; `both_none` counts years where neither set lost anything. Edges and counts are
+        empty when nothing is binned; one distinct value gives one bin with equal edges. Markers are the stored
+        summary's mean and percentiles (null when it has none).
+      required: [scale, n, zero, zero_share, edges, counts, markers]
+      properties:
+        run_id: { type: string, format: uuid }
+        aggregate_id: { type: string, format: uuid }
+        control_set: { type: string }
+        relative_to: { type: [string, "null"] }
+        scale: { type: string, enum: [log, linear] }
+        n: { type: integer, description: The simulated years }
+        zero: { type: integer }
+        zero_share: { type: number }
+        both_none: { type: integer }
+        edges: { type: array, items: { type: number }, description: "len(counts) + 1 values" }
+        counts: { type: array, items: { type: integer } }
+        markers:
+          type: [object, "null"]
+          properties:
+            mean: { type: number }
+            percentiles: { type: object, additionalProperties: { type: number } }
     Aggregate:
       type: object
       required: [id, bu_id, name, seed, iterations, requested_by, requested_at, state, members, member_engine_versions, mixed_engine_versions, seq]
@@ -236,6 +263,28 @@ paths:
             X-Fair-Iterations: { schema: { type: integer } }
           content: { application/octet-stream: { schema: { type: string, format: binary } } }
         "404": { $ref: "#/components/responses/Error" }
+  /api/v1/analyses/runs/{id}/histogram:
+    get:
+      operationId: getRunHistogram
+      tags: [results]
+      summary: A set's annual loss in bins, or its per-year difference from the current set
+      description: >-
+        F-006-AC-02, AC-09; design §3.1. Computed on request from the stored series. With `relative_to` (the run's
+        current control set) the bins are of `set − relative_to` year by year, on a linear scale; a negative
+        difference is a reduction.
+      x-permission: analysis.view (BU-scoped, RLS)
+      parameters:
+        - $ref: "#/components/parameters/ID"
+        - { name: set, in: query, required: true, schema: { type: string }, description: A control set of the run }
+        - { name: scale, in: query, required: false, schema: { type: string, enum: [log, linear], default: log } }
+        - { name: relative_to, in: query, required: false, schema: { type: string }, description: The run's current control set }
+      responses:
+        "200":
+          description: The histogram
+          content: { application/json: { schema: { $ref: "#/components/schemas/Histogram" } } }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
   /api/v1/analyses/runs/{id}/cancel:
     post:
       operationId: cancelRun
@@ -358,3 +407,20 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/Aggregate" }
         "404": { $ref: "#/components/responses/Error" }
+  /api/v1/analyses/aggregates/{id}/histogram:
+    get:
+      operationId: getAggregateHistogram
+      tags: [results]
+      summary: An aggregate's annual loss in bins
+      description: F-006-AC-07; design §3.1. Computed on request from the aggregate's stored series.
+      x-permission: analysis.view (BU-scoped, RLS; every member visible, F-005-AC-19)
+      parameters:
+        - $ref: "#/components/parameters/ID"
+        - { name: scale, in: query, required: false, schema: { type: string, enum: [log, linear], default: log } }
+      responses:
+        "200":
+          description: The histogram
+          content: { application/json: { schema: { $ref: "#/components/schemas/Histogram" } } }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
