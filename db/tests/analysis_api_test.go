@@ -30,6 +30,7 @@ import (
 	"github.com/rformer/fair-app/internal/analysisapi"
 	"github.com/rformer/fair-app/internal/api/enginev1"
 	"github.com/rformer/fair-app/internal/enginetls"
+	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
 )
 
@@ -92,6 +93,11 @@ func rampSeries(n, j int) []byte {
 func rampSummary(j int) string {
 	k := float64(j + 1)
 	s := fmt.Sprintf(`{"independence":"Every input is sampled independently.","ale":{"mean":%v,"percentiles":{"p50":%v,"p90":%v}}`, 4.5*k, 4*k, 9*k)
+	s += fmt.Sprintf(`,"lef":{"mean":%v},"convergence":{"se":0.06,"converged":true,"intervals":{"p50":[%v,%v]}}`, 0.9, 3*k, 5*k)
+	s += fmt.Sprintf(`,"curve":{"points":[[%v,0.9],[%v,0.1],[%v,0]],"at_percentiles":{"p50":0.5}}`, k, 5*k, 9*k)
+	s += fmt.Sprintf(`,"breakdown":{"primary":%v,"secondary":%v,"forms":{"response":%v},"stakeholders":{"Customers":%v}}`, 3*k, 1.5*k, 3*k, 1.5*k)
+	s += fmt.Sprintf(`,"sensitivity":{"inputs":[{"input":"=Contact frequency","pointer":"/lef/tef/contact_frequency","kind":"estimate",`+
+		`"low":{"value":1,"mean":%v,"change":%v},"high":{"value":12,"mean":%v,"change":%v},"swing":%v,"spearman":0.5}]}`, 2*k, -2.5*k, 7*k, 2.5*k, 5*k)
 	if j > 0 {
 		s += fmt.Sprintf(`,"comparison":{"against":"Current","mean":%v,"difference":{"mean":%v,"percentiles":{"p50":%v}}}`, 4.5*(k-1), 4.5*(k-1), 4*(k-1))
 	} else {
@@ -205,6 +211,7 @@ func (l fixedLimits) Limits(context.Context) (analysis.Limits, error) { return a
 
 type analysisEnv struct {
 	*riskAPIEnv
+	api        *analysisapi.API // tests may swap its Audit
 	engine     *fakeEngine
 	worker     *analysis.Worker
 	aggregates *analysis.AggregateWorker
@@ -235,7 +242,8 @@ func analysisAPI(t *testing.T, ra *riskAPIEnv, lim analysis.Limits, engine bool)
 	if err != nil {
 		t.Fatal(err)
 	}
-	api := &analysisapi.API{DB: pool, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool)}), Settings: fixedLimits(lim)}
+	api := &analysisapi.API{DB: pool, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool)}), Settings: fixedLimits(lim),
+		Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: pool})}
 	if engine {
 		api.Enqueue = analysis.Enqueuer(rc)
 		api.EnqueueAggregate = analysis.AggregateEnqueuer(rc)
@@ -246,7 +254,7 @@ func analysisAPI(t *testing.T, ra *riskAPIEnv, lim analysis.Limits, engine bool)
 	aa.url = srv.URL
 	analysisEnvs++
 	aa.n += 200000 * analysisEnvs // its Idempotency-Keys never meet another env's
-	return &analysisEnv{riskAPIEnv: &aa, engine: fe, worker: &analysis.Worker{DB: pool, Engine: enginev1.NewEngineClient(conn),
+	return &analysisEnv{riskAPIEnv: &aa, api: api, engine: fe, worker: &analysis.Worker{DB: pool, Engine: enginev1.NewEngineClient(conn),
 		ImageDigest: "sha256:" + strings.Repeat("ab", 32)}, aggregates: &analysis.AggregateWorker{DB: pool, Engine: enginev1.NewEngineClient(conn)}}
 }
 

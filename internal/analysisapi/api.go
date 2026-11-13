@@ -28,6 +28,14 @@
 //
 //	GET  /api/v1/analyses/compare?item=run:<id>:<set>&item=aggregate:<id>   2 to 6 results, all visible or 404
 //
+// F-006 T-03 serves downloads (F-006 design §3.3, §6.2, §6.3), each
+// recorded as analysis.downloaded before anything is sent:
+//
+//	GET  /api/v1/analyses/runs/{id}/data.csv?view=&set=&scale=&relative_to=   a run's view as CSV
+//	GET  /api/v1/analyses/aggregates/{id}/data.csv?view=&scale=              an aggregate's view as CSV
+//	GET  /api/v1/analyses/compare.csv?item=…&view=                          a comparison as CSV
+//	POST /api/v1/analyses/downloads                                          records an image the browser then draws
+//
 // Without analysis.view or analysis.run anywhere the routes do not exist
 // for the caller (404, F-001 AC-25); a run or scenario the caller cannot
 // see is 404 like a missing one. The database records every event (design
@@ -50,6 +58,7 @@ import (
 	"github.com/rformer/fair-app/internal/analysis"
 	"github.com/rformer/fair-app/internal/riskapi"
 	"github.com/rformer/fair-app/internal/server"
+	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
 	"github.com/rformer/fair-app/pkg/settings"
 )
@@ -74,6 +83,9 @@ type API struct {
 	// EnqueueAggregate queues an aggregate's job (nil: no engine).
 	EnqueueAggregate func(context.Context, pgx.Tx, analysis.AggregateArgs) error
 	Settings         Settings
+	// Audit records downloads (analysis.downloaded) in their transaction;
+	// nil answers every download 503.
+	Audit audit.Emitter
 }
 
 type route struct {
@@ -94,6 +106,10 @@ var routes = []route{
 	{"GET", "/api/v1/analyses/runs/{id}/histogram", (*API).getRunHistogram},
 	{"GET", "/api/v1/analyses/aggregates/{id}/histogram", (*API).getAggregateHistogram},
 	{"GET", "/api/v1/analyses/compare", (*API).getComparison},
+	{"GET", "/api/v1/analyses/runs/{id}/data.csv", (*API).getRunData},
+	{"GET", "/api/v1/analyses/aggregates/{id}/data.csv", (*API).getAggregateData},
+	{"GET", "/api/v1/analyses/compare.csv", (*API).getComparisonData},
+	{"POST", "/api/v1/analyses/downloads", (*API).createDownload},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).

@@ -366,7 +366,7 @@ func run() error {
 		}
 		// The analysis API (F-005 design §5).
 		ah := server.SecurityHeaders((&analysisapi.API{DB: pool, Authz: grants, Enqueue: enqueue, EnqueueAggregate: enqueueAggregate,
-			Settings: analysisapi.ClientSettings{C: sc}}).Handler(jwtKeys, nil))
+			Settings: analysisapi.ClientSettings{C: sc}, Audit: emitter}).Handler(jwtKeys, nil))
 		for _, prefix := range analysisapi.Prefixes {
 			srv.Mux().Handle(prefix, ah)
 			srv.Mux().Handle(prefix+"/", ah)

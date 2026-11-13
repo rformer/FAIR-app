@@ -52,6 +52,13 @@ events:
     bu: required
     attributes: [members, requested_by, result_digest]
     description: "An aggregate's loss distribution was computed and stored with its digest (F-005 T-02, AC-18, AC-19)"
+  - type: analysis.downloaded
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [download_id, format, ids, subject, view]
+    description: "Simulation results left the platform: a chart image or a CSV of a run, an aggregate or a comparison, one event per business unit of the results downloaded (F-006 T-03, AC-19)"
   - type: analysis.run_cancelled
     category: risk_data
     severities: [low]

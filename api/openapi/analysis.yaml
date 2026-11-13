@@ -497,3 +497,119 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
+  /api/v1/analyses/runs/{id}/data.csv:
+    get:
+      operationId: getRunData
+      tags: [results]
+      summary: A run's view as CSV, recorded in the audit trail
+      description: >-
+        F-006-AC-18, AC-19; design §3.3, §6.2. `view` is summary, curve, histogram (with `set`, `scale`, `relative_to`
+        as the histogram route), breakdown, sensitivity (with `set`) or comparison. The download is recorded as
+        analysis.downloaded in the transaction that builds it and sent only once that commits; 503 if it cannot be.
+      x-permission: analysis.view (BU-scoped, RLS)
+      x-audit-events: [analysis.downloaded]
+      parameters:
+        - $ref: "#/components/parameters/ID"
+        - { name: view, in: query, required: true, schema: { type: string, enum: [summary, curve, histogram, breakdown, sensitivity, comparison] } }
+        - { name: set, in: query, required: false, schema: { type: string } }
+        - { name: scale, in: query, required: false, schema: { type: string, enum: [log, linear], default: log } }
+        - { name: relative_to, in: query, required: false, schema: { type: string } }
+      responses:
+        "200":
+          description: The CSV (F-006 design §3.3; text cells that a spreadsheet would read as a formula are neutralized)
+          headers:
+            Content-Disposition: { schema: { type: string }, description: "attachment, with an ASCII file name holding no user text" }
+          content: { text/csv: { schema: { type: string } } }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /api/v1/analyses/aggregates/{id}/data.csv:
+    get:
+      operationId: getAggregateData
+      tags: [results]
+      summary: An aggregate's view as CSV, recorded in the audit trail
+      description: F-006-AC-18, AC-19; design §3.3, §6.2. `view` is summary, curve, histogram (with `scale`) or contributions.
+      x-permission: analysis.view (BU-scoped, RLS; every member visible, F-005-AC-19)
+      x-audit-events: [analysis.downloaded]
+      parameters:
+        - $ref: "#/components/parameters/ID"
+        - { name: view, in: query, required: true, schema: { type: string, enum: [summary, curve, histogram, contributions] } }
+        - { name: scale, in: query, required: false, schema: { type: string, enum: [log, linear], default: log } }
+      responses:
+        "200":
+          description: The CSV (F-006 design §3.3; text cells that a spreadsheet would read as a formula are neutralized)
+          headers:
+            Content-Disposition: { schema: { type: string }, description: "attachment, with an ASCII file name holding no user text" }
+          content: { text/csv: { schema: { type: string } } }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /api/v1/analyses/compare.csv:
+    get:
+      operationId: getComparisonData
+      tags: [results]
+      summary: A comparison as CSV, recorded in the audit trail
+      description: >-
+        F-006-AC-18, AC-19; design §3.2, §3.3. The comparison's rules (all visible or one 404); `view` is summary or
+        curve. One analysis.downloaded event per business unit of the results.
+      x-permission: analysis.view for every item (BU-scoped, RLS)
+      x-audit-events: [analysis.downloaded]
+      parameters:
+        - name: item
+          in: query
+          required: true
+          style: form
+          explode: true
+          schema: { type: array, minItems: 2, maxItems: 6, items: { type: string } }
+        - { name: view, in: query, required: true, schema: { type: string, enum: [summary, curve] } }
+      responses:
+        "200":
+          description: The CSV (F-006 design §3.3; text cells that a spreadsheet would read as a formula are neutralized)
+          headers:
+            Content-Disposition: { schema: { type: string }, description: "attachment, with an ASCII file name holding no user text" }
+          content: { text/csv: { schema: { type: string } } }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /api/v1/analyses/downloads:
+    post:
+      operationId: createDownload
+      tags: [results]
+      summary: Record a chart image download before the browser draws it
+      description: >-
+        F-006-AC-17, AC-19; design §6.3. The subject must be visible to the caller under the views' rules (404 otherwise,
+        409 without results); the download is recorded as analysis.downloaded, one event per business unit of its results,
+        and its id returned for the image's footer. The browser draws nothing unless this succeeds.
+      x-permission: analysis.view for the subject (BU-scoped, RLS)
+      x-audit-events: [analysis.downloaded]
+      x-reason-exempt: A download changes nothing; it is recorded, not justified.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [subject, view, format]
+              properties:
+                subject: { type: string, enum: [run, aggregate, comparison] }
+                id: { type: string, format: uuid, description: The run or aggregate }
+                items: { type: array, minItems: 2, maxItems: 6, items: { type: string }, description: "A comparison's items, as the compare route's" }
+                view: { type: string, description: "A view of the subject, as the CSV routes' (run: summary, curve, histogram, breakdown, sensitivity, comparison; aggregate: summary, curve, histogram, contributions; comparison: summary, curve)" }
+                format: { type: string, enum: [svg, png] }
+      responses:
+        "201":
+          description: Recorded
+          content:
+            application/json:
+              schema: { type: object, required: [download_id], properties: { download_id: { type: string, format: uuid } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
