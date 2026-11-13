@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -269,6 +270,32 @@ func TestAnalysisRunsAPI(t *testing.T) {
 	}
 	if got := request("mallory", map[string]any{"scenario_id": sid, "version": 1}); got.code != 404 {
 		t.Errorf("mallory requests: %d %s", got.code, got.raw)
+	}
+	// T-13 (migration 0106): where the pages may offer a run.
+	busWith := func(user, perm string) string {
+		t.Helper()
+		got := ra.call(t, "GET", user, "/api/v1/risk/bus?permission="+perm, nil)
+		if got.code != 200 {
+			t.Fatalf("%s %s: %d %s", user, perm, got.code, got.raw)
+		}
+		var codes []string
+		for _, b := range got.body["bus"].([]any) {
+			codes = append(codes, b.(map[string]any)["code"].(string))
+		}
+		sort.Strings(codes)
+		return strings.Join(codes, ",")
+	}
+	if got := busWith("analyst", "analysis.run"); !strings.Contains(got, "A1") || strings.Contains(got, "B") {
+		t.Errorf("analyst's analysis.run BUs: %s", got)
+	}
+	if got := busWith("viewer", "analysis.run"); got != "" {
+		t.Errorf("a viewer's analysis.run BUs: %s", got)
+	}
+	if got := busWith("viewer", "analysis.view"); !strings.Contains(got, "A") {
+		t.Errorf("a viewer's analysis.view BUs: %s", got)
+	}
+	if got := ra.call(t, "GET", "analyst", "/api/v1/risk/bus?permission=analysis.edit", nil); got.code != 400 {
+		t.Errorf("analysis.edit is not offered: %d", got.code)
 	}
 	if got := request("viewer", map[string]any{"scenario_id": sid, "version": 1}); got.code != 403 {
 		t.Errorf("a viewer requests: %d %s", got.code, got.raw)

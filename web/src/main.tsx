@@ -1,6 +1,7 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, getMe, send, type Me } from "./api";
+import { AggregateForm, AggregatePage, AggregatesPage } from "./analysis/Aggregates";
 import { AuditPage } from "./audit/AuditPage";
 import { BannerPage } from "./banner";
 import { AnswerPage } from "./estimate/AnswerPage";
@@ -66,7 +67,9 @@ function App() {
   // The platform shell's routing arrives with later features: the path
   // chooses the page (the gateway serves the app for every route).
   const path = window.location.pathname;
-  const section = path.startsWith("/estimates")
+  const section = path.startsWith("/analyses")
+    ? "analyses"
+    : path.startsWith("/estimates")
     ? "estimates"
     : path.startsWith("/calibration")
     ? "calibration"
@@ -92,6 +95,11 @@ function App() {
             <li>
               <a href="/scenarios" aria-current={current("scenarios")}>
                 Scenarios
+              </a>
+            </li>
+            <li>
+              <a href="/analyses/aggregates" aria-current={current("analyses")}>
+                Aggregates
               </a>
             </li>
             <li>
@@ -128,7 +136,9 @@ function App() {
         </nav>
       </header>
       <main id="main" tabIndex={-1}>
-        {section === "estimates" ? (
+        {section === "analyses" ? (
+          <AnalysisRoutes path={path} />
+        ) : section === "estimates" ? (
           <EstimateRoutes path={path} />
         ) : section === "calibration" ? (
           <CalibrationRoutes path={path} />
@@ -144,6 +154,14 @@ function App() {
       </main>
     </>
   );
+}
+
+// F-005 T-13: /analyses/aggregates, /analyses/aggregates/new, /analyses/aggregates/{id}.
+function AnalysisRoutes({ path }: { path: string }) {
+  if (path === "/analyses/aggregates/new") return <AggregateForm />;
+  const m = /^\/analyses\/aggregates\/([0-9a-f-]{36})$/.exec(path);
+  if (m?.[1]) return <AggregatePage id={m[1]} />;
+  return <AggregatesPage />;
 }
 
 // F-003 T-12: /scenarios, /scenarios/new, /scenarios/{id}, /scenarios/{id}/edit.

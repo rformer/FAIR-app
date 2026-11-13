@@ -933,7 +933,8 @@ func (a *API) moveScenario(w http.ResponseWriter, r *http.Request, p authz.Princ
 }
 
 // listScopeBUs answers the BUs where the caller holds a risk permission
-// (?permission=scenario.edit and the like), with code and name (T-12).
+// (?permission=scenario.edit and the like; F-005: analysis.view,
+// analysis.run), with code and name (T-12).
 func (a *API) listScopeBUs(w http.ResponseWriter, r *http.Request, p authz.Principal) {
 	if !a.viewAnywhere(w, r, p, permScenarioView, library.view, controls.view) {
 		return
@@ -941,8 +942,11 @@ func (a *API) listScopeBUs(w http.ResponseWriter, r *http.Request, p authz.Princ
 	perm := r.URL.Query().Get("permission")
 	rt, action, _ := strings.Cut(perm, ".")
 	mode := map[string]string{"view": "read", "edit": "write"}[action]
-	if mode == "" || !slices.Contains([]string{"scenario", "library", "control"}, rt) {
-		problem(w, http.StatusBadRequest, "invalid_value", "permission is scenario, library or control, .view or .edit", nil)
+	if rt == "analysis" { // F-005 T-13: analysis.view, analysis.run
+		mode = map[string]string{"view": "read", "run": "write"}[action]
+	}
+	if mode == "" || !slices.Contains([]string{"scenario", "library", "control", "analysis"}, rt) {
+		problem(w, http.StatusBadRequest, "invalid_value", "permission is scenario, library or control, .view or .edit; or analysis.view or analysis.run", nil)
 		return
 	}
 	type bu struct {

@@ -1022,7 +1022,7 @@ paths:
         scope for that permission, never archived ones.
       x-permission: scenario.view, library.view or control.view
       parameters:
-        - { name: permission, in: query, required: true, schema: { enum: [scenario.view, scenario.edit, library.view, library.edit, control.view, control.edit] } }
+        - { name: permission, in: query, required: true, schema: { enum: [scenario.view, scenario.edit, library.view, library.edit, control.view, control.edit, analysis.view, analysis.run] } }
       responses:
         "200":
           description: BUs

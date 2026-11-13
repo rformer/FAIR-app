@@ -3,6 +3,7 @@ import { send } from "../api";
 import { Badge, ReasonAction, Section, Status, useApi, type Tone } from "../components";
 import { auditHref, date } from "../links";
 import { Provenance, ScenarioRequests } from "../estimate/Requests";
+import { ScenarioRuns } from "../analysis/Runs";
 import { ArchiveAction, MoveAction } from "./Actions";
 import { History } from "./History";
 import { at, factorLabel, showEstimate, type BU, type Estimate, type ScenarioView, type TaxonomyNode } from "./types";
@@ -67,6 +68,15 @@ export function ScenarioPage({ id }: { id: string }) {
             {/* F-004 T-13: estimate requests and where accepted estimates came from. */}
             <Provenance v={v} />
             <ScenarioRequests id={id} canRequest={canEdit} />
+            {/* F-005 T-13: simulation runs of this scenario. */}
+            <ScenarioRuns
+              id={id}
+              buId={v.scenario.bu_id}
+              version={v.scenario.current_version}
+              controlSets={doc.control_sets}
+              currency={v.currency}
+              archived={v.scenario.archived_at !== null}
+            />
             {/* Remounted on a new version: its list and comparison follow. */}
             <History key={v.scenario.current_version} base={`/api/v1/scenarios/${id}`} current={v.scenario.current_version} />
           </>

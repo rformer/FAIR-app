@@ -14,6 +14,12 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/rformer/fair-app/internal/analysis"
+	"github.com/rformer/fair-app/internal/analysisapi"
+	"github.com/rformer/fair-app/internal/api/enginev1"
 	"github.com/rformer/fair-app/internal/approvals"
 	auditsvc "github.com/rformer/fair-app/internal/audit"
 	"github.com/rformer/fair-app/internal/auditapi"
@@ -91,10 +97,42 @@ func TestPostureUIHarness(t *testing.T) {
 		riskMux.Handle(prefix, eh)
 		riskMux.Handle(prefix+"/", eh)
 	}
+	// F-005 T-13: the analysis API, mounted beside them as cmd/risk does,
+	// with the River workers and the real engine (scripts/ui-e2e.sh runs it
+	// and shares its socket: FAIR_UI_ENGINE_SOCKET).
+	analysisAPI := &analysisapi.API{DB: rp, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(rp), MaxAge: time.Second}),
+		Settings: fixedLimits{IterationsDefault: 10000, IterationsMin: 1000, IterationsMax: 2000000, MaxActive: 5}}
+	engineSocket := os.Getenv("FAIR_UI_ENGINE_SOCKET")
+	if engineSocket != "" {
+		conn, err := grpc.NewClient("unix://"+engineSocket, grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(16<<20)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = conn.Close() }()
+		w := &analysis.Worker{DB: rp, Engine: enginev1.NewEngineClient(conn), ThresholdBP: func() int { return 100 }}
+		arc, err := analysis.NewClient(rp, w, &analysis.AggregateWorker{DB: rp, Engine: w.Engine}, 2, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := arc.Start(ctx); err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = arc.Stop(context.Background()) }()
+		analysisAPI.Enqueue, analysisAPI.EnqueueAggregate = analysis.Enqueuer(arc), analysis.AggregateEnqueuer(arc)
+	}
+	ah := analysisAPI.Handler(ae.keys, nil)
+	for _, prefix := range analysisapi.Prefixes {
+		riskMux.Handle(prefix, ah)
+		riskMux.Handle(prefix+"/", ah)
+	}
 	riskSrv := httptest.NewServer(riskMux)
 	defer riskSrv.Close()
 	riskUp, _ := url.Parse(riskSrv.URL)
 	seedEstimateRequest(t, e, ae.keys, riskSrv.URL, scenario, second)
+	if engineSocket != "" {
+		seedAnalysisRun(t, e, ae.keys, riskSrv.URL, scenario)
+	}
 	// The UI: built assets, and index.html for the app's routes.
 	ui := gateway.StaticUI(dist)
 	g := &gateway.Gateway{
@@ -350,4 +388,29 @@ func seedEstimateRequest(t *testing.T, e *env, keys *authz.LocalKeys, url, scena
 		}
 	}
 	t.Log("estimate requests seeded")
+}
+
+// seedAnalysisRun builds what the run pages show (F-005 T-13): a succeeded
+// run of the seeded scenario's version 2 on the real engine (20,000
+// iterations, seed 2026).
+func seedAnalysisRun(t *testing.T, e *env, keys *authz.LocalKeys, url, scenario string) {
+	t.Helper()
+	r := riskEnv{e, map[string]string{}}
+	ea := &riskAPIEnv{riskEnv: r, url: url, keys: keys, n: 300000}
+	got := ea.call(t, "POST", "riskanalyst", "/api/v1/analyses/runs", map[string]any{"scenario_id": scenario, "version": 2, "iterations": 20000, "seed": "2026"})
+	if got.code != 202 {
+		t.Fatalf("seed run: %d %s", got.code, got.raw)
+	}
+	id := got.body["id"].(string)
+	for range 120 {
+		switch e.adminQuery("SELECT state FROM analysis.run WHERE id = '" + id + "'") {
+		case "succeeded":
+			t.Log("analysis run seeded")
+			return
+		case "failed", "cancelled":
+			t.Fatalf("seed run: %s", e.adminQuery("SELECT failure || ': ' || coalesce(failure_detail, '') FROM analysis.run WHERE id = '"+id+"'"))
+		}
+		time.Sleep(time.Second)
+	}
+	t.Fatal("seed run: not finished in two minutes")
 }
