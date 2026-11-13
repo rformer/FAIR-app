@@ -20,6 +20,9 @@
   --warn-bg: #fff4d6;  --warn-fg: #6b4a00;
   --bad-bg: #fde8e8;   --bad-fg: #9b1c1c;
   --muted-bg: #eceff3; --muted-fg: #3e4652;
+  /* F-006 T-04: chart series (ADR-014); at least 3:1 on --bg, --surface and --surface-2 (palette.test.ts). */
+  --series-1: #0b57c4; --series-2: #b4400c; --series-3: #04704f;
+  --series-4: #7e22ce; --series-5: #8a5a00; --series-6: #b0175a;
 
   --radius: 6px;
   --space: 1rem;
@@ -41,6 +44,8 @@
     --warn-bg: #3a2d08;  --warn-fg: #f5d27a;
     --bad-bg: #401717;   --bad-fg: #ffb4b4;
     --muted-bg: #262b34; --muted-fg: #c6cdd7;
+    --series-1: #8ab4ff; --series-2: #fb923c; --series-3: #34d399;
+    --series-4: #c4b5fd; --series-5: #facc15; --series-6: #f472b6;
   }
 }
 
@@ -189,3 +194,23 @@ ol.questions > li { margin-bottom: 1rem; }
 .set-results { border-top: 1px solid var(--border); margin-top: 1rem; padding-top: 0.5rem; }
 progress { vertical-align: middle; }
 fieldset.member { border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 0.75rem; }
+
+/* F-006 T-04: charts (ADR-014). Colours through classes only; the export inlines computed values. */
+.chart-figure { margin: 1rem 0 1.5rem; }
+.chart-caption { font-weight: 600; margin-bottom: 0.25rem; }
+.chart-description { margin: 0 0 0.5rem; }
+.chart { max-width: 48rem; }
+.chart-svg { width: 100%; height: auto; display: block; overflow: visible; }
+.chart-text { fill: var(--text); font-family: var(--font); font-size: 12px; }
+.chart-title { font-weight: 600; }
+.chart-note { fill: var(--text-muted); }
+.chart-axis-line { stroke: var(--border); stroke-width: 1; }
+.chart-grid { stroke: var(--surface-2); stroke-width: 1; }
+.chart-marker-line { stroke: var(--text); stroke-width: 1.5; }
+.chart-cursor-line { stroke: var(--text); stroke-width: 1; stroke-dasharray: 3 3; }
+.chart-hit { fill: transparent; cursor: crosshair; }
+.chart-hit:focus-visible { outline: none; stroke: var(--focus); stroke-width: 3; }
+.chart-readout { margin: 0.25rem 0 0; font-variant-numeric: tabular-nums; }
+.chart-actions { margin-top: 0.5rem; align-items: center; }
+.series-1 { color: var(--series-1); } .series-2 { color: var(--series-2); } .series-3 { color: var(--series-3); }
+.series-4 { color: var(--series-4); } .series-5 { color: var(--series-5); } .series-6 { color: var(--series-6); }
