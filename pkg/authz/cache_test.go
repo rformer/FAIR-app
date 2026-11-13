@@ -190,6 +190,9 @@ func TestWithDBContextRequiresToken(t *testing.T) {
 	if err := WithDBContext(context.Background(), nil, "", nil); !errors.Is(err, ErrNoDBContext) {
 		t.Fatalf("err = %v, want ErrNoDBContext", err)
 	}
+	if err := WithDBSnapshot(context.Background(), nil, "", nil); !errors.Is(err, ErrNoDBContext) {
+		t.Fatalf("snapshot: err = %v, want ErrNoDBContext", err)
+	}
 }
 
 // F-015 T-24: a granted check on a BU whose bu.reauth_max_age the sign-in

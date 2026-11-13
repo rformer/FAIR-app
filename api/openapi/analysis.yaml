@@ -139,6 +139,55 @@ components:
           properties:
             mean: { type: number }
             percentiles: { type: object, additionalProperties: { type: number } }
+    Difference:
+      type: [object, "null"]
+      description: The item's value minus the base's; share is the amount over the base's value (null when the base's is 0)
+      properties:
+        amount: { type: number }
+        share: { type: [number, "null"] }
+    Comparison:
+      type: object
+      description: F-006 design §3.2. Items in the order asked; the first is the base (its differences are null).
+      required: [items, unlike, sampling_noise, statement]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [kind, id, bu_id, label, seed, iterations, engine, result_digest, ale, curve, differences]
+            properties:
+              kind: { type: string, enum: [run, aggregate] }
+              id: { type: string, format: uuid }
+              bu_id: { type: string, format: uuid }
+              label: { type: string, description: "A run's scenario name, version and control set; an aggregate's name" }
+              control_set: { type: string }
+              scenario_id: { type: string, format: uuid }
+              scenario_name: { type: [string, "null"], description: Null when the caller cannot see the scenario }
+              scenario_version: { type: integer }
+              aggregate_name: { type: string }
+              seed: { type: string }
+              iterations: { type: integer }
+              engine: { type: object, properties: { version: { type: [string, "null"] }, architecture: { type: [string, "null"] } } }
+              result_digest: { type: string }
+              ale: { type: object, description: The stored ALE summary (F-005 design §3.4) }
+              curve: { type: object, description: The stored loss exceedance curve }
+              differences:
+                type: [object, "null"]
+                properties:
+                  mean: { $ref: "#/components/schemas/Difference" }
+                  percentiles:
+                    type: object
+                    properties:
+                      p50: { $ref: "#/components/schemas/Difference" }
+                      p90: { $ref: "#/components/schemas/Difference" }
+                      p95: { $ref: "#/components/schemas/Difference" }
+                      p99: { $ref: "#/components/schemas/Difference" }
+        unlike:
+          type: array
+          description: The inputs that differ among the items (AC-11); an aggregate has no scenario or version
+          items: { type: string, enum: [scenario, scenario_version, iterations, seed, engine_version, architecture] }
+        sampling_noise: { type: boolean, description: The items come from more than one run or aggregate }
+        statement: { type: [string, "null"], description: "Why differences between separate runs include sampling noise (when sampling_noise)" }
     Aggregate:
       type: object
       required: [id, bu_id, name, seed, iterations, requested_by, requested_at, state, members, member_engine_versions, mixed_engine_versions, seq]
@@ -421,6 +470,30 @@ paths:
         "200":
           description: The histogram
           content: { application/json: { schema: { $ref: "#/components/schemas/Histogram" } } }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /api/v1/analyses/compare:
+    get:
+      operationId: getComparison
+      tags: [results]
+      summary: Two to six succeeded results side by side
+      description: >-
+        F-006-AC-10, AC-11, AC-13; design §3.2. Each `item` is `run:<id>:<control set>` or `aggregate:<id>`, in order;
+        the first is the base. Read in one snapshot; any item the caller cannot see, or that does not exist, answers the
+        same 404 whichever item it is. Items may belong to different business units.
+      x-permission: analysis.view for every item (BU-scoped, RLS; an aggregate needs every member visible)
+      parameters:
+        - name: item
+          in: query
+          required: true
+          style: form
+          explode: true
+          schema: { type: array, minItems: 2, maxItems: 6, items: { type: string } }
+      responses:
+        "200":
+          description: The comparison
+          content: { application/json: { schema: { $ref: "#/components/schemas/Comparison" } } }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }

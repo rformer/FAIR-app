@@ -32,6 +32,28 @@ func WithDBContext(ctx context.Context, db TxBeginner, token string, fn func(pgx
 	})
 }
 
+// SnapshotBeginner starts transactions with options; *pgxpool.Pool and
+// *pgx.Conn implement it.
+type SnapshotBeginner interface {
+	BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error)
+}
+
+// WithDBSnapshot is WithDBContext in a read-only REPEATABLE READ
+// transaction: every statement of fn sees the same snapshot (F-006 design
+// §3.2, a comparison read in one snapshot). The isolation level is set when
+// the transaction begins, before the context is.
+func WithDBSnapshot(ctx context.Context, db SnapshotBeginner, token string, fn func(pgx.Tx) error) error {
+	if token == "" {
+		return ErrNoDBContext
+	}
+	return pgx.BeginTxFunc(ctx, db, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, "SELECT set_config('authz.ctx', $1, true)", token); err != nil {
+			return err
+		}
+		return fn(tx)
+	})
+}
+
 // DBLoader loads snapshots with authz.grant_snapshot() (migration 0010),
 // which answers only for the user named by the principal's DBToken.
 func DBLoader(db TxBeginner) Loader {
