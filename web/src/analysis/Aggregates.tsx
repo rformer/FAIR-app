@@ -3,6 +3,14 @@ import { ApiError, describe, getJSON, send } from "../api";
 import { Badge, Section, Status, useApi, type Tone } from "../components";
 import { auditHref, date } from "../links";
 import type { BU, Head } from "../risk/types";
+import { Bars } from "../charts/Bars.tsx";
+import { ChartFigure, type ChartDownloads } from "../charts/ChartFigure.tsx";
+import { barsTable, describeBars, describeExceedance, describeHistogram, exceedanceTable, histogramTable, type CurveSeries, type HistogramData } from "../charts/describe.ts";
+import { ExceedanceChart } from "../charts/ExceedanceChart.tsx";
+import { Histogram } from "../charts/Histogram.tsx";
+import type { ScaleKind } from "../charts/scale.ts";
+import { aggregateItem } from "./basket";
+import { AddToComparison, BasketLink } from "./Compare";
 import { usePolling } from "./Runs";
 import { active, FAILURE_LABELS, money, percent, type Aggregate, type Run } from "./types";
 
@@ -303,6 +311,7 @@ export function AggregatePage({ id }: { id: string }) {
                 </dl>
               </Section>
             ) : null}
+            {s && a.state === "succeeded" ? <AggregateCharts a={a} currency={currency} /> : null}
             <Section id="members" title="Members">
               <div className="table-wrap">
                 <table className="data">
@@ -340,5 +349,80 @@ export function AggregatePage({ id }: { id: string }) {
         );
       }}
     </Status>
+  );
+}
+
+// F-006 T-06 (F-006-AC-07, AC-08, AC-14 to AC-17; design §4): an
+// aggregate's views: its exceedance curve and annual loss distribution,
+// each member's contribution, with the members, the independence statement
+// and the mixed-engine notice beside them; each chart downloadable.
+function AggregateCharts({ a, currency }: { a: Aggregate; currency: string | null }) {
+  const s = a.summary!;
+  const [scale, setScale] = useState<ScaleKind>("log");
+  const h = useApi<HistogramData & { markers: { mean?: number | null; percentiles?: Record<string, number | null> } | null }>(
+    `/api/v1/analyses/aggregates/${a.id}/histogram?scale=${scale}`,
+  );
+  const series: CurveSeries[] = [{ label: a.name, curve: s.curve, percentiles: s.ale.percentiles, anyLoss: s.ale.p_positive ?? undefined }];
+  const members = (a.members ?? []).map((m) => `${m.scenario_name || m.scenario_id} v${m.scenario_version} (${m.control_set})`);
+  const contributions = [...s.contributions]
+    .sort((x, y) => y.mean - x.mean)
+    .map((c) => ({ label: c.label, value: c.mean, share: c.share_of_p95_year }));
+  const downloads = (view: string, chart: string, extra = ""): ChartDownloads => ({
+    record: async (format) => (await send<{ download_id: string }>("POST", "/api/v1/analyses/downloads", { subject: "aggregate", id: a.id, view, format })).download_id,
+    footer: (downloadId) => [
+      `${chart}: ${a.name}`,
+      `Members: ${members.join("; ")}`,
+      `Aggregate ${a.id}; ${a.iterations.toLocaleString("en-US")} iterations, seed ${a.seed}; currency ${currency ?? "not set"}.`,
+      `Results ${a.result_digest ?? "—"}`,
+      s.independence,
+      ...(a.mixed_engine_versions ? [`Members from engine versions ${(a.member_engine_versions ?? []).join(", ")}.`] : []),
+      `Download ${downloadId}`,
+    ],
+    file: { subject: "aggregate", id: a.id, view },
+    csvHref: `/api/v1/analyses/aggregates/${a.id}/data.csv?view=${view}${extra}`,
+  });
+  return (
+    <>
+      <Section id="aggregate-views" title="Views" intro={s.independence}>
+        {a.mixed_engine_versions ? (
+          <div className="callout warn" role="note" aria-label="Engine versions">
+            <p>Its members were computed by different engine versions: {(a.member_engine_versions ?? []).join(", ")}.</p>
+          </div>
+        ) : null}
+        <p>Members: {members.join("; ")}.</p>
+        <fieldset className="inline-choice">
+          <legend>Amount scale</legend>
+          {(["log", "linear"] as const).map((k) => (
+            <label key={k}>
+              <input type="radio" name="aggregate-scale" value={k} checked={scale === k} onChange={() => setScale(k)} /> {k === "log" ? "Logarithmic" : "Linear"}
+            </label>
+          ))}
+        </fieldset>
+        <ChartFigure title={`Loss exceedance, ${a.name}`} description={describeExceedance(series, currency)} table={exceedanceTable(series, currency)} downloads={downloads("curve", "Loss exceedance")}>
+          {(ids) => <ExceedanceChart series={series} currency={currency} scale={scale} {...ids} />}
+        </ChartFigure>
+        <Status loaded={h}>
+          {(d) => (
+            <ChartFigure title={`Annual loss, ${a.name}`} description={describeHistogram(d, currency, false)} table={histogramTable(d, currency, false)} downloads={downloads("histogram", "Annual loss", `&scale=${scale}`)}>
+              {(ids) => <Histogram data={d} currency={currency} markers={d.markers} {...ids} />}
+            </ChartFigure>
+          )}
+        </Status>
+        <ChartFigure
+          title="What each member contributes"
+          description={describeBars("Mean annual loss of each member, with its share of the 1-in-20 year", contributions, currency)}
+          table={barsTable("Each member's mean annual loss and share of the 1-in-20 year", contributions, currency)}
+          downloads={downloads("contributions", "What each member contributes")}
+        >
+          {(ids) => <Bars bars={contributions} currency={currency} {...ids} />}
+        </ChartFigure>
+      </Section>
+      <Section id="compare" title="Compare" intro="Compare this aggregate with runs or other aggregates.">
+        <p className="actions">
+          <AddToComparison item={aggregateItem(a.id)} label="this aggregate" />
+        </p>
+        <BasketLink />
+      </Section>
+    </>
   );
 }

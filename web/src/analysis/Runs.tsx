@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, describe, send } from "../api";
 import { Badge, ConfirmAction, ReasonAction, Section, Status, useApi, type Tone } from "../components";
 import { auditHref, date } from "../links";
+import { compareHref, MAX_ITEMS, runItem } from "./basket";
 import type { BU } from "../risk/types";
 import {
   active,
@@ -35,6 +36,38 @@ export function RunStateBadge({ run }: { run: Pick<Run, "state" | "progress"> })
         </>
       ) : null}
     </>
+  );
+}
+
+/**
+ * F-006 T-06 (AC-12; design §3.2): a comparison of the scenario's versions:
+ * the most recent succeeded run of each of its six most recent versions
+ * that have one, on the run's current control set, the oldest version
+ * first (the base of the differences). Other runs per version are added
+ * from their pages.
+ */
+export function compareVersionsItems(runs: Run[]): string[] {
+  const latest = new Map<number, Run>();
+  for (const r of runs) {
+    if (r.state === "succeeded" && !latest.has(r.scenario_version)) latest.set(r.scenario_version, r); // runs come newest first
+  }
+  return [...latest.keys()]
+    .sort((a, b) => b - a)
+    .slice(0, MAX_ITEMS)
+    .reverse()
+    .map((v) => {
+      const r = latest.get(v)!;
+      return runItem(r.id, r.control_sets[0] ?? "");
+    });
+}
+
+function CompareVersions({ runs }: { runs: Run[] }) {
+  const items = compareVersionsItems(runs);
+  if (items.length < 2) return null;
+  return (
+    <p>
+      <a href={compareHref(items)}>Compare versions</a> <span className="muted">(the latest run of each of the last {items.length} versions)</span>
+    </p>
   );
 }
 
@@ -81,35 +114,38 @@ export function ScenarioRuns({
           d.runs.length === 0 ? (
             <p>No runs yet.</p>
           ) : (
-            <div className="table-wrap">
-              <table className="data">
-                <caption className="sr-only">Simulation runs of this scenario, newest first</caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Requested</th>
-                    <th scope="col">Version</th>
-                    <th scope="col">Control sets</th>
-                    <th scope="col">Iterations</th>
-                    <th scope="col">State</th>
-                    <th scope="col">Mean annual loss</th>
-                    <th scope="col">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {d.runs.map((r) => (
-                    <RunRow
-                      key={r.id}
-                      run={r}
-                      currency={currency}
-                      canRun={canRun}
-                      open={open === r.id}
-                      onToggle={() => setOpen(open === r.id ? undefined : r.id)}
-                      onChanged={list.reload}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <>
+              <CompareVersions runs={d.runs} />
+              <div className="table-wrap">
+                <table className="data">
+                  <caption className="sr-only">Simulation runs of this scenario, newest first</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Requested</th>
+                      <th scope="col">Version</th>
+                      <th scope="col">Control sets</th>
+                      <th scope="col">Iterations</th>
+                      <th scope="col">State</th>
+                      <th scope="col">Mean annual loss</th>
+                      <th scope="col">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {d.runs.map((r) => (
+                      <RunRow
+                        key={r.id}
+                        run={r}
+                        currency={currency}
+                        canRun={canRun}
+                        open={open === r.id}
+                        onToggle={() => setOpen(open === r.id ? undefined : r.id)}
+                        onChanged={list.reload}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )
         }
       </Status>

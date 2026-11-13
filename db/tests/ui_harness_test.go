@@ -400,25 +400,35 @@ func seedEstimateRequest(t *testing.T, e *env, keys *authz.LocalKeys, url, scena
 
 // seedAnalysisRun builds what the run pages show (F-005 T-13): a succeeded
 // run of the seeded scenario's version 2 on the real engine (20,000
-// iterations, seed 2026).
+// iterations, seed 2026), the newest; before it (F-006 T-06), a run of
+// version 1 (5,000 iterations), so the scenario's versions compare.
 func seedAnalysisRun(t *testing.T, e *env, keys *authz.LocalKeys, url, scenario string) {
 	t.Helper()
 	r := riskEnv{e, map[string]string{}}
 	ea := &riskAPIEnv{riskEnv: r, url: url, keys: keys, n: 300000}
-	got := ea.call(t, "POST", "riskanalyst", "/api/v1/analyses/runs", map[string]any{"scenario_id": scenario, "version": 2, "iterations": 20000, "seed": "2026"})
-	if got.code != 202 {
-		t.Fatalf("seed run: %d %s", got.code, got.raw)
-	}
-	id := got.body["id"].(string)
-	for range 120 {
-		switch e.adminQuery("SELECT state FROM analysis.run WHERE id = '" + id + "'") {
-		case "succeeded":
-			t.Log("analysis run seeded")
-			return
-		case "failed", "cancelled":
-			t.Fatalf("seed run: %s", e.adminQuery("SELECT failure || ': ' || coalesce(failure_detail, '') FROM analysis.run WHERE id = '"+id+"'"))
+	for _, run := range []struct{ version, iterations int }{{1, 5000}, {2, 20000}} {
+		got := ea.call(t, "POST", "riskanalyst", "/api/v1/analyses/runs", map[string]any{"scenario_id": scenario, "version": run.version,
+			"iterations": run.iterations, "seed": "2026"})
+		if got.code != 202 {
+			t.Fatalf("seed run: %d %s", got.code, got.raw)
 		}
-		time.Sleep(time.Second)
+		id := got.body["id"].(string)
+		done := false
+		for range 120 {
+			switch e.adminQuery("SELECT state FROM analysis.run WHERE id = '" + id + "'") {
+			case "succeeded":
+				done = true
+			case "failed", "cancelled":
+				t.Fatalf("seed run: %s", e.adminQuery("SELECT failure || ': ' || coalesce(failure_detail, '') FROM analysis.run WHERE id = '"+id+"'"))
+			}
+			if done {
+				break
+			}
+			time.Sleep(time.Second)
+		}
+		if !done {
+			t.Fatal("seed run: not finished in two minutes")
+		}
 	}
-	t.Fatal("seed run: not finished in two minutes")
+	t.Log("analysis run seeded")
 }

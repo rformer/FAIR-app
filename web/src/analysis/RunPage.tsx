@@ -25,6 +25,8 @@ import { ExceedanceChart } from "../charts/ExceedanceChart.tsx";
 import { Histogram } from "../charts/Histogram.tsx";
 import { formatAmountFull, formatProbability, formatShare, type ScaleKind } from "../charts/scale.ts";
 import { factorLabel, FORM_LABELS, type Form } from "../risk/types";
+import { runItem } from "./basket";
+import { AddToComparison, BasketLink } from "./Compare";
 import { RunStateBadge, usePolling } from "./Runs";
 import { active, FAILURE_LABELS, type Run, type SetSummary } from "./types";
 
@@ -97,6 +99,16 @@ function RunView({ run, currency }: { run: Run; currency: string | null }) {
         <a href={`/scenarios/${run.scenario_id}`}>Back to the scenario</a> · <a href={auditHref(`analysis_run:${run.id}`)}>Audit history of this run</a>
       </p>
       <Record run={run} name={name} independence={independence} />
+      {run.state === "succeeded" ? (
+        <Section id="compare" title="Compare" intro="Compare a control set of this run with other runs or aggregates. The comparison collects here until you open it.">
+          <p className="actions">
+            {sets.map((s) => (
+              <AddToComparison key={s} item={runItem(run.id, s)} label={s} />
+            ))}
+          </p>
+          <BasketLink />
+        </Section>
+      ) : null}
       {run.state !== "succeeded" ? (
         <p role="status">
           {active(run.state) ? "The views appear when the run succeeds." : "This run has no results."}

@@ -4,9 +4,10 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 // F-005 T-13 (AC-01 to AC-05, AC-13, AC-16, AC-18): simulation runs and
 // aggregates against the real API and the real engine, as
 // db/tests/ui_harness_test.go seeds them: "Ransomware on the claims
-// platform" (version 2, control set Current) with a succeeded run of 20,000
-// iterations (seed 2026), and "Phishing of claims staff". WCAG 2.1 AA is
-// checked with axe on every view (constitution Q3). This file runs first
+// platform" (version 2, control sets Current and With MFA) with a succeeded
+// run of 20,000 iterations (seed 2026) and an older one of version 1 (F-006
+// T-06), and "Phishing of claims staff". WCAG 2.1 AA is checked with axe on
+// every view (constitution Q3). This file runs first
 // (the specs run in name order), on the seeded data as it is.
 
 let problems: string[] = [];
@@ -76,18 +77,18 @@ test("a scenario's runs: results, a new run, a reproduction and a cancellation (
 
   // A new run, 2,000 iterations with seed 7: queued, then succeeded.
   await requestRun(runs, "2000", "7");
-  await expect(runRows(runs)).toHaveCount(2);
+  await expect(runRows(runs)).toHaveCount(3);
   await expect(runRows(runs).first()).toContainText("Succeeded", { timeout: 60_000 });
 
   // Reproduced on the same engine: identical.
   await runRows(runs).first().getByRole("button", { name: "Reproduce" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Reproduce" }).click();
-  await expect(runRows(runs)).toHaveCount(3);
+  await expect(runRows(runs)).toHaveCount(4);
   await expect(runRows(runs).first()).toContainText("Reproduced exactly", { timeout: 60_000 });
 
   // A long run, cancelled while it runs: no results kept.
   await requestRun(runs, "2000000");
-  await expect(runRows(runs)).toHaveCount(4);
+  await expect(runRows(runs)).toHaveCount(5);
   await expect(runRows(runs).first()).toContainText(/Running|Queued/);
   await runRows(runs).first().getByRole("button", { name: "Cancel" }).click();
   const dialog = page.getByRole("dialog");
@@ -127,7 +128,7 @@ test("an aggregate of two scenarios' runs (AC-18), accessibly", async ({ page })
     await page.getByLabel(`Member ${n} run`).selectOption((await option.getAttribute("value")) ?? "");
     await expect(page.getByLabel(`Member ${n} control set`)).toHaveValue("Current");
   };
-  await choose(1, ransomware, /seed 2026/);
+  await choose(1, ransomware, /version 2, 20,000 iterations, seed 2026/);
   await choose(2, phishing, /seed 11/);
   await expectAccessible(page, "the aggregate form");
   await page.getByRole("button", { name: "Request the aggregate" }).click();

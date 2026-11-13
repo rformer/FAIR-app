@@ -103,6 +103,7 @@ export interface Aggregate {
     members: number;
     ale: Distribution;
     p95_year: { loss: number };
+    curve?: { points: [number, number][]; at_percentiles?: Record<string, number | null> };
     contributions: { position: number; label: string; mean: number; share_of_p95_year: number | null }[];
   };
 }

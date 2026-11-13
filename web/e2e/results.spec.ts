@@ -5,8 +5,9 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 // F-006 T-05 (F-006-AC-01 to AC-06, AC-09, AC-14 to AC-17): a run's page
 // against the real API and the real engine, as db/tests/ui_harness_test.go
 // seeds it: "Ransomware on the claims platform" version 2, with control
-// sets Current and With MFA, and its run of 20,000 iterations (seed 2026),
-// the oldest of the scenario's runs. WCAG 2.1 AA is checked with axe.
+// sets Current and With MFA, and its run of 20,000 iterations (seed 2026);
+// an older run of version 1 (5,000 iterations); and the aggregate "Claims
+// portfolio" that analyses.spec.ts made. WCAG 2.1 AA is checked with axe.
 
 let problems: string[] = [];
 test.beforeEach(({ page }) => {
@@ -33,12 +34,20 @@ async function expectAccessible(page: Page, what: string) {
 
 const ransomware = "Ransomware on the claims platform";
 
-/** Opens the seeded run's page from its scenario (the oldest run). */
-async function openSeededRun(page: Page): Promise<string> {
+async function openScenario(page: Page) {
   await page.goto("/scenarios");
   await page.getByRole("link", { name: ransomware, exact: true }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(ransomware);
+}
+
+/** Opens the seeded run's page from its scenario (the oldest run of 20,000 iterations). */
+async function openSeededRun(page: Page): Promise<string> {
+  await openScenario(page);
   const runs = page.getByRole("region", { name: "Simulations" });
-  const rows = runs.getByRole("table", { name: /Simulation runs of this scenario/ }).getByRole("row").filter({ has: page.getByRole("cell") });
+  const rows = runs
+    .getByRole("table", { name: /Simulation runs of this scenario/ })
+    .getByRole("row")
+    .filter({ has: page.getByRole("cell", { name: "20,000", exact: true }) });
   await rows.last().getByRole("button", { name: /^Details/ }).click();
   await page.getByRole("link", { name: "Charts and comparisons of this run" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(`Simulation of ${ransomware}, version 2`);
@@ -207,4 +216,90 @@ test("a viewer reads the run's views and downloads them", async ({ page }) => {
   const svg = await downloadImage(page, figure(page, "Loss exceedance curves"), "SVG");
   expect(svg.body.toString("utf8")).toContain("Download ");
   await expectAccessible(page, "a viewer's run page");
+});
+
+// F-006 T-06 (F-006-AC-07, AC-08, AC-10 to AC-13, AC-16).
+
+test("an aggregate's views: curve, distribution and contributions, with its members (AC-07, AC-08), accessibly", async ({ page }) => {
+  await as(page, "riskanalyst");
+  await page.goto("/analyses/aggregates");
+  await page.getByRole("link", { name: "Claims portfolio" }).first().click();
+  const views = page.getByRole("region", { name: "Views" });
+  await expect(views).toContainText("Members are combined as independent");
+  await expect(views).toContainText(`Members: ${ransomware} v2 (Current); Phishing of claims staff v`);
+  await expect(views.getByRole("note", { name: "Engine versions" })).toHaveCount(0);
+  await expect(figure(views, "Loss exceedance, Claims portfolio")).toContainText("Chance of losing more than");
+  await expect(figure(views, "Annual loss, Claims portfolio")).toContainText(/of years have no loss/);
+  const contributions = figure(views, "What each member contributes");
+  await expect(contributions).toContainText(/Mean annual loss of each member, with its share of the 1-in-20 year: .+ \$/);
+  const svg = await downloadImage(page, contributions, "SVG");
+  expect(svg.name).toMatch(/^aggregate-[0-9a-f]{8}-contributions\.svg$/);
+  expect(svg.body.toString("utf8")).toContain("Members: ");
+  await contributions.getByRole("button", { name: "Show data table" }).click();
+  await expectAccessible(page, "an aggregate's views");
+});
+
+test("compare versions from the scenario, shared with a viewer (AC-10 to AC-12, AC-16), accessibly", async ({ page, browser }) => {
+  await as(page, "riskanalyst");
+  await openScenario(page);
+  await page.getByRole("link", { name: "Compare versions" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Comparison of 2 results");
+  const note = page.getByRole("note", { name: "How these results differ" });
+  await expect(note).toContainText(/These results differ in their scenario versions, [a-z ,]+\./); // the latest version-2 run is analyses.spec.ts's
+  await expect(note).toContainText("differences between them include sampling noise");
+  const table = page.getByRole("table", { name: /Annual loss of each result/ });
+  await expect(table.getByRole("row")).toHaveCount(3);
+  await expect(table.getByRole("row").nth(1)).toContainText(`${ransomware} v1 · Current`);
+  await expect(table.getByRole("row").nth(2)).toContainText(`${ransomware} v2 · Current`);
+  await expect(table.getByRole("row").nth(2)).toContainText(/\([+−]\$/);
+  // The curves by keyboard.
+  const cursor = page.getByRole("slider", { name: "Cursor on the loss exceedance curves" });
+  await cursor.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(cursor).toHaveAttribute("aria-valuetext", /^Annual loss \$.+: .+ v1 · Current .+, .+ v2 · Current .+$/);
+  await expectAccessible(page, "a comparison of versions");
+
+  // Its address opens the same comparison for a viewer who sees both.
+  const address = page.url();
+  const viewer = await (await browser.newContext()).newPage();
+  await as(viewer, "nobody");
+  await viewer.goto(address);
+  await expect(viewer.getByRole("heading", { level: 1 })).toHaveText("Comparison of 2 results");
+  await expect(viewer.getByRole("table", { name: /Annual loss of each result/ }).getByRole("row")).toHaveCount(3);
+  await viewer.close();
+});
+
+test("a run's control set and an aggregate compared through the basket (AC-10, AC-11)", async ({ page }) => {
+  await as(page, "riskanalyst");
+  await openSeededRun(page);
+  const compare = page.getByRole("region", { name: "Compare" });
+  await compare.getByRole("button", { name: "Add With MFA to the comparison" }).click();
+  await expect(compare.getByRole("button", { name: "With MFA is in the comparison" })).toBeDisabled();
+  await expect(compare.getByRole("status")).toContainText("One result to compare: add another.");
+  await page.goto("/analyses/aggregates");
+  await page.getByRole("link", { name: "Claims portfolio" }).first().click();
+  const agg = page.getByRole("region", { name: "Compare" });
+  await agg.getByRole("button", { name: "Add this aggregate to the comparison" }).click();
+  await agg.getByRole("link", { name: "Open the comparison" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Comparison of 2 results");
+  const rows = page.getByRole("table", { name: /Annual loss of each result/ }).getByRole("row");
+  await expect(rows.nth(1)).toContainText(`${ransomware} v2 · With MFA`);
+  await expect(rows.nth(2)).toContainText("Claims portfolio");
+  await expect(page.getByRole("note", { name: "How these results differ" })).toContainText("scenarios");
+  await expect(figure(page, "Loss exceedance curves compared")).toBeVisible();
+});
+
+test("a comparison with a result the user cannot see, or that does not exist, shows nothing of it (AC-13)", async ({ page }) => {
+  await as(page, "riskanalyst");
+  const id = await openSeededRun(page);
+  const missing = "00000000-0000-4000-8000-000000000000";
+  const address = (a: string, b: string) => `/analyses/compare?item=${encodeURIComponent(a)}&item=${encodeURIComponent(b)}`;
+  await page.goto(address(`run:${id}:Current`, `run:${missing}:Current`));
+  await expect(page.getByRole("alert")).toHaveText("This comparison is not available to you.");
+  await expect(page.locator("main")).not.toContainText(ransomware);
+  await expectAccessible(page, "a comparison not available");
+  // Someone without analysis.view anywhere: the same answer.
+  await as(page, "estimator");
+  await page.goto(address(`run:${id}:Current`, `run:${id}:With MFA`));
+  await expect(page.getByRole("alert")).toHaveText("This comparison is not available to you.");
 });

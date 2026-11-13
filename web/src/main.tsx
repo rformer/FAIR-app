@@ -2,6 +2,7 @@ import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, getMe, send, type Me } from "./api";
 import { AggregateForm, AggregatePage, AggregatesPage } from "./analysis/Aggregates";
+import { ComparePage } from "./analysis/Compare";
 import { RunPage } from "./analysis/RunPage";
 import { AuditPage } from "./audit/AuditPage";
 import { BannerPage } from "./banner";
@@ -158,8 +159,9 @@ function App() {
 }
 
 // F-005 T-13: /analyses/aggregates, /analyses/aggregates/new, /analyses/aggregates/{id};
-// F-006 T-05: /analyses/runs/{id}.
+// F-006 T-05: /analyses/runs/{id}; T-06: /analyses/compare?item=….
 function AnalysisRoutes({ path }: { path: string }) {
+  if (path === "/analyses/compare") return <ComparePage />;
   const run = /^\/analyses\/runs\/([0-9a-f-]{36})$/.exec(path);
   if (run?.[1]) return <RunPage id={run[1]} />;
   if (path === "/analyses/aggregates/new") return <AggregateForm />;

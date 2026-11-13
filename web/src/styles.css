@@ -222,3 +222,8 @@ fieldset.member { border: 1px solid var(--border); border-radius: var(--radius);
 .lookups h3 { flex-basis: 100%; margin: 0; }
 .lookups label { display: flex; flex-direction: column; gap: 0.25rem; }
 .lookup-results { flex-basis: 100%; }
+/* F-006 T-06: notes and the comparison basket. */
+.callout { border-left: 4px solid var(--info-fg); background: var(--info-bg); color: var(--text); padding: 0.5rem 0.75rem; border-radius: var(--radius); margin: 0.5rem 0 1rem; }
+.callout.warn { border-left-color: var(--warn-fg); background: var(--warn-bg); }
+.callout p { margin: 0.25rem 0; }
+.basket { margin: 0.5rem 0 0; }
