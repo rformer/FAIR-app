@@ -36,7 +36,7 @@ Every task that adds a migration follows the immutability rule. Every new event 
 |---|---|---|---|---|---|
 | T-15 | Benchmark gate `TestBenchmarkGateSimulation`: a fully decomposed scenario, 100,000 iterations, three control sets, with sensitivity, ≤ 30 s p95 on the reference node; aggregating 100 runs ≤ 10 s; a queued run starts within 5 s | Requirements NFR | Bench gate passes in CI | M | Done (2026-11-13) |
 | T-16 | STRIDE suite for design §8 (`db/tests/stride_f005_test.go`, rows in `TestSTRIDECatalog`) | Q5; §8 | `make test-stride` covers every §8 row | M | Done (2026-11-13) |
-| T-17 | Control implementation statements `compliance/statements/F-005.yaml`, built into the component definition; against the requirements' control mapping (added 2026-11-10); Robert Former signs off | S1, Q1 | `internal/compliance` checks pass; sign-off recorded | S | Not started |
+| T-17 | Control implementation statements `compliance/statements/F-005.yaml`, built into the component definition; against the requirements' control mapping (added 2026-11-10); Robert Former signs off | S1, Q1 | `internal/compliance` checks pass; sign-off recorded | S | Done (signed off 2026-11-13) |
 
 ## Definition of Done
 - All linked acceptance criteria have passing automated tests.

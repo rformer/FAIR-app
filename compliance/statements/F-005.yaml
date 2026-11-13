@@ -1,0 +1,180 @@
+# NIST SP 800-53 Rev 5 control implementation statements for F-005
+# (Monte Carlo simulation engine), task T-17. Source for the platform's
+# OSCAL component definition (F-014 assembles the features' files); checked
+# by internal/compliance tests: the controls are exactly F-005's control
+# mapping, every evidence path and test exists, and the OSCAL output
+# validates against the pinned schema.
+#
+# responsibility, per deployment mode (ADR-005):
+#   provider  the platform (and, in SaaS, the vendor operating it) meets it
+#   shared    the platform provides the mechanism; the customer operates it
+#   customer  the customer meets it
+# customer: what the customer does wherever the responsibility is shared
+# or customer. Evidence tests are "<package dir>:<test name>".
+feature: F-005
+title: Monte Carlo simulation engine
+status: approved # signed off by Robert Former, 2026-11-13
+controls:
+  - id: ac-3
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Simulation runs, their results, per-year series and input bundles, and
+      aggregates are analysis data owned by a business unit: the service
+      checks analysis.run or analysis.view at that business unit and the
+      database applies forced row-level security under the signed database
+      context (ADR-007). A run's input bundle is the scenario's content, so
+      reading it also needs the scenario's read scope; an aggregate is
+      visible only to a reader who can see every member run (a restrictive
+      policy). The worker has no database context of its own: it reads a
+      run's inputs and writes its results only through definer functions
+      that require the run's attempt token. The engine is reachable only by
+      the risk service, through engine-gate's mutual TLS with pinned
+      certificates; it listens on no network port.
+    evidence:
+      code: [db/migrations/0103_analysis_schema.sql, db/migrations/0104_analysis_run_input.sql, db/migrations/0105_analysis_aggregate_worker.sql,
+             internal/analysisapi, deploy/k8s/engine.yaml]
+      tests: ["db/tests:TestSTRIDEF005Visibility", "db/tests:TestSTRIDEF005Escalation", "db/tests:TestAnalysisAggregates",
+              "db/tests:TestRLSHarnessEveryBUOwnedTable", "internal/enginegate:TestSTRIDEF005EngineChannel", "internal/enginegate:TestEngineManifest"]
+
+  - id: au-2
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      F-005 adds its events to the security event catalog under the category
+      risk_data: a run requested, succeeded, failed, cancelled (with its
+      reason) and reproduced (with the outcome), and an aggregate created,
+      succeeded and failed. Each entry names the attributes it carries: the
+      scenario and version, the input bundle's digest, the results digest,
+      the iterations and control sets, the engine version or the failure.
+    customer: >-
+      Decide which simulation events to forward to the SIEM and alert on,
+      for example a reproduction whose results differ.
+    evidence:
+      code: [pkg/audit/catalog.yaml]
+      tests: ["pkg/audit:TestCatalogMatchesCode", "db/tests:TestAnalysisAuditEvents"]
+
+  - id: au-12
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Every run and aggregate event is recorded by the database function
+      that makes the change, in its transaction: a request with the
+      requester from the signed context, the business unit and the input
+      bundle's digest; a result with its digest and engine version; a
+      failure with its code; a cancellation with its reason; a reproduction
+      with its outcome. A change whose event cannot be recorded does not
+      happen.
+    customer: >-
+      Monitor the audit trail's capacity and forwarding (F-002).
+    evidence:
+      code: [db/migrations/0103_analysis_schema.sql, internal/analysis/worker.go, internal/analysis/aggregate.go]
+      tests: ["db/tests:TestAnalysisAuditEvents", "db/tests:TestAnalysisRunsAPI", "db/tests:TestAnalysisReproduce"]
+
+  - id: cm-3
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      The engine's model is versioned: any change that alters results is a
+      new engine version, enforced by the validation suite, which fails
+      unless the reference scenario's results digest recorded for the
+      version and architecture still holds. Each release's engine image runs
+      the suite when it is built, carries its validation record, and the
+      release checklist refuses a release whose engine image did not pass.
+      Every run records the engine version, CPU architecture, validation
+      record and image digest it was computed with; a run is never
+      recomputed on a newer engine, and a reproduction on another version is
+      labelled as such.
+    customer: >-
+      Deploy only released engine images, and set the engine image's digest
+      from the signed release manifest (FAIR_ENGINE_IMAGE_DIGEST).
+    evidence:
+      code: [engine/fairsim/validation, engine/fairsim/validation/reference.json, Dockerfile, internal/releasemanifest/engine.go, cmd/profilegen/main.go]
+      tests: ["internal/releasemanifest:TestEngineCheck", "internal/risk:TestEngineValidationBundle", "db/tests:TestSTRIDEF005EngineValidation",
+              "db/tests:TestAnalysisReproduce"]
+
+  - id: ra-3
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      The platform quantifies each risk scenario by Monte Carlo simulation
+      in Open FAIR terms: every estimate is sampled as a Beta-PERT that
+      honours its stated confidence, frequencies and Vulnerability are
+      derived as the scenario decomposes them, and each control set is
+      compared with the current state on the same random numbers. Results
+      give the annualized loss distribution, the exceedance curve, the
+      breakdown by form of loss, convergence and the inputs that drive the
+      result; aggregates combine scenarios for a business unit. The model,
+      its fallbacks, its warnings and its assumptions (inputs and members
+      are independent) are documented for users and stated on every result,
+      and the engine passes a statistical validation suite before release.
+    customer: >-
+      Conduct the assessments: choose iterations, act on convergence and
+      fallback warnings, and interpret results in context, including the
+      independence the model assumes.
+    evidence:
+      code: [engine/fairsim, docs/guides/simulation.md, web/src/analysis]
+      tests: ["internal/analysis:TestGuideDocumentsCodes", "db/tests:TestAnalysisRunsAPI", "db/tests:TestAnalysisAggregates"]
+
+  - id: sc-8
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Input bundles and results travel between the risk service and the
+      engine only over mutual TLS 1.2 or later with the FIPS 140 module,
+      terminated by engine-gate in the engine's pod, each side pinning the
+      other's certificate by SHA-256; an unpinned, absent or expired
+      certificate and plaintext are refused. Inside the pod the gate reaches
+      the engine through a Unix socket in an in-memory volume. The engine
+      pod accepts connections from the risk service only and has no
+      egress.
+    customer: >-
+      Deliver the engine channel's keys through the deployment mode's key
+      store, and rotate them (iam keys rotate -kind engine) before they
+      expire, at least yearly.
+    evidence:
+      code: [internal/enginetls/enginetls.go, internal/enginegate/enginegate.go, cmd/engine-gate/main.go, internal/keys/engine.go, deploy/k8s/engine.yaml]
+      tests: ["internal/enginegate:TestRefusals", "internal/enginegate:TestExpired", "internal/enginegate:TestRotation",
+              "internal/enginegate:TestSTRIDEF005EngineChannel", "internal/keys:TestEngineKeys", "internal/enginegate:TestEngineManifest"]
+
+  - id: sc-13
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      All cryptography of the simulation path uses the platform's FIPS 140
+      module in Go: engine-gate's TLS, the risk service's client TLS, and the
+      SHA-256 digests of input bundles and results. The Python engine
+      performs no cryptographic protection: its image holds no OpenSSL
+      (Python's ssl and hashlib bindings are removed, and the build fails if
+      OpenSSL is linked).
+    evidence:
+      code: [Dockerfile, cmd/engine-gate/main.go, internal/enginetls/enginetls.go, internal/analysis/digest.go, .github/workflows/ci.yml]
+      tests: ["internal/enginegate:TestChannel", "internal/enginegate:TestRefusals", "internal/releasemanifest:TestEngineCheck"]
+
+  - id: si-7
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      A run keeps the exact input bundle it was requested with, and the
+      database checks that its SHA-256 is the run's recorded digest. The
+      results digest covers the inputs, the engine and every result, is
+      recorded with the run and in its audit event, and a reproduction
+      re-derives and compares it. Finished runs, their results, series and
+      inputs, and finished aggregates are append-only for every role,
+      including the database superuser. The engine refuses to serve if its
+      startup self-check against the image's validation record fails, and
+      the platform refuses an engine whose validation did not pass.
+    evidence:
+      code: [db/migrations/0104_analysis_run_input.sql, internal/analysis/digest.go, engine/fairsim/validation, engine/fairsim/server.py]
+      tests: ["db/tests:TestSTRIDEF005ResultTamper", "db/tests:TestSTRIDEF005ResultWrite", "db/tests:TestSTRIDEF005EngineValidation",
+              "db/tests:TestAnalysisReproduce", "db/tests:TestAnalysisSchema"]
+
+  - id: si-10
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Run and aggregate requests are validated by the service and again by
+      the database: iterations within the settings' bounds, iterations ×
+      control sets at most 20,000,000, control sets of the version, 2 to 200
+      aggregate members that are succeeded, visible runs in the business
+      unit's subtree with equal iterations, at most five active runs per
+      requester by default, and 64 KiB bodies with unknown fields refused.
+      The engine checks every request and bundle again and refuses what it
+      cannot simulate. The worker checks the engine's results before storing
+      them (every control set once, series of the right length with finite,
+      non-negative values, summaries as JSON objects) and stores nothing of
+      a run that fails.
+    evidence:
+      code: [internal/analysisapi/runs.go, internal/analysis/worker.go, db/migrations/0103_analysis_schema.sql, engine/fairsim/server.py, engine/fairsim/bundle.py]
+      tests: ["db/tests:TestAnalysisLimits", "db/tests:TestAnalysisRunLimits", "db/tests:TestAnalysisRunFailures", "db/tests:TestSTRIDEF005ResultWrite"]
