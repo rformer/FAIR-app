@@ -101,7 +101,8 @@ func TestPostureUIHarness(t *testing.T) {
 	// with the River workers and the real engine (scripts/ui-e2e.sh runs it
 	// and shares its socket: FAIR_UI_ENGINE_SOCKET).
 	analysisAPI := &analysisapi.API{DB: rp, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(rp), MaxAge: time.Second}),
-		Settings: fixedLimits{IterationsDefault: 10000, IterationsMin: 1000, IterationsMax: 2000000, MaxActive: 5}}
+		Settings: fixedLimits{IterationsDefault: 10000, IterationsMin: 1000, IterationsMax: 2000000, MaxActive: 5},
+		Audit:    audit.WithTrail(audit.NewMemory(), audit.Trail{DB: rp})} // F-006 T-05: downloads are recorded
 	engineSocket := os.Getenv("FAIR_UI_ENGINE_SOCKET")
 	if engineSocket != "" {
 		conn, err := grpc.NewClient("unix://"+engineSocket, grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -302,8 +303,8 @@ func seedPostureScenario(t *testing.T, ae apiEnv) {
 
 // seedRiskScenario builds what the scenario pages show (F-003 T-12): a risk
 // analyst at the root, the currency, a library (asset, threat community,
-// control) and a scenario with two versions whose threat community has a
-// newer version to adopt. "nobody" (Executive Viewer) can read, not edit.
+// two controls) and a scenario with two versions whose threat community has
+// a newer version to adopt; version 2 adds the control set "With MFA". "nobody" (Executive Viewer) can read, not edit.
 // It returns the scenario's id, and that of a second scenario on the same
 // library ("Phishing of claims staff") for the analyst's estimate pages.
 func seedRiskScenario(t *testing.T, e *env) (string, string) {
@@ -328,6 +329,13 @@ func seedRiskScenario(t *testing.T, e *env) (string, string) {
 		map[string]any{"id": ctl, "version": 1, "status": "in_place"}}}})
 	s := r.create(t, "riskanalyst", "scenario", root, d)
 	modeltest.Set(d, "/scope/out", "Backups held offline, and the disaster recovery site.")
+	// F-006 T-05: version 2 has a proposed control set, so a run of it
+	// compares two sets.
+	mfa := r.create(t, "riskanalyst", "control", root, modeltest.Set(modeltest.Control(), "/name", "Phishing-resistant MFA"))
+	modeltest.Set(d, "/control_sets", []any{
+		map[string]any{"name": "Current", "current": true, "controls": []any{map[string]any{"id": ctl, "version": 1, "status": "in_place"}}},
+		map[string]any{"name": "With MFA", "current": false, "controls": []any{map[string]any{"id": ctl, "version": 1, "status": "in_place"},
+			map[string]any{"id": mfa, "version": 1, "status": "proposed"}}}})
 	b, dg := canonicalDoc(t, "scenario", d)
 	if err := r.addVersion("riskanalyst", "scenario_version", s, 2, b, dg); err != nil {
 		t.Fatal(err)

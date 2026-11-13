@@ -38,7 +38,9 @@ export interface SetSummary {
   lef: Distribution;
   loss_per_event: Distribution;
   breakdown: { primary: number | null; secondary: number | null; forms: Record<string, number | null>; stakeholders: Record<string, number | null> };
-  comparison: null | { against: string; mean: number; percentiles: Record<string, number> };
+  comparison: null | { against: string; mean: number; percentiles: Record<string, number>; difference?: Distribution };
+  /** The loss exceedance curve (F-005 design §3.4): points [amount, P(ALE > amount)] and the exceedance at each percentile. */
+  curve?: { points: [number, number][]; at_percentiles?: Record<string, number | null> };
   convergence: { se: number; rse: number | null; threshold_bp: number; converged: boolean; intervals: Record<string, [number, number]> };
   sensitivity?: { iterations: number; inputs: SensitivityInput[] };
 }

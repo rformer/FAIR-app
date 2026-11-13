@@ -381,6 +381,14 @@ export function RunDetails({ id, currency, onChanged }: { id: string; currency: 
                   <a href={auditHref(`analysis_run:${r.id}`)}>Audit history of this run</a>
                 </dd>
               </div>
+              {r.state === "succeeded" ? (
+                <div>
+                  <dt>Charts</dt>
+                  <dd>
+                    <a href={`/analyses/runs/${r.id}`}>Charts and comparisons of this run</a>
+                  </dd>
+                </div>
+              ) : null}
             </dl>
             {(r.results ?? []).map((x) => (
               <SetResults key={x.control_set} set={x.control_set} s={x.summary} currency={currency} />

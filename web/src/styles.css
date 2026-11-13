@@ -214,3 +214,11 @@ fieldset.member { border: 1px solid var(--border); border-radius: var(--radius);
 .chart-actions { margin-top: 0.5rem; align-items: center; }
 .series-1 { color: var(--series-1); } .series-2 { color: var(--series-2); } .series-3 { color: var(--series-3); }
 .series-4 { color: var(--series-4); } .series-5 { color: var(--series-5); } .series-6 { color: var(--series-6); }
+/* F-006 T-05: the run page's controls. */
+.inline-choice { border: 0; padding: 0; margin: 0 0 0.5rem; display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; align-items: center; }
+.inline-choice legend { float: left; margin-right: 0.5rem; font-weight: 600; }
+.chart-controls { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; align-items: center; }
+.lookups { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: flex-end; margin-top: 1rem; }
+.lookups h3 { flex-basis: 100%; margin: 0; }
+.lookups label { display: flex; flex-direction: column; gap: 0.25rem; }
+.lookup-results { flex-basis: 100%; }
