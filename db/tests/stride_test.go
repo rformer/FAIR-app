@@ -246,6 +246,33 @@ var strideF005 = map[string][]string{
 	},
 }
 
+// strideF006 maps F-006's design §7 threats (T-08) to their tests. A
+// reference into web/ names a node --test file and a test's title (the
+// chart modules' unit tests, run by make test-stride with Node).
+var strideF006 = map[string][]string{
+	"I: a comparison or histogram shows results of a BU the user cannot see | Every route reads under RLS with the caller's context; aggregates need every member visible (F-005); comparisons are all or nothing": {
+		"db/tests:TestSTRIDEF006Visibility", "db/tests:TestAnalysisHistogram", "db/tests:TestAnalysisCompare",
+	},
+	"I: a comparison reveals that a hidden result exists, or which item is hidden | One 404 body for unseen and nonexistent items, whichever position; 409 only for items the caller sees": {
+		"db/tests:TestSTRIDEF006ComparisonOracle", "db/tests:TestAnalysisCompare",
+	},
+	"T/E: a downloaded CSV runs formulas in the user's spreadsheet (CSV injection) | Text cells neutralized; numbers written only from floats": {
+		"internal/analysis:TestAnalysisCSVNeutralized", "db/tests:TestAnalysisCSV",
+	},
+	"T/E: a downloaded SVG carries script from a user-chosen name | Names reach the SVG only as React text; serialized SVG is checked to have no `script`, `foreignObject`, event attributes or external references": {
+		"web/src/charts/export.test.ts:anything that acts or loads is refused", "web/src/charts/export.test.ts:a plain drawing passes, escaped markup in text included",
+	},
+	"R: data leaves the platform unattributed | CSV routes and image downloads record `analysis.downloaded` with actor, BU, subject, view, format and download id, in the transaction; fail closed": {
+		"db/tests:TestAnalysisDownloadEvents", "db/tests:TestSTRIDEF006Visibility",
+	},
+	"D: costly requests (histograms of large series, six-way comparisons) | Series size bounded by F-005 (≤ 20,000,000 values per run); comparisons ≤ 6 items; one series read per histogram; the benchmark gate holds the budgets": {
+		"db/tests:TestAnalysisResultViewLimits", "db/tests:TestAnalysisLimits",
+	},
+	"E: a viewer changes results | Every F-006 route is a read, apart from recording downloads; results stay append-only (F-005)": {
+		"db/tests:TestSTRIDEF006ReadOnly", "db/tests:TestSTRIDEF005ResultTamper",
+	},
+}
+
 // The threat tables and the suites agree: every row has tests, every test
 // exists and is run by make test-stride, and no mapping names a row the
 // design no longer has. Runs without a database.
@@ -273,6 +300,7 @@ func TestSTRIDECatalog(t *testing.T) {
 		{"F-003-fair-data-model", "## 8.", 11, strideF003},
 		{"F-004-estimate-capture", "## 8.", 10, strideF004},
 		{"F-005-simulation-engine", "## 8.", 9, strideF005},
+		{"F-006-results-visualization", "## 7.", 7, strideF006},
 	} {
 		rows := threatRows(t, filepath.Join(root, "specs", "features", c.feature, "design.md"), c.section)
 		if len(rows) < c.min {
@@ -289,6 +317,17 @@ func TestSTRIDECatalog(t *testing.T) {
 			}
 			for _, ref := range tests {
 				dir, name, _ := strings.Cut(ref, ":")
+				if strings.HasPrefix(dir, "web/") {
+					// A node --test file and a test's title (F-006 T-08).
+					b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(dir))) // #nosec G304 -- the repository's own test file
+					if err != nil || !strings.Contains(string(b), "test(\""+name+"\"") {
+						t.Errorf("%q: test %s not found", r, ref)
+					}
+					if !strings.Contains(string(mk), "cd web && node --test") {
+						t.Errorf("%q: make test-stride does not run the web unit tests", r)
+					}
+					continue
+				}
 				if !run[name] && !strings.HasPrefix(name, "TestSTRIDE") && (dir != "db/tests" || !runsByPrefix(run, name)) {
 					t.Errorf("%q: %s is not run by make test-stride", r, name)
 				}

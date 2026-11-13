@@ -71,6 +71,10 @@ jobs:
           PGUSER: postgres
           PGPASSWORD: ci-only-admin
         run: go test -count=1 -timeout 60m -v ./db/tests/ # as make test-db
+      # F-006 T-08: make test-stride also runs the chart modules' unit tests (node --test, type stripping: Node 22.18 or later).
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
       - name: STRIDE suites (F-015 T-36, design §8; F-001 T-40, design §7)
         env:
           FAIR_TEST_PG: "1"
