@@ -42,7 +42,7 @@ import (
 type fakeEngine struct {
 	enginev1.UnimplementedEngineServer
 	mu        sync.Mutex
-	mode      string // ok, unavailable_once, unavailable, model_error, block, bad_series, different, ramp
+	mode      string // ok, unavailable_once, unavailable, model_error, block, bad_series, different, ramp, bench
 	validated bool
 	version   string
 	arch      string
@@ -132,6 +132,9 @@ func (f *fakeEngine) Simulate(req *enginev1.SimulateRequest, stream enginev1.Eng
 			case <-time.After(100 * time.Millisecond):
 			}
 		}
+	}
+	if mode == "bench" {
+		return simulateBench(req, stream) // F-006 T-07: results of the engine's size
 	}
 	n := int(req.GetIterations())
 	for _, p := range []uint64{uint64(n / 2), uint64(n)} {

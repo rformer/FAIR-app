@@ -203,7 +203,7 @@ jobs:
           PGPASSWORD: ci-only-admin
           FAIR_BENCH_ENGINE_ADDR: localhost:8444
           FAIR_BENCH_ENGINE_CLIENT_DIR: ${{ runner.temp }}/engine-keys/risk/engine-client
-        run: go test -count=1 -timeout 90m -run TestBenchmarkGate -v ./db/tests/ # F-001, F-002 sequencer, search and export, F-003 risk scenarios, F-004 estimates, F-005 simulation gates
+        run: go test -count=1 -timeout 90m -run TestBenchmarkGate -v ./db/tests/ # F-001, F-002 sequencer, search and export, F-003 risk scenarios, F-004 estimates, F-005 simulation, F-006 result views gates
       - uses: actions/upload-artifact@v7
         if: always()
         with:
