@@ -65,7 +65,7 @@ F-006 draws what F-005 computes. For a simulation run it shows, per control set,
 - Secure defaults: no settings are proposed; any that arise (for example the histogram's bin count) are F-015 settings with bounds.
 
 ## Control mapping (NIST SP 800-53r5)
-To be proposed with the tasks.
+AC-3, AU-2, AU-12, RA-3, SI-10, SI-15.
 
 ## Out of scope
 - Risk appetite and tolerance curves, and the probability of exceeding them (F-007, F-008); F-006 leaves room to overlay a curve later.
@@ -91,3 +91,4 @@ To be proposed with the tasks.
 ## Change Log
 - 2026-11-13: Initial draft; scope decisions (the four core views with accessible equivalents, comparison within and across runs, appetite deferred to F-007/F-008, chart images and data CSV with full reports in F-010) taken with Robert Former.
 - 2026-11-13: **Approved** by Robert Former, with the open questions' proposals as stated (to be settled in the design).
+- 2026-11-13: Control mapping added (AC-3, AU-2, AU-12, RA-3, SI-10, SI-15; design §14), with T-09.

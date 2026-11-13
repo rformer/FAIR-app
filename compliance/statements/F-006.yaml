@@ -1,0 +1,114 @@
+# NIST SP 800-53 Rev 5 control implementation statements for F-006
+# (results and visualization), task T-09. Source for the platform's OSCAL
+# component definition (F-014 assembles the features' files); checked by
+# internal/compliance tests: the controls are exactly F-006's control
+# mapping, every evidence path and test exists, and the OSCAL output
+# validates against the pinned schema.
+#
+# responsibility, per deployment mode (ADR-005):
+#   provider  the platform (and, in SaaS, the vendor operating it) meets it
+#   shared    the platform provides the mechanism; the customer operates it
+#   customer  the customer meets it
+# customer: what the customer does wherever the responsibility is shared
+# or customer. Evidence tests are "<package dir>:<test name>".
+feature: F-006
+title: Results and visualization
+status: approved # signed off by Robert Former, 2026-11-13
+controls:
+  - id: ac-3
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      F-006 stores nothing new: its histograms, comparisons and downloads read
+      F-005's results under the caller's signed database context, so the
+      forced row-level security of analysis data applies to every view (an
+      aggregate only when every member is visible). A comparison is read in
+      one snapshot and answered whole or not at all: if any result is hidden
+      or absent the answer is the same 404, whichever result it is, so it
+      reveals neither which one nor that it exists. Image downloads are
+      recorded only for results the caller can see, by the same rules.
+    evidence:
+      code: [internal/analysisapi/histogram.go, internal/analysisapi/compare.go, internal/analysisapi/downloads.go, internal/analysis/compare.go,
+             pkg/authz/db.go]
+      tests: ["db/tests:TestSTRIDEF006Visibility", "db/tests:TestSTRIDEF006ComparisonOracle", "db/tests:TestAnalysisCompare",
+              "db/tests:TestAnalysisHistogram"]
+
+  - id: au-2
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      F-006 adds analysis.downloaded to the security event catalog under the
+      category risk_data: simulation results left the platform as a chart
+      image or a CSV file. It names the download, the subject (a run, an
+      aggregate or a comparison), the results, the view and the format.
+      Viewing results is not an audited event; taking them out is.
+    customer: >-
+      Decide which downloads to forward to the SIEM and alert on, for example
+      many downloads by one person in a short time.
+    evidence:
+      code: [pkg/audit/catalog.yaml]
+      tests: ["pkg/audit:TestCatalogMatchesCode", "db/tests:TestAnalysisDownloadEvents"]
+
+  - id: au-12
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      A CSV is built, and its download recorded with the actor, the business
+      unit, the results, the view, the format and the download's id, in one
+      transaction; the file is sent only after that commits, and if the event
+      cannot be recorded the answer is 503 with no file. A chart image is
+      recorded the same way before the browser draws it, and carries the
+      download's id in its footer, as the CSV does in its first rows. A
+      download of results from several business units records one event in
+      each, naming only that unit's results.
+    customer: >-
+      Monitor the audit trail's capacity and forwarding (F-002).
+    evidence:
+      code: [internal/analysisapi/downloads.go, web/src/charts/ChartFigure.tsx]
+      tests: ["db/tests:TestAnalysisDownloadEvents", "db/tests:TestAnalysisCSV", "db/tests:TestSTRIDEF006Visibility"]
+
+  - id: ra-3
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      The platform presents each risk assessment's results so that people can
+      read and act on them: the loss exceedance curve of every control set,
+      the distribution of annual loss, its split by form of loss, the inputs
+      that drive it, and each control set against the current one. Runs,
+      scenario versions and aggregates can be compared side by side; the
+      comparison names any inputs that differ (scenario, version,
+      iterations, seed, engine, architecture) and states that separate runs
+      differ by sampling noise. Every result states that inputs are sampled
+      independently, and every chart has a text alternative and a data table.
+    customer: >-
+      Interpret the results in context, taking account of the differences a
+      comparison names and of the independence the model assumes.
+    evidence:
+      code: [web/src/analysis/RunPage.tsx, web/src/analysis/Compare.tsx, web/src/charts, internal/analysis/compare.go, internal/analysis/histogram.go]
+      tests: ["internal/analysis:TestComparisonBuild", "internal/analysis:TestDifferenceHistogram", "db/tests:TestAnalysisCompare",
+              "db/tests:TestAnalysisHistogram"]
+
+  - id: si-10
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Every F-006 request is validated before it reads anything: comparison
+      items must be two to six well-formed, distinct references to runs and
+      their control sets or to aggregates; control sets must be the run's,
+      a difference must be against the current set and on a linear scale;
+      views, scales and formats must be among those listed; download records
+      are bodies of at most 64 KiB with unknown fields refused. Malformed
+      requests are refused with the reason and record nothing.
+    evidence:
+      code: [internal/analysis/compare.go, internal/analysisapi/histogram.go, internal/analysisapi/downloads.go]
+      tests: ["internal/analysis:TestParseItems", "db/tests:TestAnalysisResultViewLimits", "db/tests:TestAnalysisHistogram", "db/tests:TestAnalysisCSV"]
+
+  - id: si-15
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Output that leaves the platform is filtered so it cannot act where it
+      lands. In CSV files, any text that a spreadsheet would read as a
+      formula (starting with =, +, -, @, a tab or a carriage return) is made
+      inert, and numbers are written by the service from numeric values, never
+      from text. File names hold no user text. Exported chart images carry
+      user-chosen names only as escaped text, and are refused if they would
+      contain script, embedded documents, event handlers, styles or
+      references outside the file.
+    evidence:
+      code: [internal/analysis/csv.go, internal/analysisapi/downloads.go, web/src/charts/export.ts]
+      tests: ["internal/analysis:TestAnalysisCSVNeutralized", "internal/analysis:TestAnalysisCSVTables", "db/tests:TestAnalysisCSV"]
