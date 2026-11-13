@@ -215,6 +215,37 @@ var strideF001 = map[string][]string{
 	},
 }
 
+// strideF005 maps F-005's design §8 threats (T-16) to their tests.
+var strideF005 = map[string][]string{
+	"S: a client poses as the engine, or calls the engine directly | The gate pins client certificates; the engine listens only on its pod's Unix socket; NetworkPolicy admits only the risk service": {
+		"internal/enginegate:TestSTRIDEF005EngineChannel", "internal/enginegate:TestRefusals", "internal/enginegate:TestEngineManifest",
+	},
+	"T: stored results are altered | Finished runs, results and series append-only for every role; results digest recorded and in the audit event; reproduce re-derives it": {
+		"db/tests:TestSTRIDEF005ResultTamper", "db/tests:TestAnalysisSchema", "db/tests:TestAnalysisReproduce",
+	},
+	"T: a client supplies results or forges a run's record | Results are written only by `finish_run`, once, for a running run; the record's engine fields come from `Info`, not the request": {
+		"db/tests:TestSTRIDEF005ResultWrite", "db/tests:TestAnalysisRunFailures",
+	},
+	"T: a faulty or substituted engine produces wrong numbers | Validation in CI and at image build, startup self-check, refusal of unvalidated engines; image digest from the signed release manifest recorded on every run": {
+		"db/tests:TestSTRIDEF005EngineValidation", "internal/releasemanifest:TestEngineCheck",
+	},
+	"R: a run or aggregate cannot be attributed | Audited in its transaction with actor, BU and bundle digest": {
+		"db/tests:TestAnalysisAuditEvents",
+	},
+	"I: results cross business units | RLS (`analysis`) on every table; aggregates visible only with every member": {
+		"db/tests:TestSTRIDEF005Visibility", "db/tests:TestRLSHarnessEveryBUOwnedTable", "db/tests:TestAnalysisAggregates",
+	},
+	"I: the engine sees or keeps more than needed | It receives the bundle only, holds no database credentials, keeps nothing after a run, has no egress": {
+		"internal/enginegate:TestSTRIDEF005EngineIsolation", "internal/enginegate:TestEngineManifest",
+	},
+	"D: run floods or huge runs | Per-requester active-run limit, iteration and size bounds, member limits, chunked engine memory, the River queue": {
+		"db/tests:TestAnalysisLimits", "db/tests:TestAnalysisRunLimits",
+	},
+	"E: a viewer runs or cancels simulations | `analysis.run` required; viewers hold only `analysis.view`": {
+		"db/tests:TestSTRIDEF005Escalation", "db/tests:TestAnalysisRunsAPI",
+	},
+}
+
 // The threat tables and the suites agree: every row has tests, every test
 // exists and is run by make test-stride, and no mapping names a row the
 // design no longer has. Runs without a database.
@@ -241,6 +272,7 @@ func TestSTRIDECatalog(t *testing.T) {
 		{"F-002-audit-trail", "## 8.", 9, strideF002},
 		{"F-003-fair-data-model", "## 8.", 11, strideF003},
 		{"F-004-estimate-capture", "## 8.", 10, strideF004},
+		{"F-005-simulation-engine", "## 8.", 9, strideF005},
 	} {
 		rows := threatRows(t, filepath.Join(root, "specs", "features", c.feature, "design.md"), c.section)
 		if len(rows) < c.min {
