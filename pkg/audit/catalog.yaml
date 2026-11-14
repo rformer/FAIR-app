@@ -826,6 +826,13 @@ events:
     requires: [target]
     attributes: [category, change, name]
     description: "A register category was added, renamed, archived or restored by register.edit at the root (F-007 T-04, OQ3); filed under the root BU"
+  - type: register.pin_set
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [adopted, control_set, reason, run, scenario, version]
+    description: "A linked scenario's pinned analysis was set, changed, adopted from a newer run or cleared (run none) on a register risk (F-007 T-05, AC-06, AC-10)"
   - type: register.risk_changed
     category: risk_data
     severities: [low]

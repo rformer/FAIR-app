@@ -151,7 +151,10 @@ func (a *API) createRisk(w http.ResponseWriter, r *http.Request, p authz.Princip
 			Attributes: map[string]string{"version": "1", "digest": digest}}); err != nil {
 			return err
 		}
-		return a.linkEvents(ctx, p, id, body.BUID, 1, nil, doc)
+		if err := a.linkEvents(ctx, p, id, body.BUID, 1, nil, doc); err != nil {
+			return err
+		}
+		return a.afterVersion(ctx, tx, p, id, body.BUID, 1, nil, doc, false)
 	})
 	if err != nil {
 		fail(w, err)
@@ -230,7 +233,10 @@ func (a *API) saveRisk(w http.ResponseWriter, r *http.Request, p authz.Principal
 			Attributes: map[string]string{"version": strconv.Itoa(version), "digest": digest, "change_note": note}}); err != nil {
 			return err
 		}
-		return a.linkEvents(ctx, p, h.ID, h.BU, version, prev, doc)
+		if err := a.linkEvents(ctx, p, h.ID, h.BU, version, prev, doc); err != nil {
+			return err
+		}
+		return a.afterVersion(ctx, tx, p, h.ID, h.BU, version, prev, doc, false)
 	})
 	if err != nil {
 		fail(w, err)
@@ -332,8 +338,12 @@ func (a *API) moveRisk(w http.ResponseWriter, r *http.Request, p authz.Principal
 		if err := tx.QueryRow(ctx, "SELECT register.move_risk($1, $2)::text", h.ID, body.ToBUID).Scan(&from); err != nil {
 			return err
 		}
-		return a.emit(ctx, audit.Event{Type: "register.risk_moved", Severity: audit.SeverityLow, Actor: p.UserID, Target: target + h.ID, BUID: body.ToBUID,
-			Attributes: map[string]string{"from_bu": from, "to_bu": body.ToBUID, "reason": reason}})
+		if err := a.emit(ctx, audit.Event{Type: "register.risk_moved", Severity: audit.SeverityLow, Actor: p.UserID, Target: target + h.ID, BUID: body.ToBUID,
+			Attributes: map[string]string{"from_bu": from, "to_bu": body.ToBUID, "reason": reason}}); err != nil {
+			return err
+		}
+		// The exposure aggregate belongs to the risk's BU: a new one there.
+		return a.requestExposure(ctx, tx, h.ID)
 	})
 	if err != nil {
 		fail(w, err)
@@ -343,7 +353,8 @@ func (a *API) moveRisk(w http.ResponseWriter, r *http.Request, p authz.Principal
 }
 
 const riskColumns = `r.id::text, r.bu_id::text, r.state, r.title, r.owner::text, r.category_id::text, c.name, r.current_version, r.created_at,
-	r.created_by::text, r.seq, (SELECT count(*) FROM register.risk_scenario l WHERE l.risk_id = r.id)`
+	r.created_by::text, r.seq, (SELECT count(*) FROM register.risk_scenario l WHERE l.risk_id = r.id), r.exposure_aggregate_id::text,
+	register.exposure_status(r.id)`
 
 func scanRisk(row pgx.Row) (map[string]any, error) {
 	var (
@@ -352,12 +363,14 @@ func scanRisk(row pgx.Row) (map[string]any, error) {
 		version               int
 		created               time.Time
 		seq, scenarios        int64
+		aggregate             *string
+		status                []byte
 	)
-	if err := row.Scan(&id, &bu, &state, &title, &owner, &cat, &cn, &version, &created, &by, &seq, &scenarios); err != nil {
+	if err := row.Scan(&id, &bu, &state, &title, &owner, &cat, &cn, &version, &created, &by, &seq, &scenarios, &aggregate, &status); err != nil {
 		return nil, err
 	}
 	out := map[string]any{"id": id, "bu_id": bu, "state": state, "title": title, "owner": owner, "category": nil, "current_version": version,
-		"created_at": created, "created_by": by, "seq": seq, "scenarios": scenarios}
+		"created_at": created, "created_by": by, "seq": seq, "scenarios": scenarios, "exposure_aggregate_id": aggregate, "status": json.RawMessage(status)}
 	if cat != nil {
 		out["category"] = map[string]any{"id": *cat, "name": cn}
 	}
@@ -367,8 +380,9 @@ func scanRisk(row pgx.Row) (map[string]any, error) {
 var listSorts = map[string]string{"newest": "r.seq DESC", "title": "lower(r.title), r.seq DESC"}
 
 // listRisks lists the risks the caller sees (AC-19): ?bu= (with
-// &subtree=false, that BU only), ?owner=, ?category=, ?state=,
-// ?sort=newest|title, ?limit= 1 to 200 (50), ?offset=.
+// &subtree=false, that BU only), ?owner=, ?category=, ?state=, ?status=
+// (the exposure status, AC-08, AC-09), ?sort=newest|title, ?limit= 1 to
+// 200 (50), ?offset=.
 func (a *API) listRisks(w http.ResponseWriter, r *http.Request, p authz.Principal) {
 	if !a.anywhere(w, r, p) {
 		return
@@ -406,6 +420,13 @@ func (a *API) listRisks(w http.ResponseWriter, r *http.Request, p authz.Principa
 			return
 		}
 		where = append(where, "r.state = "+arg(v))
+	}
+	if v := q.Get("status"); v != "" {
+		if !slices.Contains(statuses, v) {
+			problem(w, http.StatusBadRequest, "invalid_value", "status is current, stale, unquantified or computing", nil)
+			return
+		}
+		where = append(where, "register.exposure_status(r.id) ->> 'status' = "+arg(v))
 	}
 	order, ok := listSorts[q.Get("sort")]
 	if q.Get("sort") == "" {
@@ -461,7 +482,9 @@ func (a *API) listRisks(w http.ResponseWriter, r *http.Request, p authz.Principa
 	writeJSON(w, http.StatusOK, map[string]any{"risks": risks, "more": more})
 }
 
-// getRisk answers a risk: its head, current version and links (AC-19).
+// getRisk answers a risk: its head with its exposure status, current
+// version, links with their pins and newer runs, and its exposure (AC-06
+// to AC-10, AC-19).
 func (a *API) getRisk(w http.ResponseWriter, r *http.Request, p authz.Principal) {
 	if !a.anywhere(w, r, p) {
 		return
@@ -491,27 +514,16 @@ func (a *API) getRisk(w http.ResponseWriter, r *http.Request, p authz.Principal)
 			WHERE risk_id = $1 AND version = $2`, id, risk["current_version"]).Scan(&version, &doc, &digest, &note, &by, &at); err != nil {
 			return err
 		}
-		rows, err := tx.Query(ctx, `SELECT l.scenario_id::text, s.name, l.open, l.run_id::text, l.control_set, l.pinned_version
-			FROM register.risk_scenario l LEFT JOIN risk.scenario s ON s.id = l.scenario_id WHERE l.risk_id = $1 ORDER BY s.name, l.scenario_id`, id)
+		ls, err := links(ctx, tx, id, doc)
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
-		links := []map[string]any{}
-		for rows.Next() {
-			var sid string
-			var name, run, set *string
-			var open bool
-			var pinned *int
-			if err := rows.Scan(&sid, &name, &open, &run, &set, &pinned); err != nil {
-				return err
-			}
-			links = append(links, map[string]any{"scenario_id": sid, "scenario_name": name, "open": open, "run_id": run, "control_set": set, "pinned_version": pinned})
-		}
-		if err := rows.Err(); err != nil {
+		agg, _ := risk["exposure_aggregate_id"].(*string)
+		exp, err := exposure(ctx, tx, agg, ls)
+		if err != nil {
 			return err
 		}
-		out = map[string]any{"risk": risk, "links": links,
+		out = map[string]any{"risk": risk, "links": ls, "exposure": exp,
 			"version": map[string]any{"version": version, "document": json.RawMessage(doc), "digest": digest, "change_note": note, "author": by, "created_at": at}}
 		return nil
 	})

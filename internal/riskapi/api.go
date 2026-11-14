@@ -261,6 +261,15 @@ func fail(w http.ResponseWriter, err error) {
 		invalid(w, problems)
 	case errors.As(err, &pg) && pg.Code == "PF020":
 		problem(w, http.StatusConflict, "restricted_move", pg.Message, nil)
+	case errors.As(err, &pg) && pg.Code == "PF026" && pg.Hint == "linked_to_risk":
+		// F-007 (design §10): a scenario linked to an open register risk
+		// stays in its subtree; the risk is named only to those who see it.
+		var risk map[string]any
+		if json.Unmarshal([]byte(pg.Detail), &risk) != nil {
+			risk = nil
+		}
+		problem(w, http.StatusConflict, "linked_to_risk", "the scenario is linked to an open register risk that would not hold it there; unlink it first",
+			map[string]any{"risk": risk})
 	case errors.As(err, &pg) && pg.Code == "PF017":
 		problem(w, http.StatusConflict, "stale_version", pg.Message, nil)
 	case errors.As(err, &pg) && pg.Code == "42501":

@@ -8,6 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/riverdriver/riverpgxv5"
+
+	"github.com/rformer/fair-app/internal/analysis"
 	"github.com/rformer/fair-app/internal/register"
 	"github.com/rformer/fair-app/internal/registerapi"
 	"github.com/rformer/fair-app/pkg/audit"
@@ -23,8 +27,14 @@ var registerEnvs int
 func registerAPI(t *testing.T, ra *riskAPIEnv) *riskAPIEnv {
 	t.Helper()
 	pool := ra.appPool()
+	// Exposure aggregates are queued by an insert-only River client and
+	// worked by the tests (analysisEnv.aggregates).
+	rc, err := river.NewClient(riverpgxv5.New(pool), &river.Config{Schema: analysis.RiverSchema})
+	if err != nil {
+		t.Fatal(err)
+	}
 	api := &registerapi.API{DB: pool, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool)}),
-		Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: pool})}
+		Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: pool}), EnqueueAggregate: analysis.AggregateEnqueuer(rc)}
 	srv := httptest.NewServer(api.Handler(ra.keys, nil))
 	t.Cleanup(srv.Close)
 	rg := *ra
@@ -77,7 +87,7 @@ func TestRegisterRisksAPI(t *testing.T) {
 	read := rg.call(t, "GET", "analyst", "/api/v1/register/risks/"+risk, nil)
 	links, _ := read.body["links"].([]any)
 	if read.code != 200 || read.body["risk"].(map[string]any)["title"] != "Ransomware on claims" || len(links) != 1 ||
-		links[0].(map[string]any)["run_id"] != r1 || read.body["risk"].(map[string]any)["category"].(map[string]any)["name"] != "Cyber" {
+		links[0].(map[string]any)["pin"].(map[string]any)["run_id"] != r1 || read.body["risk"].(map[string]any)["category"].(map[string]any)["name"] != "Cyber" {
 		t.Fatalf("read: %d %s", read.code, read.raw)
 	}
 	for name, c := range map[string]struct {

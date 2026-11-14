@@ -16,7 +16,12 @@
 //     rollup_definer and bu_guard_definer; and, for a table with a
 //     registered definer (ADR-007 amendment 3; F-004), bu_definer_select
 //     and bu_definer_update for that role alone, every row, the role
-//     holding SELECT and UPDATE and nothing else; and, for a table with a
+//     holding SELECT and UPDATE (and INSERT and DELETE, which stay within
+//     the caller's write scope: bu_insert, bu_delete) and nothing else; and,
+//     for a table with a registered definer insert (ADR-007 amendment 5;
+//     F-007), bu_definer_insert: INSERT, for that role alone, WITH CHECK
+//     true, the role holding nothing on the table but INSERT; and, for a
+//     table with a
 //     registered restriction (ADR-007 amendment 4; F-005), bu_restrict:
 //     RESTRICTIVE, SELECT, for app_rw alone, the registered expression;
 //     every other policy permissive;
@@ -108,6 +113,7 @@ type run struct {
 	shared   bool   // registered shared_down (inherited read)
 	definer  string // registered definer role (ADR-007 amendment 3), or ""
 	restrict string // registered restriction (ADR-007 amendment 4), or ""
+	inserter string // registered definer insert (ADR-007 amendment 5), or ""
 	key      authz.ContextKey
 	userID   string
 	version  int64
@@ -150,8 +156,9 @@ func randHex(n int) string {
 
 func (r *run) setup() error {
 	a := r.env.Admin
-	if err := a.QueryRow(r.ctx, "SELECT resource_type, shared_down, coalesce(definer::text, ''), coalesce(restriction, '') FROM iam.bu_owned_tables WHERE table_name = $1::regclass",
-		r.fx.Table).Scan(&r.rt, &r.shared, &r.definer, &r.restrict); err != nil {
+	if err := a.QueryRow(r.ctx, `SELECT resource_type, shared_down, coalesce(definer::text, ''), coalesce(restriction, ''), coalesce(inserter::text, '')
+		FROM iam.bu_owned_tables WHERE table_name = $1::regclass`,
+		r.fx.Table).Scan(&r.rt, &r.shared, &r.definer, &r.restrict, &r.inserter); err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
@@ -320,6 +327,9 @@ func (r *run) structure() {
 	if r.restrict != "" {
 		want["bu_restrict"] = "r"
 	}
+	if r.inserter != "" {
+		want["bu_definer_insert"] = "a"
+	}
 	rows, err := r.env.Admin.Query(r.ctx, `SELECT polname, polcmd::text, polpermissive,
 		coalesce(pg_get_expr(polqual, polrelid), ''), coalesce(pg_get_expr(polwithcheck, polrelid), ''),
 		(SELECT string_agg(CASE WHEN o = 0 THEN 'PUBLIC' ELSE o::regrole::text END, ',' ORDER BY o) FROM unnest(polroles) o)
@@ -374,6 +384,14 @@ func (r *run) structure() {
 			}
 			continue
 		}
+		if name == "bu_definer_insert" {
+			// Inserts for the registered role's functions alone, which
+			// check the caller (ADR-007 amendment 5).
+			if roles != r.inserter || qual != "" || check != "true" {
+				r.fail("structure", "policy bu_definer_insert (roles %s, %q, %q) must be for the registered inserter %s alone, WITH CHECK true", roles, qual, check, r.inserter)
+			}
+			continue
+		}
 		if name == "bu_rollup" {
 			// Aggregate-only rows, for roll-up functions alone (AC-62).
 			ref := fmt.Sprintf("rollup_bus('%s'::text)", r.rt)
@@ -421,9 +439,17 @@ func (r *run) structure() {
 	if r.definer != "" {
 		var more bool
 		if err := r.env.Admin.QueryRow(r.ctx, `SELECT EXISTS (SELECT 1 FROM pg_class c, aclexplode(c.relacl) a
-			WHERE c.oid = $1::regclass AND a.grantee = $2::regrole AND a.privilege_type NOT IN ('SELECT', 'UPDATE'))`,
+			WHERE c.oid = $1::regclass AND a.grantee = $2::regrole AND a.privilege_type NOT IN ('SELECT', 'UPDATE', 'INSERT', 'DELETE'))`,
 			r.fx.Table, r.definer).Scan(&more); err == nil && more {
-			r.fail("structure", "the definer %s holds more than SELECT and UPDATE", r.definer)
+			r.fail("structure", "the definer %s holds more than SELECT, UPDATE, INSERT and DELETE", r.definer)
+		}
+	}
+	if r.inserter != "" && r.inserter != r.definer {
+		var more bool
+		if err := r.env.Admin.QueryRow(r.ctx, `SELECT EXISTS (SELECT 1 FROM pg_class c, aclexplode(c.relacl) a
+			WHERE c.oid = $1::regclass AND a.grantee = $2::regrole AND a.privilege_type <> 'INSERT')`,
+			r.fx.Table, r.inserter).Scan(&more); err == nil && more {
+			r.fail("structure", "the inserter %s holds more than INSERT", r.inserter)
 		}
 	}
 }

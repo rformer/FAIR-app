@@ -20,6 +20,7 @@ security:
     dbContext: []
 tags:
   - { name: risks, description: "Register risks (F-007 R-01, R-05)" }
+  - { name: exposure, description: "Pins, exposure, staleness and coverage (F-007 R-02)" }
   - { name: categories, description: "Register categories (F-007 OQ3)" }
 components:
   securitySchemes:
@@ -55,7 +56,7 @@ components:
           type: string
           description: >-
             not_found, forbidden, invalid_request, invalid_value, invalid_document, stale_version, closed, same_state,
-            scenario_linked, scenario_outside, same_bu, restricted_move, duplicate, unavailable, unauthenticated
+            scenario_linked, scenario_outside, same_bu, restricted_move, duplicate, nothing_newer, unavailable, unauthenticated
         detail: { type: string }
         problems:
           type: array
@@ -109,6 +110,27 @@ components:
         created_by: { type: string, format: uuid }
         seq: { type: integer }
         scenarios: { type: integer, description: The number of linked scenarios }
+        exposure_aggregate_id: { type: [string, "null"], format: uuid, description: "The exposure aggregate (two or more pins)" }
+        status: { $ref: "#/components/schemas/Status" }
+    Status:
+      type: object
+      description: >-
+        The exposure's status (F-007 AC-08), computed when read. stale lists its reasons: no_pin (a linked scenario
+        without a pin), newer_version (a pin of a scenario version older than its latest), too_old (a result finished
+        more than register.analysis_max_age_days ago), archived (a linked scenario archived), exposure_unavailable (the
+        exposure aggregate failed, or could not be made from the pins by the person who changed them). unquantified:
+        no scenarios. computing: the exposure aggregate is queued or running.
+      required: [status, reasons]
+      properties:
+        status: { type: string, enum: [current, stale, unquantified, computing] }
+        reasons:
+          type: array
+          items:
+            type: object
+            required: [reason]
+            properties:
+              reason: { type: string, enum: [no_pin, newer_version, too_old, archived, exposure_unavailable] }
+              scenario_id: { type: string, format: uuid }
     Saved:
       type: object
       required: [id, version, digest]
@@ -136,6 +158,7 @@ paths:
         - { name: owner, in: query, schema: { type: string, format: uuid } }
         - { name: category, in: query, schema: { type: string, format: uuid } }
         - { name: state, in: query, schema: { type: string, enum: [open, closed] } }
+        - { name: status, in: query, schema: { type: string, enum: [current, stale, unquantified, computing] }, description: "The exposure status (AC-08, AC-09)" }
         - { name: sort, in: query, schema: { type: string, enum: [newest, title], default: newest } }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
         - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
@@ -157,7 +180,7 @@ paths:
       tags: [risks]
       summary: Create a risk with its first version (AC-01, AC-02)
       x-permission: register.edit at the BU
-      x-audit-events: [register.risk_created, register.scenario_linked]
+      x-audit-events: [register.risk_created, register.scenario_linked, register.pin_set, analysis.aggregate_created]
       x-reason-field: change_note
       parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
       requestBody:
@@ -183,7 +206,7 @@ paths:
     get:
       operationId: getRisk
       tags: [risks]
-      summary: A risk, its current version and its links (AC-19)
+      summary: A risk, its current version, its links with their pins and newer runs, and its exposure (AC-06 to AC-10, AC-19)
       x-permission: register.view (BU-scoped, RLS)
       parameters: [{ $ref: "#/components/parameters/ID" }]
       responses:
@@ -193,7 +216,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [risk, version, links]
+                required: [risk, version, links, exposure]
                 properties:
                   risk: { $ref: "#/components/schemas/Risk" }
                   version:
@@ -213,9 +236,45 @@ paths:
                         scenario_id: { type: string, format: uuid }
                         scenario_name: { type: [string, "null"] }
                         open: { type: boolean }
-                        run_id: { type: [string, "null"], format: uuid }
-                        control_set: { type: [string, "null"] }
-                        pinned_version: { type: [integer, "null"], description: The risk version that set the pin }
+                        scenario_version: { type: [integer, "null"], description: The scenario's latest version }
+                        scenario_archived: { type: boolean }
+                        pin:
+                          type: [object, "null"]
+                          properties:
+                            run_id: { type: string, format: uuid }
+                            control_set: { type: string }
+                            reason: { type: string }
+                            pinned_version: { type: integer, description: The risk version that set the pin }
+                            pinned_by: { type: string, format: uuid }
+                            pinned_at: { type: string, format: date-time }
+                            run_scenario_version: { type: integer, description: The scenario version the run simulated }
+                            run_finished_at: { type: string, format: date-time }
+                        newer_runs:
+                          type: array
+                          description: Succeeded runs of the scenario newer than the pinned run, at the register's iteration count, that the caller sees (AC-10)
+                          items:
+                            type: object
+                            properties:
+                              run_id: { type: string, format: uuid }
+                              scenario_version: { type: integer }
+                              finished_at: { type: string, format: date-time }
+                              control_sets: { type: array, items: { type: string } }
+                  exposure:
+                    type: object
+                    description: >-
+                      The exposure as the caller sees it (AC-07): none without pins; the pinned result with one pin; with
+                      more, the F-005 aggregate (purpose exposure) of the pinned results, which assumes the scenarios'
+                      losses independent. visible is false when the caller cannot see the result or every member.
+                    required: [kind]
+                    properties:
+                      kind: { type: string, enum: [none, run, aggregate] }
+                      run_id: { type: string, format: uuid }
+                      control_set: { type: string }
+                      aggregate_id: { type: [string, "null"], format: uuid }
+                      state: { type: string }
+                      visible: { type: boolean }
+                      summary: { type: object }
+                      assumption: { type: string }
         "404": { $ref: "#/components/responses/Error" }
     put:
       operationId: saveRisk
@@ -223,7 +282,7 @@ paths:
       summary: Save a new version of an open risk (AC-02, AC-03)
       description: Fields, scenarios and pins; the state stays open (close and reopen have their own routes).
       x-permission: register.edit at the risk's BU
-      x-audit-events: [register.risk_changed, register.scenario_linked, register.scenario_unlinked]
+      x-audit-events: [register.risk_changed, register.scenario_linked, register.scenario_unlinked, register.pin_set, analysis.aggregate_created]
       x-reason-field: change_note
       parameters:
         - { $ref: "#/components/parameters/IdempotencyKey" }
@@ -300,7 +359,7 @@ paths:
         With its versions, links and treatment. Refused when a linked scenario would be outside the new business unit's
         subtree (409 scenario_outside), or when the risk would leave a restricted subtree (409 restricted_move).
       x-permission: register.edit at both business units
-      x-audit-events: [register.risk_moved]
+      x-audit-events: [register.risk_moved, analysis.aggregate_created]
       parameters:
         - { $ref: "#/components/parameters/IdempotencyKey" }
         - { $ref: "#/components/parameters/ID" }
@@ -379,6 +438,85 @@ paths:
                         kind: { type: string, enum: [added, removed, changed] }
                         from: {}
                         to: {}
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/register/risks/{id}/adopt:
+    post:
+      operationId: adoptRisk
+      tags: [exposure]
+      summary: Adopt newer runs as pins (AC-10)
+      description: >-
+        A new version with the pins named, or, without any, the newest newer run of every pinned scenario that has one:
+        a pin of the run's current set moves to the newer run's current set; a pin of another set, made with a reason,
+        keeps that set and reason when the newer run has it. 409 nothing_newer when there is nothing to adopt.
+      x-permission: register.edit at the risk's BU
+      x-audit-events: [register.risk_changed, register.pin_set, analysis.aggregate_created]
+      x-reason-field: change_note
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/ID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expected_version, change_note]
+              additionalProperties: false
+              properties:
+                expected_version: { type: integer, minimum: 1 }
+                change_note: { type: string, minLength: 1, maxLength: 1000 }
+                pins:
+                  type: array
+                  maxItems: 200
+                  items:
+                    type: object
+                    required: [scenario_id, run_id]
+                    additionalProperties: false
+                    properties:
+                      scenario_id: { type: string, format: uuid }
+                      run_id: { type: string, format: uuid }
+                      control_set: { type: string, description: The run's current set when absent }
+                      reason: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "200":
+          description: Adopted
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Saved" }
+                  - { type: object, required: [adopted], properties: { adopted: { type: array, items: { type: string, format: uuid } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /api/v1/register/coverage:
+    get:
+      operationId: coverage
+      tags: [exposure]
+      summary: The open risks the caller sees, by exposure status (AC-09)
+      description: In the subtree of bu if given; the list (?status=) names them.
+      x-permission: register.view (BU-scoped, RLS)
+      parameters:
+        - { name: bu, in: query, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Counts
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [open, current, stale, unquantified, computing, current_share]
+                properties:
+                  bu_id: { type: string, format: uuid }
+                  open: { type: integer }
+                  current: { type: integer }
+                  stale: { type: integer }
+                  unquantified: { type: integer }
+                  computing: { type: integer }
+                  current_share: { type: [number, "null"], description: "current / open; null without open risks" }
         "400": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
   /api/v1/register/categories:

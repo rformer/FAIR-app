@@ -136,6 +136,11 @@ func TestRLSHarnessDetectsBrokenTables(t *testing.T) {
 		{"roll-up role can write", "GRANT UPDATE ON %s TO rollup_definer", "structure"},
 		{"guard policy for every role", "DROP POLICY bu_guard ON %[1]s; CREATE POLICY bu_guard ON %[1]s FOR SELECT USING (true)", "control"},
 		{"guard role can write", "GRANT DELETE ON %s TO bu_guard_definer", "structure"},
+		// ADR-007 amendment 5 (F-007 T-05): a definer insert is registered,
+		// for its role alone, which holds nothing else.
+		{"definer insert not registered", "CREATE POLICY bu_definer_insert ON %s FOR INSERT TO register_definer WITH CHECK (true)", "structure"},
+		{"definer insert for every role", "SELECT authz.allow_definer_insert('%[1]s', 'register_definer'); DROP POLICY bu_definer_insert ON %[1]s; CREATE POLICY bu_definer_insert ON %[1]s FOR INSERT WITH CHECK (true)", "structure"},
+		{"inserter can read", "SELECT authz.allow_definer_insert('%[1]s', 'register_definer'); GRANT SELECT ON %[1]s TO register_definer", "structure"},
 	}
 	for i, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

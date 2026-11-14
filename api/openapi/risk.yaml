@@ -392,8 +392,10 @@ paths:
       summary: Move a scenario with its versions to another BU (AC-19)
       description: >-
         Needs scenario.edit at the scenario's BU and at the destination. A scenario inside a restricted
-        BU never leaves its subtree (409 restricted_move). Documents and digests do not change; pins the
-        new BU does not read are flagged reachable false (AC-20).
+        BU never leaves its subtree (409 restricted_move). A scenario linked to an open register risk stays
+        in that risk's subtree (409 linked_to_risk, naming the risk as risk {risk_id, title} only to a caller
+        who sees it; F-007 design §10). Documents and digests do not change; pins the new BU does not read
+        are flagged reachable false (AC-20).
       x-permission: scenario.edit
       x-audit-events: [scenario.moved]
       parameters:

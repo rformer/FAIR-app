@@ -95,3 +95,19 @@ Status: Accepted (Robert Former, 2026-11-10; F-005 T-02)
 **Consequences.**
 - The RLS harness checks `bu_restrict` against the registry: restrictive, SELECT, `app_rw` alone, with an expression; every other policy must be permissive.
 - Used for `analysis.aggregate` and `analysis.aggregate_member` in v1: every member run in the reader's read scope, checked by the definer function `analysis.members_visible` (two tables' policies referring to each other would recurse).
+
+## Amendment 5: definer insert (2026-11-14)
+Status: Accepted (Robert Former, 2026-11-14; F-007 T-05)
+
+**Context.** F-007's register makes F-005 aggregates of the results a risk pins: a risk's exposure (purpose `exposure`) and business unit roll-ups (purpose `rollup`, T-07). F-007's design (§5.2) has them requested by the register's definer functions, which check `register.edit` or `register.view` instead of `analysis.run`: Risk Owners hold `analysis.view`, not `analysis.run`. An aggregate's rows are inserted under the BU policies, so the insert needs the caller's `analysis` write scope, and `authz.apply_bu_rls` refuses any other policy. Amendment 3 gave a definer reads and updates of every row, never inserts.
+
+**Decision.**
+- `authz.allow_definer_insert(table, role)` gives one named definer role inserts into a registered BU-owned table: policy `bu_definer_insert` (`FOR INSERT TO <role> WITH CHECK (true)`). The migration grants the role `INSERT` on the columns it needs and nothing else on the table.
+- The role must be `NOLOGIN`, `NOBYPASSRLS`, named `*_definer`, granted to no login role, and not `rollup_definer` or `bu_guard_definer`. It is recorded in `iam.bu_owned_tables.inserter`; one per table. `authz.apply_bu_rls` keeps the policy when it re-applies a table's BU policies.
+- The role's functions are the only callers. They take the caller from the signed context and check the caller themselves (for F-007: `register.edit` at the risk's BU for an exposure). Every check on the inserted rows' own triggers still runs; for aggregates, each member must be in the caller's own `analysis` read scope, so only results the caller sees are aggregated.
+- A table's definer (amendment 3) may also hold `INSERT` and `DELETE`. Without a definer insert, they stay within the caller's write scope (`bu_insert`, `bu_delete`). F-007's links table needs this: its rows are written by its version trigger under the caller's scope and read and updated by the definer everywhere.
+
+**Consequences.**
+- The RLS harness checks `bu_definer_insert` against the registry: the recorded role alone, `INSERT`, `WITH CHECK (true)`, and no privileges on the table beyond `INSERT`. A definer may hold `SELECT`, `UPDATE`, `INSERT` and `DELETE`.
+- Application roles are unaffected: their access remains the BU policies.
+- Used for `register_definer` on `analysis.aggregate` and `analysis.aggregate_member` in v1.

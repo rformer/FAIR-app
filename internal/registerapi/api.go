@@ -4,7 +4,7 @@
 // every request (server.Authenticate), an Idempotency-Key on every mutation
 // (server.Idempotent).
 //
-// T-04 serves risks and categories:
+// T-04 serves risks and categories; T-05 pins, exposure and coverage:
 //
 //	GET   /api/v1/register/risks                   the risks the caller sees          register.view (RLS)
 //	POST  /api/v1/register/risks                   create a risk                       register.edit at the BU
@@ -15,6 +15,8 @@
 //	POST  /api/v1/register/risks/{id}/move         move, with a reason                 register.edit at both BUs
 //	GET   /api/v1/register/risks/{id}/versions     its versions
 //	GET   /api/v1/register/risks/{id}/diff         two versions' differences
+//	POST  /api/v1/register/risks/{id}/adopt        adopt newer runs (T-05)            register.edit at its BU
+//	GET   /api/v1/register/coverage                open risks by exposure status (T-05)
 //	GET   /api/v1/register/categories              the categories                      register.view
 //	POST  /api/v1/register/categories              add one                             register.edit at the root
 //	PATCH /api/v1/register/categories/{id}         rename, archive or restore one
@@ -36,9 +38,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/rformer/fair-app/internal/analysis"
 	"github.com/rformer/fair-app/internal/register"
 	"github.com/rformer/fair-app/internal/risk/model"
 	"github.com/rformer/fair-app/internal/riskapi"
@@ -57,6 +61,9 @@ type API struct {
 	DB    *pgxpool.Pool // app_rw
 	Authz riskapi.Authorizer
 	Audit audit.Emitter
+	// EnqueueAggregate queues an exposure aggregate's job in the request's
+	// transaction (analysis.AggregateEnqueuer); required once pins exist.
+	EnqueueAggregate func(context.Context, pgx.Tx, analysis.AggregateArgs) error
 }
 
 type route struct {
@@ -74,6 +81,8 @@ var routes = []route{
 	{"POST", "/api/v1/register/risks/{id}/move", (*API).moveRisk},
 	{"GET", "/api/v1/register/risks/{id}/versions", (*API).listRiskVersions},
 	{"GET", "/api/v1/register/risks/{id}/diff", (*API).diffRisk},
+	{"POST", "/api/v1/register/risks/{id}/adopt", (*API).adoptRisk},
+	{"GET", "/api/v1/register/coverage", (*API).coverage},
 	{"GET", "/api/v1/register/categories", (*API).listCategories},
 	{"POST", "/api/v1/register/categories", (*API).createCategory},
 	{"PATCH", "/api/v1/register/categories/{id}", (*API).changeCategory},

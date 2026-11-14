@@ -60,7 +60,6 @@ import (
 
 	"github.com/rformer/fair-app/internal/analysis"
 	"github.com/rformer/fair-app/internal/analysisapi"
-	"github.com/rformer/fair-app/internal/registerapi"
 	"github.com/rformer/fair-app/internal/api/enginev1"
 	auditsvc "github.com/rformer/fair-app/internal/audit"
 	"github.com/rformer/fair-app/internal/config"
@@ -71,6 +70,7 @@ import (
 	"github.com/rformer/fair-app/internal/keys"
 	"github.com/rformer/fair-app/internal/migrate"
 	"github.com/rformer/fair-app/internal/natspub"
+	"github.com/rformer/fair-app/internal/registerapi"
 	"github.com/rformer/fair-app/internal/risk"
 	"github.com/rformer/fair-app/internal/riskapi"
 	"github.com/rformer/fair-app/internal/server"
@@ -374,7 +374,7 @@ func run() error {
 			srv.Mux().Handle(prefix+"/", ah)
 		}
 		// The register API (F-007 design §6).
-		rh := server.SecurityHeaders((&registerapi.API{DB: pool, Authz: grants, Audit: emitter}).Handler(jwtKeys, nil))
+		rh := server.SecurityHeaders((&registerapi.API{DB: pool, Authz: grants, Audit: emitter, EnqueueAggregate: enqueueAggregate}).Handler(jwtKeys, nil))
 		for _, prefix := range registerapi.Prefixes {
 			srv.Mux().Handle(prefix, rh)
 			srv.Mux().Handle(prefix+"/", rh)
