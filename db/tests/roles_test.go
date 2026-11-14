@@ -219,12 +219,12 @@ func (e *env) mustFail(role, sql, wantSubstr string) {
 func TestRoleAttributes(t *testing.T) {
 	e := setup(t)
 	out, err := e.as("app_rw", `SELECT string_agg(rolname||':'||rolcanlogin||':'||rolbypassrls||':'||rolsuper||':'||rolinherit, ',' ORDER BY rolname)
-		FROM pg_roles WHERE rolname IN ('fair_owner','authz_definer','posture_definer','rollup_definer','bu_guard_definer','audit_definer','risk_definer','estimate_definer','analysis_definer','app_migrator','app_rw','app_engine','app_posture','app_audit')`)
+		FROM pg_roles WHERE rolname IN ('fair_owner','authz_definer','posture_definer','rollup_definer','bu_guard_definer','audit_definer','risk_definer','estimate_definer','analysis_definer','register_definer','app_migrator','app_rw','app_engine','app_posture','app_audit')`)
 	if err != nil {
 		t.Fatal(err, out)
 	}
 	want := "analysis_definer:false:false:false:false,app_audit:true:false:false:false,app_engine:true:false:false:false,app_migrator:true:false:false:false,app_posture:true:false:false:false,app_rw:true:false:false:false," +
-		"audit_definer:false:false:false:false,authz_definer:false:false:false:false,bu_guard_definer:false:false:false:false,estimate_definer:false:false:false:false,fair_owner:false:false:false:false,posture_definer:false:false:false:false,risk_definer:false:false:false:false,rollup_definer:false:false:false:false"
+		"audit_definer:false:false:false:false,authz_definer:false:false:false:false,bu_guard_definer:false:false:false:false,estimate_definer:false:false:false:false,fair_owner:false:false:false:false,posture_definer:false:false:false:false,register_definer:false:false:false:false,risk_definer:false:false:false:false,rollup_definer:false:false:false:false"
 	if out != want {
 		t.Fatalf("role attributes\n got: %s\nwant: %s", out, want)
 	}
@@ -278,7 +278,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON iam.rls_probe TO app_rw;
 
 func TestOwnerRolesCannotLogIn(t *testing.T) {
 	e := setup(t)
-	for _, r := range []string{"fair_owner", "authz_definer", "posture_definer", "rollup_definer", "bu_guard_definer", "audit_definer", "risk_definer", "estimate_definer", "analysis_definer"} {
+	for _, r := range []string{"fair_owner", "authz_definer", "posture_definer", "rollup_definer", "bu_guard_definer", "audit_definer", "risk_definer", "estimate_definer", "analysis_definer", "register_definer"} {
 		cmd := exec.CommandContext(context.Background(), "psql", "--no-psqlrc", "-X", "-d", e.db, "-c", "SELECT 1")
 		cmd.Env = withVars(e.adminEnv, map[string]string{"PGUSER": r, "PGPASSWORD": "irrelevant"})
 		if out, err := cmd.CombinedOutput(); err == nil {
