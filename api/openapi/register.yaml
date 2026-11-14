@@ -1,0 +1,445 @@
+openapi: 3.1.0
+info:
+  title: FAIR Register API
+  version: "1"
+  contact: { name: FAIR Risk Platform, url: "https://github.com/rformer/FAIR-app" }
+  description: |
+    F-007 design §6. The risk register, served by the risk service behind the gateway, which
+    authenticates the session and forwards an internal JWT (ES256, audience `risk`, at most
+    5 minutes) and the DB context token it was minted with (F-001 design §4, §5.2).
+
+    A risk names a risk in business terms, has an owner and a business unit, and covers one or
+    more scenarios, each with the analysis pinned as its current one. Every change is a version
+    with who made it, when and why. Risks are BU-owned, read under row-level security. Without
+    register.view or register.edit anywhere the routes do not exist for the caller (404,
+    F-001 AC-25).
+servers:
+  - url: /
+security:
+  - internalJWT: []
+    dbContext: []
+tags:
+  - { name: risks, description: "Register risks (F-007 R-01, R-05)" }
+  - { name: categories, description: "Register categories (F-007 OQ3)" }
+components:
+  securitySchemes:
+    internalJWT: { type: http, scheme: bearer, bearerFormat: JWT }
+    dbContext: { type: apiKey, in: header, name: X-Fair-DB-Context }
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 8, maxLength: 128 }
+    ID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    Error:
+      description: An error
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Invalid:
+      description: The document's problems, by JSON pointer
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Saved:
+      description: Saved
+      content: { application/json: { schema: { $ref: "#/components/schemas/Saved" } } }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: >-
+            not_found, forbidden, invalid_request, invalid_value, invalid_document, stale_version, closed, same_state,
+            scenario_linked, scenario_outside, same_bu, restricted_move, duplicate, unavailable, unauthenticated
+        detail: { type: string }
+        problems:
+          type: array
+          items: { type: object, properties: { pointer: { type: string }, message: { type: string } } }
+    RiskDocument:
+      type: object
+      description: >-
+        F-007 design §3.1 (schema_version 1). Checked by the service and again by the database: the owner holds
+        register.view at the risk's business unit; each scenario is visible to the author and in the risk's subtree,
+        linked to no other open risk; a pin is a succeeded run of the scenario, of the register's iteration count
+        (register.iterations), and one of its control sets (another than the current one with a reason).
+      required: [schema_version, title, owner, state, scenarios]
+      additionalProperties: false
+      properties:
+        schema_version: { type: integer, const: 1 }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, minLength: 1, maxLength: 5000 }
+        owner: { type: string, format: uuid }
+        category: { type: [string, "null"], format: uuid }
+        state: { type: string, enum: [open, closed] }
+        close_reason: { type: string, minLength: 1, maxLength: 1000 }
+        scenarios:
+          type: array
+          maxItems: 200
+          items:
+            type: object
+            required: [scenario_id]
+            additionalProperties: false
+            properties:
+              scenario_id: { type: string, format: uuid }
+              pin:
+                type: [object, "null"]
+                required: [run_id, control_set]
+                additionalProperties: false
+                properties:
+                  run_id: { type: string, format: uuid }
+                  control_set: { type: string }
+                  reason: { type: string, minLength: 1, maxLength: 1000 }
+    Risk:
+      type: object
+      required: [id, bu_id, state, title, owner, category, current_version, created_at, created_by, seq, scenarios]
+      properties:
+        id: { type: string, format: uuid }
+        bu_id: { type: string, format: uuid }
+        state: { type: string, enum: [open, closed] }
+        title: { type: string }
+        owner: { type: string, format: uuid }
+        category: { type: [object, "null"], properties: { id: { type: string, format: uuid }, name: { type: string } } }
+        current_version: { type: integer }
+        created_at: { type: string, format: date-time }
+        created_by: { type: string, format: uuid }
+        seq: { type: integer }
+        scenarios: { type: integer, description: The number of linked scenarios }
+    Saved:
+      type: object
+      required: [id, version, digest]
+      properties:
+        id: { type: string, format: uuid }
+        version: { type: integer }
+        digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+    Category:
+      type: object
+      required: [id, name, archived_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        archived_at: { type: [string, "null"], format: date-time }
+paths:
+  /api/v1/register/risks:
+    get:
+      operationId: listRisks
+      tags: [risks]
+      summary: The risks the caller sees (AC-19)
+      x-permission: register.view (BU-scoped, RLS)
+      parameters:
+        - { name: bu, in: query, schema: { type: string, format: uuid }, description: "A business unit and (unless subtree=false) its subtree" }
+        - { name: subtree, in: query, schema: { type: boolean, default: true } }
+        - { name: owner, in: query, schema: { type: string, format: uuid } }
+        - { name: category, in: query, schema: { type: string, format: uuid } }
+        - { name: state, in: query, schema: { type: string, enum: [open, closed] } }
+        - { name: sort, in: query, schema: { type: string, enum: [newest, title], default: newest } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+      responses:
+        "200":
+          description: Risks
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [risks, more]
+                properties:
+                  risks: { type: array, items: { $ref: "#/components/schemas/Risk" } }
+                  more: { type: boolean }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createRisk
+      tags: [risks]
+      summary: Create a risk with its first version (AC-01, AC-02)
+      x-permission: register.edit at the BU
+      x-audit-events: [register.risk_created, register.scenario_linked]
+      x-reason-field: change_note
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bu_id, document, change_note]
+              additionalProperties: false
+              properties:
+                bu_id: { type: string, format: uuid }
+                document: { $ref: "#/components/schemas/RiskDocument" }
+                change_note: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "201": { $ref: "#/components/responses/Saved" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /api/v1/register/risks/{id}:
+    get:
+      operationId: getRisk
+      tags: [risks]
+      summary: A risk, its current version and its links (AC-19)
+      x-permission: register.view (BU-scoped, RLS)
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: The risk
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [risk, version, links]
+                properties:
+                  risk: { $ref: "#/components/schemas/Risk" }
+                  version:
+                    type: object
+                    properties:
+                      version: { type: integer }
+                      document: { $ref: "#/components/schemas/RiskDocument" }
+                      digest: { type: string }
+                      change_note: { type: string }
+                      author: { type: string, format: uuid }
+                      created_at: { type: string, format: date-time }
+                  links:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        scenario_id: { type: string, format: uuid }
+                        scenario_name: { type: [string, "null"] }
+                        open: { type: boolean }
+                        run_id: { type: [string, "null"], format: uuid }
+                        control_set: { type: [string, "null"] }
+                        pinned_version: { type: [integer, "null"], description: The risk version that set the pin }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      operationId: saveRisk
+      tags: [risks]
+      summary: Save a new version of an open risk (AC-02, AC-03)
+      description: Fields, scenarios and pins; the state stays open (close and reopen have their own routes).
+      x-permission: register.edit at the risk's BU
+      x-audit-events: [register.risk_changed, register.scenario_linked, register.scenario_unlinked]
+      x-reason-field: change_note
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/ID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [document, expected_version, change_note]
+              additionalProperties: false
+              properties:
+                document: { $ref: "#/components/schemas/RiskDocument" }
+                expected_version: { type: integer, minimum: 1, description: The version the change was made from }
+                change_note: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "200": { $ref: "#/components/responses/Saved" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /api/v1/register/risks/{id}/close:
+    post:
+      operationId: closeRisk
+      tags: [risks]
+      summary: Close a risk with a reason (AC-04)
+      description: A new version with the state closed and nothing else changed; the risk's scenarios are freed.
+      x-permission: register.edit at the risk's BU
+      x-audit-events: [register.risk_closed]
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/ID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [reason], additionalProperties: false, properties: { reason: { type: string, minLength: 1, maxLength: 1000 } } }
+      responses:
+        "200": { $ref: "#/components/responses/Saved" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/register/risks/{id}/reopen:
+    post:
+      operationId: reopenRisk
+      tags: [risks]
+      summary: Reopen a closed risk with a reason (AC-04)
+      description: Refused (409 scenario_linked) while one of its scenarios is linked to another open risk.
+      x-permission: register.edit at the risk's BU
+      x-audit-events: [register.risk_reopened]
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/ID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [reason], additionalProperties: false, properties: { reason: { type: string, minLength: 1, maxLength: 1000 } } }
+      responses:
+        "200": { $ref: "#/components/responses/Saved" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/register/risks/{id}/move:
+    post:
+      operationId: moveRisk
+      tags: [risks]
+      summary: Move a risk to another business unit (AC-05)
+      description: >-
+        With its versions, links and treatment. Refused when a linked scenario would be outside the new business unit's
+        subtree (409 scenario_outside), or when the risk would leave a restricted subtree (409 restricted_move).
+      x-permission: register.edit at both business units
+      x-audit-events: [register.risk_moved]
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/ID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to_bu_id, reason]
+              additionalProperties: false
+              properties:
+                to_bu_id: { type: string, format: uuid }
+                reason: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "200": { description: Moved, content: { application/json: { schema: { type: object, properties: { id: { type: string }, bu_id: { type: string } } } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/register/risks/{id}/versions:
+    get:
+      operationId: listRiskVersions
+      tags: [risks]
+      summary: A risk's versions, newest first, without documents (AC-03)
+      x-permission: register.view (BU-scoped, RLS)
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: Versions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [versions]
+                properties:
+                  versions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        version: { type: integer }
+                        digest: { type: string }
+                        change_note: { type: string }
+                        author: { type: string, format: uuid }
+                        created_at: { type: string, format: date-time }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/register/risks/{id}/diff:
+    get:
+      operationId: diffRisk
+      tags: [risks]
+      summary: The differences between two versions of a risk, by JSON pointer (AC-03)
+      x-permission: register.view (BU-scoped, RLS)
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { name: from, in: query, required: true, schema: { type: integer, minimum: 1 } }
+        - { name: to, in: query, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200":
+          description: The differences
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, from, to, changes]
+                properties:
+                  id: { type: string, format: uuid }
+                  from: { type: integer }
+                  to: { type: integer }
+                  changes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        pointer: { type: string }
+                        kind: { type: string, enum: [added, removed, changed] }
+                        from: {}
+                        to: {}
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/register/categories:
+    get:
+      operationId: listCategories
+      tags: [categories]
+      summary: The register's categories, in use first
+      x-permission: register.view (any BU)
+      responses:
+        "200":
+          description: Categories
+          content:
+            application/json:
+              schema: { type: object, required: [categories], properties: { categories: { type: array, items: { $ref: "#/components/schemas/Category" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createCategory
+      tags: [categories]
+      summary: Add a category (OQ3)
+      x-permission: register.edit at the root business unit
+      x-audit-events: [register.category_changed]
+      x-reason-exempt: a category is a name, recorded with its change
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [name], additionalProperties: false, properties: { name: { type: string, minLength: 1, maxLength: 100 } } }
+      responses:
+        "201": { description: Added, content: { application/json: { schema: { type: object, properties: { id: { type: string, format: uuid } } } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /api/v1/register/categories/{id}:
+    patch:
+      operationId: changeCategory
+      tags: [categories]
+      summary: Rename, archive or restore a category (OQ3)
+      description: Archived categories stay on the risks that have them; they cannot be newly chosen.
+      x-permission: register.edit at the root business unit
+      x-audit-events: [register.category_changed]
+      x-reason-exempt: a category is a name, recorded with its change
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/ID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name: { type: string, minLength: 1, maxLength: 100 }
+                archived: { type: boolean }
+      responses:
+        "200": { description: Changed, content: { application/json: { schema: { type: object, properties: { id: { type: string, format: uuid } } } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Invalid" }

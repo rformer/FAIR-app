@@ -100,6 +100,8 @@ var Segments = map[string]string{
 	"estimates": "risk", "calibration": "risk",
 	// F-005 (design §5): simulation runs and aggregates, in the risk service.
 	"analyses": "risk",
+	// F-007 (design §6): the risk register, in the risk service.
+	"register": "risk",
 }
 
 type ctxKey struct{}

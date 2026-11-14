@@ -820,6 +820,61 @@ events:
     requires: [target]
     attributes: [from_version, profile]
     description: "A custom profile got a new version"
+  - type: register.category_changed
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    attributes: [category, change, name]
+    description: "A register category was added, renamed, archived or restored by register.edit at the root (F-007 T-04, OQ3); filed under the root BU"
+  - type: register.risk_changed
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [change_note, digest, version]
+    description: "A new version of a register risk was saved: its fields, scenarios or pins (F-007 T-04, AC-02, AC-03)"
+  - type: register.risk_closed
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [reason, version]
+    description: "A register risk was closed with a reason; it is kept read-only and its scenarios are freed (F-007 T-04, AC-04)"
+  - type: register.risk_created
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [digest, version]
+    description: "A register risk was created with its first version (F-007 T-04, AC-01)"
+  - type: register.risk_moved
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [from_bu, reason, to_bu]
+    description: "A register risk moved to another BU with its versions, links and treatment (F-007 T-04, AC-05); filed under the new BU"
+  - type: register.risk_reopened
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [reason, version]
+    description: "A closed register risk was reopened with a reason (F-007 T-04, AC-04)"
+  - type: register.scenario_linked
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [scenario, version]
+    description: "A scenario was linked to a register risk (F-007 T-04, AC-02)"
+  - type: register.scenario_unlinked
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [scenario, version]
+    description: "A scenario was unlinked from a register risk (F-007 T-04, AC-02)"
   - type: risk.currency_set
     category: configuration
     severities: [high]

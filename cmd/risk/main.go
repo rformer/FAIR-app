@@ -60,6 +60,7 @@ import (
 
 	"github.com/rformer/fair-app/internal/analysis"
 	"github.com/rformer/fair-app/internal/analysisapi"
+	"github.com/rformer/fair-app/internal/registerapi"
 	"github.com/rformer/fair-app/internal/api/enginev1"
 	auditsvc "github.com/rformer/fair-app/internal/audit"
 	"github.com/rformer/fair-app/internal/config"
@@ -371,6 +372,12 @@ func run() error {
 		for _, prefix := range analysisapi.Prefixes {
 			srv.Mux().Handle(prefix, ah)
 			srv.Mux().Handle(prefix+"/", ah)
+		}
+		// The register API (F-007 design §6).
+		rh := server.SecurityHeaders((&registerapi.API{DB: pool, Authz: grants, Audit: emitter}).Handler(jwtKeys, nil))
+		for _, prefix := range registerapi.Prefixes {
+			srv.Mux().Handle(prefix, rh)
+			srv.Mux().Handle(prefix+"/", rh)
 		}
 	} else {
 		logger.Warn("the risk API is off: it needs the gateway's JWT keys (FAIR_JWT_KEYS_DIR)")
