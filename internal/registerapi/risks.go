@@ -354,7 +354,9 @@ func (a *API) moveRisk(w http.ResponseWriter, r *http.Request, p authz.Principal
 
 const riskColumns = `r.id::text, r.bu_id::text, r.state, r.title, r.owner::text, r.category_id::text, c.name, r.current_version, r.created_at,
 	r.created_by::text, r.seq, (SELECT count(*) FROM register.risk_scenario l WHERE l.risk_id = r.id), r.exposure_aggregate_id::text,
-	register.exposure_status(r.id)`
+	register.exposure_status(r.id),
+	(SELECT jsonb_build_object('version', t.current_version, 'decision', t.decision, 'next_due', t.next_due, 'overdue', coalesce(t.next_due < current_date, false))
+	 FROM register.treatment t WHERE t.risk_id = r.id)`
 
 func scanRisk(row pgx.Row) (map[string]any, error) {
 	var (
@@ -364,15 +366,21 @@ func scanRisk(row pgx.Row) (map[string]any, error) {
 		created               time.Time
 		seq, scenarios        int64
 		aggregate             *string
-		status                []byte
+		status, treatment     []byte
 	)
-	if err := row.Scan(&id, &bu, &state, &title, &owner, &cat, &cn, &version, &created, &by, &seq, &scenarios, &aggregate, &status); err != nil {
+	if err := row.Scan(&id, &bu, &state, &title, &owner, &cat, &cn, &version, &created, &by, &seq, &scenarios, &aggregate, &status, &treatment); err != nil {
 		return nil, err
 	}
 	out := map[string]any{"id": id, "bu_id": bu, "state": state, "title": title, "owner": owner, "category": nil, "current_version": version,
 		"created_at": created, "created_by": by, "seq": seq, "scenarios": scenarios, "exposure_aggregate_id": aggregate, "status": json.RawMessage(status)}
 	if cat != nil {
 		out["category"] = map[string]any{"id": *cat, "name": cn}
+	}
+	// The plan's summary as the caller sees it (treatment.view, RLS): null
+	// without one or without the permission.
+	out["treatment"] = nil
+	if treatment != nil {
+		out["treatment"] = json.RawMessage(treatment)
 	}
 	return out, nil
 }
@@ -381,8 +389,9 @@ var listSorts = map[string]string{"newest": "r.seq DESC", "title": "lower(r.titl
 
 // listRisks lists the risks the caller sees (AC-19): ?bu= (with
 // &subtree=false, that BU only), ?owner=, ?category=, ?state=, ?status=
-// (the exposure status, AC-08, AC-09), ?sort=newest|title, ?limit= 1 to
-// 200 (50), ?offset=.
+// (the exposure status, AC-08, AC-09), ?decision= and ?overdue=true (the
+// treatment, among the risks whose treatment the caller sees, AC-19),
+// ?sort=newest|title, ?limit= 1 to 200 (50), ?offset=.
 func (a *API) listRisks(w http.ResponseWriter, r *http.Request, p authz.Principal) {
 	if !a.anywhere(w, r, p) {
 		return
@@ -427,6 +436,25 @@ func (a *API) listRisks(w http.ResponseWriter, r *http.Request, p authz.Principa
 			return
 		}
 		where = append(where, "register.exposure_status(r.id) ->> 'status' = "+arg(v))
+	}
+	const seesTreatment = "r.bu_id = ANY (authz.visible_bus('treatment', 'read'))"
+	switch v := q.Get("decision"); v {
+	case "":
+	case "none":
+		where = append(where, seesTreatment, "NOT EXISTS (SELECT 1 FROM register.treatment t WHERE t.risk_id = r.id AND t.decision IS NOT NULL)")
+	case "mitigate", "transfer", "avoid", "accept":
+		where = append(where, seesTreatment, "EXISTS (SELECT 1 FROM register.treatment t WHERE t.risk_id = r.id AND t.decision = "+arg(v)+")")
+	default:
+		problem(w, http.StatusBadRequest, "invalid_value", "decision is mitigate, transfer, avoid, accept or none", nil)
+		return
+	}
+	switch q.Get("overdue") {
+	case "", "false":
+	case "true":
+		where = append(where, seesTreatment, "EXISTS (SELECT 1 FROM register.treatment t WHERE t.risk_id = r.id AND t.next_due < current_date)")
+	default:
+		problem(w, http.StatusBadRequest, "invalid_value", "overdue is true or false", nil)
+		return
 	}
 	order, ok := listSorts[q.Get("sort")]
 	if q.Get("sort") == "" {
@@ -534,7 +562,8 @@ func (a *API) getRisk(w http.ResponseWriter, r *http.Request, p authz.Principal)
 	writeJSON(w, http.StatusOK, out)
 }
 
-// listRiskVersions lists a risk's versions, newest first (AC-03).
+// listRiskVersions lists a risk's versions and, with treatment.view, its
+// treatment's, merged newest first (AC-03), each with its stream.
 func (a *API) listRiskVersions(w http.ResponseWriter, r *http.Request, p authz.Principal) {
 	if !a.anywhere(w, r, p) {
 		return
@@ -549,20 +578,22 @@ func (a *API) listRiskVersions(w http.ResponseWriter, r *http.Request, p authz.P
 		if _, err := readHead(r.Context(), tx, id); err != nil {
 			return err
 		}
-		rows, err := tx.Query(r.Context(), `SELECT version, digest, change_note, author::text, created_at FROM register.risk_version
-			WHERE risk_id = $1 ORDER BY version DESC`, id)
+		rows, err := tx.Query(r.Context(), `SELECT 'risk', version, digest, change_note, author::text, created_at FROM register.risk_version WHERE risk_id = $1
+			UNION ALL
+			SELECT 'treatment', version, digest, change_note, author::text, created_at FROM register.treatment_version WHERE risk_id = $1
+			ORDER BY 6 DESC, 1, 2 DESC`, id)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var v int
-			var digest, note, by string
+			var stream, digest, note, by string
 			var at time.Time
-			if err := rows.Scan(&v, &digest, &note, &by, &at); err != nil {
+			if err := rows.Scan(&stream, &v, &digest, &note, &by, &at); err != nil {
 				return err
 			}
-			versions = append(versions, map[string]any{"version": v, "digest": digest, "change_note": note, "author": by, "created_at": at})
+			versions = append(versions, map[string]any{"stream": stream, "version": v, "digest": digest, "change_note": note, "author": by, "created_at": at})
 		}
 		return rows.Err()
 	})
@@ -573,7 +604,8 @@ func (a *API) listRiskVersions(w http.ResponseWriter, r *http.Request, p authz.P
 	writeJSON(w, http.StatusOK, map[string]any{"versions": versions})
 }
 
-// diffRisk answers the differences between ?from= and ?to= (AC-03).
+// diffRisk answers the differences between ?from= and ?to= of the risk,
+// or with ?stream=treatment of its treatment (AC-03).
 func (a *API) diffRisk(w http.ResponseWriter, r *http.Request, p authz.Principal) {
 	if !a.anywhere(w, r, p) {
 		return
@@ -589,10 +621,22 @@ func (a *API) diffRisk(w http.ResponseWriter, r *http.Request, p authz.Principal
 		problem(w, http.StatusBadRequest, "invalid_value", "from and to are two versions", nil)
 		return
 	}
+	table := "register.risk_version"
+	switch r.URL.Query().Get("stream") {
+	case "", "risk":
+	case "treatment":
+		table = "register.treatment_version"
+	default:
+		problem(w, http.StatusBadRequest, "invalid_value", "stream is risk or treatment", nil)
+		return
+	}
 	var changes []register.Change
 	err := authz.WithDBContext(r.Context(), a.DB, p.DBToken, func(tx pgx.Tx) error {
+		if _, err := readHead(r.Context(), tx, id); err != nil {
+			return err
+		}
 		docs := map[int][]byte{}
-		rows, err := tx.Query(r.Context(), "SELECT version, document FROM register.risk_version WHERE risk_id = $1 AND version IN ($2, $3)", id, from, to)
+		rows, err := tx.Query(r.Context(), "SELECT version, document FROM "+table+" WHERE risk_id = $1 AND version IN ($2, $3)", id, from, to)
 		if err != nil {
 			return err
 		}

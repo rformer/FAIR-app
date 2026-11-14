@@ -21,6 +21,7 @@ security:
 tags:
   - { name: risks, description: "Register risks (F-007 R-01, R-05)" }
   - { name: exposure, description: "Pins, exposure, staleness and coverage (F-007 R-02)" }
+  - { name: treatment, description: "Treatment plans (F-007 R-04)" }
   - { name: categories, description: "Register categories (F-007 OQ3)" }
 components:
   securitySchemes:
@@ -112,6 +113,50 @@ components:
         scenarios: { type: integer, description: The number of linked scenarios }
         exposure_aggregate_id: { type: [string, "null"], format: uuid, description: "The exposure aggregate (two or more pins)" }
         status: { $ref: "#/components/schemas/Status" }
+        treatment:
+          type: [object, "null"]
+          description: The plan's summary as the caller sees it (treatment.view); null without a plan or the permission
+          properties:
+            version: { type: integer }
+            decision: { type: [string, "null"], enum: [mitigate, transfer, avoid, accept, null] }
+            next_due: { type: [string, "null"], format: date, description: The earliest due date of the open actions }
+            overdue: { type: boolean }
+    TreatmentDocument:
+      type: object
+      description: >-
+        F-007 design §3.2 (schema_version 1), checked by the database: a decision (or null) with a rationale; for
+        mitigate, targets (a control set of each linked scenario's latest version); actions with an id, title, owner,
+        due date, state and, when cancelled, a reason. A closed risk's plan does not change.
+      required: [schema_version, decision]
+      additionalProperties: false
+      properties:
+        schema_version: { type: integer, const: 1 }
+        decision: { type: [string, "null"], enum: [mitigate, transfer, avoid, accept, null] }
+        rationale: { type: string, minLength: 1, maxLength: 5000 }
+        targets:
+          type: array
+          maxItems: 200
+          items:
+            type: object
+            required: [scenario_id, control_set]
+            additionalProperties: false
+            properties:
+              scenario_id: { type: string, format: uuid }
+              control_set: { type: string }
+        actions:
+          type: array
+          maxItems: 200
+          items:
+            type: object
+            required: [id, title, owner, due, state]
+            additionalProperties: false
+            properties:
+              id: { type: string, format: uuid }
+              title: { type: string, minLength: 1, maxLength: 200 }
+              owner: { type: string, format: uuid }
+              due: { type: string, format: date }
+              state: { type: string, enum: [planned, in_progress, done, cancelled] }
+              cancel_reason: { type: string, minLength: 1, maxLength: 1000 }
     Status:
       type: object
       description: >-
@@ -159,6 +204,8 @@ paths:
         - { name: category, in: query, schema: { type: string, format: uuid } }
         - { name: state, in: query, schema: { type: string, enum: [open, closed] } }
         - { name: status, in: query, schema: { type: string, enum: [current, stale, unquantified, computing] }, description: "The exposure status (AC-08, AC-09)" }
+        - { name: decision, in: query, schema: { type: string, enum: [mitigate, transfer, avoid, accept, none] }, description: "The treatment decision, among the risks whose treatment the caller sees" }
+        - { name: overdue, in: query, schema: { type: boolean }, description: "Risks with overdue actions, among those whose treatment the caller sees" }
         - { name: sort, in: query, schema: { type: string, enum: [newest, title], default: newest } }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
         - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
@@ -383,6 +430,7 @@ paths:
   /api/v1/register/risks/{id}/versions:
     get:
       operationId: listRiskVersions
+      description: The risk's versions and, with treatment.view, its treatment's, merged newest first, each with its stream.
       tags: [risks]
       summary: A risk's versions, newest first, without documents (AC-03)
       x-permission: register.view (BU-scoped, RLS)
@@ -410,11 +458,13 @@ paths:
   /api/v1/register/risks/{id}/diff:
     get:
       operationId: diffRisk
+      description: "The risk's versions, or with stream=treatment its treatment's (treatment.view)."
       tags: [risks]
       summary: The differences between two versions of a risk, by JSON pointer (AC-03)
       x-permission: register.view (BU-scoped, RLS)
       parameters:
         - { $ref: "#/components/parameters/ID" }
+        - { name: stream, in: query, schema: { type: string, enum: [risk, treatment], default: risk } }
         - { name: from, in: query, required: true, schema: { type: integer, minimum: 1 } }
         - { name: to, in: query, required: true, schema: { type: integer, minimum: 1 } }
       responses:
@@ -487,6 +537,98 @@ paths:
                 allOf:
                   - { $ref: "#/components/schemas/Saved" }
                   - { type: object, required: [adopted], properties: { adopted: { type: array, items: { type: string, format: uuid } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /api/v1/register/risks/{id}/treatment:
+    get:
+      operationId: getTreatment
+      tags: [treatment]
+      summary: A risk's treatment plan (AC-15 to AC-18)
+      description: >-
+        The plan's document (version 0 and an empty plan without one), its actions with the overdue ones flagged
+        (past their due date, neither done nor cancelled), whether an acceptance is needed (decision accept; F-008
+        decides it), and the expected exposure after treatment (AC-16): for a mitigation with targets, each
+        scenario's pinned set against its target set in the same pinned run, by mean annualized loss, with the
+        totals (sums of means) and the items for the F-006 comparison. 403 for a reader of the risk without
+        treatment.view at its BU.
+      x-permission: treatment.view at the risk's BU
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: The plan
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [risk_id, version, document, actions, overdue_actions, acceptance, expected]
+                properties:
+                  risk_id: { type: string, format: uuid }
+                  version: { type: integer }
+                  document: { $ref: "#/components/schemas/TreatmentDocument" }
+                  actions: { type: array, items: { type: object, properties: { id: { type: string }, overdue: { type: boolean } } } }
+                  overdue_actions: { type: integer }
+                  acceptance: { type: object, properties: { needed: { type: boolean }, state: { type: ["null", string] } } }
+                  expected:
+                    type: object
+                    required: [available]
+                    properties:
+                      available: { type: boolean }
+                      reason: { type: string, enum: [no_targets, incomplete] }
+                      scenarios:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            scenario_id: { type: string, format: uuid }
+                            run_id: { type: [string, "null"], format: uuid }
+                            current_set: { type: [string, "null"] }
+                            target_set: { type: [string, "null"] }
+                            status: { type: string, enum: [ok, no_pin, not_visible, target_not_in_pinned_run] }
+                            current_mean: { type: number }
+                            target_mean: { type: number }
+                            reduction: { type: number }
+                      current_mean_total: { type: number }
+                      target_mean_total: { type: number }
+                      reduction: { type: number }
+                      compare_items: { type: array, items: { type: string } }
+                      assumption: { type: string }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      operationId: saveTreatment
+      tags: [treatment]
+      summary: Save a new version of a risk's treatment plan (AC-15, AC-17)
+      description: expected_version 0 makes the first plan. A closed risk's plan does not change (409 closed).
+      x-permission: treatment.edit at the risk's BU
+      x-audit-events: [register.treatment_changed]
+      x-reason-field: change_note
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/ID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [document, expected_version, change_note]
+              additionalProperties: false
+              properties:
+                document: { $ref: "#/components/schemas/TreatmentDocument" }
+                expected_version: { type: integer, minimum: 0 }
+                change_note: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Saved" }
+                  - { type: object, required: [acceptance_needed], properties: { acceptance_needed: { type: boolean } } }
         "400": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }

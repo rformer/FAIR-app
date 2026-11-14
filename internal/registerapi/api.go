@@ -4,7 +4,8 @@
 // every request (server.Authenticate), an Idempotency-Key on every mutation
 // (server.Idempotent).
 //
-// T-04 serves risks and categories; T-05 pins, exposure and coverage:
+// T-04 serves risks and categories; T-05 pins, exposure and coverage; T-06
+// treatment:
 //
 //	GET   /api/v1/register/risks                   the risks the caller sees          register.view (RLS)
 //	POST  /api/v1/register/risks                   create a risk                       register.edit at the BU
@@ -17,6 +18,8 @@
 //	GET   /api/v1/register/risks/{id}/diff         two versions' differences
 //	POST  /api/v1/register/risks/{id}/adopt        adopt newer runs (T-05)            register.edit at its BU
 //	GET   /api/v1/register/coverage                open risks by exposure status (T-05)
+//	GET   /api/v1/register/risks/{id}/treatment    the plan (T-06)                    treatment.view at its BU
+//	PUT   /api/v1/register/risks/{id}/treatment    save the plan                      treatment.edit at its BU
 //	GET   /api/v1/register/categories              the categories                      register.view
 //	POST  /api/v1/register/categories              add one                             register.edit at the root
 //	PATCH /api/v1/register/categories/{id}         rename, archive or restore one
@@ -82,6 +85,8 @@ var routes = []route{
 	{"GET", "/api/v1/register/risks/{id}/versions", (*API).listRiskVersions},
 	{"GET", "/api/v1/register/risks/{id}/diff", (*API).diffRisk},
 	{"POST", "/api/v1/register/risks/{id}/adopt", (*API).adoptRisk},
+	{"GET", "/api/v1/register/risks/{id}/treatment", (*API).getTreatment},
+	{"PUT", "/api/v1/register/risks/{id}/treatment", (*API).saveTreatment},
 	{"GET", "/api/v1/register/coverage", (*API).coverage},
 	{"GET", "/api/v1/register/categories", (*API).listCategories},
 	{"POST", "/api/v1/register/categories", (*API).createCategory},

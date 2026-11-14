@@ -882,6 +882,13 @@ events:
     bu: required
     attributes: [scenario, version]
     description: "A scenario was unlinked from a register risk (F-007 T-04, AC-02)"
+  - type: register.treatment_changed
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [actions_changed, change_note, decision, version]
+    description: "A new version of a register risk's treatment plan was saved: its decision (none, mitigate, transfer, avoid or accept; accept needs an acceptance, F-008), rationale, targets or actions (F-007 T-06, AC-15 to AC-18)"
   - type: risk.currency_set
     category: configuration
     severities: [high]
