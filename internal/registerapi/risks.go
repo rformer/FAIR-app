@@ -385,13 +385,16 @@ func scanRisk(row pgx.Row) (map[string]any, error) {
 	return out, nil
 }
 
-var listSorts = map[string]string{"newest": "r.seq DESC", "title": "lower(r.title), r.seq DESC"}
+var listSorts = map[string]string{"newest": "r.seq DESC", "title": "lower(r.title), r.seq DESC",
+	// The exposure as the caller sees it (AC-14, AC-19); unseen or none last.
+	"mean": "register.exposure_value(r.id, '{ale,mean}') DESC NULLS LAST, r.seq DESC",
+	"p90":  "register.exposure_value(r.id, '{ale,percentiles,p90}') DESC NULLS LAST, r.seq DESC"}
 
 // listRisks lists the risks the caller sees (AC-19): ?bu= (with
 // &subtree=false, that BU only), ?owner=, ?category=, ?state=, ?status=
 // (the exposure status, AC-08, AC-09), ?decision= and ?overdue=true (the
 // treatment, among the risks whose treatment the caller sees, AC-19),
-// ?sort=newest|title, ?limit= 1 to 200 (50), ?offset=.
+// ?sort=newest|title|mean|p90, ?limit= 1 to 200 (50), ?offset=.
 func (a *API) listRisks(w http.ResponseWriter, r *http.Request, p authz.Principal) {
 	if !a.anywhere(w, r, p) {
 		return
@@ -461,7 +464,7 @@ func (a *API) listRisks(w http.ResponseWriter, r *http.Request, p authz.Principa
 		order, ok = listSorts["newest"], true
 	}
 	if !ok {
-		problem(w, http.StatusBadRequest, "invalid_value", "sort is newest or title", nil)
+		problem(w, http.StatusBadRequest, "invalid_value", "sort is newest, title, mean or p90", nil)
 		return
 	}
 	limit, offset := 50, 0

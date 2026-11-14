@@ -5,7 +5,7 @@
 // (server.Idempotent).
 //
 // T-04 serves risks and categories; T-05 pins, exposure and coverage; T-06
-// treatment:
+// treatment; T-07 roll-ups:
 //
 //	GET   /api/v1/register/risks                   the risks the caller sees          register.view (RLS)
 //	POST  /api/v1/register/risks                   create a risk                       register.edit at the BU
@@ -20,6 +20,9 @@
 //	GET   /api/v1/register/coverage                open risks by exposure status (T-05)
 //	GET   /api/v1/register/risks/{id}/treatment    the plan (T-06)                    treatment.view at its BU
 //	PUT   /api/v1/register/risks/{id}/treatment    save the plan                      treatment.edit at its BU
+//	POST  /api/v1/register/rollups                 request a roll-up (T-07)           register.view at the BU
+//	GET   /api/v1/register/rollups                 the caller's roll-ups
+//	GET   /api/v1/register/rollups/{id}            one of them
 //	GET   /api/v1/register/categories              the categories                      register.view
 //	POST  /api/v1/register/categories              add one                             register.edit at the root
 //	PATCH /api/v1/register/categories/{id}         rename, archive or restore one
@@ -88,6 +91,9 @@ var routes = []route{
 	{"GET", "/api/v1/register/risks/{id}/treatment", (*API).getTreatment},
 	{"PUT", "/api/v1/register/risks/{id}/treatment", (*API).saveTreatment},
 	{"GET", "/api/v1/register/coverage", (*API).coverage},
+	{"POST", "/api/v1/register/rollups", (*API).requestRollup},
+	{"GET", "/api/v1/register/rollups", (*API).listRollups},
+	{"GET", "/api/v1/register/rollups/{id}", (*API).getRollup},
 	{"GET", "/api/v1/register/categories", (*API).listCategories},
 	{"POST", "/api/v1/register/categories", (*API).createCategory},
 	{"PATCH", "/api/v1/register/categories/{id}", (*API).changeCategory},
@@ -234,6 +240,13 @@ func fail(w http.ResponseWriter, err error) {
 			problem(w, http.StatusConflict, "closed", "the risk is closed; reopen it to change it", nil)
 		case "duplicate":
 			problem(w, http.StatusConflict, "duplicate", "a category of that name is in use", nil)
+		case "rollup_running":
+			problem(w, http.StatusConflict, "rollup_running", pg.Message, nil)
+		case "rollup_rate":
+			w.Header().Set("Retry-After", "60")
+			problem(w, http.StatusTooManyRequests, "rollup_rate", pg.Message, nil)
+		case "rollup_too_large":
+			problem(w, http.StatusConflict, "rollup_too_large", pg.Message, nil)
 		default:
 			invalid(w, problemsOf(pg))
 		}

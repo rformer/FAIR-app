@@ -25,6 +25,10 @@ import (
 
 // F-005 T-12 (AC-18, AC-19; design §3.5, §6.4): aggregates of runs.
 
+// MemberWait is how long a roll-up node waits before looking again at
+// member aggregates still working (F-007 T-07).
+const MemberWait = 5 * time.Second
+
 // AggregateArgs is the aggregate job: aggregate AggregateID.
 type AggregateArgs struct {
 	AggregateID string `json:"aggregate_id"`
@@ -114,6 +118,26 @@ type aggregateSpec struct {
 
 // Attempt is one attempt of aggregate id, as Worker.Attempt for a run.
 func (w *AggregateWorker) Attempt(ctx context.Context, id string, attempt, maxAttempts int) error {
+	// F-007 T-07: a roll-up node's member aggregates may still be working;
+	// wait for them, and fail the node if one failed.
+	var ready string
+	if err := w.DB.QueryRow(ctx, "SELECT coalesce(analysis.members_ready($1), 'ready')", id).Scan(&ready); err != nil {
+		return err
+	}
+	switch ready {
+	case "waiting":
+		return river.JobSnooze(MemberWait)
+	case "failed":
+		if _, err := w.DB.Exec(context.WithoutCancel(ctx), "SELECT analysis.fail_aggregate($1, '', $2, $3)", id, FailMemberFailed,
+			"a member aggregate failed"); err != nil {
+			var pg *pgconn.PgError
+			if errors.As(err, &pg) && pg.Code == "PF024" {
+				return nil // finished meanwhile
+			}
+			return err
+		}
+		return river.JobCancel(errors.New("analysis: a member aggregate failed"))
+	}
 	var token string
 	if err := w.DB.QueryRow(ctx, "SELECT analysis.start_aggregate($1)", id).Scan(&token); err != nil {
 		var pg *pgconn.PgError

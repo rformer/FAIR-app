@@ -22,6 +22,7 @@ tags:
   - { name: risks, description: "Register risks (F-007 R-01, R-05)" }
   - { name: exposure, description: "Pins, exposure, staleness and coverage (F-007 R-02)" }
   - { name: treatment, description: "Treatment plans (F-007 R-04)" }
+  - { name: rollups, description: "Business unit roll-ups (F-007 R-03)" }
   - { name: categories, description: "Register categories (F-007 OQ3)" }
 components:
   securitySchemes:
@@ -57,7 +58,8 @@ components:
           type: string
           description: >-
             not_found, forbidden, invalid_request, invalid_value, invalid_document, stale_version, closed, same_state,
-            scenario_linked, scenario_outside, same_bu, restricted_move, duplicate, nothing_newer, unavailable, unauthenticated
+            scenario_linked, scenario_outside, same_bu, restricted_move, duplicate, nothing_newer, rollup_running, rollup_rate,
+            rollup_too_large, unavailable, unauthenticated
         detail: { type: string }
         problems:
           type: array
@@ -206,7 +208,7 @@ paths:
         - { name: status, in: query, schema: { type: string, enum: [current, stale, unquantified, computing] }, description: "The exposure status (AC-08, AC-09)" }
         - { name: decision, in: query, schema: { type: string, enum: [mitigate, transfer, avoid, accept, none] }, description: "The treatment decision, among the risks whose treatment the caller sees" }
         - { name: overdue, in: query, schema: { type: boolean }, description: "Risks with overdue actions, among those whose treatment the caller sees" }
-        - { name: sort, in: query, schema: { type: string, enum: [newest, title], default: newest } }
+        - { name: sort, in: query, schema: { type: string, enum: [newest, title, mean, p90], default: newest }, description: "mean and p90 order by the exposure as the caller sees it (AC-14), largest first; risks without one last" }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
         - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
       responses:
@@ -659,6 +661,146 @@ paths:
                   unquantified: { type: integer }
                   computing: { type: integer }
                   current_share: { type: [number, "null"], description: "current / open; null without open risks" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/register/rollups:
+    post:
+      operationId: requestRollup
+      tags: [rollups]
+      summary: Request a roll-up of a business unit's subtree (AC-11, AC-13)
+      description: >-
+        Includes the open risks of the subtree whose exposure is current and whose pinned results the caller sees, at the
+        register's iteration count, as an F-005 aggregate nested by business unit (nodes of at most 200 members, reused
+        while unchanged); the others are counted by reason. Restricted business units contribute by their roll-up mode:
+        excluded (counted), aggregate only (one mean total, labelled, added to the mean, never to the distribution), or
+        full. The roll-up is the caller's alone. One running per business unit and requester (409 rollup_running), one
+        requested per business unit per minute (429 rollup_rate), at most 2,000 risks (409 rollup_too_large).
+      x-permission: register.view at the BU
+      x-audit-events: [register.rollup_requested, register.rollup_computed, analysis.aggregate_created]
+      x-reason-exempt: A roll-up changes no risk; it is recorded with its requester and what it includes.
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bu_id]
+              additionalProperties: false
+              properties:
+                bu_id: { type: string, format: uuid }
+      responses:
+        "202":
+          description: Requested
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, state, nodes]
+                properties:
+                  id: { type: string, format: uuid }
+                  state: { type: string, enum: [queued, succeeded] }
+                  nodes: { type: integer, description: The new aggregates queued }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+    get:
+      operationId: listRollups
+      tags: [rollups]
+      summary: The caller's roll-ups, newest first
+      x-permission: register.view (the caller's own)
+      parameters:
+        - { name: bu, in: query, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Roll-ups
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rollups]
+                properties:
+                  rollups:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        bu_id: { type: string, format: uuid }
+                        state: { type: string, enum: [queued, succeeded, failed] }
+                        requested_at: { type: string, format: date-time }
+                        finished_at: { type: [string, "null"], format: date-time }
+                        risks: { type: integer }
+                        left_out: { type: object }
+                        excluded_bus: { type: integer }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/register/rollups/{id}:
+    get:
+      operationId: getRollup
+      tags: [rollups]
+      summary: A roll-up of the caller's (AC-11 to AC-14)
+      description: >-
+        Its summary (with the loss exceedance curve and the root's contributions), the risks it includes ordered by mean
+        or 90th percentile with each one's share of the mean (means add), what it leaves out and why, the excluded
+        business units, the aggregate-only total and the mean with it, and whether it is stale: whether a roll-up now
+        would include something else (a pin changed, a risk closed, added or stale, the aggregate-only total changed).
+      x-permission: register.view (the caller's own)
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { name: sort, in: query, schema: { type: string, enum: [mean, p90], default: mean } }
+      responses:
+        "200":
+          description: The roll-up
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, bu_id, state, risks, covers, left_out, excluded_bus, stale]
+                properties:
+                  id: { type: string, format: uuid }
+                  bu_id: { type: string, format: uuid }
+                  state: { type: string, enum: [queued, succeeded, failed] }
+                  requested_at: { type: string, format: date-time }
+                  finished_at: { type: [string, "null"], format: date-time }
+                  failure: { type: [string, "null"] }
+                  root: { type: object }
+                  summary: { type: [object, "null"] }
+                  risks:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        risk_id: { type: string, format: uuid }
+                        bu_id: { type: string, format: uuid }
+                        title: { type: [string, "null"] }
+                        mean: { type: [number, "null"] }
+                        p90: { type: [number, "null"] }
+                        share: { type: [number, "null"] }
+                        exposure: { type: object }
+                  covers: { type: integer }
+                  left_out:
+                    type: object
+                    properties:
+                      stale: { type: integer }
+                      unquantified: { type: integer }
+                      computing: { type: integer }
+                      not_visible: { type: integer }
+                      other_iterations: { type: integer }
+                      outside: { type: integer }
+                  left_out_total: { type: integer }
+                  excluded_bus: { type: integer }
+                  aggregate_only:
+                    type: [object, "null"]
+                    properties:
+                      bus: { type: integer }
+                      mean_total: { type: number }
+                      label: { type: string }
+                  mean_with_aggregate_only: { type: number }
+                  nodes: { type: integer }
+                  stale: { type: boolean }
+                  independence: { type: string }
         "400": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
   /api/v1/register/categories:

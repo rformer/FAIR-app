@@ -868,6 +868,27 @@ events:
     bu: required
     attributes: [reason, version]
     description: "A closed register risk was reopened with a reason (F-007 T-04, AC-04)"
+  - type: register.rollup_computed
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [requested_by, rollup]
+    description: "A business unit roll-up of register risks finished and its result was recorded (F-007 T-07, AC-11)"
+  - type: register.rollup_failed
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [failure, requested_by, rollup]
+    description: "A business unit roll-up of register risks failed: its root aggregate failed (F-007 T-07, AC-11)"
+  - type: register.rollup_requested
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [excluded_bus, left_out, nodes, risks, rollup]
+    description: "A business unit roll-up of register risks was requested: the risks it includes, those it leaves out, the excluded business units and the new aggregates (F-007 T-07, AC-11 to AC-13)"
   - type: register.scenario_linked
     category: risk_data
     severities: [low]

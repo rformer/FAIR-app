@@ -28,6 +28,8 @@ func init() {
 		head("register.risk_scenario", "risk_id", "rlsfx.risk('%s', true)"),
 		head("register.treatment", "risk_id", "rlsfx.treatment('%s')"),
 		child("register.treatment_version", "(risk_id::text || '/' || version)", "rlsfx.treatment('%s')", "/1"),
+		// F-007 T-07: roll-ups, the requester's own.
+		head("register.rollup", "id", "rlsfx.rollup('%s')"),
 	} {
 		rlsFixtures[fx.Table] = fx
 	}
@@ -60,5 +62,21 @@ BEGIN
   INSERT INTO register.treatment_version (risk_id, version, document, digest, change_note) VALUES (r, 1, b, encode(sha256(b), 'hex'), 'fixture');
   RETURN r;
 END $$;
-GRANT EXECUTE ON FUNCTION rlsfx.me(), rlsfx.doc(jsonb), rlsfx.risk(uuid, boolean), rlsfx.treatment(uuid) TO app_rw;`)
+-- A roll-up record of the caller's. Records are written by
+-- register.request_rollup as register_definer (ADR-007 amendment 5), which
+-- checks the caller itself; the fixture stands in for it, written past RLS
+-- by its owner and refusing, as the harness requires of inserts, a BU
+-- outside the caller's write scope. Seeded rows belong to the harness's
+-- reader (rlstest.reader): a roll-up is its requester's alone.
+CREATE FUNCTION rlsfx.rollup(bu uuid) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE id uuid := gen_random_uuid();
+BEGIN
+  IF NOT bu = ANY (authz.visible_bus('register', 'write')) THEN
+    RAISE EXCEPTION 'new row violates row-level security policy for table "rollup" (fixture)' USING ERRCODE = '42501';
+  END IF;
+  INSERT INTO register.rollup (id, bu_id, requested_by, state, finished_at, digest, included, left_out, excluded_bus, nodes)
+  VALUES (id, bu, coalesce(nullif(current_setting('rlstest.reader', true), '')::uuid, rlsfx.me()), 'succeeded', now(), repeat('0', 64), '[]', '{}', 0, 0);
+  RETURN id;
+END $$;
+GRANT EXECUTE ON FUNCTION rlsfx.me(), rlsfx.doc(jsonb), rlsfx.risk(uuid, boolean), rlsfx.treatment(uuid), rlsfx.rollup(uuid) TO app_rw;`)
 }

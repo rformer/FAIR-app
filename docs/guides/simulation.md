@@ -187,3 +187,4 @@ A run that fails stores no results. It records one of these:
 | `engine_unavailable` | The engine could not be reached after three attempts. Try again later. |
 | `invalid_results` | The engine returned results that failed the platform's checks. |
 | `engine_internal` | The engine failed while computing. |
+| `member_failed` | An aggregate that combines other aggregates (a register roll-up's node) did not run because one of them failed. Request the roll-up again. |

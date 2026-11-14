@@ -30,6 +30,8 @@ const (
 	FailUnavailable    = "engine_unavailable"
 	FailInvalidResults = "invalid_results"
 	FailInternal       = "engine_internal"
+	// FailMemberFailed: a roll-up node (F-007) whose member aggregate failed.
+	FailMemberFailed = "member_failed"
 )
 
 // Worker runs simulate jobs.

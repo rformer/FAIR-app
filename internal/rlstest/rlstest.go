@@ -68,8 +68,9 @@ type Fixture struct {
 	Table string // schema-qualified, e.g. "risk.analysis"
 	PK    string // primary key column
 	// Insert returns SQL that inserts one valid row at the given BU id and
-	// RETURNING the primary key as text. It runs as superuser, and again as
-	// the application role to check that out-of-scope inserts are refused.
+	// RETURNING the primary key as text. It runs as superuser (with the
+	// setting rlstest.reader naming the harness's reader), and again as the
+	// application role to check that out-of-scope inserts are refused.
 	Insert func(buID string) string
 	// Missing is a primary-key literal that matches no row (AC-25 check).
 	Missing string
@@ -222,7 +223,13 @@ func (r *run) setup() error {
 	if _, err := a.Exec(r.ctx, "SELECT set_config('authz.ctx', $1, false)", seed); err != nil {
 		return err
 	}
-	defer func() { _, _ = a.Exec(context.WithoutCancel(r.ctx), "RESET authz.ctx") }()
+	// rlstest.reader names the harness's reader, for tables whose rows only
+	// their owner reads (a restriction on the owner, ADR-007 amendment 4):
+	// their fixtures make the reader the owner of what is seeded.
+	if _, err := a.Exec(r.ctx, "SELECT set_config('rlstest.reader', $1, false)", r.userID); err != nil {
+		return err
+	}
+	defer func() { _, _ = a.Exec(context.WithoutCancel(r.ctx), "RESET authz.ctx; RESET rlstest.reader") }()
 	for _, b := range []*bu{&r.in, &r.ro, &r.out, r.tree["root"], r.tree["anc"], r.tree["sib"], r.tree["rst"], r.tree["rkid"]} {
 		if err := a.QueryRow(r.ctx, r.fx.Insert(b.id)).Scan(&b.pk); err != nil {
 			return fmt.Errorf("fixture insert: %w", err)

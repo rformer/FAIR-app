@@ -30,7 +30,7 @@ func TestGuideDocumentsCodes(t *testing.T) {
 		slices.Sort(codes)
 		return codes
 	}
-	failures := []string{FailInvalidBundle, FailNotValidated, FailUnavailable, FailInvalidResults, FailInternal}
+	failures := []string{FailInvalidBundle, FailNotValidated, FailUnavailable, FailInvalidResults, FailInternal, FailMemberFailed}
 	slices.Sort(failures)
 	if got := table("Failure codes"); !slices.Equal(got, failures) {
 		t.Errorf("failure codes in the guide %v, recorded %v", got, failures)
