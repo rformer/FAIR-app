@@ -155,23 +155,23 @@ func (a *API) createAggregate(w http.ResponseWriter, r *http.Request, p authz.Pr
 }
 
 const aggregateColumns = `a.id::text, a.bu_id::text, a.name, a.seed::text, a.iterations, a.requested_by::text, a.requested_at, a.state, a.started_at,
-	a.finished_at, a.failure, a.failure_detail, a.engine_version, a.architecture, a.result_digest, a.seq`
+	a.finished_at, a.failure, a.failure_detail, a.engine_version, a.architecture, a.result_digest, a.seq, a.purpose`
 
 func scanAggregate(row pgx.Row) (map[string]any, error) {
 	var (
-		id, bu, name, seed, by, state             string
+		id, bu, name, seed, by, state, purpose    string
 		iterations, seq                           int64
 		requestedAt                               time.Time
 		startedAt, finishedAt                     *time.Time
 		failure, failureDetail, version, arch, rd *string
 	)
 	if err := row.Scan(&id, &bu, &name, &seed, &iterations, &by, &requestedAt, &state, &startedAt, &finishedAt, &failure, &failureDetail,
-		&version, &arch, &rd, &seq); err != nil {
+		&version, &arch, &rd, &seq, &purpose); err != nil {
 		return nil, err
 	}
 	out := map[string]any{"id": id, "bu_id": bu, "name": name, "seed": seed, "iterations": iterations, "requested_by": by, "requested_at": requestedAt,
 		"state": state, "started_at": startedAt, "finished_at": finishedAt, "failure": failure, "failure_detail": failureDetail,
-		"result_digest": rd, "seq": seq, "engine": nil}
+		"result_digest": rd, "seq": seq, "engine": nil, "purpose": purpose}
 	if version != nil {
 		out["engine"] = map[string]any{"version": *version, "architecture": arch}
 	}
@@ -189,8 +189,11 @@ func readAggregate(r *http.Request, tx pgx.Tx, id string) (map[string]any, error
 	if err != nil {
 		return nil, err
 	}
-	rows, err := tx.Query(ctx, `SELECT m.position, m.run_id::text, m.control_set, m.engine_version, r.scenario_id::text, r.scenario_version, coalesce(s.name, '')
-		FROM analysis.aggregate_member m JOIN analysis.run r ON r.id = m.run_id LEFT JOIN risk.scenario s ON s.id = r.scenario_id
+	// A member is a run's control set, or an aggregate (F-007 T-02).
+	rows, err := tx.Query(ctx, `SELECT m.position, m.run_id::text, m.control_set, m.engine_version, r.scenario_id::text, r.scenario_version, coalesce(s.name, ''),
+			m.member_aggregate_id::text, g.name
+		FROM analysis.aggregate_member m LEFT JOIN analysis.run r ON r.id = m.run_id LEFT JOIN risk.scenario s ON s.id = r.scenario_id
+		LEFT JOIN analysis.aggregate g ON g.id = m.member_aggregate_id
 		WHERE m.aggregate_id = $1 ORDER BY m.position`, id)
 	if err != nil {
 		return nil, err
@@ -200,14 +203,19 @@ func readAggregate(r *http.Request, tx pgx.Tx, id string) (map[string]any, error
 	versions := map[string]bool{}
 	for rows.Next() {
 		var pos int
-		var run, set, scenario, sname string
+		var run, set, scenario, member, mname *string
+		var sname string
 		var ev *string
-		var sv int64
-		if err := rows.Scan(&pos, &run, &set, &ev, &scenario, &sv, &sname); err != nil {
+		var sv *int64
+		if err := rows.Scan(&pos, &run, &set, &ev, &scenario, &sv, &sname, &member, &mname); err != nil {
 			return nil, err
 		}
 		if ev != nil {
 			versions[*ev] = true
+		}
+		if member != nil {
+			members = append(members, map[string]any{"position": pos, "aggregate_id": *member, "aggregate_name": mname, "engine_version": ev})
+			continue
 		}
 		members = append(members, map[string]any{"position": pos, "run_id": run, "control_set": set, "engine_version": ev,
 			"scenario_id": scenario, "scenario_version": sv, "scenario_name": sname})
@@ -250,7 +258,9 @@ func (a *API) listAggregates(w http.ResponseWriter, r *http.Request, p authz.Pri
 	}
 	var out []map[string]any
 	err := authz.WithDBContext(r.Context(), a.DB, p.DBToken, func(tx pgx.Tx) error {
-		rows, err := tx.Query(r.Context(), "SELECT "+aggregateColumns+" FROM analysis.aggregate a WHERE ($1::uuid IS NULL OR a.bu_id = $1) ORDER BY a.seq DESC LIMIT 200", bu)
+		// An analyst's aggregates only: the register's (exposure, roll-up)
+		// are reached through the register (F-007 design §5.2).
+		rows, err := tx.Query(r.Context(), "SELECT "+aggregateColumns+" FROM analysis.aggregate a WHERE a.purpose = 'analysis' AND ($1::uuid IS NULL OR a.bu_id = $1) ORDER BY a.seq DESC LIMIT 200", bu)
 		if err != nil {
 			return err
 		}

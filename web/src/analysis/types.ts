@@ -72,14 +72,17 @@ export interface Run {
   results?: { control_set: string; summary: SetSummary }[];
 }
 
+/** A member: a run's control set, or (F-007 roll-ups) an aggregate. */
 export interface AggregateMember {
   position: number;
-  run_id: string;
-  control_set: string;
+  run_id?: string;
+  control_set?: string;
   engine_version: string | null;
-  scenario_id: string;
-  scenario_version: number;
-  scenario_name: string;
+  scenario_id?: string;
+  scenario_version?: number;
+  scenario_name?: string;
+  aggregate_id?: string;
+  aggregate_name?: string;
 }
 
 export interface Aggregate {
@@ -94,6 +97,8 @@ export interface Aggregate {
   failure_detail: string | null;
   engine: null | { version: string; architecture: string | null };
   result_digest: string | null;
+  /** An analyst's aggregate, or the register's (F-007 design §5.2). */
+  purpose?: "analysis" | "exposure" | "rollup";
   members?: AggregateMember[];
   member_engine_versions?: string[];
   mixed_engine_versions?: boolean;

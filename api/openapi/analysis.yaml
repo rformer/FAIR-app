@@ -218,8 +218,16 @@ components:
               scenario_id: { type: string, format: uuid }
               scenario_version: { type: integer }
               scenario_name: { type: string }
+              aggregate_id: { type: string, format: uuid, description: "A member that is itself an aggregate (F-007 roll-ups), instead of a run's control set" }
+              aggregate_name: { type: string }
         member_engine_versions: { type: array, items: { type: string } }
         mixed_engine_versions: { type: boolean, description: "Members were computed by different engine versions (design §3.5)" }
+        purpose:
+          type: string
+          enum: [analysis, exposure, rollup]
+          description: >-
+            An analyst's aggregate, or the risk register's (F-007 design §5.2): a multi-scenario risk's exposure, or a roll-up node.
+            Lists show analysts' aggregates only.
         summary: { type: [object, "null"], description: "Summaries, curve and contributions (design §3.5), once it succeeded" }
         seq: { type: integer }
 paths:

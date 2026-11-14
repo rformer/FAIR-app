@@ -38,10 +38,12 @@ func (AggregateArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{Queue: Queue, MaxAttempts: Attempts}
 }
 
-// MemberRef names a member: one control set of a succeeded run.
+// MemberRef names a member: one control set of a succeeded run, or a
+// succeeded aggregate (F-007 T-02: register roll-ups nest).
 type MemberRef struct {
-	RunID      string `json:"run_id"`
-	ControlSet string `json:"control_set"`
+	RunID       string `json:"run_id,omitempty"`
+	ControlSet  string `json:"control_set,omitempty"`
+	AggregateID string `json:"aggregate_id,omitempty"`
 }
 
 // AggregateRequest is what an analyst asks for (design §5).
@@ -104,6 +106,8 @@ type aggregateSpec struct {
 		Position     int    `json:"position"`
 		RunID        string `json:"run_id"`
 		ControlSet   string `json:"control_set"`
+		AggregateID  string `json:"aggregate_id"` // a member that is an aggregate (F-007 T-02)
+		Name         string `json:"name"`         // its name, the engine's label
 		ResultDigest string `json:"result_digest"`
 	} `json:"members"`
 }
@@ -172,7 +176,12 @@ func (w *AggregateWorker) run(ctx context.Context, id, token string) error {
 	}
 	header := &enginev1.AggregateHeader{AggregateId: id, Seed: seed, Iterations: uint32(sp.Iterations)} // #nosec G115 -- the aggregate's CHECK bounds it
 	for _, m := range sp.Members {
-		header.Members = append(header.Members, &enginev1.Member{Position: uint32(m.Position), RunId: m.RunID, ControlSet: m.ControlSet}) // #nosec G115 -- 0 to 199
+		member := &enginev1.Member{Position: uint32(m.Position), RunId: m.RunID, ControlSet: m.ControlSet} // #nosec G115 -- 0 to 199
+		if m.AggregateID != "" {
+			// The engine labels a member by its name, else the id it is given.
+			member = &enginev1.Member{Position: uint32(m.Position), RunId: m.AggregateID, ScenarioName: m.Name} // #nosec G115 -- 0 to 199
+		}
+		header.Members = append(header.Members, member)
 	}
 	if err := stream.Send(&enginev1.AggregateInput{Input: &enginev1.AggregateInput_Header{Header: header}}); err != nil {
 		return transient(err)
@@ -261,6 +270,12 @@ func AggregateDigest(sp aggregateSpec, engineVersion, architecture string, summa
 	}
 	members := make([]any, 0, len(sp.Members))
 	for _, m := range sp.Members {
+		if m.AggregateID != "" {
+			// An aggregate member (F-007 T-02); run members keep the fields
+			// they always had, so earlier aggregates' digests are unchanged.
+			members = append(members, map[string]any{"position": int64(m.Position), "aggregate_id": m.AggregateID, "result_digest": m.ResultDigest})
+			continue
+		}
 		members = append(members, map[string]any{"position": int64(m.Position), "run_id": m.RunID, "control_set": m.ControlSet, "result_digest": m.ResultDigest})
 	}
 	sum := sha256.Sum256(series)

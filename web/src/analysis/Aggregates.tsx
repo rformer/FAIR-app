@@ -259,7 +259,9 @@ export function AggregatePage({ id }: { id: string }) {
     <Status loaded={agg}>
       {(a) => {
         const s = a.summary;
-        const label = new Map((a.members ?? []).map((m) => [m.position, `${m.scenario_name || m.scenario_id} (${m.control_set})`]));
+        const label = new Map(
+          (a.members ?? []).map((m) => [m.position, m.aggregate_id ? (m.aggregate_name ?? m.aggregate_id) : `${m.scenario_name || m.scenario_id} (${m.control_set})`]),
+        );
         return (
           <>
             <nav aria-label="Breadcrumb" className="crumbs">
@@ -330,7 +332,7 @@ export function AggregatePage({ id }: { id: string }) {
                       return (
                         <tr key={m.position}>
                           <td>
-                            <a href={`/scenarios/${m.scenario_id}`}>{label.get(m.position)}</a>
+                            <a href={m.aggregate_id ? `/analyses/aggregates/${m.aggregate_id}` : `/scenarios/${m.scenario_id}`}>{label.get(m.position)}</a>
                           </td>
                           <td>{m.engine_version ?? "—"}</td>
                           <td>{c ? money(c.mean, currency) : "—"}</td>
@@ -363,7 +365,9 @@ function AggregateCharts({ a, currency }: { a: Aggregate; currency: string | nul
     `/api/v1/analyses/aggregates/${a.id}/histogram?scale=${scale}`,
   );
   const series: CurveSeries[] = [{ label: a.name, curve: s.curve, percentiles: s.ale.percentiles, anyLoss: s.ale.p_positive ?? undefined }];
-  const members = (a.members ?? []).map((m) => `${m.scenario_name || m.scenario_id} v${m.scenario_version} (${m.control_set})`);
+  const members = (a.members ?? []).map((m) =>
+    m.aggregate_id ? (m.aggregate_name ?? m.aggregate_id) : `${m.scenario_name || m.scenario_id} v${m.scenario_version} (${m.control_set})`,
+  );
   const contributions = [...s.contributions]
     .sort((x, y) => y.mean - x.mean)
     .map((c) => ({ label: c.label, value: c.mean, share: c.share_of_p95_year }));
