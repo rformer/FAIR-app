@@ -107,6 +107,7 @@ components:
         state: { type: string, enum: [open, closed] }
         title: { type: string }
         owner: { type: string, format: uuid }
+        owner_name: { type: [string, "null"], description: The owner's display name }
         category: { type: [object, "null"], properties: { id: { type: string, format: uuid }, name: { type: string } } }
         current_version: { type: integer }
         created_at: { type: string, format: date-time }
@@ -802,6 +803,52 @@ paths:
                   stale: { type: boolean }
                   independence: { type: string }
         "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/register/bus:
+    get:
+      operationId: listBUs
+      tags: [risks]
+      summary: The business units where the caller holds a register or treatment permission, for pickers
+      x-permission: register.view or register.edit anywhere
+      parameters:
+        - { name: permission, in: query, required: true, schema: { type: string, enum: [register.view, register.edit, treatment.view, treatment.edit] } }
+      responses:
+        "200":
+          description: Business units
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [bus]
+                properties:
+                  bus:
+                    type: array
+                    items: { type: object, properties: { id: { type: string, format: uuid }, code: { type: string }, name: { type: string } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/register/owners:
+    get:
+      operationId: listOwners
+      tags: [risks]
+      summary: Who may own a risk at a business unit (AC-01)
+      description: The active users holding register.view at the business unit, names only, at most 500.
+      x-permission: register.edit at the BU
+      parameters:
+        - { name: bu, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Owners
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [owners]
+                properties:
+                  owners:
+                    type: array
+                    items: { type: object, properties: { user_id: { type: string, format: uuid }, name: { type: string } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
   /api/v1/register/categories:
     get:

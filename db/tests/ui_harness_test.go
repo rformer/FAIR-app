@@ -27,6 +27,7 @@ import (
 	"github.com/rformer/fair-app/internal/gateway"
 	"github.com/rformer/fair-app/internal/posture"
 	"github.com/rformer/fair-app/internal/postureapi"
+	"github.com/rformer/fair-app/internal/registerapi"
 	"github.com/rformer/fair-app/internal/risk/model/modeltest"
 	"github.com/rformer/fair-app/internal/riskapi"
 	"github.com/rformer/fair-app/pkg/audit"
@@ -100,6 +101,10 @@ func TestPostureUIHarness(t *testing.T) {
 	// F-005 T-13: the analysis API, mounted beside them as cmd/risk does,
 	// with the River workers and the real engine (scripts/ui-e2e.sh runs it
 	// and shares its socket: FAIR_UI_ENGINE_SOCKET).
+	// F-007 T-08: the register API, mounted beside them as cmd/risk does;
+	// exposure aggregates are worked by the same River workers.
+	registerAPI := &registerapi.API{DB: rp, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(rp), MaxAge: time.Second}),
+		Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: rp})}
 	analysisAPI := &analysisapi.API{DB: rp, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(rp), MaxAge: time.Second}),
 		Settings: fixedLimits{IterationsDefault: 10000, IterationsMin: 1000, IterationsMax: 2000000, MaxActive: 5},
 		Audit:    audit.WithTrail(audit.NewMemory(), audit.Trail{DB: rp})} // F-006 T-05: downloads are recorded
@@ -121,6 +126,12 @@ func TestPostureUIHarness(t *testing.T) {
 		}
 		defer func() { _ = arc.Stop(context.Background()) }()
 		analysisAPI.Enqueue, analysisAPI.EnqueueAggregate = analysis.Enqueuer(arc), analysis.AggregateEnqueuer(arc)
+		registerAPI.EnqueueAggregate = analysis.AggregateEnqueuer(arc)
+	}
+	rh := registerAPI.Handler(ae.keys, nil)
+	for _, prefix := range registerapi.Prefixes {
+		riskMux.Handle(prefix, rh)
+		riskMux.Handle(prefix+"/", rh)
 	}
 	ah := analysisAPI.Handler(ae.keys, nil)
 	for _, prefix := range analysisapi.Prefixes {
@@ -133,6 +144,7 @@ func TestPostureUIHarness(t *testing.T) {
 	seedEstimateRequest(t, e, ae.keys, riskSrv.URL, scenario, second)
 	if engineSocket != "" {
 		seedAnalysisRun(t, e, ae.keys, riskSrv.URL, scenario)
+		seedRegister(t, e, ae.keys, riskSrv.URL)
 	}
 	// The UI: built assets, and index.html for the app's routes.
 	ui := gateway.StaticUI(dist)
@@ -431,4 +443,97 @@ func seedAnalysisRun(t *testing.T, e *env, keys *authz.LocalKeys, url, scenario 
 		}
 	}
 	t.Log("analysis run seeded")
+}
+
+// waitState waits up to two minutes for query (one row, one column) to
+// answer want, failing on any of fail.
+func waitState(t *testing.T, e *env, what, query, want string, fail ...string) {
+	t.Helper()
+	for range 120 {
+		got := e.adminQuery(query)
+		if got == want {
+			return
+		}
+		for _, f := range fail {
+			if got == f {
+				t.Fatalf("%s: %s", what, got)
+			}
+		}
+		time.Sleep(time.Second)
+	}
+	t.Fatalf("%s: not %s in two minutes", what, want)
+}
+
+// seedRegister builds what the register pages show (F-007 T-08): a risk
+// owner at the root ("riskowner", Risk Owner) and two scenarios on the
+// seeded library, each with a run at the register's iteration count
+// (100,000) on the real engine; then
+//   - "Claims platform outage and fraud" (Cyber) at the root covering both,
+//     pinned, its exposure aggregate worked; and a newer run of the first
+//     scenario, to adopt;
+//   - "Payroll provider failure" (Third party) at Claims: no scenarios,
+//     unquantified;
+//   - "Legacy fax gateway" at the root, closed ("Gateway retired").
+func seedRegister(t *testing.T, e *env, keys *authz.LocalKeys, url string) {
+	t.Helper()
+	e.mustOwner("INSERT INTO iam.app_user (email, display_name) VALUES ('riskowner@example.test', 'Rio Owner')")
+	e.mustOwner(grant("admin", "user:riskowner", "Risk Owner", "ENTERPRISE"))
+	e.drain()
+	root := e.adminQuery("SELECT id FROM iam.bu WHERE code = 'ENTERPRISE'")
+	claims := e.adminQuery("SELECT id FROM iam.bu WHERE code = 'CLAIMS'")
+	r := riskEnv{e, map[string]string{"ENTERPRISE": root}}
+	ea := &riskAPIEnv{riskEnv: r, url: url, keys: keys, n: 400000}
+	first := func(q string) string { return e.adminQuery(q + " ORDER BY seq LIMIT 1") }
+	asset := first("SELECT id FROM risk.library_entry WHERE kind = 'asset'")
+	tc := first("SELECT id FROM risk.library_entry WHERE kind = 'threat_community'")
+	ctl := first("SELECT id FROM risk.control")
+	owner := e.adminQuery("SELECT id FROM iam.app_user WHERE email = 'riskowner@example.test'")
+	run := func(scenario, seed string) string {
+		t.Helper()
+		got := ea.call(t, "POST", "riskanalyst", "/api/v1/analyses/runs", map[string]any{"scenario_id": scenario, "version": 1, "iterations": 100000, "seed": seed})
+		if got.code != 202 {
+			t.Fatalf("seed register run: %d %s", got.code, got.raw)
+		}
+		id := got.body["id"].(string)
+		waitState(t, e, "seed register run", "SELECT state FROM analysis.run WHERE id = '"+id+"'", "succeeded", "failed", "cancelled")
+		return id
+	}
+	scenario := func(name string) string {
+		d := modeltest.Scenario()
+		d["name"] = name
+		modeltest.Set(d, "/owner", e.adminQuery("SELECT id FROM iam.app_user WHERE email = 'riskanalyst@example.test'"))
+		modeltest.Set(d, "/asset", map[string]any{"kind": "asset", "id": asset, "version": 1})
+		modeltest.Set(d, "/threat_community", map[string]any{"id": tc, "version": 1})
+		modeltest.Set(d, "/control_sets", []any{map[string]any{"name": "Current", "current": true, "controls": []any{
+			map[string]any{"id": ctl, "version": 1, "status": "in_place"}}}})
+		return r.create(t, "riskanalyst", "scenario", root, d)
+	}
+	outage, fraud := scenario("Claims system outage"), scenario("Payment fraud")
+	rOutage, rFraud := run(outage, "2026"), run(fraud, "2026")
+	category := func(name string) string {
+		return e.adminQuery("SELECT id FROM register.category WHERE name = '" + name + "'")
+	}
+	create := func(bu string, doc map[string]any) string {
+		t.Helper()
+		doc["schema_version"], doc["owner"], doc["state"] = 1, owner, "open"
+		got := ea.call(t, "POST", "riskowner", "/api/v1/register/risks", map[string]any{"bu_id": bu, "document": doc, "change_note": "Entered from the risk workshop"})
+		if got.code != 201 {
+			t.Fatalf("seed risk: %d %s", got.code, got.raw)
+		}
+		return got.body["id"].(string)
+	}
+	pin := func(scenario, run string) map[string]any {
+		return map[string]any{"scenario_id": scenario, "pin": map[string]any{"run_id": run, "control_set": "Current"}}
+	}
+	claimsRisk := create(root, map[string]any{"title": "Claims platform outage and fraud", "category": category("Cyber"),
+		"description": "Loss of the claims platform, and fraudulent payments made through it.", "scenarios": []any{pin(outage, rOutage), pin(fraud, rFraud)}})
+	waitState(t, e, "seed exposure", "SELECT a.state FROM register.risk r JOIN analysis.aggregate a ON a.id = r.exposure_aggregate_id WHERE r.id = '"+claimsRisk+"'",
+		"succeeded", "failed")
+	_ = run(outage, "2027") // newer: to adopt
+	_ = create(claims, map[string]any{"title": "Payroll provider failure", "category": category("Third party"), "scenarios": []any{}})
+	fax := create(root, map[string]any{"title": "Legacy fax gateway", "category": category("Operational"), "scenarios": []any{}})
+	if got := ea.call(t, "POST", "riskowner", "/api/v1/register/risks/"+fax+"/close", map[string]any{"reason": "Gateway retired"}); got.code != 200 {
+		t.Fatalf("seed close: %d %s", got.code, got.raw)
+	}
+	t.Log("register seeded")
 }

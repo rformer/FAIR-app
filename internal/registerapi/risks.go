@@ -355,6 +355,7 @@ func (a *API) moveRisk(w http.ResponseWriter, r *http.Request, p authz.Principal
 const riskColumns = `r.id::text, r.bu_id::text, r.state, r.title, r.owner::text, r.category_id::text, c.name, r.current_version, r.created_at,
 	r.created_by::text, r.seq, (SELECT count(*) FROM register.risk_scenario l WHERE l.risk_id = r.id), r.exposure_aggregate_id::text,
 	register.exposure_status(r.id),
+	register.owner_name(r.id),
 	(SELECT jsonb_build_object('version', t.current_version, 'decision', t.decision, 'next_due', t.next_due, 'overdue', coalesce(t.next_due < current_date, false))
 	 FROM register.treatment t WHERE t.risk_id = r.id)`
 
@@ -367,8 +368,9 @@ func scanRisk(row pgx.Row) (map[string]any, error) {
 		seq, scenarios        int64
 		aggregate             *string
 		status, treatment     []byte
+		ownerName             *string
 	)
-	if err := row.Scan(&id, &bu, &state, &title, &owner, &cat, &cn, &version, &created, &by, &seq, &scenarios, &aggregate, &status, &treatment); err != nil {
+	if err := row.Scan(&id, &bu, &state, &title, &owner, &cat, &cn, &version, &created, &by, &seq, &scenarios, &aggregate, &status, &ownerName, &treatment); err != nil {
 		return nil, err
 	}
 	out := map[string]any{"id": id, "bu_id": bu, "state": state, "title": title, "owner": owner, "category": nil, "current_version": version,
@@ -378,6 +380,7 @@ func scanRisk(row pgx.Row) (map[string]any, error) {
 	}
 	// The plan's summary as the caller sees it (treatment.view, RLS): null
 	// without one or without the permission.
+	out["owner_name"] = ownerName
 	out["treatment"] = nil
 	if treatment != nil {
 		out["treatment"] = json.RawMessage(treatment)

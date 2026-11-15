@@ -134,6 +134,7 @@ export const FAILURE_LABELS: Record<string, string> = {
   engine_unavailable: "The engine was unavailable",
   invalid_results: "The engine returned malformed results",
   engine_internal: "The engine failed",
+  member_failed: "An aggregate it combines failed",
 };
 
 /** Money in the installation currency, whole units. */

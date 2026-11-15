@@ -21,6 +21,9 @@ import { ScenarioEditor } from "./risk/ScenarioEditor";
 import { ScenarioList } from "./risk/ScenarioList";
 import { ScenarioPage } from "./risk/ScenarioPage";
 import { TransferPage } from "./risk/Transfer";
+import { RiskEditor } from "./register/RiskEditor";
+import { RiskList } from "./register/RiskList";
+import { RiskPage } from "./register/RiskPage";
 import "./styles.css";
 
 type SessionState =
@@ -69,7 +72,9 @@ function App() {
   // The platform shell's routing arrives with later features: the path
   // chooses the page (the gateway serves the app for every route).
   const path = window.location.pathname;
-  const section = path.startsWith("/analyses")
+  const section = path.startsWith("/register")
+    ? "register"
+    : path.startsWith("/analyses")
     ? "analyses"
     : path.startsWith("/estimates")
     ? "estimates"
@@ -94,6 +99,11 @@ function App() {
         <span className="brand">FAIR Risk Platform</span>
         <nav aria-label="Primary">
           <ul>
+            <li>
+              <a href="/register" aria-current={current("register")}>
+                Risk register
+              </a>
+            </li>
             <li>
               <a href="/scenarios" aria-current={current("scenarios")}>
                 Scenarios
@@ -138,7 +148,9 @@ function App() {
         </nav>
       </header>
       <main id="main" tabIndex={-1}>
-        {section === "analyses" ? (
+        {section === "register" ? (
+          <RegisterRoutes path={path} />
+        ) : section === "analyses" ? (
           <AnalysisRoutes path={path} />
         ) : section === "estimates" ? (
           <EstimateRoutes path={path} />
@@ -156,6 +168,16 @@ function App() {
       </main>
     </>
   );
+}
+
+// F-007 T-08: /register, /register/new, /register/risks/{id}, /register/risks/{id}/edit.
+function RegisterRoutes({ path }: { path: string }) {
+  if (path === "/register" || path === "/register/") return <RiskList />;
+  if (path === "/register/new") return <RiskEditor />;
+  const m = /^\/register\/risks\/([0-9a-f-]{36})(\/edit)?$/.exec(path);
+  if (!m) return <p role="alert">Not found.</p>;
+  const id = m[1] ?? "";
+  return m[2] ? <RiskEditor id={id} /> : <RiskPage id={id} />;
 }
 
 // F-005 T-13: /analyses/aggregates, /analyses/aggregates/new, /analyses/aggregates/{id};

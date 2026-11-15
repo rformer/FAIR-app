@@ -23,6 +23,8 @@
 //	POST  /api/v1/register/rollups                 request a roll-up (T-07)           register.view at the BU
 //	GET   /api/v1/register/rollups                 the caller's roll-ups
 //	GET   /api/v1/register/rollups/{id}            one of them
+//	GET   /api/v1/register/bus                     BUs for a register permission (T-08)
+//	GET   /api/v1/register/owners                  who may own a risk at a BU      register.edit at the BU
 //	GET   /api/v1/register/categories              the categories                      register.view
 //	POST  /api/v1/register/categories              add one                             register.edit at the root
 //	PATCH /api/v1/register/categories/{id}         rename, archive or restore one
@@ -95,6 +97,8 @@ var routes = []route{
 	{"GET", "/api/v1/register/rollups", (*API).listRollups},
 	{"GET", "/api/v1/register/rollups/{id}", (*API).getRollup},
 	{"GET", "/api/v1/register/categories", (*API).listCategories},
+	{"GET", "/api/v1/register/bus", (*API).listBUs},
+	{"GET", "/api/v1/register/owners", (*API).listOwners},
 	{"POST", "/api/v1/register/categories", (*API).createCategory},
 	{"PATCH", "/api/v1/register/categories/{id}", (*API).changeCategory},
 }
