@@ -273,6 +273,34 @@ var strideF006 = map[string][]string{
 	},
 }
 
+// strideF007 maps F-007's design §7 threats (T-11) to their tests.
+var strideF007 = map[string][]string{
+	"I: a risk, its treatment or a roll-up crosses business units | RLS on every table (`register`, `treatment`); roll-ups include only visible risks with visible pins; nested aggregates visible only with every leaf": {
+		"db/tests:TestSTRIDEF007Visibility", "db/tests:TestRegisterRisksAPI", "db/tests:TestRLSHarnessEveryBUOwnedTable",
+	},
+	"I: a roll-up reveals a restricted subtree's detail | Aggregate-only units contribute one mean total through `rollup_definer`; their risks, scenarios and series never enter the aggregate": {
+		"db/tests:TestSTRIDEF007RestrictedRollup", "db/tests:TestRegisterRollups",
+	},
+	"I: treatment details reach people without treatment.view | Treatment is its own RLS resource type; the risk's API omits it without the permission": {
+		"db/tests:TestSTRIDEF007TreatmentScope", "db/tests:TestRegisterTreatment",
+	},
+	"T: a risk's history is altered | Versions append-only for every role; heads and links changed only by definer functions and triggers": {
+		"db/tests:TestSTRIDEF007HistoryTamper", "db/tests:TestRegisterSchema",
+	},
+	"T: loss counted twice, or a pin that does not stand for the scenario | One open risk per scenario (unique index); pins checked in the database (scenario, state, iterations, control set)": {
+		"db/tests:TestSTRIDEF007Pins", "db/tests:TestRegisterValidationParity",
+	},
+	"R: a change cannot be attributed | Every change audited in its transaction with actor, BU and reason": {
+		"db/tests:TestRegisterAuditEvents",
+	},
+	"D: roll-up floods | One running roll-up per BU and requester, one request per BU per minute, 2,000 risks, 200 members per node, node reuse": {
+		"db/tests:TestRegisterRollupLimits", "db/tests:TestRegisterRollups",
+	},
+	"E: a viewer edits risks, or a risk owner gains engine use beyond the register | register.edit / treatment.edit required; exposure and roll-up aggregates only through register functions, of results the caller sees": {
+		"db/tests:TestSTRIDEF007Escalation", "db/tests:TestRegisterExposure",
+	},
+}
+
 // The threat tables and the suites agree: every row has tests, every test
 // exists and is run by make test-stride, and no mapping names a row the
 // design no longer has. Runs without a database.
@@ -301,6 +329,7 @@ func TestSTRIDECatalog(t *testing.T) {
 		{"F-004-estimate-capture", "## 8.", 10, strideF004},
 		{"F-005-simulation-engine", "## 8.", 9, strideF005},
 		{"F-006-results-visualization", "## 7.", 7, strideF006},
+		{"F-007-risk-register", "## 7.", 8, strideF007},
 	} {
 		rows := threatRows(t, filepath.Join(root, "specs", "features", c.feature, "design.md"), c.section)
 		if len(rows) < c.min {
