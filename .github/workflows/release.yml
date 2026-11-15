@@ -67,7 +67,7 @@ jobs:
       # (32 CFR part 170); any amendment since the recorded confirmation fails.
       # Open external pen-test findings block too (security/pentest-findings.yaml).
       # The engine image passed its validation suite (F-005 T-09).
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: release-manifest
       - name: Release checklist
