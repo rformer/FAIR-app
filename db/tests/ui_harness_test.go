@@ -473,7 +473,8 @@ func waitState(t *testing.T, e *env, what, query, want string, fail ...string) {
 //     scenario, to adopt;
 //   - "Payroll provider failure" (Third party) at Claims: no scenarios,
 //     unquantified;
-//   - "Legacy fax gateway" at the root, closed ("Gateway retired").
+//   - "Legacy fax gateway" at the root, closed ("Gateway retired");
+//   - "Investigations data leak" inside the restricted R (aggregate only).
 func seedRegister(t *testing.T, e *env, keys *authz.LocalKeys, url string) {
 	t.Helper()
 	e.mustOwner("INSERT INTO iam.app_user (email, display_name) VALUES ('riskowner@example.test', 'Rio Owner')")
@@ -504,8 +505,10 @@ func seedRegister(t *testing.T, e *env, keys *authz.LocalKeys, url string) {
 		modeltest.Set(d, "/owner", e.adminQuery("SELECT id FROM iam.app_user WHERE email = 'riskanalyst@example.test'"))
 		modeltest.Set(d, "/asset", map[string]any{"kind": "asset", "id": asset, "version": 1})
 		modeltest.Set(d, "/threat_community", map[string]any{"id": tc, "version": 1})
-		modeltest.Set(d, "/control_sets", []any{map[string]any{"name": "Current", "current": true, "controls": []any{
-			map[string]any{"id": ctl, "version": 1, "status": "in_place"}}}})
+		modeltest.Set(d, "/control_sets", []any{
+			map[string]any{"name": "Current", "current": true, "controls": []any{map[string]any{"id": ctl, "version": 1, "status": "in_place"}}},
+			// T-09: a treatment's target set.
+			map[string]any{"name": "Segmented", "current": false, "controls": []any{map[string]any{"id": ctl, "version": 1, "status": "proposed"}}}})
 		return r.create(t, "riskanalyst", "scenario", root, d)
 	}
 	outage, fraud := scenario("Claims system outage"), scenario("Payment fraud")
@@ -534,6 +537,29 @@ func seedRegister(t *testing.T, e *env, keys *authz.LocalKeys, url string) {
 	fax := create(root, map[string]any{"title": "Legacy fax gateway", "category": category("Operational"), "scenarios": []any{}})
 	if got := ea.call(t, "POST", "riskowner", "/api/v1/register/risks/"+fax+"/close", map[string]any{"reason": "Gateway retired"}); got.code != 200 {
 		t.Fatalf("seed close: %d %s", got.code, got.raw)
+	}
+	// T-09: inside the restricted R, set to aggregate only, a risk of its
+	// own ("investigator", Risk Analyst and Risk Owner there), so a roll-up
+	// of the root shows R's mean total, never the risk.
+	e.mustOwner("UPDATE iam.bu SET rollup_mode = 'aggregate' WHERE id IN (SELECT descendant_id FROM iam.bu_closure WHERE ancestor_id = (SELECT id FROM iam.bu WHERE code = 'R'))")
+	e.mustOwner("INSERT INTO iam.app_user (email, display_name) VALUES ('investigator@example.test', 'Ines Investigator')")
+	e.mustOwner(grant("admin", "user:investigator", "Risk Analyst", "R"))
+	e.mustOwner(grant("admin", "user:investigator", "Risk Owner", "R"))
+	e.drain()
+	rBU := e.adminQuery("SELECT id FROM iam.bu WHERE code = 'R'")
+	inside := scenarioAt(t, ea, "investigator", rBU, "Investigations data leak")
+	got := ea.call(t, "POST", "investigator", "/api/v1/analyses/runs", map[string]any{"scenario_id": inside, "version": 1, "iterations": 100000, "seed": "2026"})
+	if got.code != 202 {
+		t.Fatalf("seed restricted run: %d %s", got.code, got.raw)
+	}
+	insideRun := got.body["id"].(string)
+	waitState(t, e, "seed restricted run", "SELECT state FROM analysis.run WHERE id = '"+insideRun+"'", "succeeded", "failed", "cancelled")
+	investigator := e.adminQuery("SELECT id FROM iam.app_user WHERE email = 'investigator@example.test'")
+	got = ea.call(t, "POST", "investigator", "/api/v1/register/risks", map[string]any{"bu_id": rBU, "change_note": "Entered by the investigations team",
+		"document": map[string]any{"schema_version": 1, "title": "Investigations data leak", "owner": investigator, "state": "open",
+			"scenarios": []any{pin(inside, insideRun)}}})
+	if got.code != 201 {
+		t.Fatalf("seed restricted risk: %d %s", got.code, got.raw)
 	}
 	t.Log("register seeded")
 }

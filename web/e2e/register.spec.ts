@@ -160,3 +160,77 @@ test("a viewer reads the register without changing it (AC-21)", async ({ page })
   await expect(page.getByRole("link", { name: "Edit" })).toHaveCount(0);
   await expectAccessible(page, "a risk, read only");
 });
+
+// F-007 T-09 (AC-11 to AC-18): treatment and roll-ups.
+
+test("planning treatment by keyboard: targets, actions, the expected exposure and an acceptance (AC-15 to AC-18)", async ({ page }) => {
+  await as(page, "riskowner");
+  await page.goto("/register");
+  await page.getByRole("link", { name: seeded }).click();
+  const treatment = page.getByRole("region", { name: "Treatment", exact: true });
+  await expect(treatment).toContainText("No treatment plan yet.");
+  await treatment.getByRole("link", { name: "Plan treatment" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Treatment plan");
+
+  await page.getByRole("radio", { name: "Mitigate" }).focus();
+  await page.keyboard.press("Space");
+  await page.getByLabel("Rationale").focus();
+  await page.keyboard.type("Segment the claims platform from the payment network.");
+  const targets = page.getByRole("region", { name: "Target control sets" });
+  await targets.getByLabel("Claims system outage").selectOption("Segmented");
+  await targets.getByLabel("Payment fraud").selectOption("Segmented");
+  await page.getByRole("button", { name: "Add an action" }).focus();
+  await page.keyboard.press("Enter");
+  await page.getByLabel("Title").focus();
+  await page.keyboard.type("Deploy network segmentation");
+  await page.getByLabel("Due").fill("2020-01-15"); // past: overdue
+  await page.getByLabel("Change note").focus();
+  await page.keyboard.type("Plan agreed at the risk committee");
+  await expectAccessible(page, "the treatment editor");
+  await page.getByRole("button", { name: "Save the plan" }).focus();
+  await page.keyboard.press("Enter");
+
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(seeded);
+  await expect(treatment).toContainText("Mitigate");
+  await expect(treatment.getByRole("row", { name: /Deploy network segmentation/ })).toContainText("Overdue");
+  const expected = treatment.getByRole("region", { name: "Expected exposure after treatment" });
+  await expect(expected.getByRole("row", { name: /Claims system outage/ })).toContainText("Segmented");
+  await expect(expected.getByRole("row", { name: /All scenarios/ })).toBeVisible();
+  await expect(expected.getByRole("link", { name: "Compare the distributions now and after treatment" })).toHaveAttribute("href", /^\/analyses\/compare\?/);
+  await expectAccessible(page, "a risk with its plan");
+
+  // Accept: an acceptance is needed; the register does not approve it.
+  await treatment.getByRole("link", { name: "Change the plan" }).click();
+  await page.getByRole("radio", { name: "Accept" }).check();
+  await page.getByLabel("Change note").fill("Accepted within appetite");
+  await page.getByRole("button", { name: "Save the plan" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(seeded);
+  await expect(treatment.getByRole("note", { name: "Acceptance" })).toContainText("needs an acceptance");
+  await expect(page.getByRole("region", { name: "History" }).getByRole("row", { name: /Treatment.*Accepted within appetite/ })).toBeVisible();
+});
+
+test("a roll-up with an aggregate-only unit: what it covers and leaves out, its risks by exposure (AC-11 to AC-14)", async ({ page }) => {
+  await as(page, "riskowner");
+  await page.goto("/register");
+  await page.getByRole("link", { name: "Roll-ups" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Roll-ups");
+  await expectAccessible(page, "the roll-ups page");
+  await page.getByLabel("Business unit").selectOption({ label: "Enterprise" });
+  await page.getByRole("button", { name: "Roll up" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Roll-up of Enterprise");
+  await expect(page.locator(".lede")).toContainText("Computed", { timeout: 90_000 });
+
+  const covers = page.getByRole("region", { name: "What it covers" });
+  await expect(covers).toContainText("with no scenarios");
+  await expect(covers).toContainText("Restricted business units (mean only)");
+  await expect(covers).toContainText("added to the mean, not to the distribution");
+  const risks = page.getByRole("region", { name: "Risks, by exposure" });
+  await expect(risks.getByRole("row", { name: new RegExp(seeded) })).toContainText("100.0%");
+  await expect(risks.getByRole("link", { name: "Investigations data leak" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Combined annual loss" }).getByText("Mean with restricted business units")).toBeVisible();
+  await expectAccessible(page, "a roll-up");
+
+  await page.getByRole("link", { name: "Roll-ups" }).click();
+  await expect(page.getByRole("region", { name: "Your roll-ups" }).getByRole("row", { name: /Enterprise/ })).toContainText("Computed");
+});

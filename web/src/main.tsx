@@ -24,6 +24,8 @@ import { TransferPage } from "./risk/Transfer";
 import { RiskEditor } from "./register/RiskEditor";
 import { RiskList } from "./register/RiskList";
 import { RiskPage } from "./register/RiskPage";
+import { RollupPage, RollupsPage } from "./register/Rollups";
+import { TreatmentEditor } from "./register/Treatment";
 import "./styles.css";
 
 type SessionState =
@@ -170,10 +172,16 @@ function App() {
   );
 }
 
-// F-007 T-08: /register, /register/new, /register/risks/{id}, /register/risks/{id}/edit.
+// F-007 T-08: /register, /register/new, /register/risks/{id}, /register/risks/{id}/edit;
+// T-09: /register/risks/{id}/treatment, /register/rollups, /register/rollups/{id}.
 function RegisterRoutes({ path }: { path: string }) {
   if (path === "/register" || path === "/register/") return <RiskList />;
   if (path === "/register/new") return <RiskEditor />;
+  if (path === "/register/rollups") return <RollupsPage />;
+  const ru = /^\/register\/rollups\/([0-9a-f-]{36})$/.exec(path);
+  if (ru?.[1]) return <RollupPage id={ru[1]} />;
+  const tr = /^\/register\/risks\/([0-9a-f-]{36})\/treatment$/.exec(path);
+  if (tr?.[1]) return <TreatmentEditor id={tr[1]} />;
   const m = /^\/register\/risks\/([0-9a-f-]{36})(\/edit)?$/.exec(path);
   if (!m) return <p role="alert">Not found.</p>;
   const id = m[1] ?? "";
