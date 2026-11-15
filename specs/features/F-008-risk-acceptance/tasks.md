@@ -1,0 +1,53 @@
+# F-008 Risk Acceptance Lifecycle — Tasks
+Status: **Approved** (Robert Former, 2026-11-15) | Design: Approved 2026-11-15
+
+Sizing: S ≤ 1 day · M = 2–3 days · L = up to 1 week (split when picked up).
+Prerequisites, all done:
+- F-001: `acceptance.*`, the Risk Owner and Approver roles, SoD, restricted BUs.
+- F-002: the audit trail.
+- F-007: risks, treatment, exposure status.
+- F-015: settings.
+
+Rules for every task:
+- A task that adds a migration follows the immutability rule.
+- A new event type gets its catalog entry with the task that first emits it.
+- Every new route is linted by `scripts/openapi-lint.sh`.
+- Every new BU-owned table gets an `rlstest` fixture.
+- Every UI task runs `scripts/ui-e2e.sh`, with axe on every page it touches.
+
+## Phase A — Foundations
+| # | Task | Traces to | Verification | Size | Status |
+|---|---|---|---|---|---|
+| T-01 | Settings (design §4): `settings.F008Defs()` (the tiers and `acceptance.max_duration_days`), bindings, packages 1.7.0; the risk service registers them; `acceptance.Limits.Check` (tier 2 above tier 1) | AC-04, AC-12; §4 | Settings tests (bounds, stricter direction, no tier without an approval); release-check passes; the risk service refuses to start on an unbound key or tiers out of order | S | Not started |
+| T-02 | Schema `acceptance` (migration; bootstrap role `acceptance_definer`): heads and steps (append-only, PF027), the open-acceptance indexes, the notice outbox; RLS (`acceptance`), definer access (ADR-007 amendments 3 and 5); RLS fixtures | AC-16, AC-17; §3.1, §5 | DB tests: app_rw cannot write either table; steps append-only for every role; one open acceptance per risk (a renewal beside it); RLS harness passes | M | Not started |
+| T-03 | Exposure reads for the job (design §3.5): `analysis.register_summary`, `analysis.pinned_summary`, `register.exposure_for` (status and mean), each granted to one definer | AC-13, AC-14; §3.5, §10 | DB tests: equal to what the risk's owner reads; closed to the application role and every other definer | S | Not started |
+
+## Phase B — The service
+| # | Task | Traces to | Verification | Size | Status |
+|---|---|---|---|---|---|
+| T-04 | Requests and decisions (definer functions): `acceptance.request` (checks, the tier placed and resolved, the evidence copied), `decide` (authority at the tier's BU, SoD, one decision each, the shortest expiry, activation), `withdraw`, `revoke`; renewal replacing without a gap; closing a risk ends its acceptance; events | AC-01 to AC-07, AC-11, AC-15, AC-18; §3.2, §3.4 | DB tests: every refusal with its reason; tiers 1 to 3 with their levels and approvals; two approvals by two people; SoD; renewal without a gap; a closed risk; the events | L | Not started |
+| T-05 | The acceptance API (`internal/acceptanceapi`, contract `api/openapi/acceptance.yaml`, gateway segment `acceptances`): list with filters, request, read (history, evidence, needs-review reasons, who may decide), decisions, withdraw, revoke, inbox, tiers; the register API's `acceptance` summary and filter | AC-01 to AC-08, AC-14, AC-16, AC-19; §3.3, §6 | DB tests through the API: who may (404 / 403), every error, the inbox only what the caller may decide, needs review (stale, treatment, moved), the register's filter | M | Not started |
+| T-06 | The job (`acceptance.sweep`, run by the risk service's leader every minute): expiry, higher-tier suspension and its review, notices (30, 14, 7 days, on expiry), once each; reads of a past expiry as expired | AC-09, AC-10, AC-13; §3.2, §3.6 | DB tests with time travel: expiry, notices once each, a higher tier suspends and reopens review, approval reactivates, a lower tier and a stale exposure do not suspend; the job catches up after an outage | M | Not started |
+
+## Phase C — The pages
+| # | Task | Traces to | Verification | Size | Status |
+|---|---|---|---|---|---|
+| T-07 | Pages (`web/src/acceptance`): the list with filters, the approver's inbox, an acceptance's page (state, needs review, evidence, history, the decision form), the request and renewal forms; the risk page's Acceptance section and the register's acceptance filter | AC-01 to AC-19, AC-20 | `web/e2e/acceptance.spec.ts` with the UI harness seeding acceptances (a request, a two-approval tier, a renewal); axe on every page | L | Not started |
+
+## Phase D — Assurance
+| # | Task | Traces to | Verification | Size | Status |
+|---|---|---|---|---|---|
+| T-08 | Benchmark gate `TestBenchmarkGateAcceptances`: the list and the inbox with 10,000 acceptances over 2,000 BUs ≤ 1 s p95; an acceptance's page ≤ 1 s; the sweep over them | Requirements NFR; §9 | Bench gate passes | M | Not started |
+| T-09 | STRIDE suite for design §7 (`db/tests/stride_f008_test.go`, rows in `TestSTRIDECatalog`) | §7 | `make test-stride` covers every §7 row | M | Not started |
+| T-10 | Control implementation statements `compliance/statements/F-008.yaml`, built into the component definition; the control mapping added to the requirements; Robert Former signs off | — | `internal/compliance` checks pass; sign-off recorded | S | Not started |
+
+## Definition of Done
+- All linked acceptance criteria have passing automated tests.
+- Audit events are emitted per design §8, each in the catalog.
+- The API contract is updated and linted.
+- axe passes on every F-008 page.
+- Security review notes are recorded (STRIDE rows and tests).
+
+## Change Log
+- 2026-11-15: Initial draft.
+- 2026-11-15: **Approved** by Robert Former.

@@ -14,7 +14,7 @@ Every feature spec includes **Deployment modes** (SaaS, self-hosted, air-gapped)
 | F-005 | Monte Carlo simulation engine (Python; versioned, reproducible) | F-003, F-004 | **Done** (2026-11-13) |
 | F-006 | Results & visualization (LEC, ALE distribution, comparisons) | F-005 | **Done** (2026-11-13) |
 | F-007 | Risk register (linked to analyses, BU roll-ups) | F-003, F-005 | **Done** (2026-11-15) |
-| F-008 | Risk acceptance lifecycle (approval tiers, expiry, renewal) | F-002, F-007 | Requirements and design **Approved** (2026-11-15); tasks in progress |
+| F-008 | Risk acceptance lifecycle (approval tiers, expiry, renewal) | F-002, F-007 | Requirements, design and tasks **Approved** (2026-11-15); in progress |
 | F-009 | Notifications (SMTP/webhook; offline-capable) | F-008 | Not started |
 | F-010 | Reporting & export | F-006, F-007 | Not started |
 | F-011 | Integrations / automation inputs | F-003 | Not started |
