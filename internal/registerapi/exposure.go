@@ -254,7 +254,7 @@ func (a *API) coverage(w http.ResponseWriter, r *http.Request, p authz.Principal
 	}
 	var open int64
 	err := authz.WithDBContext(r.Context(), a.DB, p.DBToken, func(tx pgx.Tx) error {
-		rows, err := tx.Query(r.Context(), "SELECT register.exposure_status(r.id) ->> 'status', count(*) FROM register.risk r WHERE "+where+" GROUP BY 1", args...)
+		rows, err := tx.Query(r.Context(), "SELECT "+statusSQL+", count(*)"+riskFrom+" WHERE "+where+" GROUP BY 1", args...)
 		if err != nil {
 			return err
 		}

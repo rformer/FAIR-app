@@ -153,6 +153,7 @@ func TestRegisterExposure(t *testing.T) {
 	if got := riskStatus(t, rg, "erin", risk); got != "computing:" {
 		t.Errorf("before the aggregate: %s", got)
 	}
+	statusParity(t, rg, "erin")
 	work(agg)
 	if got := riskStatus(t, rg, "erin", risk); got != "current:" {
 		t.Errorf("worked: %s", got)
@@ -299,6 +300,11 @@ func TestRegisterExposure(t *testing.T) {
 		t.Errorf("an unknown status: %d", got.code)
 	}
 
+	statusParity(t, rg, "erin")
+	if got := riskStatus(t, rg, "erin", risk); !strings.HasPrefix(got, "current") {
+		t.Fatalf("parity needs a current risk too: %s", got)
+	}
+
 	// F-003 (design §10): a scenario linked to an open risk stays in its
 	// subtree; the risk is named to those who see it, and only to them.
 	moveTo := func(user, scenario, bu string) apiResp {
@@ -340,5 +346,27 @@ func TestRegisterExposure(t *testing.T) {
 	if after == "" || after == before || ra.adminQuery("SELECT bu_id || '|' || requested_by FROM analysis.aggregate WHERE id = '"+after+"'") !=
 		ra.bu["A"]+"|"+ra.adminQuery("SELECT id FROM iam.app_user WHERE email = 'chief@example.test'") {
 		t.Errorf("the moved risk's exposure: %q (was %s)", after, before)
+	}
+}
+
+// statusParity checks that the list's status of every risk user sees (the
+// service's SQL, T-10) is the risk page's (register.exposure_status).
+func statusParity(t *testing.T, rg *riskAPIEnv, user string) {
+	t.Helper()
+	list := rg.call(t, "GET", user, "/api/v1/register/risks?limit=200", nil)
+	if list.code != 200 {
+		t.Fatalf("list: %d %s", list.code, list.raw)
+	}
+	n := 0
+	for _, x := range list.body["risks"].([]any) {
+		r := x.(map[string]any)
+		want := strings.SplitN(riskStatus(t, rg, user, r["id"].(string)), ":", 2)[0]
+		if got := r["status"].(map[string]any)["status"]; got != want {
+			t.Errorf("risk %v: the list says %v, its page %s", r["title"], got, want)
+		}
+		n++
+	}
+	if n == 0 {
+		t.Error("no risks to compare")
 	}
 }

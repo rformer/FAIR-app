@@ -352,10 +352,36 @@ func (a *API) moveRisk(w http.ResponseWriter, r *http.Request, p authz.Principal
 	writeJSON(w, http.StatusOK, map[string]any{"id": h.ID, "bu_id": body.ToBUID})
 }
 
+// F-007 T-10: a risk's status computed in the query from its links
+// (register.status_of's rules), not by a definer function per row, which
+// would read the caller's scope again for every risk. riskFrom joins st:
+// n links, pins, and whether any link gives a stale reason.
+const riskFrom = ` FROM register.risk r LEFT JOIN register.category c ON c.id = r.category_id
+	CROSS JOIN LATERAL (
+	  SELECT count(*) AS n, count(l.run_id) AS pins,
+	    coalesce(bool_or(l.scenario_archived OR l.run_id IS NULL OR l.run_scenario_version IS NULL OR l.run_scenario_version < l.scenario_version
+	      OR (l.run_id IS NOT NULL AND (SELECT register.max_age_days()) IS NOT NULL
+	          AND (l.run_finished_at IS NULL OR l.run_finished_at < now() - make_interval(days => (SELECT register.max_age_days()))))), false) AS reasons
+	  FROM register.risk_scenario l WHERE l.risk_id = r.id) st`
+
+// statusSQL is a risk's exposure status (AC-08) given st.
+const statusSQL = `CASE WHEN st.n = 0 THEN 'unquantified'
+	  WHEN st.reasons THEN 'stale'
+	  WHEN st.pins >= 2 THEN CASE coalesce(analysis.exposure_state(r.exposure_aggregate_id), 'failed')
+	    WHEN 'failed' THEN 'stale' WHEN 'succeeded' THEN 'current' ELSE 'computing' END
+	  ELSE 'current' END`
+
+// exposureSQL is the summary value at path of a risk's exposure as the
+// caller sees it (RLS), for sorting.
+func exposureSQL(path string) string {
+	return `CASE WHEN st.pins >= 2 THEN (SELECT (a.summary #>> '` + path + `')::float8 FROM analysis.aggregate a WHERE a.id = r.exposure_aggregate_id)
+	  WHEN st.pins = 1 THEN (SELECT (s.summary #>> '` + path + `')::float8 FROM register.risk_scenario l2
+	    JOIN analysis.result s ON s.run_id = l2.run_id AND s.control_set = l2.control_set WHERE l2.risk_id = r.id AND l2.run_id IS NOT NULL) END`
+}
+
 const riskColumns = `r.id::text, r.bu_id::text, r.state, r.title, r.owner::text, r.category_id::text, c.name, r.current_version, r.created_at,
-	r.created_by::text, r.seq, (SELECT count(*) FROM register.risk_scenario l WHERE l.risk_id = r.id), r.exposure_aggregate_id::text,
-	register.exposure_status(r.id),
-	register.owner_name(r.id),
+	r.created_by::text, r.seq, st.n, r.exposure_aggregate_id::text,
+	jsonb_build_object('status', ` + statusSQL + `, 'reasons', '[]'::jsonb),
 	(SELECT jsonb_build_object('version', t.current_version, 'decision', t.decision, 'next_due', t.next_due, 'overdue', coalesce(t.next_due < current_date, false))
 	 FROM register.treatment t WHERE t.risk_id = r.id)`
 
@@ -368,9 +394,8 @@ func scanRisk(row pgx.Row) (map[string]any, error) {
 		seq, scenarios        int64
 		aggregate             *string
 		status, treatment     []byte
-		ownerName             *string
 	)
-	if err := row.Scan(&id, &bu, &state, &title, &owner, &cat, &cn, &version, &created, &by, &seq, &scenarios, &aggregate, &status, &ownerName, &treatment); err != nil {
+	if err := row.Scan(&id, &bu, &state, &title, &owner, &cat, &cn, &version, &created, &by, &seq, &scenarios, &aggregate, &status, &treatment); err != nil {
 		return nil, err
 	}
 	out := map[string]any{"id": id, "bu_id": bu, "state": state, "title": title, "owner": owner, "category": nil, "current_version": version,
@@ -380,7 +405,7 @@ func scanRisk(row pgx.Row) (map[string]any, error) {
 	}
 	// The plan's summary as the caller sees it (treatment.view, RLS): null
 	// without one or without the permission.
-	out["owner_name"] = ownerName
+	out["owner_name"] = nil // ownerNames fills it
 	out["treatment"] = nil
 	if treatment != nil {
 		out["treatment"] = json.RawMessage(treatment)
@@ -390,8 +415,47 @@ func scanRisk(row pgx.Row) (map[string]any, error) {
 
 var listSorts = map[string]string{"newest": "r.seq DESC", "title": "lower(r.title), r.seq DESC",
 	// The exposure as the caller sees it (AC-14, AC-19); unseen or none last.
-	"mean": "register.exposure_value(r.id, '{ale,mean}') DESC NULLS LAST, r.seq DESC",
-	"p90":  "register.exposure_value(r.id, '{ale,percentiles,p90}') DESC NULLS LAST, r.seq DESC"}
+	"mean": exposureSQL("{ale,mean}") + " DESC NULLS LAST, r.seq DESC",
+	"p90":  exposureSQL("{ale,percentiles,p90}") + " DESC NULLS LAST, r.seq DESC"}
+
+// ownerNames fills each risk's owner_name in one call (register.owner_names:
+// owners of risks the caller sees).
+func ownerNames(ctx context.Context, tx pgx.Tx, risks []map[string]any) error {
+	var ids []string
+	for _, x := range risks {
+		if o, ok := x["owner"].(*string); ok && o != nil && !slices.Contains(ids, *o) {
+			ids = append(ids, *o)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	rows, err := tx.Query(ctx, "SELECT user_id::text, name FROM register.owner_names($1::uuid[])", ids)
+	if err != nil {
+		return err
+	}
+	names := map[string]string{}
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			rows.Close()
+			return err
+		}
+		names[id] = name
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, x := range risks {
+		if o, ok := x["owner"].(*string); ok && o != nil {
+			if n, ok := names[*o]; ok {
+				x["owner_name"] = n
+			}
+		}
+	}
+	return nil
+}
 
 // listRisks lists the risks the caller sees (AC-19): ?bu= (with
 // &subtree=false, that BU only), ?owner=, ?category=, ?state=, ?status=
@@ -441,7 +505,7 @@ func (a *API) listRisks(w http.ResponseWriter, r *http.Request, p authz.Principa
 			problem(w, http.StatusBadRequest, "invalid_value", "status is current, stale, unquantified or computing", nil)
 			return
 		}
-		where = append(where, "register.exposure_status(r.id) ->> 'status' = "+arg(v))
+		where = append(where, "("+statusSQL+") = "+arg(v))
 	}
 	const seesTreatment = "r.bu_id = ANY (authz.visible_bus('treatment', 'read'))"
 	switch v := q.Get("decision"); v {
@@ -487,7 +551,7 @@ func (a *API) listRisks(w http.ResponseWriter, r *http.Request, p authz.Principa
 		}
 		offset = n
 	}
-	sql := "SELECT " + riskColumns + " FROM register.risk r LEFT JOIN register.category c ON c.id = r.category_id WHERE " + strings.Join(where, " AND ") +
+	sql := "SELECT " + riskColumns + riskFrom + " WHERE " + strings.Join(where, " AND ") +
 		" ORDER BY " + order + " LIMIT " + arg(limit+1) + " OFFSET " + arg(offset)
 	risks := []map[string]any{}
 	err := authz.WithDBContext(r.Context(), a.DB, p.DBToken, func(tx pgx.Tx) error {
@@ -503,7 +567,11 @@ func (a *API) listRisks(w http.ResponseWriter, r *http.Request, p authz.Principa
 			}
 			risks = append(risks, x)
 		}
-		return rows.Err()
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		return ownerNames(r.Context(), tx, risks)
 	})
 	if err != nil {
 		fail(w, err)
@@ -531,11 +599,20 @@ func (a *API) getRisk(w http.ResponseWriter, r *http.Request, p authz.Principal)
 	var out map[string]any
 	err := authz.WithDBContext(r.Context(), a.DB, p.DBToken, func(tx pgx.Tx) error {
 		ctx := r.Context()
-		risk, err := scanRisk(tx.QueryRow(ctx, "SELECT "+riskColumns+" FROM register.risk r LEFT JOIN register.category c ON c.id = r.category_id WHERE r.id = $1", id))
+		risk, err := scanRisk(tx.QueryRow(ctx, "SELECT "+riskColumns+riskFrom+" WHERE r.id = $1", id))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errNotFound
 		}
 		if err != nil {
+			return err
+		}
+		// One risk: its status with every reason.
+		var status []byte
+		if err := tx.QueryRow(ctx, "SELECT register.exposure_status($1)", id).Scan(&status); err != nil {
+			return err
+		}
+		risk["status"] = json.RawMessage(status)
+		if err := ownerNames(ctx, tx, []map[string]any{risk}); err != nil {
 			return err
 		}
 		var (
