@@ -1,0 +1,18 @@
+# F-008 T-01: binding for acceptance.tier1_max: RA-7; mean annualized loss up to which an acceptance is tier 1 (F-008 design §4).
+setting: acceptance.tier1_max
+type: int
+direction: lower_is_stricter
+bu_scopable: false
+profiles:
+  fedramp-moderate:
+    default: 100000
+    bound: { max: 10000000 }
+    platform_choice: "Tier 1 (F-008 AC-04): risks up to 100,000 a year are accepted at their own business unit; at most 10,000,000"
+  cmmc-l2-r2:
+    default: 100000
+    bound: { max: 10000000 }
+    platform_choice: "Not a security parameter of 800-171; matches FedRAMP Moderate"
+  enterprise-baseline:
+    default: 100000
+    bound: { max: 10000000 }
+    platform_choice: "Matches FedRAMP Moderate"

@@ -1,0 +1,18 @@
+# F-008 T-01: binding for acceptance.tier3_approvals: RA-7, AC-5; approvals a tier 3 acceptance needs, at the root (F-008 design §4).
+setting: acceptance.tier3_approvals
+type: int
+direction: higher_is_stricter
+bu_scopable: false
+profiles:
+  fedramp-moderate:
+    default: 2
+    bound: { min: 1 }
+    platform_choice: "Two approvals at the root for the largest risks; never none"
+  cmmc-l2-r2:
+    default: 2
+    bound: { min: 1 }
+    platform_choice: "Not a security parameter of 800-171; matches FedRAMP Moderate"
+  enterprise-baseline:
+    default: 2
+    bound: { min: 1 }
+    platform_choice: "Matches FedRAMP Moderate"

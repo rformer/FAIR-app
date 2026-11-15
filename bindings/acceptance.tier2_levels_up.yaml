@@ -1,0 +1,18 @@
+# F-008 T-01: binding for acceptance.tier2_levels_up: RA-7, AC-6; levels above the risk's business unit for tier 2 approvers (F-008 design §4).
+setting: acceptance.tier2_levels_up
+type: int
+direction: higher_is_stricter
+bu_scopable: false
+profiles:
+  fedramp-moderate:
+    default: 1
+    bound: { min: 0 }
+    platform_choice: "Tier 2 approvers at the parent business unit"
+  cmmc-l2-r2:
+    default: 1
+    bound: { min: 0 }
+    platform_choice: "Not a security parameter of 800-171; matches FedRAMP Moderate"
+  enterprise-baseline:
+    default: 1
+    bound: { min: 0 }
+    platform_choice: "Matches FedRAMP Moderate"

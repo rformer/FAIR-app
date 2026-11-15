@@ -99,6 +99,46 @@ const (
 	KeyRegisterAnalysisMaxAge = "register.analysis_max_age_days"
 )
 
+// F-008 setting keys (design §4).
+const (
+	KeyAcceptanceTier1Max       = "acceptance.tier1_max"
+	KeyAcceptanceTier2Max       = "acceptance.tier2_max"
+	KeyAcceptanceTier1LevelsUp  = "acceptance.tier1_levels_up"
+	KeyAcceptanceTier2LevelsUp  = "acceptance.tier2_levels_up"
+	KeyAcceptanceTier1Approvals = "acceptance.tier1_approvals"
+	KeyAcceptanceTier2Approvals = "acceptance.tier2_approvals"
+	KeyAcceptanceTier3Approvals = "acceptance.tier3_approvals"
+	KeyAcceptanceMaxDuration    = "acceptance.max_duration_days"
+)
+
+// F008Defs returns the F-008 (risk acceptance) setting definitions,
+// registered by the risk service. The tiers: a risk's mean annualized loss
+// up to tier1_max is tier 1, up to tier2_max tier 2, else tier 3 (at the
+// root); each tier's approvers sit levels_up above the risk's business unit
+// and it needs that many approvals. The profiles bound the loosening side
+// (no tier without an approval); the service keeps the other limits
+// (tier 2 above tier 1, at most 10 levels and 2 approvals).
+func F008Defs() []Def {
+	return []Def{
+		{Key: KeyAcceptanceTier1Max, Kind: KindInt, Direction: LowerIsStricter, Controls: []string{"RA-7"},
+			Description: "Mean annualized loss up to which a risk acceptance is tier 1 (installation currency)"},
+		{Key: KeyAcceptanceTier2Max, Kind: KindInt, Direction: LowerIsStricter, Controls: []string{"RA-7"},
+			Description: "Mean annualized loss up to which a risk acceptance is tier 2; above it, tier 3"},
+		{Key: KeyAcceptanceTier1LevelsUp, Kind: KindInt, Direction: HigherIsStricter, Controls: []string{"RA-7", "AC-6"},
+			Description: "Business unit levels above the risk's at which tier 1 acceptances are approved"},
+		{Key: KeyAcceptanceTier2LevelsUp, Kind: KindInt, Direction: HigherIsStricter, Controls: []string{"RA-7", "AC-6"},
+			Description: "Business unit levels above the risk's at which tier 2 acceptances are approved"},
+		{Key: KeyAcceptanceTier1Approvals, Kind: KindInt, Direction: HigherIsStricter, Controls: []string{"RA-7", "AC-5"},
+			Description: "Approvals a tier 1 risk acceptance needs (1 or 2)"},
+		{Key: KeyAcceptanceTier2Approvals, Kind: KindInt, Direction: HigherIsStricter, Controls: []string{"RA-7", "AC-5"},
+			Description: "Approvals a tier 2 risk acceptance needs (1 or 2)"},
+		{Key: KeyAcceptanceTier3Approvals, Kind: KindInt, Direction: HigherIsStricter, Controls: []string{"RA-7", "AC-5"},
+			Description: "Approvals a tier 3 risk acceptance needs, at the root (1 or 2)"},
+		{Key: KeyAcceptanceMaxDuration, Kind: KindInt, Direction: LowerIsStricter, Controls: []string{"RA-7"},
+			Description: "The most days a risk acceptance may last before it expires"},
+	}
+}
+
 // F007Defs returns the F-007 (risk register) setting definitions,
 // registered by the risk service. The profiles bound the loosening side;
 // the service keeps the other limits (design §4): the register's iteration
@@ -175,10 +215,10 @@ func F002Defs() []Def {
 }
 
 // ReleaseDefs are the setting definitions a release binds: F-001's,
-// F-002's, F-004's, F-005's and F-007's. Profile packages cover exactly these
+// F-002's, F-004's, F-005's, F-007's and F-008's. Profile packages cover exactly these
 // (internal/profilegen).
 func ReleaseDefs() []Def {
-	return append(append(append(append(F001Defs(), F002Defs()...), F004Defs()...), F005Defs()...), F007Defs()...)
+	return append(append(append(append(append(F001Defs(), F002Defs()...), F004Defs()...), F005Defs()...), F007Defs()...), F008Defs()...)
 }
 
 const day = 24 * time.Hour
@@ -264,6 +304,15 @@ func BuiltinProfiles() []Profile {
 			// F-007 (design §4): the same in every family.
 			KeyRegisterIterations:     {Default: 100_000, Weakest: 10_000},
 			KeyRegisterAnalysisMaxAge: {Default: 365, Weakest: 730},
+			// F-008 (design §4): the same in every family; no tier without an approval.
+			KeyAcceptanceTier1Max:       {Default: 100_000, Weakest: 10_000_000},
+			KeyAcceptanceTier2Max:       {Default: 1_000_000, Weakest: 100_000_000},
+			KeyAcceptanceTier1LevelsUp:  {Default: 0, Weakest: 0},
+			KeyAcceptanceTier2LevelsUp:  {Default: 1, Weakest: 0},
+			KeyAcceptanceTier1Approvals: {Default: 1, Weakest: 1},
+			KeyAcceptanceTier2Approvals: {Default: 1, Weakest: 1},
+			KeyAcceptanceTier3Approvals: {Default: 2, Weakest: 1},
+			KeyAcceptanceMaxDuration:    {Default: 365, Weakest: 730},
 		}
 	}
 

@@ -18,7 +18,7 @@ Rules for every task:
 ## Phase A — Foundations
 | # | Task | Traces to | Verification | Size | Status |
 |---|---|---|---|---|---|
-| T-01 | Settings (design §4): `settings.F008Defs()` (the tiers and `acceptance.max_duration_days`), bindings, packages 1.7.0; the risk service registers them; `acceptance.Limits.Check` (tier 2 above tier 1) | AC-04, AC-12; §4 | Settings tests (bounds, stricter direction, no tier without an approval); release-check passes; the risk service refuses to start on an unbound key or tiers out of order | S | Not started |
+| T-01 | Settings (design §4): `settings.F008Defs()` (the tiers and `acceptance.max_duration_days`), bindings, packages 1.7.0; the risk service registers them; `acceptance.Limits.Check` (tier 2 above tier 1) | AC-04, AC-12; §4 | Settings tests (bounds, stricter direction, no tier without an approval); release-check passes; the risk service refuses to start on an unbound key or tiers out of order | S | Done (2026-11-15) |
 | T-02 | Schema `acceptance` (migration; bootstrap role `acceptance_definer`): heads and steps (append-only, PF027), the open-acceptance indexes, the notice outbox; RLS (`acceptance`), definer access (ADR-007 amendments 3 and 5); RLS fixtures | AC-16, AC-17; §3.1, §5 | DB tests: app_rw cannot write either table; steps append-only for every role; one open acceptance per risk (a renewal beside it); RLS harness passes | M | Not started |
 | T-03 | Exposure reads for the job (design §3.5): `analysis.register_summary`, `analysis.pinned_summary`, `register.exposure_for` (status and mean), each granted to one definer | AC-13, AC-14; §3.5, §10 | DB tests: equal to what the risk's owner reads; closed to the application role and every other definer | S | Not started |
 
@@ -51,3 +51,4 @@ Rules for every task:
 ## Change Log
 - 2026-11-15: Initial draft.
 - 2026-11-15: **Approved** by Robert Former.
+- 2026-11-15: T-01: `settings.F008Defs()` (`acceptance.tier1_max` 100,000 and `tier2_max` 1,000,000, lower is stricter, weakest 10,000,000 and 100,000,000; `tier1_levels_up` 0 and `tier2_levels_up` 1, higher is stricter; `tier1_approvals` 1, `tier2_approvals` 1, `tier3_approvals` 2, higher is stricter, weakest 1, so no profile makes a tier need no approval; `max_duration_days` 365, weakest 730), bindings, packages 1.7.0 with 48 settings (tests use a synthetic 1.8.0 for later releases); the risk service registers F-008's definitions and refuses to start on an unbound key or tiers it cannot work with; `internal/acceptance` (`Limits.Check`: tier 2 above tier 1, levels 0 to 10, 1 or 2 approvals, at least 30 days; `Place`; `LimitsFrom`). Tests: `TestAcceptanceSettings`, `internal/acceptance` `TestLimitsCheck`, `TestPlace`, `TestLimitsFrom` (the shipped profiles pass the check).

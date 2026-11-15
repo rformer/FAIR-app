@@ -1,0 +1,18 @@
+# F-008 T-01: binding for acceptance.tier2_approvals: RA-7, AC-5; approvals a tier 2 acceptance needs (F-008 design §4).
+setting: acceptance.tier2_approvals
+type: int
+direction: higher_is_stricter
+bu_scopable: false
+profiles:
+  fedramp-moderate:
+    default: 1
+    bound: { min: 1 }
+    platform_choice: "One approval; never none"
+  cmmc-l2-r2:
+    default: 1
+    bound: { min: 1 }
+    platform_choice: "Not a security parameter of 800-171; matches FedRAMP Moderate"
+  enterprise-baseline:
+    default: 1
+    bound: { min: 1 }
+    platform_choice: "Matches FedRAMP Moderate"
