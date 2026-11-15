@@ -1,0 +1,157 @@
+# NIST SP 800-53 Rev 5 control implementation statements for F-007 (risk
+# register), task T-12. Source for the platform's OSCAL component
+# definition (F-014 assembles the features' files); checked by
+# internal/compliance tests: the controls are exactly F-007's control
+# mapping, every evidence path and test exists, and the OSCAL output
+# validates against the pinned schema.
+#
+# responsibility, per deployment mode (ADR-005):
+#   provider  the platform (and, in SaaS, the vendor operating it) meets it
+#   shared    the platform provides the mechanism; the customer operates it
+#   customer  the customer meets it
+# customer: what the customer does wherever the responsibility is shared
+# or customer. Evidence tests are "<package dir>:<test name>".
+feature: F-007
+title: Risk register
+status: approved # signed off by Robert Former, 2026-11-15
+controls:
+  - id: ac-3
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Risks, their versions and scenario links, their treatment and the
+      business unit roll-ups are business-unit-owned data under forced
+      row-level security, read and written under the caller's signed database
+      context. Treatment is its own resource type, so treatment.view is
+      enforced by the database, not by the service. A roll-up is shown to its
+      requester alone. It includes only open risks the requester sees, of
+      results the requester sees, and nested aggregates are visible only to a
+      reader who sees every result under them. Restricted business units
+      contribute by their roll-up mode: excluded ones are counted, aggregate-
+      only ones give one labelled mean total computed by the roll-up definer
+      role, never a risk, scenario or distribution, and full ones contribute
+      their risks.
+    evidence:
+      code: [db/migrations/0108_register_schema.sql, db/migrations/0112_register_rollups.sql, db/migrations/0114_register_set_based.sql,
+             internal/registerapi/risks.go, internal/registerapi/treatment.go, internal/registerapi/rollups.go]
+      tests: ["db/tests:TestSTRIDEF007Visibility", "db/tests:TestSTRIDEF007RestrictedRollup", "db/tests:TestSTRIDEF007TreatmentScope",
+              "db/tests:TestRLSHarnessEveryBUOwnedTable"]
+
+  - id: ac-6
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Reading the register needs register.view, and treatment.view for
+      treatment. Changing a risk needs register.edit, and changing its plan
+      treatment.edit, at the risk's business unit; moving needs register.edit
+      at both units, and categories register.edit at the root. A risk owner
+      runs nothing on the simulation engine directly. Exposure and roll-up
+      aggregates are created only by the register's definer functions, under
+      a registered insert policy (ADR-007 amendment 5), and each member is
+      checked against the caller's own analysis read scope. The application
+      role cannot set an aggregate's purpose, call those functions' internals
+      or the aggregate-only total, or change a version, head, link or roll-up
+      record.
+    evidence:
+      code: [db/migrations/0110_register_exposure.sql, db/migrations/0109_register_moves_categories.sql, specs/adr/ADR-007-signed-database-context.md,
+             internal/rlstest/rlstest.go]
+      tests: ["db/tests:TestSTRIDEF007Escalation", "db/tests:TestSTRIDEF007HistoryTamper", "db/tests:TestRLSHarnessDetectsBrokenTables",
+              "db/tests:TestRegisterRisksAPI"]
+
+  - id: au-2
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      F-007 adds these events to the security event catalog under the
+      category risk_data:
+      register.risk_created, risk_changed, risk_closed, risk_reopened and
+      risk_moved;
+      register.scenario_linked, scenario_unlinked and pin_set;
+      register.treatment_changed;
+      register.rollup_requested, rollup_computed and rollup_failed;
+      and register.category_changed.
+      They record each change to the register and to the analyses its
+      numbers rest on, and each roll-up.
+    customer: >-
+      Decide which register events to forward to the SIEM and review, for
+      example closed risks and accepted treatments.
+    evidence:
+      code: [pkg/audit/catalog.yaml]
+      tests: ["pkg/audit:TestCatalogMatchesCode", "db/tests:TestRegisterAuditEvents"]
+
+  - id: au-12
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Every change is recorded in the transaction that makes it, with the
+      actor, the business unit and, for closing, reopening and moving, the
+      reason. If the event cannot be recorded, the change is not made and the
+      answer is 503. Roll-up results are recorded by the database when the
+      roll-up's aggregate finishes, in the same transaction.
+    customer: >-
+      Monitor the audit trail's capacity and forwarding (F-002).
+    evidence:
+      code: [internal/registerapi/risks.go, internal/registerapi/exposure.go, internal/registerapi/treatment.go,
+             db/migrations/0112_register_rollups.sql]
+      tests: ["db/tests:TestRegisterAuditEvents", "db/tests:TestRegisterRollups"]
+
+  - id: cm-6
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      The register's two settings are F-015 settings with bounds and profile
+      floors: register.iterations, the iteration count every pinned run must
+      have, and register.analysis_max_age_days, after which a pinned result
+      is stale. The service refuses to start on settings it cannot work with.
+    customer: >-
+      Choose the values within the bounds, through the posture workflow.
+    evidence:
+      code: [pkg/settings/profiles.go, bindings/register.iterations.yaml, bindings/register.analysis_max_age_days.yaml, internal/register/register.go]
+      tests: ["db/tests:TestRegisterSettings", "internal/register:TestLimitsCheck"]
+
+  - id: ra-3
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      The register keeps the organization's risks in business terms, each
+      with an owner, a business unit and the scenarios that analyse it. Its
+      exposure is the simulation result its owner pinned, so every number
+      names the run it comes from. The register says when that number is
+      stale and why: a missing pin, a newer scenario version, an old result,
+      an archived scenario, or an exposure that could not be computed.
+      Business unit roll-ups combine the risks' simulated losses, not their
+      scores, state that they assume independence, and say what they leave
+      out. Every change to a risk is kept as a version with who, when and
+      why.
+    customer: >-
+      Keep risks, owners and pinned analyses current, and act on what the
+      register marks as stale.
+    evidence:
+      code: [internal/registerapi/exposure.go, internal/registerapi/rollups.go, web/src/register/RiskPage.tsx, web/src/register/Rollups.tsx]
+      tests: ["db/tests:TestRegisterExposure", "db/tests:TestRegisterRollups", "db/tests:TestRegisterRisksAPI"]
+
+  - id: ra-7
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Each risk carries a treatment plan: a decision (mitigate, transfer,
+      avoid or accept) with its rationale, and for mitigation the control set
+      each scenario is expected to reach. Its actions have owners, due dates
+      and states, and those past their due date are flagged. The plan shows
+      the expected exposure after treatment beside the current one, from the
+      same pinned runs. Accepting a risk records that an acceptance is
+      needed; the register does not approve it (F-008).
+    customer: >-
+      Decide the response to each risk, carry out the actions and approve
+      acceptances in the acceptance workflow.
+    evidence:
+      code: [internal/registerapi/treatment.go, internal/register/treatment.go, db/migrations/0111_register_treatment.sql, web/src/register/Treatment.tsx]
+      tests: ["db/tests:TestRegisterTreatment", "internal/register:TestActionOverdue"]
+
+  - id: si-10
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Every risk and treatment document is checked before it is stored. The
+      service checks a risk's structure, and the database checks it again
+      together with everything it refers to: the owner's scope, each
+      scenario's visibility and business unit, each pin's run, state,
+      iteration count and control set, the category, and the target sets of
+      a plan. Problems are reported by JSON pointer. Documents, scenarios,
+      actions, reasons and roll-ups are bounded in size, and unknown fields
+      are refused.
+    evidence:
+      code: [internal/register/document.go, db/migrations/0108_register_schema.sql, internal/registerapi/api.go]
+      tests: ["db/tests:TestRegisterValidationParity", "db/tests:TestRegisterSchema", "db/tests:TestSTRIDEF007Pins"]

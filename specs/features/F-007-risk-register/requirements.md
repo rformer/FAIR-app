@@ -68,7 +68,7 @@ F-007 keeps a living register of the organization's risks, tied to the analyses 
 - Secure defaults: the stale-analysis age is an F-015 setting with bounds; closing and moving need a reason.
 
 ## Control mapping (NIST SP 800-53r5)
-To be proposed with the tasks.
+AC-3, AC-6, AU-2, AU-12, CM-6, RA-3, RA-7, SI-10.
 
 ## Out of scope
 - Risk appetite and tolerance, and flagging exposure above them (F-008 or later).
@@ -97,3 +97,4 @@ To be proposed with the tasks.
 ## Change Log
 - 2026-11-13: Initial draft; scope decisions (a risk covers one or more scenarios; owners pin the results that count; business unit roll-ups as simulated aggregates; treatment plans in F-007; appetite, import/export and review cadence left out) taken with Robert Former.
 - 2026-11-13: **Approved** by Robert Former, with the open questions' proposals as stated (to be settled in the design).
+- 2026-11-15: Control mapping added (AC-3, AC-6, AU-2, AU-12, CM-6, RA-3, RA-7, SI-10), with T-12; statements in `compliance/statements/F-007.yaml`, signed off by Robert Former 2026-11-15.
