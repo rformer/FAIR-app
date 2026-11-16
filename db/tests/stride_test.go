@@ -329,6 +329,37 @@ var strideF008 = map[string][]string{
 	},
 }
 
+// F-009 T-15: design §7.
+var strideF009 = map[string][]string{
+	"I: notices leak risk data to email and chat tools | Fixed templates over a minimal envelope; titles only by setting and never for restricted units; webhooks scoped to a BU subtree and restricted units only by their own webhooks": {
+		"db/tests:TestSTRIDEF009Content", "internal/notify:TestMinimalContent", "db/tests:TestNotifyFanOut",
+	},
+	"I: a notice reaches someone who lost access | Recipients re-checked at fan-out and before each email: active, permission, item visibility": {
+		"db/tests:TestSTRIDEF009Recheck", "db/tests:TestNotifyFanOut",
+	},
+	"I, E: a channel used to reach internal systems (SSRF) | Allow-listed hosts; resolved addresses checked, internal ranges always refused, private only when air-gapped; the checked address dialled; no redirects or proxies": {
+		"db/tests:TestSTRIDEF009Destinations", "internal/notify:TestCheckAddr", "internal/notify:TestResolve", "internal/notify:TestDialChecksAndPins", "internal/notify:TestHTTPClient",
+	},
+	"S, T: a forged or replayed webhook delivery | HMAC-SHA-256 over id, timestamp and body with a per-webhook secret; delivery ids stable across retries": {
+		"db/tests:TestSTRIDEF009Signing", "internal/notify:TestSTRIDEF009Signing", "internal/notify:TestSignStandardWebhooks", "internal/notify:TestWebhookSender",
+	},
+	"I: secrets and credentials disclosed | Webhook secrets shown once, kept as ciphertext under a key file; SMTP passwords are files, never accepted by the API; TLS 1.2 floor with verified certificates": {
+		"db/tests:TestSTRIDEF009Secrets", "internal/notify:TestSTRIDEF009TLSFloor", "internal/notify:TestKeyring", "internal/notify:TestSMTPSender",
+	},
+	"T: injection through notice content | Template escaping, header encoding, CR/LF refused, links built from the base URL": {
+		"db/tests:TestSTRIDEF009Injection", "internal/notify:TestInjection",
+	},
+	"E: users read others' notices or change channels | Own rows only, by the signed context; channels need notification.manage (privileged)": {
+		"db/tests:TestSTRIDEF009Access", "db/tests:TestNotifyAPI",
+	},
+	"R: configuration changes or failures not attributable | Channel changes, tests, failures, refusals and preference changes audited in their transactions": {
+		"db/tests:TestNotifyAuditEvents", "db/tests:TestNotifyChannels",
+	},
+	"D: a slow or failing channel blocks delivery, or notices flood | Per-delivery claims with SKIP LOCKED; back-off per delivery; timeouts and capped responses; batches; recipient cap": {
+		"db/tests:TestNotifyDelivery", "db/tests:TestNotifyFanOut",
+	},
+}
+
 // The threat tables and the suites agree: every row has tests, every test
 // exists and is run by make test-stride, and no mapping names a row the
 // design no longer has. Runs without a database.
@@ -359,6 +390,7 @@ func TestSTRIDECatalog(t *testing.T) {
 		{"F-006-results-visualization", "## 7.", 7, strideF006},
 		{"F-007-risk-register", "## 7.", 8, strideF007},
 		{"F-008-risk-acceptance", "## 7.", 8, strideF008},
+		{"F-009-notifications", "## 7.", 9, strideF009},
 	} {
 		rows := threatRows(t, filepath.Join(root, "specs", "features", c.feature, "design.md"), c.section)
 		if len(rows) < c.min {

@@ -55,6 +55,14 @@ type smtpServer struct {
 	got                     []string // the DATA received
 	plainAuth               bool     // credentials were offered before TLS
 	addr                    string
+	maxTLS                  uint16 // 0: the default; F-009 T-15 offers only older versions
+}
+
+func (s *smtpServer) minTLS() uint16 {
+	if s.maxTLS != 0 && s.maxTLS < tls.VersionTLS12 {
+		return tls.VersionTLS10
+	}
+	return tls.VersionTLS12
 }
 
 func (s *smtpServer) start(t *testing.T) {
@@ -80,7 +88,7 @@ func (s *smtpServer) serve(c net.Conn) {
 	defer func() { _ = c.Close() }()
 	secure := false
 	if s.implicit {
-		tc := tls.Server(c, &tls.Config{Certificates: []tls.Certificate{s.cert}, MinVersion: tls.VersionTLS12})
+		tc := tls.Server(c, &tls.Config{Certificates: []tls.Certificate{s.cert}, MinVersion: s.minTLS(), MaxVersion: s.maxTLS})
 		if tc.Handshake() != nil {
 			return
 		}
@@ -109,7 +117,7 @@ func (s *smtpServer) serve(c net.Conn) {
 			say(append(ext, "250 AUTH PLAIN")...)
 		case cmd == "STARTTLS":
 			say("220 go ahead")
-			tc := tls.Server(c, &tls.Config{Certificates: []tls.Certificate{s.cert}, MinVersion: tls.VersionTLS12})
+			tc := tls.Server(c, &tls.Config{Certificates: []tls.Certificate{s.cert}, MinVersion: s.minTLS(), MaxVersion: s.maxTLS})
 			if tc.Handshake() != nil {
 				return
 			}
