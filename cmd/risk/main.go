@@ -236,7 +236,7 @@ func run() error {
 	// service refuses to start while one of them is unbound.
 	sc := settings.NewClient(settings.ClientOptions{Source: settings.DBSource{DB: pool}, Service: "risk", Instance: os.Getenv("POD_NAME")})
 	// F-005's (design §7), F-007's and F-008's (design §4) likewise.
-	riskDefs := append(append(append(settings.F004Defs(), settings.F005Defs()...), settings.F007Defs()...), settings.F008Defs()...)
+	riskDefs := append(append(append(append(settings.F004Defs(), settings.F005Defs()...), settings.F007Defs()...), settings.F008Defs()...), settings.F010Defs()...)
 	if err := sc.Register(riskDefs...); err != nil {
 		return err
 	}
@@ -244,6 +244,7 @@ func run() error {
 	go registerDefs(ctx, pool, logger, "F-005", settings.F005Defs())
 	go registerDefs(ctx, pool, logger, "F-007", settings.F007Defs())
 	go registerDefs(ctx, pool, logger, "F-008", settings.F008Defs())
+	go registerDefs(ctx, pool, logger, "F-010", settings.F010Defs())
 	if err := sc.Refresh(ctx); err != nil {
 		return fmt.Errorf("settings: %w", err)
 	}

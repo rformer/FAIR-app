@@ -111,6 +111,37 @@ const (
 	KeyAcceptanceMaxDuration    = "acceptance.max_duration_days"
 )
 
+// F-010 setting keys (design §4).
+const (
+	KeyReportMarking           = "report.marking"
+	KeyReportRetention         = "report.retention_days"
+	KeyReportSnapshotInterval  = "report.snapshot_interval_days"
+	KeyReportSnapshotRetention = "report.snapshot_retention_days"
+	KeyExportReasonRequired    = "export.reason_required"
+)
+
+// F010Defs returns the F-010 (reporting and export) setting definitions,
+// registered by the risk service. export.reason_required is BU-scopable,
+// and the restricted overlay's default for it is true (F-015 §6.6), so
+// every export of risk data from a restricted subtree needs a reason. The
+// profiles bound the loosening side; the service keeps the other limits
+// (design §4): the marking 1 to 60 characters, retention at least 1 day,
+// snapshots at least daily.
+func F010Defs() []Def {
+	return []Def{
+		{Key: KeyReportMarking, Kind: KindString, Direction: NonEmptyIsStricter, Controls: []string{"AC-16", "MP-3"},
+			Description: "The marking on every page and file of a report (1 to 60 characters)"},
+		{Key: KeyReportRetention, Kind: KindInt, Direction: LowerIsStricter, Controls: []string{"SI-12"},
+			Description: "Days generated report files are kept before they are deleted (1 to 365)"},
+		{Key: KeyReportSnapshotInterval, Kind: KindInt, Direction: LowerIsStricter, Controls: []string{"PM-9"},
+			Description: "Days between portfolio snapshots for the dashboard's trends (1 to 31)"},
+		{Key: KeyReportSnapshotRetention, Kind: KindInt, Direction: HigherIsStricter, Controls: []string{"PM-9", "AU-11"},
+			Description: "Days portfolio snapshots are kept (365 to 3,650)"},
+		{Key: KeyExportReasonRequired, Kind: KindBool, Direction: TrueIsStricter, BUScopable: true, Controls: []string{"AC-4", "AU-12"},
+			Description: "Exports of risk data (reports, the risk export, result downloads) need a stated reason"},
+	}
+}
+
 // F-009 setting keys (design §4).
 const (
 	KeyNotificationDetail       = "notification.detail"
@@ -245,7 +276,7 @@ func F002Defs() []Def {
 // (internal/profilegen).
 func ReleaseDefs() []Def {
 	defs := F001Defs()
-	for _, more := range [][]Def{F002Defs(), F004Defs(), F005Defs(), F007Defs(), F008Defs(), F009Defs()} {
+	for _, more := range [][]Def{F002Defs(), F004Defs(), F005Defs(), F007Defs(), F008Defs(), F009Defs(), F010Defs()} {
 		defs = append(defs, more...)
 	}
 	return defs
@@ -348,6 +379,12 @@ func BuiltinProfiles() []Profile {
 			KeyNotificationAllowedHosts: {Default: []string{}, Weakest: []string{SetAll}},
 			KeyNotificationRetryHours:   {Default: 24, Weakest: 1},
 			KeyNotificationLogRetention: {Default: 90, Weakest: 30},
+			// F-010 (design §4): the same in every family; reasons on in restricted subtrees by the overlay.
+			KeyReportMarking:           strict("Confidential"),
+			KeyReportRetention:         {Default: 30, Weakest: 365},
+			KeyReportSnapshotInterval:  {Default: 7, Weakest: 31},
+			KeyReportSnapshotRetention: {Default: 1095, Weakest: 365},
+			KeyExportReasonRequired:    {Default: false, Weakest: false},
 		}
 	}
 

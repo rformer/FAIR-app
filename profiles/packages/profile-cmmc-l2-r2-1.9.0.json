@@ -4,7 +4,7 @@
     "id": "cmmc-l2-r2",
     "title": "CMMC Level 2 (NIST SP 800-171 Rev 2)",
     "family": "cmmc",
-    "version": "1.8.0",
+    "version": "1.9.0",
     "base": "profiles/cmmc-l2-r2/profile.json",
     "sources": [
       {
@@ -153,6 +153,10 @@
         "sha256": "c7af651de3f08af257ed790ecbad146e91749b24802f3047f4cb9cdc2eaaadb1"
       },
       {
+        "path": "bindings/export.reason_required.yaml",
+        "sha256": "79f22c70261259132718649bc47b04067fa1e84c064624331f563321103f24c4"
+      },
+      {
         "path": "bindings/fips.enabled.yaml",
         "sha256": "8dc620784e3f75de717416d4b4db83365346c47a69bd777bf654d86373bf1ac2"
       },
@@ -179,6 +183,22 @@
       {
         "path": "bindings/register.iterations.yaml",
         "sha256": "7feb5261e3ab27b90d305016d5545d8196d74d729b2466ddd1f2931b570ea501"
+      },
+      {
+        "path": "bindings/report.marking.yaml",
+        "sha256": "233737052035d15e09702d00f0364712b7328a985b5ca62981832dd4a9a6e568"
+      },
+      {
+        "path": "bindings/report.retention_days.yaml",
+        "sha256": "0b2e43a263475026cd9ee9c49727914f7db4fdc974b75515e5d39fe36b63788d"
+      },
+      {
+        "path": "bindings/report.snapshot_interval_days.yaml",
+        "sha256": "b2267c939341b4d803e671780c6b2d45f4ee785262fa40a15f777f0c7e0b944f"
+      },
+      {
+        "path": "bindings/report.snapshot_retention_days.yaml",
+        "sha256": "ef491007f99048674bea41b4f23f6683534828a756e392560b47dc2537abaa6c"
       },
       {
         "path": "bindings/rls.enforced.yaml",
@@ -589,6 +609,16 @@
         "platform_choice": "F-015 secure default"
       }
     },
+    "export.reason_required": {
+      "type": "bool",
+      "direction": "true_is_stricter",
+      "bu_scopable": true,
+      "default": false,
+      "bound": false,
+      "origin": {
+        "platform_choice": "Matches FedRAMP Moderate"
+      }
+    },
     "fips.enabled": {
       "type": "bool",
       "direction": "true_is_stricter",
@@ -666,6 +696,46 @@
       "bound": 10000,
       "origin": {
         "platform_choice": "Not a security parameter of 800-171; matches FedRAMP Moderate"
+      }
+    },
+    "report.marking": {
+      "type": "string",
+      "direction": "nonempty_is_stricter",
+      "bu_scopable": false,
+      "default": "Confidential",
+      "bound": "Confidential",
+      "origin": {
+        "platform_choice": "Matches FedRAMP Moderate; set the organization's CUI marking where reports hold CUI"
+      }
+    },
+    "report.retention_days": {
+      "type": "int",
+      "direction": "lower_is_stricter",
+      "bu_scopable": false,
+      "default": 30,
+      "bound": 365,
+      "origin": {
+        "platform_choice": "Matches FedRAMP Moderate"
+      }
+    },
+    "report.snapshot_interval_days": {
+      "type": "int",
+      "direction": "lower_is_stricter",
+      "bu_scopable": false,
+      "default": 7,
+      "bound": 31,
+      "origin": {
+        "platform_choice": "Matches FedRAMP Moderate"
+      }
+    },
+    "report.snapshot_retention_days": {
+      "type": "int",
+      "direction": "higher_is_stricter",
+      "bu_scopable": false,
+      "default": 1095,
+      "bound": 365,
+      "origin": {
+        "platform_choice": "Matches FedRAMP Moderate"
       }
     },
     "rls.enforced": {

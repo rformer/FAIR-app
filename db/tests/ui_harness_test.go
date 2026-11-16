@@ -262,7 +262,7 @@ func seedPostureScenario(t *testing.T, ae apiEnv) {
 	e.drain()
 
 	sw := posture.Switches{DB: e.posturePool(), Audit: audit.NewMemory()}
-	if _, err := sw.Request(ctx, e.principal("admin"), settings.ProfileFedRAMPModerate, "1.8.0", ""); err != nil {
+	if _, err := sw.Request(ctx, e.principal("admin"), settings.ProfileFedRAMPModerate, "1.9.0", ""); err != nil {
 		t.Fatalf("seed switch: %v", err)
 	}
 

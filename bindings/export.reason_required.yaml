@@ -1,0 +1,19 @@
+# F-010 T-02: binding for export.reason_required: AC-4, AU-12; exports of risk data need a reason (F-010 design §4, OQ7).
+# Business-unit scoped; the restricted overlay's default is true (F-015 design §6.6).
+setting: export.reason_required
+type: bool
+direction: true_is_stricter
+bu_scopable: true
+profiles:
+  fedramp-moderate:
+    default: false
+    bound: { allowed: [false, true] }
+    platform_choice: "Off by default; on in restricted subtrees through the overlay, and per business unit where wanted"
+  cmmc-l2-r2:
+    default: false
+    bound: { allowed: [false, true] }
+    platform_choice: "Matches FedRAMP Moderate"
+  enterprise-baseline:
+    default: false
+    bound: { allowed: [false, true] }
+    platform_choice: "Matches FedRAMP Moderate"

@@ -1,0 +1,18 @@
+# F-010 T-02: binding for report.snapshot_retention_days: PM-9, AU-11; days portfolio snapshots are kept (F-010 design §4).
+setting: report.snapshot_retention_days
+type: int
+direction: higher_is_stricter
+bu_scopable: false
+profiles:
+  fedramp-moderate:
+    default: 1095
+    bound: { min: 365 }
+    platform_choice: "Three years of trends, at least one (F-010 OQ6)"
+  cmmc-l2-r2:
+    default: 1095
+    bound: { min: 365 }
+    platform_choice: "Matches FedRAMP Moderate"
+  enterprise-baseline:
+    default: 1095
+    bound: { min: 365 }
+    platform_choice: "Matches FedRAMP Moderate"
