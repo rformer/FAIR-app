@@ -45,6 +45,10 @@
 --                           deliveries; reads users and scopes, never RLS data
 --   app_notify     LOGIN    the notify service (F-009 T-02): the notify schema
 --                           only through notify_definer's functions; NOBYPASSRLS
+--   report_definer NOLOGIN  owns the report schema's functions (F-010 T-03):
+--                           runs, files, schedules, snapshots; its tables are
+--                           its own, and its reads return only what the
+--                           caller may see
 --
 -- Required psql variables: dbname, migrator_password, rw_password,
 -- engine_password, posture_password, gateway_password, audit_password,
@@ -56,7 +60,7 @@ DO $$
 DECLARE
   r text;
 BEGIN
-  FOREACH r IN ARRAY ARRAY['fair_owner', 'authz_definer', 'posture_definer', 'rollup_definer', 'bu_guard_definer', 'audit_definer', 'risk_definer', 'estimate_definer', 'analysis_definer', 'register_definer', 'acceptance_definer', 'notify_definer'] LOOP
+  FOREACH r IN ARRAY ARRAY['fair_owner', 'authz_definer', 'posture_definer', 'rollup_definer', 'bu_guard_definer', 'audit_definer', 'risk_definer', 'estimate_definer', 'analysis_definer', 'register_definer', 'acceptance_definer', 'notify_definer', 'report_definer'] LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
       EXECUTE format('CREATE ROLE %I NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS', r);
     END IF;
@@ -115,6 +119,8 @@ GRANT register_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
 GRANT acceptance_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
 -- And for notifications (F-009 T-02).
 GRANT notify_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
+-- And for reports (F-010 T-03).
+GRANT report_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
 
 -- Lock down the database: nobody connects unless granted.
 REVOKE ALL ON DATABASE :"dbname" FROM PUBLIC;

@@ -105,10 +105,10 @@ Packages 1.9.0 (57 settings); tests that need a later release use a synthetic 1.
 | `report.file` | run_id, format, object key, version id, size, sha256, purged_at | Definer only |
 | `report.schedule` | §3.7 | Definer only; `report.my_schedules` |
 | `report.snapshot` | id, taken_at | Readable by app_rw |
-| `report.snapshot_bu` | snapshot_id, bu_id, counts | RLS `register`; inserted by `report_definer` (amendment 5) |
-| `report.snapshot_rollup` | snapshot_id, bu_id, rollup_id, rollup_finished_at, summary, risk_bus, aggregate_only_bus | RLS `register` plus the RESTRICTIVE policy (§3.2) |
+| `report.snapshot_bu` | snapshot_id, bu_id, counts | Definer only; returned by `report.trend` as §3.2 allows (amended) |
+| `report.snapshot_rollup` | snapshot_id, bu_id, rollup_id, rollup_finished_at, summary, risk_bus, aggregate_only_bus | Definer only; returned by `report.trend` as §3.2 allows (amended) |
 | `report.notice_outbox` | kind, user_id, run_id or schedule_id | Insert by `report_definer`; collected by `notify_definer` |
-State rules (PF029): finished runs and files are immutable but for `purged_at`; snapshots append-only; schedules change only through their functions. Every BU-owned table has its `rlstest` fixture.
+State rules (PF029): finished runs and files are immutable but for `purged_at`; snapshots never change and are purged whole; schedules change only through their functions (at most 20 live per owner, PF030). No `report` table is BU-owned (amended).
 
 ## 6. API (`api/openapi/report.yaml`, `/api/v1/reports`)
 | Route | Permission | Notes |
@@ -181,3 +181,4 @@ Conventions as before: operationId = handler; mutating routes declare `x-permiss
 - 2026-11-16: Initial draft, In Review. Decided with Robert Former: the risk service, the report store, ADR-015's Go vector charts, Noto Sans, and the delegated read-only context (ADR-007 amendment 6).
 - 2026-11-16: Approved by Robert Former, with ADR-015 and the tasks.
 - 2026-11-16: T-01 (OQ4 amended, Robert Former): catalog version 5 adds a Report Publisher role rather than giving Executive Viewer and Risk Analyst a privileged permission.
+- 2026-11-16: T-03 (amended with Robert Former): the snapshot tables are definer-only, like every `report` table, instead of RLS tables with a restrictive policy, so the retention purge is a plain delete (ADR-007's helpers give a definer no delete). `report.trend` returns only what §3.2 allows, set-based: BU rows in the caller's register read scope (aggregate-only units through `authz.rollup_coverage`), roll-up rows only when every included risk's BU is visible and every aggregate-only BU covered. The visibility rules are unchanged.
