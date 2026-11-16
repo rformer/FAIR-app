@@ -53,35 +53,35 @@ func TestNotifySchema(t *testing.T) {
 		VALUES ('risk.stale', 'register', '1', '{}', '{}', now())`); got != "23505" {
 		t.Errorf("the same source row twice: %s", got)
 	}
-	for name, c := range map[string]struct{ sql, want string }{
-		"notice envelope": {"UPDATE notify.notice SET envelope = '{}' WHERE id = '" + notice + "'", "PF028"},
-		"notice fanned":   {"UPDATE notify.notice SET fanned_out_at = now() WHERE id = '" + notice + "'", "ok"},
-		"notice refan":    {"UPDATE notify.notice SET fanned_out_at = now() + interval '1 hour' WHERE id = '" + notice + "'", "PF028"},
-		"unknown kind": {`INSERT INTO notify.notice (kind, source, source_id, envelope, recipients, queued_at)
+	for _, c := range []struct{ name, sql, want string }{
+		{"notice envelope", "UPDATE notify.notice SET envelope = '{}' WHERE id = '" + notice + "'", "PF028"},
+		{"notice fanned", "UPDATE notify.notice SET fanned_out_at = now() WHERE id = '" + notice + "'", "ok"},
+		{"notice refan", "UPDATE notify.notice SET fanned_out_at = now() + interval '1 hour' WHERE id = '" + notice + "'", "PF028"},
+		{"unknown kind", `INSERT INTO notify.notice (kind, source, source_id, envelope, recipients, queued_at)
 			VALUES ('mail.spam', 'register', '2', '{}', '{}', now())`, "23503"},
 	} {
 		if got := e.adminState(c.sql); got != c.want {
-			t.Errorf("%s: %s, want %s", name, got, c.want)
+			t.Errorf("%s: %s, want %s", c.name, got, c.want)
 		}
 	}
 	inbox := e.adminQuery("INSERT INTO notify.inbox (notice_id, user_id) VALUES ('" + notice + "', '" + user + "') RETURNING id")
-	for name, c := range map[string]struct{ sql, want string }{
-		"unread again": {"UPDATE notify.inbox SET read_at = NULL WHERE id = " + inbox, "PF028"},
-		"read":         {"UPDATE notify.inbox SET read_at = now() WHERE id = " + inbox, "ok"},
-		"read again":   {"UPDATE notify.inbox SET read_at = now() + interval '1 hour' WHERE id = " + inbox, "PF028"},
+	for _, c := range []struct{ name, sql, want string }{
+		{"unread again", "UPDATE notify.inbox SET read_at = NULL WHERE id = " + inbox, "PF028"},
+		{"read", "UPDATE notify.inbox SET read_at = now() WHERE id = " + inbox, "ok"},
+		{"read again", "UPDATE notify.inbox SET read_at = now() + interval '1 hour' WHERE id = " + inbox, "PF028"},
 	} {
 		if got := e.adminState(c.sql); got != c.want {
-			t.Errorf("%s: %s, want %s", name, got, c.want)
+			t.Errorf("%s: %s, want %s", c.name, got, c.want)
 		}
 	}
-	for name, c := range map[string]struct{ sql, want string }{
-		"webhook without a secret": {"INSERT INTO notify.channel (kind, name, config, bu_id, kinds) VALUES ('webhook', 'w', '{}', '" + root + "', '{risk.stale}')", "23514"},
-		"smtp with a BU":           {"INSERT INTO notify.channel (kind, name, config, bu_id) VALUES ('smtp', 's', '{}', '" + root + "')", "23514"},
-		"smtp":                     {"INSERT INTO notify.channel (kind, name, config) VALUES ('smtp', 'relay', '{}')", "ok"},
-		"a second smtp":            {"INSERT INTO notify.channel (kind, name, config) VALUES ('smtp', 'relay 2', '{}')", "23505"},
+	for _, c := range []struct{ name, sql, want string }{
+		{"webhook without a secret", "INSERT INTO notify.channel (kind, name, config, bu_id, kinds) VALUES ('webhook', 'w', '{}', '" + root + "', '{risk.stale}')", "23514"},
+		{"smtp with a BU", "INSERT INTO notify.channel (kind, name, config, bu_id) VALUES ('smtp', 's', '{}', '" + root + "')", "23514"},
+		{"smtp", "INSERT INTO notify.channel (kind, name, config) VALUES ('smtp', 'relay', '{}')", "ok"},
+		{"a second smtp", "INSERT INTO notify.channel (kind, name, config) VALUES ('smtp', 'relay 2', '{}')", "23505"},
 	} {
 		if got := e.adminState(c.sql); got != c.want {
-			t.Errorf("%s: %s, want %s", name, got, c.want)
+			t.Errorf("%s: %s, want %s", c.name, got, c.want)
 		}
 	}
 	smtp := e.adminQuery("SELECT id FROM notify.channel WHERE kind = 'smtp'")

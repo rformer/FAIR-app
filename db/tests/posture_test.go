@@ -7,7 +7,7 @@ import (
 )
 
 // F-015 T-08 (design §5 access model): posture tables.
-var postureTables = []string{"active_profile", "change", "deployment_observation", "drift_finding", "exception", "exception_notice", "export_record", "idempotency", "k8s_access", "mac_key", "notice_outbox", "overlay_change", "overlay_value", "profile", "profile_switch", "profile_value", "renewal", "scanner_report", "secops_outbox", "service_heartbeat", "setting_def", "setting_value", "state", "switch_conflict"}
+var postureTables = []string{"active_profile", "change", "deployment_observation", "drift_finding", "exception", "exception_notice", "export_record", "finding_outbox", "idempotency", "k8s_access", "mac_key", "notice_outbox", "overlay_change", "overlay_value", "profile", "profile_switch", "profile_value", "renewal", "scanner_report", "secops_outbox", "service_heartbeat", "setting_def", "setting_value", "state", "switch_conflict"}
 
 // Verification for T-08: application roles have no access to posture tables,
 // reads included; RLS is forced with a posture_definer-only policy.
@@ -26,12 +26,17 @@ func TestPostureTablesLocked(t *testing.T) {
 		FROM (SELECT p.polname, p.polcmd::text AS cmd, ARRAY(SELECT pg_get_userbyid(r) FROM unnest(p.polroles) r) AS roles
 		      FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid JOIN pg_namespace n ON n.oid = c.relnamespace
 		      WHERE n.nspname = 'posture') x`)
-	if policies != "definer_only:*:{posture_definer}" {
+	// F-009 T-04: notify_definer collects the two notice outboxes.
+	if policies != "definer_only:*:{posture_definer},notify_collect:*:{notify_definer}" {
 		t.Fatalf("posture policies: %s", policies)
 	}
 	if n := e.mustOwner(`SELECT count(*) FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
-		JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'posture'`); n != strconv.Itoa(len(postureTables)) {
-		t.Fatalf("%s policies, want one per table", n)
+		JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'posture' AND p.polname = 'definer_only'`); n != strconv.Itoa(len(postureTables)) {
+		t.Fatalf("%s definer policies, want one per table", n)
+	}
+	if got := e.mustOwner(`SELECT string_agg(c.relname, ',' ORDER BY c.relname) FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
+		JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'posture' AND p.polname = 'notify_collect'`); got != "finding_outbox,notice_outbox" {
+		t.Fatalf("notify_collect on %s", got)
 	}
 
 	for _, role := range []string{"app_rw", "app_engine", "app_posture", "app_migrator"} {

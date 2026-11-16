@@ -130,4 +130,5 @@ Checked mechanically when this draft was generated:
 - 2026-11-06: Catalog version 2 **approved** by Robert Former.
 - 2026-11-09: Catalog version 3 (F-004 T-01, approved task): `estimate.request`, `estimate.submit` (risk data), `calibration.take` (read: it writes only the person's own record), `calibration.manage` (admin, privileged), `calibration.audit` (read, privileged); the built-in Estimator role; Risk Analyst gains `estimate.request`, Platform Admin `calibration.manage`, Auditor `calibration.audit`, and every built-in role but Service Account `calibration.take` (F-004 design §12).
 - 2026-11-09: Catalog version 3 re-signed by Robert Former.
-- 2026-11-16: Catalog version 4 (F-009 T-01, approved task): `notification.view` (read); Platform Admin and Auditor gain it (F-009 design §10). Needs re-signing.
+- 2026-11-16: Catalog version 4 (F-009 T-01, approved task): `notification.view` (read); Platform Admin and Auditor gain it (F-009 design §10).
+- 2026-11-16: Catalog version 4 re-signed by Robert Former.

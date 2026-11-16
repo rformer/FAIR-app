@@ -7,7 +7,8 @@
 // enforcement, structured logging, audit emission of lifecycle events, a
 // database pool as app_notify, the install checks of design §11, F-009's
 // settings registered, and leader election (one replica leads). The
-// leader's work (collect, fan out, digests, retention: T-04, T-05, T-10)
+// leader collects the outboxes (T-04); its other work (fan out, digests,
+// retention: T-05, T-10)
 // and the delivery workers on every replica (T-10) arrive with their tasks,
 // as does the notifications API (T-06, T-11).
 //
@@ -126,13 +127,33 @@ func run() error {
 	}
 	go sc.Run(ctx, func(err error) { logger.Error("settings refresh", "error", err.Error()) })
 
-	// One replica leads (design §1). Its loops arrive with T-04, T-05, T-10.
+	// One replica leads (design §1): it collects the features' outboxes
+	// into notices every 10 seconds (T-04); fan-out, digests and retention
+	// follow (T-05, T-10).
+	collector := notify.Collector{DB: pool, Titles: func() bool {
+		d, err := sc.Enum(settings.KeyNotificationDetail, "")
+		return err == nil && d == "titles" // minimal unless the setting says otherwise
+	}}
 	leader := auditsvc.Leader{Pool: pool, Key: notify.LeaderLockKey, OnChange: func(leading bool) {
 		logger.Info("leader", "leading", leading, "replica", replica)
 	}}
 	go leader.Run(ctx, func(ctx context.Context) error {
-		<-ctx.Done()
-		return ctx.Err()
+		for {
+			n, unknown, err := collector.Collect(ctx)
+			switch {
+			case err != nil && ctx.Err() == nil:
+				logger.Error("collect", "error", err.Error())
+			case unknown > 0:
+				logger.Error("collect: outbox rows of kinds this release does not know are left pending", "unknown", unknown)
+			case n > 0:
+				logger.Info("collected", "notices", n)
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(notify.Every):
+			}
+		}
 	}, func(err error) { logger.Error("leader", "error", err.Error()) })
 
 	srv := server.New(server.Options{
