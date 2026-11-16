@@ -63,7 +63,7 @@ F-008 manages the lifecycle of a risk acceptance: a request to accept a register
 - Secure defaults: the shipped tiers send every acceptance to an approver, larger ones higher and to two approvers; the maximum duration is bounded.
 
 ## Control mapping (NIST SP 800-53r5)
-To be proposed with the tasks.
+AC-3, AC-5, AC-6, AU-2, AU-12, CM-6, PM-9, RA-7, SI-10.
 
 ## Out of scope
 - Delivering notices by email or webhook (F-009); F-008 queues them.
@@ -91,3 +91,4 @@ To be proposed with the tasks.
 - 2026-11-15: Initial draft. Scope decisions taken with Robert Former: approval authority by configurable exposure tiers; tiers placed by mean annualized loss; every acceptance expires and is renewed by a new approval; re-review when the exposure enters a higher tier (suspended) or goes stale (flagged).
 - 2026-11-15: **Approved** by Robert Former, with the open questions' proposals as stated (to be settled in the design).
 - 2026-11-15: AC-04 amended (Robert Former): inside a restricted subtree a tier's level stops at its top, since approvers above it cannot see the acceptance (F-001 restricted business units).
+- 2026-11-16: Control mapping added (AC-3, AC-5, AC-6, AU-2, AU-12, CM-6, PM-9, RA-7, SI-10), with T-10; statements in `compliance/statements/F-008.yaml`, signed off by Robert Former 2026-11-16.
