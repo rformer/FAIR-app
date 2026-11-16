@@ -301,6 +301,34 @@ var strideF007 = map[string][]string{
 	},
 }
 
+// strideF008 maps F-008's design §7 threats (T-09) to their tests.
+var strideF008 = map[string][]string{
+	"E: someone accepts a risk beyond their authority | The tier's BU and approvals are fixed at request (or review) from the settings in force; the definer checks `acceptance.approve` at the tier's BU for each decision": {
+		"db/tests:TestSTRIDEF008Authority", "db/tests:TestAcceptanceLifecycle",
+	},
+	"E: one person requests and approves, or approves twice | Requester, owner and approvers differ; one decision per approver; F-001's built-in SoD rule keeps `analysis.edit` and `acceptance.approve` apart": {
+		"db/tests:TestSTRIDEF008SeparationOfDuties", "db/tests:TestSoDBlocksCustomRolesUnlessExcepted",
+	},
+	"T: an acceptance's history or evidence is altered | Heads written only by definer functions; steps append-only for every role; the evidence copied at request": {
+		"db/tests:TestSTRIDEF008HistoryTamper", "db/tests:TestAcceptanceSchema",
+	},
+	"T: an acceptance outlives its terms | Expiry bounded by the setting; the job expires, and reads treat a past expiry as expired; a higher tier suspends": {
+		"db/tests:TestAcceptanceSweep", "db/tests:TestAcceptanceAPI",
+	},
+	"I: acceptances cross business units | RLS on both tables (`acceptance`); the inbox lists only acceptances the caller can see and decide": {
+		"db/tests:TestSTRIDEF008Visibility", "db/tests:TestRLSHarnessEveryBUOwnedTable",
+	},
+	"I: an acceptance inside a restricted subtree is decided from outside it | A tier's BU never leaves the risk's restricted subtree (§3.4, amended)": {
+		"db/tests:TestAcceptanceRestrictedTier",
+	},
+	"R: a decision cannot be attributed | Every step audited in its transaction with actor, BU and reason": {
+		"db/tests:TestSTRIDEF008Attribution", "db/tests:TestAcceptanceSweep",
+	},
+	"D: request floods | One open request per risk; bodies bounded; the job's sweep set-based": {
+		"db/tests:TestSTRIDEF008Limits", "db/tests:TestAcceptanceSweep",
+	},
+}
+
 // The threat tables and the suites agree: every row has tests, every test
 // exists and is run by make test-stride, and no mapping names a row the
 // design no longer has. Runs without a database.
@@ -330,6 +358,7 @@ func TestSTRIDECatalog(t *testing.T) {
 		{"F-005-simulation-engine", "## 8.", 9, strideF005},
 		{"F-006-results-visualization", "## 7.", 7, strideF006},
 		{"F-007-risk-register", "## 7.", 8, strideF007},
+		{"F-008-risk-acceptance", "## 7.", 8, strideF008},
 	} {
 		rows := threatRows(t, filepath.Join(root, "specs", "features", c.feature, "design.md"), c.section)
 		if len(rows) < c.min {

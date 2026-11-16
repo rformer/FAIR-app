@@ -69,11 +69,94 @@ func TestBenchmarkGateRegister(t *testing.T) {
 	}
 	e := benchSetup(t)
 	ctx := context.Background()
-	start := time.Now()
 	total := registerBenchRisks
 	if n := os.Getenv("FAIR_BENCH_REGISTER_RISKS"); n != "" { // a smaller run, by hand
 		total, _ = strconv.Atoi(n)
 	}
+	l1 := seedRegisterBench(t, e, total)
+
+	api := newBenchRegisterAPI(t, e)
+	ids := strings.Split(e.adminQuery(`SELECT string_agg(r.id::text, ',') FROM (SELECT r.id FROM register.risk r
+		WHERE EXISTS (SELECT 1 FROM register.risk_scenario l WHERE l.risk_id = r.id AND l.run_id IS NOT NULL) ORDER BY md5(r.id::text) LIMIT 23) r`), ",")
+	cases := []struct {
+		name   string
+		path   func(i int) string
+		budget time.Duration
+	}{
+		{"list, newest", fixed("/api/v1/register/risks"), registerListBudget},
+		{"list, 200 rows", fixed("/api/v1/register/risks?limit=200"), registerListBudget},
+		{"list, deep page", fixed("/api/v1/register/risks?offset=" + strconv.Itoa(total/2)), registerListBudget},
+		{"list, stale", fixed("/api/v1/register/risks?status=stale"), registerListBudget},
+		{"list, by mean", fixed("/api/v1/register/risks?sort=mean"), registerListBudget},
+		{"list, a level-1 subtree", fixed("/api/v1/register/risks?bu=" + l1), registerListBudget},
+		{"coverage, everything", fixed("/api/v1/register/coverage"), registerListBudget},
+		{"a risk's page", func(i int) string { return "/api/v1/register/risks/" + ids[i%len(ids)] }, registerPageBudget},
+	}
+	var results []benchResult
+	failed := false
+	for _, c := range cases {
+		r := summarize("register API: "+c.name, api.time(t, "benchowner", c.path), c.budget)
+		results = append(results, r)
+		if r.P95ms > r.Budget {
+			failed = true
+		}
+	}
+
+	// The roll-up: requested through the API, its nodes worked bottom up.
+	engine, kind := registerBenchEngine(t)
+	w := &analysis.AggregateWorker{DB: e.appPool(), Engine: engine}
+	t0 := time.Now()
+	id := api.post(t, "benchowner", "/api/v1/register/rollups", map[string]any{"bu_id": l1})
+	requested := time.Since(t0)
+	for state := ""; state != "succeeded"; {
+		var queued []string
+		for _, x := range strings.Split(e.adminQuery("SELECT string_agg(id::text, ',' ORDER BY seq) FROM analysis.aggregate WHERE purpose = 'rollup' AND state = 'queued'"), ",") {
+			if x != "" {
+				queued = append(queued, x)
+			}
+		}
+		for _, x := range queued {
+			if err := w.Attempt(ctx, x, 1, analysis.Attempts); err != nil && !isSnooze(err) {
+				t.Fatalf("node %s: %v", x, err)
+			}
+		}
+		state = e.adminQuery("SELECT state FROM register.rollup WHERE id = '" + id + "'")
+		if state == "failed" || (len(queued) == 0 && state != "succeeded") {
+			t.Fatalf("the roll-up: %s", e.adminQuery("SELECT state || ' ' || coalesce(failure, '') FROM register.rollup WHERE id = '"+id+"'"))
+		}
+	}
+	took := time.Since(t0)
+	covers := e.adminQuery("SELECT jsonb_array_length(included) || ' risks, ' || nodes || ' nodes' FROM register.rollup WHERE id = '" + id + "'")
+	t.Logf("the roll-up: requested in %v, computed in %v", requested.Round(time.Millisecond), took.Round(time.Millisecond))
+	r := benchResult{Name: fmt.Sprintf("roll-up of L1_1 (%s; %s engine), request to computed", covers, kind), P50ms: float64(took.Milliseconds()),
+		P95ms: float64(took.Milliseconds()), P99ms: float64(took.Milliseconds()), Budget: float64(registerRollupBudget.Milliseconds())}
+	results = append(results, r)
+	if took > registerRollupBudget {
+		failed = true
+	}
+
+	var rep strings.Builder
+	fmt.Fprintf(&rep, "F-007 risk register: %d open risks over the BUs (8 in 10 pinned to a run of %d iterations), through the register API as a user who sees them all, %d runs after warm-up\n",
+		total, registerBenchIterations, registerBenchRuns)
+	fmt.Fprintln(&rep, "| Measurement | p50 ms | p95 ms | Budget ms |")
+	fmt.Fprintln(&rep, "|---|---:|---:|---:|")
+	for _, r := range results {
+		fmt.Fprintf(&rep, "| %s | %.2f | %.2f | %.0f |\n", r.Name, r.P50ms, r.P95ms, r.Budget)
+	}
+	t.Log("\n" + rep.String())
+	if failed {
+		t.Fatal("the register over budget")
+	}
+}
+
+// seedRegisterBench loads the register gate's data (above): total open
+// risks over the BUs, each covering one scenario (8 in 10 pinned to a
+// succeeded run), owned by "benchowner" (Risk Owner and Risk Analyst at the
+// root). Answers L1_1's id. F-008's gate builds on it.
+func seedRegisterBench(t *testing.T, e *env, total int) string {
+	t.Helper()
+	ctx := context.Background()
+	start := time.Now()
 	seedPosture(t, e)
 	(&riskAPIEnv{riskEnv: riskEnv{env: e}}).setCurrency(t, "USD")
 	root := e.mustOwner("SELECT id FROM iam.bu WHERE parent_id IS NULL")
@@ -200,79 +283,7 @@ END $$`, lo, min(registerBenchBatch, total-lo), owner))
 	e.admin(e.db, "ANALYZE register.risk; ANALYZE register.risk_version; ANALYZE register.risk_scenario; ANALYZE analysis.run; ANALYZE analysis.result; ANALYZE analysis.series")
 	inRollup := e.adminQuery("SELECT count(*) FROM register.risk_scenario l JOIN iam.bu_closure c ON c.descendant_id = l.bu_id AND c.ancestor_id = '" + l1 + "' WHERE l.run_id IS NOT NULL")
 	t.Logf("loaded: %s risks (%s current in L1_1's subtree) in %v", e.adminQuery("SELECT count(*) FROM register.risk"), inRollup, time.Since(start).Round(time.Second))
-
-	api := newBenchRegisterAPI(t, e)
-	ids := strings.Split(e.adminQuery(`SELECT string_agg(r.id::text, ',') FROM (SELECT r.id FROM register.risk r
-		WHERE EXISTS (SELECT 1 FROM register.risk_scenario l WHERE l.risk_id = r.id AND l.run_id IS NOT NULL) ORDER BY md5(r.id::text) LIMIT 23) r`), ",")
-	cases := []struct {
-		name   string
-		path   func(i int) string
-		budget time.Duration
-	}{
-		{"list, newest", fixed("/api/v1/register/risks"), registerListBudget},
-		{"list, 200 rows", fixed("/api/v1/register/risks?limit=200"), registerListBudget},
-		{"list, deep page", fixed("/api/v1/register/risks?offset=" + strconv.Itoa(total/2)), registerListBudget},
-		{"list, stale", fixed("/api/v1/register/risks?status=stale"), registerListBudget},
-		{"list, by mean", fixed("/api/v1/register/risks?sort=mean"), registerListBudget},
-		{"list, a level-1 subtree", fixed("/api/v1/register/risks?bu=" + l1), registerListBudget},
-		{"coverage, everything", fixed("/api/v1/register/coverage"), registerListBudget},
-		{"a risk's page", func(i int) string { return "/api/v1/register/risks/" + ids[i%len(ids)] }, registerPageBudget},
-	}
-	var results []benchResult
-	failed := false
-	for _, c := range cases {
-		r := summarize("register API: "+c.name, api.time(t, "benchowner", c.path), c.budget)
-		results = append(results, r)
-		if r.P95ms > r.Budget {
-			failed = true
-		}
-	}
-
-	// The roll-up: requested through the API, its nodes worked bottom up.
-	engine, kind := registerBenchEngine(t)
-	w := &analysis.AggregateWorker{DB: e.appPool(), Engine: engine}
-	t0 := time.Now()
-	id := api.post(t, "benchowner", "/api/v1/register/rollups", map[string]any{"bu_id": l1})
-	requested := time.Since(t0)
-	for state := ""; state != "succeeded"; {
-		var queued []string
-		for _, x := range strings.Split(e.adminQuery("SELECT string_agg(id::text, ',' ORDER BY seq) FROM analysis.aggregate WHERE purpose = 'rollup' AND state = 'queued'"), ",") {
-			if x != "" {
-				queued = append(queued, x)
-			}
-		}
-		for _, x := range queued {
-			if err := w.Attempt(ctx, x, 1, analysis.Attempts); err != nil && !isSnooze(err) {
-				t.Fatalf("node %s: %v", x, err)
-			}
-		}
-		state = e.adminQuery("SELECT state FROM register.rollup WHERE id = '" + id + "'")
-		if state == "failed" || (len(queued) == 0 && state != "succeeded") {
-			t.Fatalf("the roll-up: %s", e.adminQuery("SELECT state || ' ' || coalesce(failure, '') FROM register.rollup WHERE id = '"+id+"'"))
-		}
-	}
-	took := time.Since(t0)
-	covers := e.adminQuery("SELECT jsonb_array_length(included) || ' risks, ' || nodes || ' nodes' FROM register.rollup WHERE id = '" + id + "'")
-	t.Logf("the roll-up: requested in %v, computed in %v", requested.Round(time.Millisecond), took.Round(time.Millisecond))
-	r := benchResult{Name: fmt.Sprintf("roll-up of L1_1 (%s; %s engine), request to computed", covers, kind), P50ms: float64(took.Milliseconds()),
-		P95ms: float64(took.Milliseconds()), P99ms: float64(took.Milliseconds()), Budget: float64(registerRollupBudget.Milliseconds())}
-	results = append(results, r)
-	if took > registerRollupBudget {
-		failed = true
-	}
-
-	var rep strings.Builder
-	fmt.Fprintf(&rep, "F-007 risk register: %d open risks over the BUs (8 in 10 pinned to a run of %d iterations), through the register API as a user who sees them all, %d runs after warm-up\n",
-		total, registerBenchIterations, registerBenchRuns)
-	fmt.Fprintln(&rep, "| Measurement | p50 ms | p95 ms | Budget ms |")
-	fmt.Fprintln(&rep, "|---|---:|---:|---:|")
-	for _, r := range results {
-		fmt.Fprintf(&rep, "| %s | %.2f | %.2f | %.0f |\n", r.Name, r.P50ms, r.P95ms, r.Budget)
-	}
-	t.Log("\n" + rep.String())
-	if failed {
-		t.Fatal("the register over budget")
-	}
+	return l1
 }
 
 func isSnooze(err error) bool {

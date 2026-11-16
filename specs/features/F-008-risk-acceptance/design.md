@@ -138,13 +138,14 @@ These are computed when read, with the reasons, as F-007 computes staleness.
 ## 7. Security design (STRIDE)
 | Threat | Mitigation | Test |
 |---|---|---|
-| E: someone accepts a risk beyond their authority | The tier's BU and approvals are fixed at request (or review) from the settings in force; the definer checks `acceptance.approve` at the tier's BU for each decision | `TestSTRIDEF008Authority` |
-| E: one person requests and approves, or approves twice | Requester, owner and approvers differ; one decision per approver; F-001's built-in SoD rule keeps `analysis.edit` and `acceptance.approve` apart | `TestSTRIDEF008SeparationOfDuties` |
-| T: an acceptance's history or evidence is altered | Heads written only by definer functions; steps append-only for every role; the evidence copied at request | `TestSTRIDEF008HistoryTamper` |
-| T: an acceptance outlives its terms | Expiry bounded by the setting; the job expires, and reads treat a past expiry as expired; a higher tier suspends | `TestAcceptanceExpiry` |
-| I: acceptances cross business units | RLS on both tables (`acceptance`); the inbox lists only acceptances the caller can see and decide | `TestSTRIDEF008Visibility` |
-| R: a decision cannot be attributed | Every step audited in its transaction with actor, BU and reason | `TestAcceptanceAuditEvents` |
-| D: request floods | One open request per risk; bodies bounded; the job's sweep set-based | `TestAcceptanceLimits` |
+| E: someone accepts a risk beyond their authority | The tier's BU and approvals are fixed at request (or review) from the settings in force; the definer checks `acceptance.approve` at the tier's BU for each decision | `TestSTRIDEF008Authority`, `TestAcceptanceLifecycle` |
+| E: one person requests and approves, or approves twice | Requester, owner and approvers differ; one decision per approver; F-001's built-in SoD rule keeps `analysis.edit` and `acceptance.approve` apart | `TestSTRIDEF008SeparationOfDuties`, `TestSoDBlocksCustomRolesUnlessExcepted` |
+| T: an acceptance's history or evidence is altered | Heads written only by definer functions; steps append-only for every role; the evidence copied at request | `TestSTRIDEF008HistoryTamper`, `TestAcceptanceSchema` |
+| T: an acceptance outlives its terms | Expiry bounded by the setting; the job expires, and reads treat a past expiry as expired; a higher tier suspends | `TestAcceptanceSweep`, `TestAcceptanceAPI` |
+| I: acceptances cross business units | RLS on both tables (`acceptance`); the inbox lists only acceptances the caller can see and decide | `TestSTRIDEF008Visibility`, `TestRLSHarnessEveryBUOwnedTable` |
+| I: an acceptance inside a restricted subtree is decided from outside it | A tier's BU never leaves the risk's restricted subtree (§3.4, amended) | `TestAcceptanceRestrictedTier` |
+| R: a decision cannot be attributed | Every step audited in its transaction with actor, BU and reason | `TestSTRIDEF008Attribution`, `TestAcceptanceSweep` |
+| D: request floods | One open request per risk; bodies bounded; the job's sweep set-based | `TestSTRIDEF008Limits`, `TestAcceptanceSweep` |
 
 ## 8. New catalog event types
 - **Lifecycle:** `acceptance.requested`, `acceptance.withdrawn`, `acceptance.approved`, `acceptance.rejected`, `acceptance.activated`.
@@ -195,3 +196,5 @@ Identical in SaaS, self-hosted and air-gapped. No new keys or services.
 - 2026-11-15: T-06 (clarifications, approved with the task): (1) after an outage the job sends only the tightest expiry notice that still applies (7 days, not also 30 and 14), and an acceptance found past its expiry gets only the expiry notice; (2) a suspension's notices (`suspended` to the owner and requester, `decision_needed`) carry the tier suspended into (`notice_outbox.tier`, part of the once-only key), so a later suspension into a higher tier is noticed again (migration 0119).
 - 2026-11-15: T-07 (clarification, approved with the task): the pages offer only what the API would allow, so the API adds `GET /api/v1/acceptances/permissions?bu=` (the caller's own acceptance permissions at a BU) and display names (`names` on an acceptance, `requested_by_name` in lists) through `acceptance.people`, which names only users who requested or acted on an acceptance the caller sees (migration 0120).
 - 2026-11-15: §3.4 amended with Robert Former (found while seeding T-07): a tier's BU is capped at the top of the risk's restricted subtree (migration 0121, `TestAcceptanceRestrictedTier`).
+- 2026-11-15: T-08 (clarifications, approved with the task): (1) the NFR gives no budget for the job; the gate holds each sweep within its one-minute interval; (2) one sweep handles at most 500 acceptances (expiries first, then expiry notices, then the higher-tier check) in one transaction and says when some were left, and the job then sweeps again at once, so a mass change, such as a lowered tier threshold suspending thousands, completes in a few short sweeps (migration 0122). Without the tier settings the higher-tier check is skipped and expiry still runs.
+- 2026-11-15: T-09: §7's Test column names the tests that exist (`TestAcceptanceExpiry`, `TestAcceptanceAuditEvents` and `TestAcceptanceLimits` were placeholders), and a row for the restricted-tier threat (§3.4 amendment) is added.

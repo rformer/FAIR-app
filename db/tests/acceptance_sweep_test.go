@@ -173,6 +173,27 @@ func TestAcceptanceSweep(t *testing.T) {
 	}
 	setInstance(ra.env, "acceptance.tier1_max", "100000")
 
+	// T-08: a sweep handles at most acceptance.sweep_batch() acceptances,
+	// and says when it left some; the next ones finish the work.
+	_, b1 := active("Claims batch one")
+	_, b2 := active("Claims batch two")
+	expiresIn(b1, -1)
+	expiresIn(b2, -1)
+	ra.admin(ra.db, "CREATE OR REPLACE FUNCTION acceptance.sweep_batch() RETURNS integer LANGUAGE sql IMMUTABLE AS 'SELECT 1'")
+	if s := sweep(); s.Expired != 1 || !s.More {
+		t.Errorf("the first batch: %+v", s)
+	}
+	if s := sweep(); s.Expired != 1 || !s.More {
+		t.Errorf("the second batch (its budget spent, the tier check left): %+v", s)
+	}
+	if s := sweep(); s.Expired != 0 || s.More {
+		t.Errorf("done: %+v", s)
+	}
+	ra.admin(ra.db, "CREATE OR REPLACE FUNCTION acceptance.sweep_batch() RETURNS integer LANGUAGE sql IMMUTABLE AS 'SELECT 500'")
+	if got := state(b1) + "," + state(b2); got != "expired|1|A1,expired|1|A1" {
+		t.Errorf("both expired: %s", got)
+	}
+
 	// Audited, by the system (AC-18).
 	got := ra.adminQuery(`SELECT string_agg(DISTINCT (body ->> 'type') || ':' || (body ->> 'actor'), ',') FROM audit.intake
 		WHERE body ->> 'type' IN ('acceptance.expired', 'acceptance.suspended', 'acceptance.review_requested')`)

@@ -34,10 +34,22 @@ func TestAcceptanceExposureReads(t *testing.T) {
 		}
 		return out
 	}
+	// T-08: register.exposures (set-based, for the sweep) reads what
+	// exposure_for reads, for every risk.
+	parity := func(what string) {
+		t.Helper()
+		ids := ra.adminQuery("SELECT string_agg(id::text, ',') FROM register.risk")
+		set := ra.adminQuery("SET ROLE acceptance_definer; SELECT string_agg(e.risk_id || ':' || e.status || ':' || coalesce(e.mean::text, '-') || ':' || coalesce(e.p90::text, '-') || ':' || e.bu_id || ':' || e.state || ':' || e.owner, ',' ORDER BY e.risk_id) FROM register.exposures(string_to_array('" + ids + "', ',')::uuid[]) e")
+		one := ra.adminQuery("SET ROLE acceptance_definer; SELECT string_agg(x || ':' || (e ->> 'status') || ':' || coalesce(e ->> 'mean', '-') || ':' || coalesce(e ->> 'p90', '-') || ':' || (e ->> 'bu_id') || ':' || (e ->> 'state') || ':' || (e ->> 'owner'), ',' ORDER BY x) FROM unnest(string_to_array('" + ids + "', ',')::uuid[]) x, register.exposure_for(x) e")
+		if set != one || set == "" {
+			t.Errorf("%s: exposures %s, exposure_for %s", what, set, one)
+		}
+	}
 	// Computing: no mean yet.
 	if e := exposureFor(multi); e["status"] != "computing" || e["mean"] != nil {
 		t.Errorf("computing: %v", e)
 	}
+	parity("computing")
 	if err := f.ae.aggregates.Attempt(context.Background(), agg, 1, 3); err != nil {
 		t.Fatal(err)
 	}
@@ -54,6 +66,15 @@ func TestAcceptanceExposureReads(t *testing.T) {
 	none := f.create(t, "owen", ra.bu["A1"], "Claims compliance", "", "")
 	if e := exposureFor(none); e["status"] != "unquantified" || e["mean"] != nil {
 		t.Errorf("unquantified: %v", e)
+	}
+	// Stale: a link without a pin.
+	s4 := scenarioAt(t, ra, "analyst", ra.bu["A1"], "Claims insider")
+	if e := exposureFor(f.create(t, "owen", ra.bu["A1"], "Claims insider", s4, "")); e["status"] != "stale" || e["mean"] != nil {
+		t.Errorf("stale: %v", e)
+	}
+	parity("current, unquantified and stale")
+	if got := ra.adminState("SET ROLE app_rw; SELECT * FROM register.exposures(ARRAY['" + f.risk + "'::uuid])"); got != "42501" {
+		t.Errorf("app_rw reads exposures: %s", got)
 	}
 
 	// Closed to the application role and to every other definer.
