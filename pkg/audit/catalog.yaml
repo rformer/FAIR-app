@@ -732,6 +732,36 @@ events:
     requires: [target]
     attributes: []
     description: "The installer retired a DB-context signing key (iam keys retire-db-context, T-41)"
+  - type: notification.channel_changed
+    category: configuration
+    severities: [high]
+    requires: [target]
+    attributes: [bu, changed, channel, channel_kind, host, kinds, name, reason]
+    description: "A notification channel (the SMTP relay or a webhook) was changed, with what changed and a reason (F-009 T-11, AC-12)"
+  - type: notification.channel_created
+    category: configuration
+    severities: [high]
+    requires: [target]
+    attributes: [bu, channel, channel_kind, host, kinds, name, reason]
+    description: "A notification channel (the SMTP relay or a webhook) was configured, with a reason (F-009 T-11, AC-12)"
+  - type: notification.channel_disabled
+    category: configuration
+    severities: [high]
+    requires: [target]
+    attributes: [channel, channel_kind, name, reason]
+    description: "A notification channel was disabled, with a reason (F-009 T-11, AC-12)"
+  - type: notification.channel_enabled
+    category: configuration
+    severities: [high]
+    requires: [target]
+    attributes: [channel, channel_kind, name, reason]
+    description: "A notification channel was enabled again, with a reason (F-009 T-11, AC-12)"
+  - type: notification.channel_removed
+    category: configuration
+    severities: [high]
+    requires: [target]
+    attributes: [channel, channel_kind, name, reason]
+    description: "A notification channel was removed, with a reason; its pending deliveries are dropped (F-009 T-11, AC-12)"
   - type: notification.delivery_failed
     category: system
     severities: [low, high]
@@ -750,6 +780,18 @@ events:
     requires: [target]
     attributes: [digest, digest_hour, muted]
     description: "A user changed which optional notices they receive by email and their daily digest (F-009 T-06, AC-18, AC-19)"
+  - type: notification.secret_rotated
+    category: configuration
+    severities: [high]
+    requires: [target]
+    attributes: [channel, channel_kind, name, previous_until, reason]
+    description: "A webhook's signing secret was rotated; the previous one signs too until previous_until (F-009 T-11, AC-12)"
+  - type: notification.test_sent
+    category: configuration
+    severities: [low]
+    requires: [target]
+    attributes: [channel, channel_kind, detail, name, outcome, reason]
+    description: "A test message was sent through a notification channel, with its outcome (F-009 T-11, AC-12)"
   - type: overlay.change_requested
     category: configuration
     severities: [high]

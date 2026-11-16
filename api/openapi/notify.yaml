@@ -19,6 +19,7 @@ security:
     dbContext: []
 tags:
   - { name: notifications, description: "Notifications in the app and their preferences (F-009 R-01, R-05)" }
+  - { name: channels, description: "The SMTP relay, webhooks and the delivery log (F-009 R-03, R-04)" }
 components:
   securitySchemes:
     internalJWT: { type: http, scheme: bearer, bearerFormat: JWT }
@@ -29,7 +30,25 @@ components:
       in: header
       required: true
       schema: { type: string, minLength: 8, maxLength: 128 }
+    ID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
   responses:
+    Channel:
+      description: The channel
+      content: { application/json: { schema: { $ref: "#/components/schemas/Channel" } } }
+    ChannelWithSecret:
+      description: The channel and its new signing secret, shown this once (a replay of the request answers 409 secret_not_replayed)
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [channel, secret]
+            properties:
+              channel: { $ref: "#/components/schemas/Channel" }
+              secret: { type: string, description: "whsec_<base64>; verify deliveries with it (docs/formats/fair-notification-v1.md)" }
     Error:
       description: An error
       content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
@@ -43,6 +62,56 @@ components:
       properties:
         error: { type: string, description: "invalid_request, invalid_value, mandatory, unavailable, unauthenticated" }
         detail: { type: string }
+    Channel:
+      type: object
+      required: [id, kind, name, config, enabled, version, backlog]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [smtp, webhook] }
+        name: { type: string }
+        config: { type: object, description: "smtp: host, port, tls_mode, trust_anchors, from, username, password_file; webhook: url, host. Never a secret." }
+        bu_id: { type: [string, "null"], format: uuid }
+        bu_name: { type: [string, "null"] }
+        kinds: { type: array, items: { type: string } }
+        enabled: { type: boolean }
+        version: { type: integer }
+        created_at: { type: string, format: date-time }
+        removed_at: { type: [string, "null"], format: date-time }
+        rotation_until: { type: [string, "null"], format: date-time, description: Until when the previous secret also signs }
+        last_success: { type: [string, "null"], format: date-time }
+        last_failure: { type: [string, "null"], format: date-time }
+        last_error: { type: [string, "null"] }
+        backlog: { type: integer, description: Deliveries pending or being sent }
+        failed_24h: { type: integer }
+    SMTPConfig:
+      type: object
+      required: [host, port, tls_mode, from]
+      additionalProperties: false
+      properties:
+        host: { type: string }
+        port: { type: integer, minimum: 1, maximum: 65535 }
+        tls_mode: { type: string, enum: [implicit, starttls], description: Never plaintext }
+        trust_anchors: { type: string, description: "PEM; empty: the system's roots" }
+        from: { type: string }
+        username: { type: string }
+        password_file: { type: string, description: "A file name in FAIR_NOTIFY_SMTP_DIR; the API never takes a password" }
+    WebhookBody:
+      type: object
+      required: [name, url, bu_id, kinds, reason]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        url: { type: string, format: uri, description: "https, its host in notification.allowed_hosts" }
+        bu_id: { type: string, format: uuid, description: "The subtree whose notices it takes (restricted units only from webhooks inside them)" }
+        kinds: { type: array, items: { type: string }, minItems: 1, maxItems: 64 }
+        expected_version: { type: integer, description: Required to change one }
+        reason: { type: string, minLength: 1, maxLength: 1000 }
+    ReasonBody:
+      type: object
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 1000 }
     Envelope:
       type: object
       required: [id, kind, at, bu, item]
@@ -180,3 +249,198 @@ paths:
         "200": { $ref: "#/components/responses/Preferences" }
         "400": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
+  /api/v1/notifications/channels:
+    get:
+      operationId: listChannels
+      tags: [channels]
+      summary: The SMTP relay and webhooks, with their state (AC-17)
+      x-permission: notification.view or notification.manage at the top business unit
+      responses:
+        "200":
+          description: The channels
+          content: { application/json: { schema: { type: object, properties: { channels: { type: array, items: { $ref: "#/components/schemas/Channel" } } } } } }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/notifications/channels/smtp:
+    put:
+      operationId: putSMTP
+      tags: [channels]
+      summary: Configure the SMTP relay (AC-08)
+      description: TLS always (implicit or required STARTTLS, 1.2 or later), certificates verified; credentials only as a password file name. The host must be allowed and must not resolve to a refused address.
+      x-permission: notification.manage at the top business unit
+      x-audit-events: [notification.channel_created, notification.channel_changed]
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [config, reason]
+              additionalProperties: false
+              properties:
+                config: { $ref: "#/components/schemas/SMTPConfig" }
+                expected_version: { type: integer, description: "0 to create; the current version to change" }
+                reason: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "200": { $ref: "#/components/responses/Channel" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /api/v1/notifications/channels/webhooks:
+    post:
+      operationId: createWebhook
+      tags: [channels]
+      summary: Add a webhook; its signing secret is answered once (AC-09)
+      x-permission: notification.manage at the top business unit
+      x-audit-events: [notification.channel_created]
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/WebhookBody" } } }
+      responses:
+        "201": { $ref: "#/components/responses/ChannelWithSecret" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /api/v1/notifications/channels/webhooks/{id}:
+    put:
+      operationId: updateWebhook
+      tags: [channels]
+      summary: Change a webhook name, URL, business unit or kinds (AC-12)
+      x-permission: notification.manage at the top business unit
+      x-audit-events: [notification.channel_changed]
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }, { $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/WebhookBody" } } }
+      responses:
+        "200": { $ref: "#/components/responses/Channel" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /api/v1/notifications/channels/webhooks/{id}/rotate-secret:
+    post:
+      operationId: rotateSecret
+      tags: [channels]
+      summary: Give a webhook a new secret, answered once; the previous one also signs for 24 hours (AC-12, OQ1)
+      x-permission: notification.manage at the top business unit
+      x-audit-events: [notification.secret_rotated]
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }, { $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ReasonBody" } } }
+      responses:
+        "200": { $ref: "#/components/responses/ChannelWithSecret" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/notifications/channels/{id}/disable:
+    post:
+      operationId: disableChannel
+      tags: [channels]
+      summary: Disable a channel, which then takes no deliveries (AC-12)
+      x-permission: notification.manage at the top business unit
+      x-audit-events: [notification.channel_disabled]
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }, { $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ReasonBody" } } }
+      responses:
+        "200": { $ref: "#/components/responses/Channel" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/notifications/channels/{id}/enable:
+    post:
+      operationId: enableChannel
+      tags: [channels]
+      summary: Enable a disabled channel (AC-12)
+      x-permission: notification.manage at the top business unit
+      x-audit-events: [notification.channel_enabled]
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }, { $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ReasonBody" } } }
+      responses:
+        "200": { $ref: "#/components/responses/Channel" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/notifications/channels/{id}/remove:
+    post:
+      operationId: removeChannel
+      tags: [channels]
+      summary: Remove a channel; its pending deliveries are dropped (AC-12)
+      x-permission: notification.manage at the top business unit
+      x-audit-events: [notification.channel_removed]
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }, { $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ReasonBody" } } }
+      responses:
+        "200": { $ref: "#/components/responses/Channel" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/notifications/channels/{id}/test:
+    post:
+      operationId: testChannel
+      tags: [channels]
+      summary: Send a fixed test notice through a channel and answer the outcome (AC-11)
+      description: By email to the caller's own address, or to the webhook. Never queued, never retried, no real notice.
+      x-permission: notification.manage at the top business unit
+      x-audit-events: [notification.test_sent]
+      x-reason-exempt: "A test message changes nothing; its outcome is recorded"
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }, { $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: The outcome
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sent: { type: boolean }
+                  tls_version: { type: string }
+                  status: { type: integer }
+                  refused: { type: boolean }
+                  detail: { type: string }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/notifications/deliveries:
+    get:
+      operationId: listDeliveries
+      tags: [channels]
+      summary: The delivery log, newest first (AC-17)
+      description: Kinds, links, recipients, states, attempts and outcomes; never the content of a notice.
+      x-permission: notification.view or notification.manage at the top business unit
+      parameters:
+        - { name: channel, in: query, schema: { type: string, format: uuid } }
+        - { name: state, in: query, schema: { type: string, enum: [pending, sending, sent, failed, dropped] } }
+        - { name: kind, in: query, schema: { type: string } }
+        - { name: before, in: query, schema: { type: string, format: date-time } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+      responses:
+        "200":
+          description: Deliveries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deliveries, more]
+                properties:
+                  deliveries: { type: array, items: { type: object } }
+                  more: { type: boolean }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }

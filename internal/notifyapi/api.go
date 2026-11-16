@@ -28,6 +28,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/rformer/fair-app/internal/notify"
 	"github.com/rformer/fair-app/internal/riskapi"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/authz"
@@ -36,6 +37,14 @@ import (
 // API serves the notifications API.
 type API struct {
 	DB *pgxpool.Pool // app_notify
+	// The channel routes (T-11): permissions, the webhook-secrets keys,
+	// the guard and the senders (for test messages), the composer.
+	Authz    riskapi.Authorizer
+	Keys     *notify.Keyring
+	Guard    notify.Guard
+	Mail     notify.Mailer
+	Post     notify.Poster
+	Composer func() notify.Composer
 }
 
 type route struct {
@@ -49,6 +58,16 @@ var routes = []route{
 	{"POST", "/api/v1/notifications/read", (*API).markRead},
 	{"GET", "/api/v1/notifications/preferences", (*API).getPreferences},
 	{"PUT", "/api/v1/notifications/preferences", (*API).setPreferences},
+	{"GET", "/api/v1/notifications/channels", (*API).listChannels},
+	{"PUT", "/api/v1/notifications/channels/smtp", (*API).putSMTP},
+	{"POST", "/api/v1/notifications/channels/webhooks", (*API).createWebhook},
+	{"PUT", "/api/v1/notifications/channels/webhooks/{id}", (*API).updateWebhook},
+	{"POST", "/api/v1/notifications/channels/webhooks/{id}/rotate-secret", (*API).rotateSecret},
+	{"POST", "/api/v1/notifications/channels/{id}/disable", (*API).disableChannel},
+	{"POST", "/api/v1/notifications/channels/{id}/enable", (*API).enableChannel},
+	{"POST", "/api/v1/notifications/channels/{id}/remove", (*API).removeChannel},
+	{"POST", "/api/v1/notifications/channels/{id}/test", (*API).testChannel},
+	{"GET", "/api/v1/notifications/deliveries", (*API).listDeliveries},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).
@@ -90,6 +109,22 @@ func problem(w http.ResponseWriter, status int, code, detail string) {
 		body["detail"] = detail
 	}
 	writeJSON(w, status, body)
+}
+
+func pgHint(err error) string {
+	var pg *pgconn.PgError
+	if errors.As(err, &pg) && pg.Code == "PF028" {
+		return pg.Hint
+	}
+	return ""
+}
+
+func errMessage(err error) string {
+	var pg *pgconn.PgError
+	if errors.As(err, &pg) {
+		return pg.Message
+	}
+	return ""
 }
 
 // fail answers a database refusal: PF028 by its hint, else 503.

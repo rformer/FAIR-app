@@ -276,7 +276,9 @@ func run() error {
 		if err != nil {
 			return fmt.Errorf("FAIR_JWT_KEYS_DIR: %w", err)
 		}
-		h := server.SecurityHeaders((&notifyapi.API{DB: pool}).Handler(jwtKeys, nil))
+		grants := authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool)})
+		api := &notifyapi.API{DB: pool, Authz: grants, Keys: keyring, Guard: guard, Mail: worker.Mail, Post: worker.Post, Composer: worker.Composer}
+		h := server.SecurityHeaders(api.Handler(jwtKeys, nil))
 		for _, prefix := range notifyapi.Prefixes {
 			srv.Mux().Handle(prefix, h)
 			srv.Mux().Handle(prefix+"/", h)
