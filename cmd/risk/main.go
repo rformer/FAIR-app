@@ -72,6 +72,7 @@ import (
 	"github.com/rformer/fair-app/internal/keys"
 	"github.com/rformer/fair-app/internal/migrate"
 	"github.com/rformer/fair-app/internal/natspub"
+	"github.com/rformer/fair-app/internal/register"
 	"github.com/rformer/fair-app/internal/registerapi"
 	"github.com/rformer/fair-app/internal/risk"
 	"github.com/rformer/fair-app/internal/riskapi"
@@ -291,10 +292,14 @@ func run() error {
 	}}
 	// F-008 T-06 (design §3.2, §3.6): the acceptance job, beside the estimate jobs.
 	acceptanceJob := acceptance.Job{DB: pool, OnError: func(err error) { logger.Error("acceptance job", "error", err.Error()) }}
+	// F-009 T-12 (design §3.7): the register's stale and overdue notices.
+	noticeJob := register.NoticeJob{DB: pool, OnError: func(err error) { logger.Error("register notices", "error", err.Error()) }}
 	go leader.Run(ctx, func(ctx context.Context) error {
-		done := make(chan error, 1)
+		done := make(chan error, 2)
 		go func() { done <- acceptanceJob.Run(ctx) }()
+		go func() { done <- noticeJob.Run(ctx) }()
 		err := jobs.Run(ctx)
+		<-done
 		<-done
 		return err
 	}, func(err error) { logger.Error("leader", "error", err.Error()) })
