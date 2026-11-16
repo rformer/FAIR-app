@@ -66,3 +66,53 @@ func (f FanOut) Step(ctx context.Context) (FannedOut, error) {
 	}
 	return r, nil
 }
+
+// Cycle is one pass of the leader's collection (design §1, §3.1): it
+// collects a batch from every outbox and fans those notices out, and repeats
+// while a batch brought anything, so a burst reaches the app in one cycle
+// rather than one batch every Every (requirements NFR: in the app within a
+// minute, 10,000 notices an hour). At most MaxRounds batches per cycle, so
+// the leader's other duties still run.
+type Cycle struct {
+	Collector Collector
+	FanOut    FanOut
+	MaxRounds int // default 100
+	// OnFanOut and OnUnknown report progress (optional).
+	OnFanOut  func(FannedOut)
+	OnUnknown func(int)
+}
+
+// Run does one cycle and answers how many notices it collected.
+func (c Cycle) Run(ctx context.Context) (int, error) {
+	rounds := c.MaxRounds
+	if rounds <= 0 {
+		rounds = 100
+	}
+	total := 0
+	for range rounds {
+		n, unknown, err := c.Collector.Collect(ctx)
+		if err != nil {
+			return total, err
+		}
+		if unknown > 0 && c.OnUnknown != nil {
+			c.OnUnknown(unknown)
+		}
+		total += n
+		for ctx.Err() == nil {
+			r, err := c.FanOut.Step(ctx)
+			if err != nil {
+				return total, err
+			}
+			if r.Notices == 0 {
+				break
+			}
+			if c.OnFanOut != nil {
+				c.OnFanOut(r)
+			}
+		}
+		if n == 0 || ctx.Err() != nil {
+			break
+		}
+	}
+	return total, ctx.Err()
+}

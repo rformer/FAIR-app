@@ -199,6 +199,13 @@ func run() error {
 	leader := auditsvc.Leader{Pool: pool, Key: notify.LeaderLockKey, OnChange: func(leading bool) {
 		logger.Info("leader", "leading", leading, "replica", replica)
 	}}
+	cycle := notify.Cycle{Collector: collector, FanOut: fanOut,
+		OnUnknown: func(n int) {
+			logger.Error("collect: outbox rows of kinds this release does not know are left pending", "unknown", n)
+		},
+		OnFanOut: func(r notify.FannedOut) {
+			logger.Info("fanned out", "notices", r.Notices, "in_app", r.InApp, "dropped", r.Dropped, "emails", r.Emails, "webhooks", r.Webhooks)
+		}}
 	var lastPurge time.Time
 	go leader.Run(ctx, func(ctx context.Context) error {
 		for {
@@ -231,25 +238,11 @@ func run() error {
 					logger.Info("notification retention", "deliveries", d, "notices", n)
 				}
 			}
-			n, unknown, err := collector.Collect(ctx)
-			switch {
-			case err != nil && ctx.Err() == nil:
-				logger.Error("collect", "error", err.Error())
-			case unknown > 0:
-				logger.Error("collect: outbox rows of kinds this release does not know are left pending", "unknown", unknown)
-			case n > 0:
+			// Collection and fan-out, draining a burst in one cycle.
+			if n, err := cycle.Run(ctx); err != nil && ctx.Err() == nil {
+				logger.Error("collect and fan out", "error", err.Error())
+			} else if n > 0 {
 				logger.Info("collected", "notices", n)
-			}
-			for ctx.Err() == nil {
-				r, err := fanOut.Step(ctx)
-				if err != nil {
-					logger.Error("fan out", "error", err.Error())
-					break
-				}
-				if r.Notices == 0 {
-					break
-				}
-				logger.Info("fanned out", "notices", r.Notices, "in_app", r.InApp, "dropped", r.Dropped, "emails", r.Emails, "webhooks", r.Webhooks)
 			}
 			select {
 			case <-ctx.Done():

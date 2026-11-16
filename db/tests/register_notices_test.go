@@ -82,11 +82,9 @@ func TestRegisterNotices(t *testing.T) {
 
 	// The notify service takes them to the owner, linked to the risk.
 	pool := notifyPool(t, ra.env)
-	if _, _, err := (notify.Collector{DB: pool}).Collect(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := (notify.FanOut{DB: pool}).Step(ctx); err != nil {
-		t.Fatal(err)
+	// One leader cycle drains more than a batch (F-009 T-14: notify.Cycle).
+	if n, err := (notify.Cycle{Collector: notify.Collector{DB: pool, Batch: 1}, FanOut: notify.FanOut{DB: pool, Batch: 1}}).Run(ctx); err != nil || n != 3 {
+		t.Fatalf("one cycle collected %d: %v", n, err)
 	}
 	if got := ra.adminQuery(`SELECT string_agg(n.kind || '|' || (n.envelope #>> '{item,link}') || '|' || i.user_id, ',' ORDER BY n.seq)
 		FROM notify.notice n JOIN notify.inbox i ON i.notice_id = n.id WHERE n.source = 'register'`); got !=
