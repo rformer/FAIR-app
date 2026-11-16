@@ -37,6 +37,7 @@ type riskAPIEnv struct {
 	url  string
 	keys *authz.LocalKeys
 	n    int
+	aud  string // the JWT audience; default "risk" (F-009: "notify")
 }
 
 func newRiskAPI(t *testing.T) *riskAPIEnv {
@@ -84,8 +85,12 @@ func (ra *riskAPIEnv) call(t *testing.T, method, user, path string, body any, ke
 	}
 	if user != "" {
 		p := ra.principal(user)
+		aud := "risk"
+		if ra.aud != "" {
+			aud = ra.aud
+		}
 		tok, err := authz.MintJWT(ra.keys, authz.Claims{Subject: p.UserID, ScopeVersion: p.ScopeVersion, AuthTime: time.Now().Unix(),
-			DBContext: authz.DBContextHash(p.DBToken)}, "risk", 5*time.Minute, time.Now())
+			DBContext: authz.DBContextHash(p.DBToken)}, aud, 5*time.Minute, time.Now())
 		if err != nil {
 			t.Fatal(err)
 		}

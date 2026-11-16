@@ -732,6 +732,12 @@ events:
     requires: [target]
     attributes: []
     description: "The installer retired a DB-context signing key (iam keys retire-db-context, T-41)"
+  - type: notification.preferences_changed
+    category: configuration
+    severities: [low]
+    requires: [target]
+    attributes: [digest, digest_hour, muted]
+    description: "A user changed which optional notices they receive by email and their daily digest (F-009 T-06, AC-18, AC-19)"
   - type: overlay.change_requested
     category: configuration
     severities: [high]

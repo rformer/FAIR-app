@@ -10,7 +10,7 @@
 // leader collects the outboxes (T-04); its other work (fan out, digests,
 // retention: T-05, T-10)
 // and the delivery workers on every replica (T-10) arrive with their tasks,
-// as does the notifications API (T-06, T-11).
+// The notifications API (T-06; channels, T-11) is served by every replica.
 //
 // Environment: as for every service (FAIR_ENV, FAIR_DEPLOYMENT_MODE,
 // FAIR_LISTEN_ADDR, FAIR_TLS_CERT_FILE, FAIR_TLS_KEY_FILE, FAIR_REQUIRE_FIPS,
@@ -48,8 +48,10 @@ import (
 	"github.com/rformer/fair-app/internal/dbconn"
 	"github.com/rformer/fair-app/internal/keys"
 	"github.com/rformer/fair-app/internal/notify"
+	"github.com/rformer/fair-app/internal/notifyapi"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/audit"
+	"github.com/rformer/fair-app/pkg/authz"
 	"github.com/rformer/fair-app/pkg/settings"
 )
 
@@ -178,6 +180,21 @@ func run() error {
 	srv.AddReadinessCheck(server.ReadinessCheck{Name: "database", Check: func(ctx context.Context) error {
 		return schemaReady(ctx, pool)
 	}})
+
+	// The notifications API (T-06): every replica serves it.
+	if dir := os.Getenv("FAIR_JWT_KEYS_DIR"); dir != "" {
+		jwtKeys, err := authz.LoadLocalKeys(dir)
+		if err != nil {
+			return fmt.Errorf("FAIR_JWT_KEYS_DIR: %w", err)
+		}
+		h := server.SecurityHeaders((&notifyapi.API{DB: pool}).Handler(jwtKeys, nil))
+		for _, prefix := range notifyapi.Prefixes {
+			srv.Mux().Handle(prefix, h)
+			srv.Mux().Handle(prefix+"/", h)
+		}
+	} else {
+		logger.Warn("the notifications API is off: it needs the gateway's JWT keys (FAIR_JWT_KEYS_DIR)")
+	}
 
 	err = srv.Run(ctx, cfg.ShutdownTimeout)
 	_ = emitter.Emit(context.Background(), audit.Event{Type: "service.stopped", Severity: audit.SeverityInfo, Actor: "system:notify"})

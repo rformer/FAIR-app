@@ -1,0 +1,182 @@
+openapi: 3.1.0
+info:
+  title: FAIR Notifications API
+  version: "1"
+  contact: { name: FAIR Risk Platform, url: "https://github.com/rformer/FAIR-app" }
+  description: |
+    F-009 design §6. Each user's notifications and preferences, served by the notify service
+    behind the gateway, which authenticates the session and forwards an internal JWT (ES256,
+    audience `notify`, at most 5 minutes) and the DB context token it was minted with (F-001
+    design §4, §5.2).
+
+    Every route here is the caller's own: the database takes the user from the signed context
+    and touches only their rows. A notification's envelope says what happened and links back
+    into the platform, where the reader's permissions apply (F-009 R-02).
+servers:
+  - url: /
+security:
+  - internalJWT: []
+    dbContext: []
+tags:
+  - { name: notifications, description: "Notifications in the app and their preferences (F-009 R-01, R-05)" }
+components:
+  securitySchemes:
+    internalJWT: { type: http, scheme: bearer, bearerFormat: JWT }
+    dbContext: { type: apiKey, in: header, name: X-Fair-DB-Context }
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 8, maxLength: 128 }
+  responses:
+    Error:
+      description: An error
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Preferences:
+      description: The caller's preferences
+      content: { application/json: { schema: { $ref: "#/components/schemas/Preferences" } } }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string, description: "invalid_request, invalid_value, mandatory, unavailable, unauthenticated" }
+        detail: { type: string }
+    Envelope:
+      type: object
+      required: [id, kind, at, bu, item]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string }
+        at: { type: string, format: date-time }
+        bu:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+        item:
+          type: object
+          properties:
+            type: { type: string }
+            id: { type: [string, "null"] }
+            link: { type: string, description: "A path in the platform" }
+        title: { type: string, description: "Only where notification.detail allows titles, never for restricted business units" }
+    Notification:
+      type: object
+      required: [id, created_at, read_at, kind, label, mandatory, envelope]
+      properties:
+        id: { type: integer }
+        created_at: { type: string, format: date-time }
+        read_at: { type: [string, "null"], format: date-time }
+        kind: { type: string }
+        label: { type: string }
+        mandatory: { type: boolean }
+        envelope: { $ref: "#/components/schemas/Envelope" }
+    Preferences:
+      type: object
+      required: [kinds, digest, digest_hour]
+      properties:
+        kinds:
+          type: array
+          items:
+            type: object
+            properties:
+              kind: { type: string }
+              label: { type: string }
+              mandatory: { type: boolean, description: "Cannot be muted: always in the app and by email" }
+              security: { type: boolean }
+              email_muted: { type: boolean }
+        digest: { type: boolean, description: "Optional email notices gathered into one daily email" }
+        digest_hour: { type: integer, minimum: 0, maximum: 23, description: "When the digest is sent, in UTC" }
+paths:
+  /api/v1/notifications:
+    get:
+      operationId: listNotifications
+      tags: [notifications]
+      summary: The caller's notifications, newest first (AC-02)
+      x-permission: any user (their own)
+      parameters:
+        - { name: unread, in: query, schema: { type: boolean } }
+        - { name: before, in: query, schema: { type: integer, minimum: 1 }, description: Older than this notification id }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+      responses:
+        "200":
+          description: Notifications
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [notifications, more]
+                properties:
+                  notifications: { type: array, items: { $ref: "#/components/schemas/Notification" } }
+                  more: { type: boolean }
+        "400": { $ref: "#/components/responses/Error" }
+  /api/v1/notifications/count:
+    get:
+      operationId: unreadCount
+      tags: [notifications]
+      summary: The caller's unread count, for the header (AC-02)
+      x-permission: any user (their own)
+      responses:
+        "200":
+          description: The count
+          content: { application/json: { schema: { type: object, required: [unread], properties: { unread: { type: integer } } } } }
+  /api/v1/notifications/read:
+    post:
+      operationId: markRead
+      tags: [notifications]
+      summary: Mark the caller's notifications read, some or all (AC-02)
+      x-permission: any user (their own)
+      x-audit-events: []
+      x-audit-note: "Reading one's own notifications changes no security state and is not recorded"
+      x-reason-exempt: "Marking one's own notifications read needs no reason"
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                ids: { type: array, items: { type: integer }, maxItems: 500 }
+                all: { type: boolean }
+      responses:
+        "200":
+          description: How many were marked
+          content: { application/json: { schema: { type: object, required: [marked], properties: { marked: { type: integer } } } } }
+        "400": { $ref: "#/components/responses/Error" }
+  /api/v1/notifications/preferences:
+    get:
+      operationId: getPreferences
+      tags: [notifications]
+      summary: The caller's email mutes and digest (AC-18, AC-19)
+      x-permission: any user (their own)
+      responses:
+        "200": { $ref: "#/components/responses/Preferences" }
+    put:
+      operationId: setPreferences
+      tags: [notifications]
+      summary: Change the caller's email mutes and digest (AC-18, AC-19)
+      description: Mutes apply to email only; notices stay in the app. Mandatory kinds cannot be muted (409 mandatory). Kinds left out keep their setting.
+      x-permission: any user (their own)
+      x-audit-events: [notification.preferences_changed]
+      x-reason-exempt: "A user's own notification preferences need no reason"
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [digest, digest_hour]
+              additionalProperties: false
+              properties:
+                mutes: { type: object, additionalProperties: { type: boolean }, description: "Kind to muted (true) or not (false)" }
+                digest: { type: boolean }
+                digest_hour: { type: integer, minimum: 0, maximum: 23 }
+      responses:
+        "200": { $ref: "#/components/responses/Preferences" }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
