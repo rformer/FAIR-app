@@ -10,6 +10,7 @@ import type { StoredCurve } from "../charts/curve.ts";
 import { Badge, ReasonAction, Section, Status, useApi } from "../components";
 import { auditHref, date, show } from "../links";
 import type { BU } from "../risk/types";
+import { AcceptanceSection } from "../acceptance/RiskAcceptance";
 import { TreatmentSection } from "./Treatment";
 import { REASON_LABEL, STATUS_LABEL, type LinkView, type RiskView } from "./types";
 
@@ -112,6 +113,7 @@ export function RiskPage({ id }: { id: string }) {
             <Scenarios v={v} id={id} canAdopt={mayEdit && open} onAdopted={view.reload} />
             <ExposureView v={v} currency={currency} />
             <TreatmentSection v={v} />
+            <AcceptanceSection v={v} />
             <RiskHistory key={r.current_version} id={id} current={r.current_version} />
           </>
         );

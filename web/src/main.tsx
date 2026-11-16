@@ -1,6 +1,9 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, getMe, send, type Me } from "./api";
+import { AcceptanceInbox, AcceptanceList } from "./acceptance/Acceptances";
+import { AcceptancePage } from "./acceptance/AcceptancePage";
+import { RequestForm as AcceptanceRequestForm } from "./acceptance/RequestForm";
 import { AggregateForm, AggregatePage, AggregatesPage } from "./analysis/Aggregates";
 import { ComparePage } from "./analysis/Compare";
 import { RunPage } from "./analysis/RunPage";
@@ -76,6 +79,8 @@ function App() {
   const path = window.location.pathname;
   const section = path.startsWith("/register")
     ? "register"
+    : path.startsWith("/acceptances")
+    ? "acceptances"
     : path.startsWith("/analyses")
     ? "analyses"
     : path.startsWith("/estimates")
@@ -104,6 +109,11 @@ function App() {
             <li>
               <a href="/register" aria-current={current("register")}>
                 Risk register
+              </a>
+            </li>
+            <li>
+              <a href="/acceptances" aria-current={current("acceptances")}>
+                Acceptances
               </a>
             </li>
             <li>
@@ -152,6 +162,8 @@ function App() {
       <main id="main" tabIndex={-1}>
         {section === "register" ? (
           <RegisterRoutes path={path} />
+        ) : section === "acceptances" ? (
+          <AcceptanceRoutes path={path} />
         ) : section === "analyses" ? (
           <AnalysisRoutes path={path} />
         ) : section === "estimates" ? (
@@ -186,6 +198,16 @@ function RegisterRoutes({ path }: { path: string }) {
   if (!m) return <p role="alert">Not found.</p>;
   const id = m[1] ?? "";
   return m[2] ? <RiskEditor id={id} /> : <RiskPage id={id} />;
+}
+
+// F-008 T-07: /acceptances, /acceptances/inbox, /acceptances/new?risk=[&renews=],
+// /acceptances/{id}.
+function AcceptanceRoutes({ path }: { path: string }) {
+  if (path === "/acceptances" || path === "/acceptances/") return <AcceptanceList />;
+  if (path === "/acceptances/inbox") return <AcceptanceInbox />;
+  if (path === "/acceptances/new") return <AcceptanceRequestForm />;
+  const m = /^\/acceptances\/([0-9a-f-]{36})$/.exec(path);
+  return m?.[1] ? <AcceptancePage id={m[1]} /> : <p role="alert">Not found.</p>;
 }
 
 // F-005 T-13: /analyses/aggregates, /analyses/aggregates/new, /analyses/aggregates/{id};

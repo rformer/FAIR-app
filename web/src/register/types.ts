@@ -1,6 +1,7 @@
 // F-007 T-08: the register API's shapes (api/openapi/register.yaml) and the
 // risk document (internal/register, schema_version 1).
 
+import type { AcceptanceSummary } from "../acceptance/types";
 import type { Tone } from "../components";
 
 export interface Pin {
@@ -49,6 +50,8 @@ export interface RiskHead {
   exposure_aggregate_id: string | null;
   status: ExposureStatus | null;
   treatment: null | { version: number; decision: string | null; next_due: string | null; overdue: boolean };
+  /** F-008: the open acceptance as the user sees it. */
+  acceptance?: AcceptanceSummary | null;
 }
 
 export interface LinkView {

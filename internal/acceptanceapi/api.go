@@ -65,6 +65,7 @@ var routes = []route{
 	{"POST", "/api/v1/acceptances", (*API).requestAcceptance},
 	{"GET", "/api/v1/acceptances/inbox", (*API).inbox},
 	{"GET", "/api/v1/acceptances/tiers", (*API).tiers},
+	{"GET", "/api/v1/acceptances/permissions", (*API).myPermissions},
 	{"GET", "/api/v1/acceptances/{id}", (*API).getAcceptance},
 	{"POST", "/api/v1/acceptances/{id}/decisions", (*API).decideAcceptance},
 	{"POST", "/api/v1/acceptances/{id}/withdraw", (*API).withdrawAcceptance},

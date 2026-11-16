@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/rformer/fair-app/internal/acceptanceapi"
 	"github.com/rformer/fair-app/internal/analysis"
 	"github.com/rformer/fair-app/internal/analysisapi"
 	"github.com/rformer/fair-app/internal/api/enginev1"
@@ -138,6 +139,17 @@ func TestPostureUIHarness(t *testing.T) {
 		riskMux.Handle(prefix, ah)
 		riskMux.Handle(prefix+"/", ah)
 	}
+	// F-008 T-07: the acceptance API, mounted beside them as cmd/risk does,
+	// with the tiers seedAcceptances sets (tier 2 needs two approvals).
+	harnessLimits := defaultAcceptanceLimits
+	harnessLimits.Tier2Approvals = 2
+	acceptanceAPI := &acceptanceapi.API{DB: rp, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(rp), MaxAge: time.Second}),
+		Settings: harnessLimits}
+	acch := acceptanceAPI.Handler(ae.keys, nil)
+	for _, prefix := range acceptanceapi.Prefixes {
+		riskMux.Handle(prefix, acch)
+		riskMux.Handle(prefix+"/", acch)
+	}
 	riskSrv := httptest.NewServer(riskMux)
 	defer riskSrv.Close()
 	riskUp, _ := url.Parse(riskSrv.URL)
@@ -145,6 +157,7 @@ func TestPostureUIHarness(t *testing.T) {
 	if engineSocket != "" {
 		seedAnalysisRun(t, e, ae.keys, riskSrv.URL, scenario)
 		seedRegister(t, e, ae.keys, riskSrv.URL)
+		seedAcceptances(t, e, ae.keys, riskSrv.URL)
 	}
 	// The UI: built assets, and index.html for the app's routes.
 	ui := gateway.StaticUI(dist)
@@ -562,4 +575,90 @@ func seedRegister(t *testing.T, e *env, keys *authz.LocalKeys, url string) {
 		t.Fatalf("seed restricted risk: %d %s", got.code, got.raw)
 	}
 	t.Log("register seeded")
+}
+
+// seedAcceptances (F-008 T-07): acceptances inside the restricted R, at its
+// new child R1 ("Casework"), so the register pages' counts and roll-ups stay as they were:
+// risks owned by "investigator" (Risk Analyst and Risk Owner at R), each
+// pinned to its own run on the real engine with the treatment decision
+// accept; "approver" and "approver2" hold the Approver role at R. Tier 1
+// is decided at R1, tier 2 at R with two approvals (acceptance.tier2_approvals
+// is 2 here). Seeded:
+//   - "Vendor data breach": accepted (approver), and its renewal pending;
+//   - "Records retention fine": tier 2, one of two approvals (approver);
+//   - "Insider misuse of case files": a pending tier-1 request;
+//   - "Case system outage": accepted treatment, no acceptance yet.
+func seedAcceptances(t *testing.T, e *env, keys *authz.LocalKeys, url string) {
+	t.Helper()
+	e.mustOwner("INSERT INTO iam.bu (name, code, parent_id, restricted) SELECT 'Casework', 'R1', id, false FROM iam.bu WHERE code = 'R'")
+	e.mustOwner("UPDATE iam.bu SET rollup_mode = 'aggregate' WHERE code = 'R1'") // as the rest of R (seedRegister)
+	for _, u := range [][2]string{{"approver", "Ada Approver"}, {"approver2", "Abe Approver"}} {
+		e.mustOwner("INSERT INTO iam.app_user (email, display_name) VALUES ('" + u[0] + "@example.test', '" + u[1] + "')")
+		e.mustOwner(grant("admin", "user:"+u[0], "Approver", "R"))
+	}
+	e.drain()
+	setInstance(e, "acceptance.tier2_approvals", "2")
+	r1 := e.adminQuery("SELECT id FROM iam.bu WHERE code = 'R1'")
+	investigator := e.adminQuery("SELECT id FROM iam.app_user WHERE email = 'investigator@example.test'")
+	ea := &riskAPIEnv{riskEnv: riskEnv{e, map[string]string{"R1": r1}}, url: url, keys: keys, n: 500000}
+	accepted := func(name string) string {
+		t.Helper()
+		s := scenarioAt(t, ea, "investigator", r1, name)
+		got := ea.call(t, "POST", "investigator", "/api/v1/analyses/runs", map[string]any{"scenario_id": s, "version": 1, "iterations": 100000, "seed": "2026"})
+		if got.code != 202 {
+			t.Fatalf("seed acceptance run: %d %s", got.code, got.raw)
+		}
+		run := got.body["id"].(string)
+		waitState(t, e, "seed acceptance run", "SELECT state FROM analysis.run WHERE id = '"+run+"'", "succeeded", "failed", "cancelled")
+		got = ea.call(t, "POST", "investigator", "/api/v1/register/risks", map[string]any{"bu_id": r1, "change_note": "Entered by the investigations team",
+			"document": map[string]any{"schema_version": 1, "title": name, "owner": investigator, "state": "open",
+				"scenarios": []any{map[string]any{"scenario_id": s, "pin": map[string]any{"run_id": run, "control_set": "Current"}}}}})
+		if got.code != 201 {
+			t.Fatalf("seed acceptance risk: %d %s", got.code, got.raw)
+		}
+		risk := got.body["id"].(string)
+		if got := ea.call(t, "PUT", "investigator", "/api/v1/register/risks/"+risk+"/treatment", map[string]any{"expected_version": 0, "change_note": "Within appetite",
+			"document": map[string]any{"schema_version": 1, "decision": "accept", "rationale": "Within the investigations unit's appetite."}}); got.code != 200 {
+			t.Fatalf("seed acceptance treatment: %d %s", got.code, got.raw)
+		}
+		return risk
+	}
+	request := func(risk, renews string) string {
+		t.Helper()
+		body := map[string]any{"risk_id": risk, "justification": "Within appetite; the controls in place are proportionate.",
+			"conditions": "Review if the case volume doubles.", "expires_on": time.Now().UTC().AddDate(0, 0, 180).Format(time.DateOnly)}
+		if renews != "" {
+			body["renews"] = renews
+			body["expires_on"] = time.Now().UTC().AddDate(0, 0, 300).Format(time.DateOnly)
+		}
+		got := ea.call(t, "POST", "investigator", "/api/v1/acceptances", body)
+		if got.code != 201 {
+			t.Fatalf("seed acceptance request: %d %s", got.code, got.raw)
+		}
+		return got.body["id"].(string)
+	}
+	approve := func(user, id string) {
+		t.Helper()
+		if got := ea.call(t, "POST", user, "/api/v1/acceptances/"+id+"/decisions", map[string]any{"decision": "approve",
+			"rationale": "Reviewed with the investigations lead."}); got.code != 200 {
+			t.Fatalf("seed acceptance approval: %d %s", got.code, got.raw)
+		}
+	}
+	// The tier is placed on each risk's mean when requested: the seed fixes
+	// which, whatever the engine's means, and leaves the defaults after.
+	tiers := func(t1, t2 string) {
+		setInstance(e, "acceptance.tier1_max", t1)
+		setInstance(e, "acceptance.tier2_max", t2)
+	}
+	tiers("100000000", "100000000")
+	vendor := request(accepted("Vendor data breach"), "")
+	approve("approver", vendor)
+	_ = request(e.adminQuery("SELECT risk_id FROM acceptance.acceptance WHERE id = '"+vendor+"'"), vendor)
+	_ = request(accepted("Insider misuse of case files"), "")
+	tiers("0", "100000000")
+	approve("approver", request(accepted("Records retention fine"), ""))
+	tiers("100000000", "100000000")
+	_ = accepted("Case system outage")
+	tiers("100000", "1000000")
+	t.Log("acceptances seeded")
 }

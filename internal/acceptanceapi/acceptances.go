@@ -167,6 +167,10 @@ func (a *API) listAcceptances(w http.ResponseWriter, r *http.Request, p authz.Pr
 	if more {
 		out = out[:limit]
 	}
+	if err := a.requesters(r, p, out); err != nil {
+		fail(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"acceptances": out, "more": more})
 }
 
@@ -211,6 +215,10 @@ func (a *API) inbox(w http.ResponseWriter, r *http.Request, p authz.Principal) {
 			fail(w, err)
 			return
 		}
+	}
+	if err := a.requesters(r, p, out); err != nil {
+		fail(w, err)
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"acceptances": out})
 }
@@ -300,6 +308,18 @@ func (a *API) getAcceptance(w http.ResponseWriter, r *http.Request, p authz.Prin
 		}
 	}
 	m["steps"] = steps
+	ids := []string{m["requested_by"].(string)}
+	for _, s := range steps {
+		if s.Actor != nil {
+			ids = append(ids, *s.Actor)
+		}
+	}
+	names, err := a.people(r, p, ids)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	m["names"] = names
 	if len(steps) > 0 && steps[0].Kind == "requested" {
 		m["evidence"] = steps[0].Data
 	}
@@ -458,4 +478,66 @@ func (a *API) target(w http.ResponseWriter, r *http.Request, p authz.Principal) 
 		return "", false
 	}
 	return id, true
+}
+
+// people answers the display names of ids who requested or took a step on
+// an acceptance the caller sees (acceptance.people), by id.
+func (a *API) people(r *http.Request, p authz.Principal, ids []string) (map[string]string, error) {
+	names := map[string]string{}
+	err := authz.WithDBContext(r.Context(), a.DB, p.DBToken, func(tx pgx.Tx) error {
+		rows, err := tx.Query(r.Context(), "SELECT user_id::text, name FROM acceptance.people($1::uuid[])", ids)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id, name string
+			if err := rows.Scan(&id, &name); err != nil {
+				return err
+			}
+			names[id] = name
+		}
+		return rows.Err()
+	})
+	return names, err
+}
+
+// requesters fills each acceptance's requested_by_name in one call.
+func (a *API) requesters(r *http.Request, p authz.Principal, out []map[string]any) error {
+	if len(out) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(out))
+	for _, x := range out {
+		ids = append(ids, x["requested_by"].(string))
+	}
+	names, err := a.people(r, p, ids)
+	if err != nil {
+		return err
+	}
+	for _, x := range out {
+		x["requested_by_name"] = nil
+		if n, ok := names[x["requested_by"].(string)]; ok {
+			x["requested_by_name"] = n
+		}
+	}
+	return nil
+}
+
+// myPermissions says which acceptance permissions the caller holds at ?bu=
+// (for the pages, which offer only what the API would allow).
+func (a *API) myPermissions(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	if !a.anywhere(w, r, p) {
+		return
+	}
+	bu := r.URL.Query().Get("bu")
+	if !uuidRE.MatchString(bu) {
+		problem(w, http.StatusBadRequest, "invalid_value", "bu is a business unit id", nil)
+		return
+	}
+	out := map[string]bool{}
+	for _, perm := range []authz.Permission{permView, permRequest, permApprove} {
+		out[string(perm)] = a.Authz.Check(r.Context(), p, perm, bu) == nil
+	}
+	writeJSON(w, http.StatusOK, out)
 }

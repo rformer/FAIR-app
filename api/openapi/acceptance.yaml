@@ -84,6 +84,7 @@ components:
         expires_on: { type: string, format: date }
         approved_bu_id: { type: [string, "null"], format: uuid }
         requested_by: { type: string, format: uuid }
+        requested_by_name: { type: [string, "null"], description: "In lists: the requester's display name" }
         requested_at: { type: string, format: date-time }
         activated_at: { type: [string, "null"], format: date-time }
         ended_at: { type: [string, "null"], format: date-time }
@@ -195,6 +196,27 @@ paths:
                   max_duration_days: { type: integer }
         "404": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+  /api/v1/acceptances/permissions:
+    get:
+      operationId: myPermissions
+      tags: [acceptances]
+      summary: Which acceptance permissions the caller holds at a business unit (for the pages)
+      x-permission: any acceptance permission
+      parameters:
+        - { name: bu, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: The permissions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  acceptance.view: { type: boolean }
+                  acceptance.request: { type: boolean }
+                  acceptance.approve: { type: boolean }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /api/v1/acceptances/{id}:
     get:
       operationId: getAcceptance
@@ -224,6 +246,10 @@ paths:
                             reason: { type: [string, "null"] }
                             data: { type: object }
                       evidence: { type: object, description: "The request's evidence: justification, conditions, the exposure, the pins, the tier" }
+                      names:
+                        type: object
+                        additionalProperties: { type: string }
+                        description: Display names of the requester and the steps' actors, by user id
                       may_decide: { type: boolean }
                       may_withdraw: { type: boolean }
                       may_revoke: { type: boolean }

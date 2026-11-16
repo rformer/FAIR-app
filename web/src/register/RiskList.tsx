@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import { getMe } from "../api";
 import { Badge, Section, Status, useApi } from "../components";
 import type { BU } from "../risk/types";
+import { STATE_LABEL as ACCEPTANCE_LABEL } from "../acceptance/types";
 import { DECISION_LABEL, STATUS_LABEL, type Category, type Coverage, type RiskHead } from "./types";
 
 // F-007 T-08 (F-007-AC-09, AC-14, AC-19): the risks the user can see, with
 // filters, sorting by exposure, and how many of the open ones are current.
 
 const PAGE = 50;
-const FILTERS = ["bu", "owner", "category", "state", "status", "decision", "overdue", "sort"] as const;
+const FILTERS = ["bu", "owner", "category", "state", "status", "decision", "overdue", "acceptance", "sort"] as const;
 
 export function RiskList({ search = window.location.search }: { search?: string }) {
   const q = new URLSearchParams(search);
@@ -110,6 +111,16 @@ export function RiskList({ search = window.location.search }: { search?: string 
             ["", "Any"],
             ["true", "With overdue actions"],
           ])}
+          {select("acceptance", "Acceptance", [
+            ["", "Any"],
+            ["active", "Accepted"],
+            ["pending", "Pending approval"],
+            ["suspended", "Suspended"],
+            ["expired", "Expired"],
+            ["needs_review", "Accepted, needs review"],
+            ["expiring", "Accepted, expiring within 30 days"],
+            ["none", "Not accepted"],
+          ])}
           {select("sort", "Sort by", [
             ["", "Newest"],
             ["title", "Title"],
@@ -139,6 +150,7 @@ export function RiskList({ search = window.location.search }: { search?: string 
                         <th scope="col">Category</th>
                         <th scope="col">Exposure</th>
                         <th scope="col">Treatment</th>
+                        <th scope="col">Acceptance</th>
                         <th scope="col">State</th>
                       </tr>
                     </thead>
@@ -160,6 +172,21 @@ export function RiskList({ search = window.location.search }: { search?: string 
                                 <Badge tone="bad">Overdue actions</Badge>
                               </>
                             ) : null}
+                          </td>
+                          <td>
+                            {r.acceptance ? (
+                              <a href={`/acceptances/${r.acceptance.id}`}>
+                                <Badge tone={ACCEPTANCE_LABEL[r.acceptance.state].tone}>{ACCEPTANCE_LABEL[r.acceptance.state].label}</Badge>
+                                {r.acceptance.needs_review.length > 0 ? (
+                                  <>
+                                    {" "}
+                                    <Badge tone="warn">Needs review</Badge>
+                                  </>
+                                ) : null}
+                              </a>
+                            ) : (
+                              "—"
+                            )}
                           </td>
                           <td>{r.state === "open" ? <Badge tone="ok">Open</Badge> : <Badge tone="muted">Closed</Badge>}</td>
                         </tr>

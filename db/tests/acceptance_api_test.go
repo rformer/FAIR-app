@@ -266,6 +266,31 @@ func TestAcceptanceAPI(t *testing.T) {
 	if got := ac.call(t, "GET", "owen", "/api/v1/acceptances?state=maybe", nil); got.code != 400 {
 		t.Errorf("an unknown state: %d", got.code)
 	}
+	// Names (T-07): the requester and the steps' actors, to those who see it.
+	if v := read("owen"); v["names"].(map[string]any)[v["requested_by"].(string)] == nil || len(v["names"].(map[string]any)) < 2 {
+		t.Errorf("names: %v", v["names"])
+	}
+	if got := ac.call(t, "GET", "owen", "/api/v1/acceptances", nil).body["acceptances"].([]any)[0].(map[string]any)["requested_by_name"]; got == nil {
+		t.Error("no requester's name in the list")
+	}
+	// What the caller may do at a BU (T-07).
+	perms := func(user, bu string) map[string]any {
+		t.Helper()
+		got := ac.call(t, "GET", user, "/api/v1/acceptances/permissions?bu="+bu, nil)
+		if got.code != 200 {
+			t.Fatalf("permissions: %d %s", got.code, got.raw)
+		}
+		return got.body
+	}
+	if p := perms("owen", ra.bu["A1"]); p["acceptance.request"] != true || p["acceptance.approve"] != false {
+		t.Errorf("owen at A1: %v", p)
+	}
+	if p := perms("appA", ra.bu["A1"]); p["acceptance.request"] != false || p["acceptance.approve"] != true {
+		t.Errorf("appA at A1: %v", p)
+	}
+	if p := perms("owen", ra.bu["B"]); p["acceptance.request"] != false || p["acceptance.view"] != false {
+		t.Errorf("owen at B: %v", p)
+	}
 	tiers := ac.call(t, "GET", "owen", "/api/v1/acceptances/tiers", nil)
 	if tiers.code != 200 || len(tiers.body["tiers"].([]any)) != 3 || tiers.body["max_duration_days"] != 365.0 {
 		t.Errorf("tiers: %d %s", tiers.code, tiers.raw)
