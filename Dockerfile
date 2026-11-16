@@ -7,6 +7,7 @@
 #   docker build --target fips-probe .      node FIPS probe (F-015 T-29)
 #   docker build --target audit .           audit trail service (F-002 T-05), with /fair-audit-verify (T-10)
 #   docker build --target risk .            risk data service (F-003 T-04)
+#   docker build --target notify .          notification service (F-009 T-03)
 #   docker build --target engine .          simulation engine, Python (F-005 T-04, ADR-013)
 #   docker build --target engine-gate .     the engine's mTLS gate, Go FIPS (F-005 T-10)
 # - FIPS 140-3: built with GOFIPS140=v1.0.0; go.mod sets fips140=on at runtime.
@@ -34,7 +35,7 @@ COPY profiles/packages ./profiles/packages
 COPY third_party/oscal/oscal.go third_party/oscal/MANIFEST.json ./third_party/oscal/
 COPY third_party/oscal/schemas/oscal_complete_schema.json ./third_party/oscal/schemas/
 ARG VERSION=dev
-RUN for c in iam posture posture-scanner fips-probe gateway audit risk engine-gate; do \
+RUN for c in iam posture posture-scanner fips-probe gateway audit risk notify engine-gate; do \
       go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/$c ./cmd/$c || exit 1; \
     done && \
     go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/fair-audit-verify ./cmd/audit-verify
@@ -69,6 +70,12 @@ COPY --from=build /out/risk /risk
 USER 65532:65532
 EXPOSE 8443
 ENTRYPOINT ["/risk"]
+
+FROM gcr.io/distroless/static-debian12:nonroot AS notify
+COPY --from=build /out/notify /notify
+USER 65532:65532
+EXPOSE 8443
+ENTRYPOINT ["/notify"]
 
 FROM gcr.io/distroless/static-debian12:nonroot AS engine-gate
 COPY --from=build /out/engine-gate /engine-gate

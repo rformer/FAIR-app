@@ -22,6 +22,7 @@ import (
 	"github.com/rformer/fair-app/internal/enginegate"
 	"github.com/rformer/fair-app/internal/keys"
 	"github.com/rformer/fair-app/internal/migrate"
+	"github.com/rformer/fair-app/internal/notify"
 	"github.com/rformer/fair-app/internal/posture"
 	"github.com/rformer/fair-app/internal/profilepkg"
 	risksvc "github.com/rformer/fair-app/internal/risk"
@@ -116,6 +117,25 @@ func deploymentMode(t *testing.T, mode string) {
 		delete(v, k)
 		if err := riskCheck(v); err == nil {
 			t.Errorf("risk without %s in %s mode", k, mode)
+		}
+	}
+
+	// F-009 T-03 (design §11): the notify service needs the JWT keys, its
+	// webhook-secrets keys, the base URL for links and the cluster's ranges,
+	// in every mode.
+	notifyVars := map[string]string{"FAIR_JWT_KEYS_DIR": "/keys/jwt", "FAIR_NOTIFY_SECRETS_DIR": "/keys/webhook-secrets",
+		"FAIR_NOTIFY_BASE_URL": "https://fair.example.com", "FAIR_NOTIFY_CLUSTER_CIDRS": "10.96.0.0/12"}
+	notifyCheck := func(v map[string]string) error {
+		return notify.CheckInstall(notify.InstallCheck{Env: "production", Mode: mode, Getenv: func(k string) string { return v[k] }})
+	}
+	if err := notifyCheck(notifyVars); err != nil {
+		t.Errorf("a complete %s notify install refused: %v", mode, err)
+	}
+	for k := range notifyVars {
+		v := maps.Clone(notifyVars)
+		delete(v, k)
+		if err := notifyCheck(v); err == nil {
+			t.Errorf("notify without %s in %s mode", k, mode)
 		}
 	}
 

@@ -20,6 +20,8 @@
 //	iam/secrets/token-pepper             service-account secrets (= the gateway's)  FAIR_TOKEN_PEPPER_FILE
 //	posture/jwt/<kid>.pem                the gateway's JWT keys (public)            FAIR_JWT_KEYS_DIR
 //	risk/engine-client/...               the engine channel's client side (engine.go)
+//	notify/jwt/<kid>.pem                 the gateway's JWT keys (public)            FAIR_JWT_KEYS_DIR
+//	notify/webhook-secrets/<kid>.key     webhook secrets' AES-256 keys (F-009)      FAIR_NOTIFY_SECRETS_DIR
 //	engine-gate/tls/...                  the engine channel's server side (engine.go)
 //
 // Secrets are base64url text (32 random bytes), so every store carries them
@@ -54,8 +56,9 @@ const (
 	Gateway = "gateway"
 	IAM     = "iam"
 	Posture = "posture"
-	Audit   = "audit" // F-002 T-05
-	Risk    = "risk"  // F-003 T-04
+	Audit   = "audit"  // F-002 T-05
+	Risk    = "risk"   // F-003 T-04
+	Notify  = "notify" // F-009 T-03
 )
 
 // Files and directories in a service's key directory.
@@ -68,6 +71,9 @@ const (
 	DBContextKey  = "db-context.key"
 	DBContextID   = "db-context.id"
 	CheckpointDir = "checkpoint" // the audit trail's checkpoint signing key (F-002 design §6.3)
+	// WebhookSecretsDir holds the AES-256-GCM keys the notify service keeps
+	// webhook secrets under (F-009 design §1): the newest encrypts, all decrypt.
+	WebhookSecretsDir = "webhook-secrets"
 )
 
 // MountRoot is where every store delivers a service's key directories.
@@ -99,6 +105,8 @@ var Mounts = []Mount{
 	{Audit, CheckpointDir, map[string]string{"FAIR_AUDIT_CHECKPOINT_KEYS_DIR": MountRoot + "/checkpoint"}},
 	{Risk, JWTDir, map[string]string{"FAIR_JWT_KEYS_DIR": MountRoot + "/jwt"}},
 	{Risk, EngineClientDir, map[string]string{"FAIR_ENGINE_CLIENT_DIR": MountRoot + "/" + EngineClientDir}}, // F-005 T-10
+	{Notify, JWTDir, map[string]string{"FAIR_JWT_KEYS_DIR": MountRoot + "/jwt"}},                            // F-009 T-03
+	{Notify, WebhookSecretsDir, map[string]string{"FAIR_NOTIFY_SECRETS_DIR": MountRoot + "/" + WebhookSecretsDir}},
 	{EngineGate, TLSDir, map[string]string{"FAIR_ENGINE_GATE_TLS_DIR": MountRoot + "/" + TLSDir}},
 }
 
@@ -111,11 +119,12 @@ const (
 	KindTicket     = "login-ticket"
 	KindDBContext  = "db-context"
 	KindCheckpoint = "checkpoint"
+	KindNotify     = "notify-secrets" // a new webhook-secrets key (F-009 T-03)
 	// KindEngine (engine.go) rotates the engine channel's certificates.
 )
 
 // jwtVerifiers hold the gateway's internal-JWT public keys.
-var jwtVerifiers = []string{IAM, Posture, Audit, Risk}
+var jwtVerifiers = []string{IAM, Posture, Audit, Risk, Notify}
 
 var kidRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
@@ -127,7 +136,7 @@ type Set struct {
 // Init creates every key into dir (one subdirectory per service). It never
 // overwrites: an existing file is an error and nothing is written over it.
 func Init(dir string, now time.Time) (Set, error) {
-	for _, p := range []string{Gateway, IAM, Posture, Audit, Risk, EngineGate} {
+	for _, p := range []string{Gateway, IAM, Posture, Audit, Risk, Notify, EngineGate} {
 		if _, err := os.Stat(filepath.Join(dir, p)); err == nil {
 			return Set{}, fmt.Errorf("keys: %s already exists; keys are never overwritten (use rotate, or upgrade to add a new service's keys)", filepath.Join(dir, p))
 		}
@@ -152,6 +161,7 @@ func Init(dir string, now time.Time) (Set, error) {
 		w.public(filepath.Join(dir, v, JWTDir, s.JWT+".pem"), &jwt.PublicKey)
 	}
 	w.private(filepath.Join(dir, Audit, CheckpointDir, s.Checkpoint+".pem"), checkpoint)
+	w.file(filepath.Join(dir, Notify, WebhookSecretsDir, kid("whk", now)+".key"), secret())
 	w.private(filepath.Join(dir, IAM, TicketDir, s.Ticket+".pem"), ticket)
 	w.public(filepath.Join(dir, Gateway, TicketDir, s.Ticket+".pem"), &ticket.PublicKey)
 	w.file(filepath.Join(dir, Gateway, SecretsDir, SessionPepper), secret())
@@ -166,8 +176,9 @@ func Init(dir string, now time.Time) (Set, error) {
 // Upgrade adds the key directories of services newer than a key directory:
 // audit/ (F-002 T-05: the gateway's internal-JWT public keys and a new
 // checkpoint signing key), risk/ (F-003 T-04: the internal-JWT public
-// keys) and the engine channel (F-005 T-10: risk/engine-client/ and
-// engine-gate/). It returns what it added; nothing when the directory is
+// keys), the engine channel (F-005 T-10: risk/engine-client/ and
+// engine-gate/) and notify/ (F-009 T-03: the internal-JWT public keys and
+// a webhook-secrets key). It returns what it added; nothing when the directory is
 // complete. It never overwrites.
 func Upgrade(dir string, now time.Time) ([]string, error) {
 	for _, p := range []string{Gateway, IAM, Posture} {
@@ -176,7 +187,7 @@ func Upgrade(dir string, now time.Time) ([]string, error) {
 		}
 	}
 	var missing []string
-	for _, p := range []string{Audit, Risk} {
+	for _, p := range []string{Audit, Risk, Notify} {
 		if _, err := os.Stat(filepath.Join(dir, p)); err != nil {
 			missing = append(missing, p)
 		}
@@ -229,6 +240,9 @@ func Upgrade(dir string, now time.Time) ([]string, error) {
 			}
 			w.private(filepath.Join(dir, Audit, CheckpointDir, kid("checkpoint", now)+".pem"), checkpoint)
 		}
+		if svc == Notify {
+			w.file(filepath.Join(dir, Notify, WebhookSecretsDir, kid("whk", now)+".key"), secret())
+		}
 	}
 	if engine {
 		writeEngine(w, dir, now, nil, nil)
@@ -238,6 +252,30 @@ func Upgrade(dir string, now time.Time) ([]string, error) {
 		return nil, w.err
 	}
 	return missing, nil
+}
+
+// WebhookSecretKeys reads the notify service's webhook-secrets keys in dir
+// (FAIR_NOTIFY_SECRETS_DIR): each <kid>.key file is a secret of at least
+// SecretLen bytes, used as an AES-256 key (the first 32 bytes of its
+// SHA-256: the files hold base64url text). The newest id sorts last.
+func WebhookSecretKeys(dir string) (map[string][]byte, error) {
+	files, err := filepath.Glob(filepath.Join(dir, "*.key"))
+	if err != nil {
+		return nil, err
+	}
+	out := map[string][]byte{}
+	for _, f := range files {
+		id := strings.TrimSuffix(filepath.Base(f), ".key")
+		if !kidRE.MatchString(id) {
+			return nil, fmt.Errorf("keys: %s: not a key id", f)
+		}
+		b, err := ReadSecret(f, SecretLen)
+		if err != nil {
+			return nil, err
+		}
+		out[id] = b
+	}
+	return out, nil
 }
 
 // CheckpointKey reads the audit trail's checkpoint signing key: the one
@@ -266,6 +304,9 @@ func CheckpointKey(dir string) (*ecdsa.PrivateKey, string, error) {
 //   - checkpoint: a new audit checkpoint signing key; the old one becomes
 //     public. The audit service records each key's public half (F-002 §6.3),
 //     so checkpoints signed before stay verifiable.
+//   - notify-secrets: a new webhook-secrets key, which the notify service
+//     encrypts with from then on; the old keys stay, so the secrets kept
+//     under them still decrypt (F-009 design §1).
 //
 // The peppers do not rotate: a new session pepper ends every session and a
 // new token pepper invalidates every service-account secret.
@@ -322,13 +363,21 @@ func Rotate(dir, kind string, now time.Time) (string, error) {
 		return id, w.err
 	case KindEngine:
 		return rotateEngine(dir, now)
+	case KindNotify:
+		id := kid("whk", now)
+		p := filepath.Join(dir, Notify, WebhookSecretsDir, id+".key")
+		if _, err := os.Stat(p); err == nil {
+			return "", fmt.Errorf("keys: %s already exists", id)
+		}
+		w.file(p, secret())
+		return id, w.err
 	case KindDBContext:
 		id := kid("ctx", now)
 		w.file(filepath.Join(dir, Gateway, SecretsDir, DBContextKey), secret())
 		w.file(filepath.Join(dir, Gateway, SecretsDir, DBContextID), []byte(id+"\n"))
 		return id, w.err
 	}
-	return "", fmt.Errorf("keys: unknown kind %q (jwt, login-ticket, db-context, checkpoint or engine)", kind)
+	return "", fmt.Errorf("keys: unknown kind %q (jwt, login-ticket, db-context, checkpoint, engine or notify-secrets)", kind)
 }
 
 // Check verifies a key directory as a whole: every file each service needs
@@ -356,6 +405,9 @@ func Check(dir string) error {
 	pair(Gateway, JWTDir, jwtVerifiers...)
 	pair(IAM, TicketDir, Gateway)
 	pair(Audit, CheckpointDir)
+	if ks, err := WebhookSecretKeys(filepath.Join(dir, Notify, WebhookSecretsDir)); err != nil || len(ks) == 0 {
+		bad("%s/%s: want at least one key (%v)", Notify, WebhookSecretsDir, err)
+	}
 	for _, f := range []string{filepath.Join(Gateway, SecretsDir, SessionPepper), filepath.Join(Gateway, SecretsDir, TokenPepper), filepath.Join(IAM, SecretsDir, TokenPepper),
 		filepath.Join(Gateway, SecretsDir, DBContextKey)} {
 		if b, err := ReadSecret(filepath.Join(dir, f), SecretLen); err != nil {

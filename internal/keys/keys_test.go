@@ -459,3 +459,61 @@ func TestEngineKeys(t *testing.T) {
 		t.Error("an upgrade with only one side of the channel")
 	}
 }
+
+// F-009 T-03: the notify service's keys: the gateway's JWT public keys and
+// the webhook-secrets keys; init and upgrade make one, rotation adds one and
+// keeps the others (secrets kept under them still decrypt).
+func TestNotifyKeys(t *testing.T) {
+	t0 := time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC)
+	d := t.TempDir()
+	s, err := Init(d, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := publicKey(filepath.Join(d, Notify, JWTDir, s.JWT+".pem")); err != nil {
+		t.Fatalf("notify/ lacks the gateway's key: %v", err)
+	}
+	ks, err := WebhookSecretKeys(filepath.Join(d, Notify, WebhookSecretsDir))
+	if err != nil || len(ks) != 1 {
+		t.Fatalf("webhook-secrets keys: %v %v", len(ks), err)
+	}
+	id, err := Rotate(d, KindNotify, t0.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ks, _ = WebhookSecretKeys(filepath.Join(d, Notify, WebhookSecretsDir))
+	if _, ok := ks[id]; !ok || len(ks) != 2 {
+		t.Fatalf("after rotating: %d keys, %s present %v", len(ks), id, ok)
+	}
+	if _, err := Rotate(d, KindNotify, t0.Add(time.Hour)); err == nil {
+		t.Error("the same key id twice")
+	}
+	if err := Check(d); err != nil {
+		t.Fatal(err)
+	}
+	// Without its keys the directory fails the check.
+	if err := os.RemoveAll(filepath.Join(d, Notify, WebhookSecretsDir)); err != nil {
+		t.Fatal(err)
+	}
+	if err := Check(d); err == nil {
+		t.Fatal("a directory without webhook-secrets keys passed")
+	}
+	// A directory from before F-009 gets notify/ from upgrade.
+	if err := os.RemoveAll(filepath.Join(d, Notify)); err != nil {
+		t.Fatal(err)
+	}
+	added, err := Upgrade(d, t0.Add(2*time.Hour))
+	if err != nil || !slices.Equal(added, []string{Notify}) {
+		t.Fatalf("upgrade: %v %v", added, err)
+	}
+	if err := Check(d); err != nil {
+		t.Fatal(err)
+	}
+	// A key file whose name is not a key id is refused.
+	if err := os.WriteFile(filepath.Join(d, Notify, WebhookSecretsDir, "bad id.key"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WebhookSecretKeys(filepath.Join(d, Notify, WebhookSecretsDir)); err == nil {
+		t.Error("a key file named otherwise")
+	}
+}

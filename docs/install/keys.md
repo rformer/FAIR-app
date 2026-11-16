@@ -1,6 +1,6 @@
 # Installation keys
 
-F-001 T-41 (design §10), extended by F-002 T-05, F-003 T-04 and F-005 T-10. This guide covers the keys and secrets that F-001's services, the audit service (F-002), the risk service (F-003) and the simulation engine's channel (F-005) hold: where they come from in each deployment mode, how to install them, and how to rotate them. F-015's own keys (the posture MAC key and the export signing key) are covered in the README.
+F-001 T-41 (design §10), extended by F-002 T-05, F-003 T-04, F-005 T-10 and F-009 T-03. This guide covers the keys and secrets that F-001's services, the audit service (F-002), the risk service (F-003), the simulation engine's channel (F-005) and the notify service (F-009) hold: where they come from in each deployment mode, how to install them, and how to rotate them. F-015's own keys (the posture MAC key and the export signing key) are covered in the README.
 
 ## The rule
 
@@ -31,9 +31,11 @@ In production every service refuses to start if a key or secret file it is given
 | `audit/checkpoint` | `<kid>.pem`: the audit trail's checkpoint signing key (ECDSA P-256, F-002 design §6.3), plus earlier keys, public | `FAIR_AUDIT_CHECKPOINT_KEYS_DIR=/keys/checkpoint` |
 | `risk/jwt` | the gateway's JWT keys, public | `FAIR_JWT_KEYS_DIR=/keys/jwt` |
 | `risk/engine-client` | `tls.crt`, `tls.key`: the risk service's client certificate for the engine (self-signed ECDSA P-256, valid 397 days); `gate.sha256`: SHA-256 pins of the gate's certificates | `FAIR_ENGINE_CLIENT_DIR=/keys/engine-client` |
+| `notify/jwt` | the gateway's JWT keys, public | `FAIR_JWT_KEYS_DIR=/keys/jwt` |
+| `notify/webhook-secrets` | `<kid>.key`: AES-256 keys the notify service keeps webhook signing secrets under (the newest encrypts, all decrypt) | `FAIR_NOTIFY_SECRETS_DIR=/keys/webhook-secrets` |
 | `engine-gate/tls` | `tls.crt`, `tls.key`: engine-gate's server certificate (`engine.fair-platform.svc`); `client.sha256`: pins of the risk service's certificates | `FAIR_ENGINE_GATE_TLS_DIR=/keys/tls` (the gate container only; the engine container holds no keys) |
 
-A key directory made before F-002 has no `audit/`, one made before F-003 no `risk/`, and one made before F-005 no engine channel: `iam keys upgrade -dir DIR` adds what is missing (`audit/` with the gateway's JWT public keys and a new checkpoint key, `risk/` with the JWT public keys, `risk/engine-client` and `engine-gate/tls` with new certificates pinning each other) and changes nothing else. It refuses a directory holding only one side of the engine channel. Load the new directories into the store as below.
+A key directory made before F-002 has no `audit/`, one made before F-003 no `risk/`, one made before F-005 no engine channel, and one made before F-009 no `notify/`: `iam keys upgrade -dir DIR` adds what is missing (`audit/` with the gateway's JWT public keys and a new checkpoint key, `risk/` with the JWT public keys, `risk/engine-client` and `engine-gate/tls` with new certificates pinning each other, `notify/` with the JWT public keys and a webhook-secrets key) and changes nothing else. It refuses a directory holding only one side of the engine channel. Load the new directories into the store as below.
 
 `iam keys check -dir DIR` checks a whole set:
 - every file is present;
@@ -61,7 +63,7 @@ A key directory made before F-002 has no `audit/`, one made before F-003 no `ris
 
      ```sh
      umask 077
-     for d in gateway/jwt gateway/login-ticket gateway/secrets iam/jwt iam/login-ticket iam/secrets posture/jwt audit/jwt audit/checkpoint risk/jwt risk/engine-client engine-gate/tls; do
+     for d in gateway/jwt gateway/login-ticket gateway/secrets iam/jwt iam/login-ticket iam/secrets posture/jwt audit/jwt audit/checkpoint risk/jwt risk/engine-client notify/jwt notify/webhook-secrets engine-gate/tls; do
        echo '{}' > entry.json
        for f in ./fair-keys/$d/*; do
          jq --arg k "$(basename "$f")" --rawfile v "$f" '. + {($k): $v}' entry.json > next.json && mv next.json entry.json
@@ -77,7 +79,7 @@ A key directory made before F-002 has no `audit/`, one made before F-003 no `ris
    - **OpenBao or Vault.** Load each directory as one KV v2 entry, then apply the policies and enable Kubernetes auth:
 
      ```sh
-     for d in gateway/jwt gateway/login-ticket gateway/secrets iam/jwt iam/login-ticket iam/secrets posture/jwt audit/jwt audit/checkpoint risk/jwt risk/engine-client engine-gate/tls; do
+     for d in gateway/jwt gateway/login-ticket gateway/secrets iam/jwt iam/login-ticket iam/secrets posture/jwt audit/jwt audit/checkpoint risk/jwt risk/engine-client notify/jwt notify/webhook-secrets engine-gate/tls; do
        args=""; for f in ./fair-keys/$d/*; do args="$args $(basename "$f")=@$f"; done
        bao kv put "secret/fair/$d" $args
      done
@@ -96,7 +98,7 @@ A key directory made before F-002 has no `audit/`, one made before F-003 no `ris
    - **Kubernetes Secrets** (air-gapped, or self-hosted without OpenBao):
 
      ```sh
-     for d in gateway/jwt gateway/login-ticket gateway/secrets iam/jwt iam/login-ticket iam/secrets posture/jwt audit/jwt audit/checkpoint risk/jwt risk/engine-client engine-gate/tls; do
+     for d in gateway/jwt gateway/login-ticket gateway/secrets iam/jwt iam/login-ticket iam/secrets posture/jwt audit/jwt audit/checkpoint risk/jwt risk/engine-client notify/jwt notify/webhook-secrets engine-gate/tls; do
        kubectl -n fair-platform create secret generic "fair-${d%%/*}-${d#*/}" --from-file="./fair-keys/$d"
      done
      ```
@@ -111,9 +113,10 @@ Work on a copy of the key directory, taken from the store. Rotation adds a key; 
 
 | Kind | Command | Then |
 |---|---|---|
-| Internal JWT | `iam keys rotate -dir DIR -kind jwt` | Reload `gateway/jwt`, `iam/jwt`, `posture/jwt`, `audit/jwt` and `risk/jwt`. The old signing key becomes public, and the new key signs once the gateway picks it up. With OpenBao, all five refresh within a minute. With Secrets, roll out iam, posture, audit and risk before the gateway. |
+| Internal JWT | `iam keys rotate -dir DIR -kind jwt` | Reload `gateway/jwt`, `iam/jwt`, `posture/jwt`, `audit/jwt`, `risk/jwt` and `notify/jwt`. The old signing key becomes public, and the new key signs once the gateway picks it up. With OpenBao, all six refresh within a minute. With Secrets, roll out iam, posture, audit, risk and notify before the gateway. |
 | Login ticket | `iam keys rotate -dir DIR -kind login-ticket` | Reload `iam/login-ticket` and `gateway/login-ticket`. With Secrets, roll out the gateway before iam. |
 | Audit checkpoint | `iam keys rotate -dir DIR -kind checkpoint` | Reload `audit/checkpoint` and roll out the audit service. The old key becomes public; the service records every key's public half, so checkpoints signed before stay verifiable. Never delete an old checkpoint key from the store. |
+| Webhook secrets key | `iam keys rotate -dir DIR -kind notify-secrets` | Reload `notify/webhook-secrets`. Secrets saved from then on are encrypted under the new key; the older keys stay so existing secrets still decrypt. Never delete a key while a webhook's secret may still be under it (rotate each webhook's secret first, F-009). |
 | Engine channel | `iam keys rotate -dir DIR -kind engine` | Reload `risk/engine-client` and `engine-gate/tls`, in either order: both certificates are replaced and each side's pins hold the new and the previous certificate. Certificates and pins are re-read on every connection, so no restart is needed. Rotate within a year (certificates are valid 397 days; `iam keys check` fails on an expired one). |
 | DB context | `iam keys rotate -dir DIR -kind db-context` | `iam keys register -dir DIR`, reload `gateway/secrets` and roll out the gateway. Then `iam keys retire-db-context -id <old>`: contexts the old key signed stay valid for ten minutes, and the last active key cannot be retired. |
 

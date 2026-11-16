@@ -165,3 +165,24 @@ func TestNotifySchema(t *testing.T) {
 		t.Errorf("live kinds: %s", got)
 	}
 }
+
+// F-009 T-03 (design §2): app_notify, the notify service's role, records
+// its own events, registers and reads settings, and loads grants for the
+// API; it reads no notify table and nothing else of the platform.
+func TestNotifyServiceRole(t *testing.T) {
+	e := setup(t)
+	got := e.adminQuery(`SELECT string_agg(f || ':' || has_function_privilege('app_notify', f, 'EXECUTE'), ',' ORDER BY f) FROM unnest(ARRAY[
+		'audit.submit(jsonb)', 'posture.effective_settings()', 'posture.settings_version()', 'posture.register_settings(text, text, jsonb)',
+		'authz.grant_snapshot()', 'notify.sync_kinds(jsonb)', 'posture.audit_finding(boolean, jsonb)']) f`)
+	want := "audit.submit(jsonb):true,authz.grant_snapshot():true,notify.sync_kinds(jsonb):false,posture.audit_finding(boolean, jsonb):false," +
+		"posture.effective_settings():true,posture.register_settings(text, text, jsonb):true,posture.settings_version():true"
+	if got != want {
+		t.Errorf("functions:\n got %s\nwant %s", got, want)
+	}
+	if got := e.adminQuery(`SELECT count(*) FROM information_schema.role_table_grants WHERE grantee = 'app_notify'`); got != "0" {
+		t.Errorf("app_notify holds %s table grants", got)
+	}
+	if got := e.adminQuery(`SELECT rolcanlogin || ':' || rolbypassrls || ':' || coalesce(array_to_string(rolconfig, ','), '') FROM pg_roles WHERE rolname = 'app_notify'`); got != "true:false:row_security=on" {
+		t.Errorf("app_notify: %s", got)
+	}
+}
