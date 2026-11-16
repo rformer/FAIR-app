@@ -127,13 +127,14 @@ func run() error {
 	}
 	go sc.Run(ctx, func(err error) { logger.Error("settings refresh", "error", err.Error()) })
 
-	// One replica leads (design §1): it collects the features' outboxes
-	// into notices every 10 seconds (T-04); fan-out, digests and retention
-	// follow (T-05, T-10).
+	// One replica leads (design §1): every 10 seconds it collects the
+	// features' outboxes into notices (T-04) and fans them out to their
+	// recipients (T-05); digests and retention follow (T-10).
 	collector := notify.Collector{DB: pool, Titles: func() bool {
 		d, err := sc.Enum(settings.KeyNotificationDetail, "")
 		return err == nil && d == "titles" // minimal unless the setting says otherwise
 	}}
+	fanOut := notify.FanOut{DB: pool}
 	leader := auditsvc.Leader{Pool: pool, Key: notify.LeaderLockKey, OnChange: func(leading bool) {
 		logger.Info("leader", "leading", leading, "replica", replica)
 	}}
@@ -147,6 +148,17 @@ func run() error {
 				logger.Error("collect: outbox rows of kinds this release does not know are left pending", "unknown", unknown)
 			case n > 0:
 				logger.Info("collected", "notices", n)
+			}
+			for ctx.Err() == nil {
+				r, err := fanOut.Step(ctx)
+				if err != nil {
+					logger.Error("fan out", "error", err.Error())
+					break
+				}
+				if r.Notices == 0 {
+					break
+				}
+				logger.Info("fanned out", "notices", r.Notices, "in_app", r.InApp, "dropped", r.Dropped, "emails", r.Emails, "webhooks", r.Webhooks)
 			}
 			select {
 			case <-ctx.Done():

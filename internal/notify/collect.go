@@ -35,3 +35,34 @@ func (c Collector) Collect(ctx context.Context) (collected, unknown int, err err
 
 // Every is how often the leader collects (design §1).
 const Every = 10 * time.Second
+
+// FanOut resolves collected notices' recipients and creates their in-app
+// notifications and deliveries (notify.fan_out, design §3.1, §3.2).
+type FanOut struct {
+	DB    *pgxpool.Pool // app_notify
+	Batch int           // notices per step; default 200
+}
+
+// FannedOut is what one step did.
+type FannedOut struct {
+	Notices  int `json:"notices"`
+	InApp    int `json:"in_app"`
+	Dropped  int `json:"dropped"`
+	Emails   int `json:"emails"`
+	Webhooks int `json:"webhooks"`
+}
+
+// Step fans out up to Batch notices.
+func (f FanOut) Step(ctx context.Context) (FannedOut, error) {
+	batch := f.Batch
+	if batch <= 0 {
+		batch = 200
+	}
+	var r FannedOut
+	err := f.DB.QueryRow(ctx, `SELECT (x->>'notices')::int, (x->>'in_app')::int, (x->>'dropped')::int, (x->>'emails')::int, (x->>'webhooks')::int
+		FROM notify.fan_out($1) x`, batch).Scan(&r.Notices, &r.InApp, &r.Dropped, &r.Emails, &r.Webhooks)
+	if err != nil {
+		return FannedOut{}, fmt.Errorf("notify: fanning out: %w", err)
+	}
+	return r, nil
+}
