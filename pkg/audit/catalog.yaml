@@ -24,6 +24,13 @@ events:
     bu: required
     attributes: [acceptance, end_reason, risk]
     description: "A risk acceptance ended because its risk was closed (F-008 T-04, OQ5)"
+  - type: acceptance.expired
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [acceptance, expires_on, risk]
+    description: "An active or suspended risk acceptance reached its expiry date and ended; the system acted (F-008 T-06, AC-09)"
   - type: acceptance.reactivated
     category: risk_data
     severities: [low]
@@ -52,6 +59,13 @@ events:
     bu: required
     attributes: [acceptance, expires_on, renews, risk, tier]
     description: "Acceptance of a register risk, or the renewal of one, was requested, with the risk's exposure and tier copied as evidence (F-008 T-04, AC-01, AC-11)"
+  - type: acceptance.review_requested
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [acceptance, risk, tier]
+    description: "A suspended risk acceptance was opened for review at its new tier, whose approvals reactivate it (F-008 T-06, AC-13)"
   - type: acceptance.revoked
     category: risk_data
     severities: [high]
@@ -59,6 +73,13 @@ events:
     bu: required
     attributes: [acceptance, reason, risk]
     description: "An approver revoked an active or suspended risk acceptance, with a reason (F-008 T-04, AC-15)"
+  - type: acceptance.suspended
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [acceptance, from_tier, risk, tier]
+    description: "An active risk acceptance was suspended because its risk's current exposure fell in a higher tier (F-008 T-06, AC-13)"
   - type: acceptance.withdrawn
     category: risk_data
     severities: [low]

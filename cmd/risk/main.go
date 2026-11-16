@@ -289,7 +289,15 @@ func run() error {
 	leader := auditsvc.Leader{Pool: pool, Key: estimate.RiskLeaderLockKey, OnChange: func(leading bool) {
 		logger.Info("leader", "leading", leading, "replica", os.Getenv("POD_NAME"))
 	}}
-	go leader.Run(ctx, jobs.Run, func(err error) { logger.Error("leader", "error", err.Error()) })
+	// F-008 T-06 (design §3.2, §3.6): the acceptance job, beside the estimate jobs.
+	acceptanceJob := acceptance.Job{DB: pool, OnError: func(err error) { logger.Error("acceptance job", "error", err.Error()) }}
+	go leader.Run(ctx, func(ctx context.Context) error {
+		done := make(chan error, 1)
+		go func() { done <- acceptanceJob.Run(ctx) }()
+		err := jobs.Run(ctx)
+		<-done
+		return err
+	}, func(err error) { logger.Error("leader", "error", err.Error()) })
 
 	// F-005 T-11 (design §6.1): runs, worked by every replica.
 	var enqueue func(context.Context, pgx.Tx, analysis.SimulateArgs) error
