@@ -17,7 +17,7 @@ Rules for every task:
 ## Phase A — Foundations
 | # | Task | Traces to | Verification | Size | Status |
 |---|---|---|---|---|---|
-| T-01 | Permission catalog version 5 (`report.export` in Executive Viewer, Risk Analyst and Auditor); re-sign | OQ4; §10 | `TestCatalogVersion5Upgrade` | S | Not started |
+| T-01 | Permission catalog version 5 (the built-in Report Publisher role: `report.view`, `report.export`; Auditor gains `report.export`); re-sign | OQ4 (amended); §10 | `TestCatalogVersion5Upgrade` | S | Done (2026-11-16) |
 | T-02 | `settings.F010Defs()` (§4: `report.*`, `export.reason_required` BU-scopable with the restricted overlay default true), bindings, packages 1.9.0; the risk service registers them | AC-06, AC-10, AC-15, AC-16; §4 | `TestReportSettings`; the overlay test sees `export.reason_required` | S | Not started |
 | T-03 | Bootstrap role `report_definer`; schema `report` (§5) with PF029 and PF030; RLS on the snapshot tables with fixtures; `report.notice_outbox` | AC-06, AC-15, AC-19; §5 | DB tests: access by role, state rules; `TestRLSHarnessEveryBUOwnedTable` | M | Not started |
 | T-04 | ADR-007 amendment 6: `authz.ctx_key.purpose`, the delegated context in `authz.ctx_user()` (read-only transaction, running run, nonce); key `risk/report-context` (`iam keys upgrade`, `rotate -kind report-context`, `register`) | AC-11, AC-20; §3.3 | DB tests: honoured only read-only, for the run's user and nonce while running, never for writes or the gateway | M | Not started |
@@ -57,3 +57,4 @@ Rules for every task:
 ## Change Log
 - 2026-11-16: Initial draft, In Review.
 - 2026-11-16: Approved by Robert Former.
+- 2026-11-16: T-01: permission catalog version 5: the built-in Report Publisher role (`report.view`, `report.export`) and `report.export` for Auditor (OQ4 amended); `TestCatalogVersion5Upgrade`, `catalogVersion4`. Needs re-signing.

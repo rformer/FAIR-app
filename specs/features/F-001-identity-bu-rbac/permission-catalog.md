@@ -10,7 +10,7 @@ This is the first shipped permission catalog. T-06 commits it as the catalog JSO
 - **Privileged** (AC-54): every `approve`, `admin` and `export` permission is privileged, and the loader enforces this. `audit.view` (audit-log access) and `entitlement.view` are also marked privileged.
 - **Admin permissions** (AC-22, AC-30) are the ones with action `admin`.
 - **Risk data** (AC-30, AC-44): each permission carries a required `risk_data` flag (PC-1). It is true exactly for the "Risk data" table below. An `admin` permission can never be risk data, and the loader enforces this.
-- **Version:** keys are `introduced_in: 1` unless their row names a later catalog version. The catalog was at version 1 until the first addition. Every change follows the T-03 upgrade rules: the version is bumped, and new keys are never added to existing custom roles (AC-57). Version 2 adds `audit.hold` (F-002 T-19). Version 3 adds the estimate and calibration keys and the Estimator role (F-004 T-01). Version 4 adds `notification.view` (F-009 T-01).
+- **Version:** keys are `introduced_in: 1` unless their row names a later catalog version. The catalog was at version 1 until the first addition. Every change follows the T-03 upgrade rules: the version is bumped, and new keys are never added to existing custom roles (AC-57). Version 2 adds `audit.hold` (F-002 T-19). Version 3 adds the estimate and calibration keys and the Estimator role (F-004 T-01). Version 4 adds `notification.view` (F-009 T-01). Version 5 adds the Report Publisher role and gives Auditor `report.export` (F-010 T-01).
 - **Scope:** permissions are checked at a BU (`authz.Check(principal, permission, buID)`). Instance-wide administration is checked at the Enterprise root.
 - **Restricted BUs:** AC-22's "explicitly granted that right there" needs no extra permission. `access.assign` held at an ancestor does not inherit into a restricted BU (AC-60), so assigning roles there requires an assignment at or below that BU.
 
@@ -107,8 +107,9 @@ This is the first shipped permission catalog. T-06 commits it as the catalog JSO
 | Risk Owner | `scenario.view`, `library.view`, `analysis.view`, `control.view`, `register.view`, `treatment.view`, `acceptance.view`, `report.view`, `register.edit`, `treatment.edit`, `acceptance.request`, `calibration.take` |
 | Approver | `scenario.view`, `library.view`, `analysis.view`, `control.view`, `register.view`, `treatment.view`, `acceptance.view`, `report.view`, `acceptance.approve`, `calibration.take` |
 | Executive Viewer | `scenario.view`, `library.view`, `analysis.view`, `control.view`, `register.view`, `treatment.view`, `acceptance.view`, `report.view`, `calibration.take` |
-| Auditor | `scenario.view`, `library.view`, `analysis.view`, `control.view`, `register.view`, `treatment.view`, `acceptance.view`, `report.view`, `bu.view`, `user.view`, `role.view`, `access.view`, `entitlement.view`, `entitlement.export`, `audit.view`, `audit.export`, `posture.view`, `calibration.take`, `calibration.audit`, `notification.view` |
+| Auditor | `scenario.view`, `library.view`, `analysis.view`, `control.view`, `register.view`, `treatment.view`, `acceptance.view`, `report.view`, `bu.view`, `user.view`, `role.view`, `access.view`, `entitlement.view`, `entitlement.export`, `audit.view`, `audit.export`, `posture.view`, `calibration.take`, `calibration.audit`, `notification.view`, `report.export` |
 | Estimator | `estimate.submit`, `calibration.take` |
+| Report Publisher | `report.view`, `report.export` (catalog version 5) |
 | Service Account | _None. API scopes only (AC-36)._ |
 
 Checked mechanically when this draft was generated:
@@ -132,3 +133,4 @@ Checked mechanically when this draft was generated:
 - 2026-11-09: Catalog version 3 re-signed by Robert Former.
 - 2026-11-16: Catalog version 4 (F-009 T-01, approved task): `notification.view` (read); Platform Admin and Auditor gain it (F-009 design §10).
 - 2026-11-16: Catalog version 4 re-signed by Robert Former.
+- 2026-11-16: Catalog version 5 (F-010 T-01, approved task; OQ4 amended by Robert Former): the built-in Report Publisher role (`report.view`, `report.export`), granted beside other roles to those who produce report files; Auditor gains `report.export`. Executive Viewer and Risk Analyst stay unprivileged. Needs re-signing.

@@ -80,14 +80,30 @@ func TestCatalogVersion3Upgrade(t *testing.T) {
 	}
 }
 
+// catalogVersion4 is the shipped catalog as it was at version 4: without
+// version 5's Report Publisher role and Auditor's report.export (F-010 T-01).
+func catalogVersion4(t *testing.T) (*catalog.Catalog, *catalog.BuiltinRoles) {
+	t.Helper()
+	c, br := release(t)
+	if c.Version != 5 {
+		t.Fatalf("the shipped catalog is version %d", c.Version)
+	}
+	c4, br4 := cloneRelease(c, br)
+	c4.Version, br4.CatalogVersion = 4, 4
+	br4.Roles = slices.DeleteFunc(br4.Roles, func(r catalog.BuiltinRole) bool { return r.Name == "Report Publisher" })
+	for i := range br4.Roles {
+		if br4.Roles[i].Name == "Auditor" {
+			br4.Roles[i].Permissions = slices.DeleteFunc(br4.Roles[i].Permissions, func(k string) bool { return k == "report.export" })
+		}
+	}
+	return c4, br4
+}
+
 // catalogVersion3 is the shipped catalog as it was at version 3: without
 // version 4's notification.view (F-009 T-01).
 func catalogVersion3(t *testing.T) (*catalog.Catalog, *catalog.BuiltinRoles) {
 	t.Helper()
-	c, br := release(t)
-	if c.Version != 4 {
-		t.Fatalf("the shipped catalog is version %d", c.Version)
-	}
+	c, br := catalogVersion4(t)
 	c3, br3 := cloneRelease(c, br)
 	c3.Version, br3.CatalogVersion = 3, 3
 	dropPermission(c3, br3, "notification.view")
@@ -98,7 +114,7 @@ func catalogVersion3(t *testing.T) (*catalog.Catalog, *catalog.BuiltinRoles) {
 // installation at version 3: notification.view arrives with a notice,
 // Platform Admin and Auditor gain it, custom roles are untouched.
 func TestCatalogVersion4Upgrade(t *testing.T) {
-	c4, br4 := release(t)
+	c4, br4 := catalogVersion4(t)
 	c3, br3 := catalogVersion3(t)
 	e := setupWith(t, func() (*catalog.Catalog, *catalog.BuiltinRoles, error) { return c3, br3, nil })
 	for _, u := range []string{"platform", "aud", "rita"} {
@@ -132,6 +148,56 @@ func TestCatalogVersion4Upgrade(t *testing.T) {
 		}
 	}
 	if again := e.sync(t, c4, br4); len(again.AddedPermissions)+len(again.CreatedRoles)+len(again.VersionedRoles) != 0 {
+		t.Fatalf("second sync %+v", again)
+	}
+}
+
+// F-010 T-01 (F-010 design §10; OQ4 as amended 2026-11-16): permission
+// catalog version 5 on an installation at version 4: the built-in Report
+// Publisher role (report.view, report.export) is created and Auditor gains
+// report.export; Executive Viewer and Risk Analyst stay unprivileged, and
+// custom roles are untouched.
+func TestCatalogVersion5Upgrade(t *testing.T) {
+	c5, br5 := release(t)
+	c4, br4 := catalogVersion4(t)
+	e := setupWith(t, func() (*catalog.Catalog, *catalog.BuiltinRoles, error) { return c4, br4, nil })
+	for _, u := range []string{"platform", "aud", "exec", "rita"} {
+		e.mustOwner("INSERT INTO iam.app_user (email, display_name) VALUES ('" + u + "@example.test', '" + u + "')")
+	}
+	e.mustOwner("SELECT iam.bootstrap_platform_admin(" + uid("platform") + ")")
+	e.mustOwner(`WITH r AS (INSERT INTO iam.role (name) VALUES ('Report Reader') RETURNING id)
+		INSERT INTO iam.role_version (role_id, version, permissions, change_reason) SELECT id, 1, ARRAY['report.view'], 'test' FROM r`)
+	e.mustOwner(grant("platform", "user:rita", "Report Reader", "ENTERPRISE"))
+	e.mustOwner(grant("platform", "user:aud", "Auditor", "ENTERPRISE"))
+	e.mustOwner(grant("platform", "user:exec", "Executive Viewer", "ENTERPRISE"))
+
+	r := e.sync(t, c5, br5)
+	if r.PreviousVersion != 4 || r.Version != 5 || len(r.AddedPermissions) != 0 || strings.Join(r.CreatedRoles, ",") != "Report Publisher" ||
+		strings.Join(r.VersionedRoles, ",") != "Auditor" || len(r.CustomRolesChanged) != 0 {
+		t.Fatalf("sync result %+v", r)
+	}
+	if v, perms := e.rolePerms("Report Publisher"); v != 1 || strings.Join(perms, ",") != "report.export,report.view" {
+		t.Fatalf("Report Publisher v%d %v", v, perms)
+	}
+	if v, perms := e.rolePerms("Report Reader"); v != 1 || strings.Join(perms, ",") != "report.view" {
+		t.Fatalf("custom role v%d %v", v, perms)
+	}
+	e.drain()
+	for _, c := range []struct{ user, want string }{{"aud", "t"}, {"exec", "f"}, {"rita", "f"}} {
+		if got := e.adminQuery("SELECT iam.user_has_permission(" + uid(c.user) + ", 'report.export', " + buID("ENTERPRISE") + ")"); got != c.want {
+			t.Errorf("%s holds report.export: %s", c.user, got)
+		}
+	}
+	// Executive Viewer and Risk Analyst hold no privileged permission.
+	for _, role := range []string{"Executive Viewer", "Risk Analyst"} {
+		_, perms := e.rolePerms(role)
+		for _, k := range perms {
+			if e.mustOwner("SELECT privileged::text FROM iam.permission WHERE key = '"+k+"'") == "true" {
+				t.Errorf("%s holds privileged %s", role, k)
+			}
+		}
+	}
+	if again := e.sync(t, c5, br5); len(again.AddedPermissions)+len(again.CreatedRoles)+len(again.VersionedRoles) != 0 {
 		t.Fatalf("second sync %+v", again)
 	}
 }

@@ -22,7 +22,7 @@ Requirements: `requirements.md` (Approved 2026-11-16) · ADR-005, ADR-006, ADR-0
 | `internal/reportapi` | The reports API (§6), contract `api/openapi/report.yaml`, mounted by `cmd/risk` |
 | `internal/keys` | Key `risk/report-context` (an HMAC key, `iam keys upgrade`; `rotate -kind report-context`), registered in `authz.ctx_key` with purpose `report` by `iam keys register` |
 | `pkg/settings` | `settings.F010Defs()` (§4): `report.*` and `export.reason_required` (BU-scopable); packages 1.9.0 |
-| `internal/access/catalog` | Catalog version 5: `report.export` added to Executive Viewer, Risk Analyst and Auditor (OQ4; re-sign) |
+| `internal/access/catalog` | Catalog version 5: the built-in Report Publisher role (`report.view`, `report.export`), and `report.export` for Auditor (OQ4 as amended; re-sign) |
 | `internal/notify` | Kinds `report.ready`, `report.failed`, `report.schedule_suspended` (source `report`) |
 | `internal/riskapi`, `internal/analysisapi` | `export.reason_required` for F-003's risk export and F-006's downloads (OQ7) |
 | `internal/gateway` | Segment `reports` → upstream `risk` |
@@ -153,7 +153,7 @@ Conventions as before: operationId = handler; mutating routes declare `x-permiss
 | NFR performance | §3 | `TestBenchmarkGateReports` (10,000 risks: dashboard ≤ 2 s p95, register PDF ≤ 60 s, CSV and JSON ≤ 15 s, risk report ≤ 30 s, portfolio ≤ 60 s, list ≤ 500 ms) |
 
 ## 10. Changes to other features
-- **F-001:** catalog version 5 (re-sign); ADR-007 amendment 6 (`authz.ctx_key.purpose`, the delegated context); key `risk/report-context`; the gateway segment `reports`; the entitlement report's PDF becomes PDF/UA through the shared writer.
+- **F-001:** catalog version 5: Report Publisher, Auditor `report.export` (re-sign); ADR-007 amendment 6 (`authz.ctx_key.purpose`, the delegated context); key `risk/report-context`; the gateway segment `reports`; the entitlement report's PDF becomes PDF/UA through the shared writer.
 - **F-003, F-006:** `export.reason_required` on the risk export and the downloads (OQ7).
 - **F-009:** kinds `report.ready`, `report.failed`, `report.schedule_suspended`; `notify.collect` reads `report.notice_outbox`; `notify.recheck` checks that a report notice's recipient is its run's requester.
 - **F-015:** `export.reason_required` registered and enforced (F-015 §6.6, §12); the `report.*` settings; packages 1.9.0.
@@ -180,3 +180,4 @@ Conventions as before: operationId = handler; mutating routes declare `x-permiss
 ## Change Log
 - 2026-11-16: Initial draft, In Review. Decided with Robert Former: the risk service, the report store, ADR-015's Go vector charts, Noto Sans, and the delegated read-only context (ADR-007 amendment 6).
 - 2026-11-16: Approved by Robert Former, with ADR-015 and the tasks.
+- 2026-11-16: T-01 (OQ4 amended, Robert Former): catalog version 5 adds a Report Publisher role rather than giving Executive Viewer and Risk Analyst a privileged permission.

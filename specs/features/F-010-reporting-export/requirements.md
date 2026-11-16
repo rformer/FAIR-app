@@ -127,3 +127,4 @@ To be proposed with the tasks.
 ## Change Log
 - 2026-11-16: Initial draft, In Review.
 - 2026-11-16: Approved by Robert Former; OQ1 to OQ11 resolved as proposed.
+- 2026-11-16: OQ4 amended by Robert Former (T-01): `report.export` is privileged (F-001-AC-54), and adding it to Executive Viewer and Risk Analyst would make their holders privileged users (phishing-resistant MFA, F-001-AC-06). Instead catalog version 5 adds a built-in Report Publisher role (`report.view`, `report.export`), granted beside other roles, and Auditor gains `report.export`. The draft's "today only Platform Admin holds `report.export`" was wrong: no built-in role held it.

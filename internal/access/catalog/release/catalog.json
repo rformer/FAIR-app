@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "permissions": [
     {"key": "acceptance.approve", "resource_type": "acceptance", "action": "approve", "privileged": true, "risk_data": true, "introduced_in": 1},
     {"key": "acceptance.request", "resource_type": "acceptance", "action": "write", "privileged": false, "risk_data": true, "introduced_in": 1},

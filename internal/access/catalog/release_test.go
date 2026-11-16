@@ -20,7 +20,7 @@ func TestReleaseLoads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Version != 4 || len(c.Permissions) != 63 || len(br.Roles) != 9 { // version 4: notification.view (F-009 T-01)
+	if c.Version != 5 || len(c.Permissions) != 63 || len(br.Roles) != 10 { // version 5: Report Publisher, Auditor report.export (F-010 T-01)
 		t.Fatalf("release = v%d, %d permissions, %d roles", c.Version, len(c.Permissions), len(br.Roles))
 	}
 }
