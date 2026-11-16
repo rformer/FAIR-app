@@ -3,6 +3,69 @@
 # fields it must have (beyond the envelope in event.schema.json). The catalog test
 # checks that the code emits exactly these types; audit.Validating refuses others.
 events:
+  - type: acceptance.activated
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [acceptance, expires_on, risk, tier]
+    description: "A register risk's acceptance became active: its tier's approvals are complete (F-008 T-04, AC-07)"
+  - type: acceptance.approved
+    category: risk_data
+    severities: [high]
+    requires: [target]
+    bu: required
+    attributes: [acceptance, reason, risk, tier]
+    description: "An approver approved a risk acceptance at its tier, with a rationale (F-008 T-04, AC-05, AC-06)"
+  - type: acceptance.ended
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [acceptance, end_reason, risk]
+    description: "A risk acceptance ended because its risk was closed (F-008 T-04, OQ5)"
+  - type: acceptance.reactivated
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [acceptance, risk, tier]
+    description: "A suspended risk acceptance became active again: the higher tier's approvals are complete (F-008 T-04, AC-13)"
+  - type: acceptance.rejected
+    category: risk_data
+    severities: [high]
+    requires: [target]
+    bu: required
+    attributes: [acceptance, reason, risk, tier]
+    description: "An approver rejected a risk acceptance, with a rationale; the request ends (F-008 T-04, AC-06)"
+  - type: acceptance.replaced
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [acceptance, by, risk]
+    description: "A risk acceptance ended, replaced by its approved renewal without a gap (F-008 T-04, AC-11)"
+  - type: acceptance.requested
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [acceptance, expires_on, renews, risk, tier]
+    description: "Acceptance of a register risk, or the renewal of one, was requested, with the risk's exposure and tier copied as evidence (F-008 T-04, AC-01, AC-11)"
+  - type: acceptance.revoked
+    category: risk_data
+    severities: [high]
+    requires: [target]
+    bu: required
+    attributes: [acceptance, reason, risk]
+    description: "An approver revoked an active or suspended risk acceptance, with a reason (F-008 T-04, AC-15)"
+  - type: acceptance.withdrawn
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [acceptance, reason, risk]
+    description: "The requester withdrew a pending risk acceptance request, with a reason (F-008 T-04, AC-03)"
   - type: access.assignment_expired
     category: access
     severities: [low]
