@@ -7,10 +7,10 @@
 // enforcement, structured logging, audit emission of lifecycle events, a
 // database pool as app_notify, the install checks of design §11, F-009's
 // settings registered, and leader election (one replica leads). The
-// leader collects the outboxes (T-04); its other work (fan out, digests,
-// retention: T-05, T-10)
-// and the delivery workers on every replica (T-10) arrive with their tasks,
-// The notifications API (T-06; channels, T-11) is served by every replica.
+// leader collects the outboxes and fans them out (T-04, T-05), returns
+// uncertain claims, sends digests and keeps the retention, and every
+// replica delivers (T-10). The notifications API (T-06; channels, T-11) is
+// served by every replica.
 //
 // Environment: as for every service (FAIR_ENV, FAIR_DEPLOYMENT_MODE,
 // FAIR_LISTEN_ADDR, FAIR_TLS_CERT_FILE, FAIR_TLS_KEY_FILE, FAIR_REQUIRE_FIPS,
@@ -36,8 +36,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -88,12 +90,25 @@ func run() error {
 	if err := notify.CheckInstall(notify.InstallCheck{Env: cfg.Env, Mode: cfg.DeploymentMode, Getenv: os.Getenv}); err != nil {
 		return err
 	}
+	var keyring *notify.Keyring
 	if dir := os.Getenv("FAIR_NOTIFY_SECRETS_DIR"); dir != "" {
-		ks, err := keys.WebhookSecretKeys(dir)
-		if err != nil || len(ks) == 0 {
-			return fmt.Errorf("FAIR_NOTIFY_SECRETS_DIR: no webhook-secrets key (%v)", err)
+		k, err := notify.LoadKeyring(dir)
+		if err != nil {
+			return fmt.Errorf("FAIR_NOTIFY_SECRETS_DIR: %w", err)
 		}
-		logger.Info("webhook-secrets keys", "keys", len(ks))
+		keyring = k
+	} else {
+		logger.Warn("no webhook-secrets keys (FAIR_NOTIFY_SECRETS_DIR): webhooks are not delivered")
+	}
+	var cluster []netip.Prefix
+	if s := os.Getenv("FAIR_NOTIFY_CLUSTER_CIDRS"); s != "" {
+		if cluster, err = notify.ParsePrefixes(s); err != nil {
+			return fmt.Errorf("FAIR_NOTIFY_CLUSTER_CIDRS: %w", err)
+		}
+	}
+	smtpDir := os.Getenv("FAIR_NOTIFY_SMTP_DIR")
+	if smtpDir == "" {
+		smtpDir = "/keys/smtp"
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -123,6 +138,14 @@ func run() error {
 	if err := sc.Register(settings.F009Defs()...); err != nil {
 		return err
 	}
+	// Emails end with the banner's first sentence while it is on (F-001).
+	for _, d := range settings.F001Defs() {
+		if d.Key == settings.KeyBannerEnabled {
+			if err := sc.Register(d); err != nil {
+				return err
+			}
+		}
+	}
 	go registerF009(ctx, pool, logger)
 	if err := sc.Refresh(ctx); err != nil {
 		logger.Warn("settings not loaded yet; defaults apply until they are", "error", err.Error())
@@ -130,18 +153,84 @@ func run() error {
 	go sc.Run(ctx, func(err error) { logger.Error("settings refresh", "error", err.Error()) })
 
 	// One replica leads (design §1): every 10 seconds it collects the
-	// features' outboxes into notices (T-04) and fans them out to their
-	// recipients (T-05); digests and retention follow (T-10).
+	// features' outboxes into notices (T-04), fans them out to their
+	// recipients (T-05), returns uncertain claims, sends due digests and,
+	// daily, keeps the retention (T-10).
 	collector := notify.Collector{DB: pool, Titles: func() bool {
 		d, err := sc.Enum(settings.KeyNotificationDetail, "")
 		return err == nil && d == "titles" // minimal unless the setting says otherwise
 	}}
 	fanOut := notify.FanOut{DB: pool}
+
+	// Delivery (T-10): every replica claims, sends and settles; destinations
+	// pass the guard (T-08), as notification.allowed_hosts has them now.
+	guard := notify.Guard{Cluster: cluster, AirGapped: cfg.DeploymentMode == config.ModeAirGapped, Allowed: func() []string {
+		hosts, err := sc.Set(settings.KeyNotificationAllowedHosts, "")
+		if err != nil {
+			return nil // nothing is allowed until the setting is read
+		}
+		return hosts
+	}}
+	var banner atomic.Value
+	banner.Store("")
+	refreshBanner := func() {
+		on, err := sc.Bool(settings.KeyBannerEnabled, "")
+		text := ""
+		if err == nil && on {
+			text, _ = notify.Banner(ctx, pool)
+		}
+		banner.Store(text)
+	}
+	refreshBanner()
+	baseURL := os.Getenv("FAIR_NOTIFY_BASE_URL")
+	worker := notify.Worker{DB: pool, Keys: keyring,
+		Composer: func() notify.Composer { return notify.Composer{Base: baseURL, Banner: banner.Load().(string)} },
+		Mail:     notify.SMTPSender{Guard: guard, Dir: smtpDir},
+		Post:     notify.WebhookSender{Guard: guard},
+		RetryHours: func() int {
+			h, err := sc.Int(settings.KeyNotificationRetryHours, "")
+			if err != nil {
+				return 24
+			}
+			return h
+		}}
+	go worker.RunDelivery(ctx, 5*time.Second, func(err error) { logger.Error("delivery", "error", err.Error()) })
+
 	leader := auditsvc.Leader{Pool: pool, Key: notify.LeaderLockKey, OnChange: func(leading bool) {
 		logger.Info("leader", "leading", leading, "replica", replica)
 	}}
+	var lastPurge time.Time
 	go leader.Run(ctx, func(ctx context.Context) error {
 		for {
+			refreshBanner()
+			// Uncertain claims return (design §3.5); due digests go out.
+			if n, err := worker.Reclaim(ctx); err != nil && ctx.Err() == nil {
+				logger.Error("reclaim", "error", err.Error())
+			} else if n > 0 {
+				logger.Warn("uncertain deliveries returned to pending", "deliveries", n)
+			}
+			for ctx.Err() == nil {
+				ok, err := worker.Digest(ctx)
+				if err != nil {
+					logger.Error("digest", "error", err.Error())
+				}
+				if !ok || err != nil {
+					break
+				}
+			}
+			// Retention, daily (design §3.9).
+			if time.Since(lastPurge) >= 24*time.Hour {
+				days, err := sc.Int(settings.KeyNotificationLogRetention, "")
+				if err != nil {
+					days = 90
+				}
+				if d, n, err := worker.Purge(ctx, days); err != nil && ctx.Err() == nil {
+					logger.Error("purge", "error", err.Error())
+				} else if err == nil {
+					lastPurge = time.Now()
+					logger.Info("notification retention", "deliveries", d, "notices", n)
+				}
+			}
 			n, unknown, err := collector.Collect(ctx)
 			switch {
 			case err != nil && ctx.Err() == nil:

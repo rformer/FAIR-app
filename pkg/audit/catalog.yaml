@@ -732,6 +732,18 @@ events:
     requires: [target]
     attributes: []
     description: "The installer retired a DB-context signing key (iam keys retire-db-context, T-41)"
+  - type: notification.delivery_failed
+    category: system
+    severities: [low, high]
+    requires: [target]
+    attributes: [attempts, channel, delivery, kind, notice, reason]
+    description: "A notice could not be delivered by email or webhook: refused, answered permanently, or past its retries (F-009 T-10, AC-15); high for security kinds"
+  - type: notification.destination_refused
+    category: configuration
+    severities: [high]
+    requires: [target]
+    attributes: [channel, delivery, detail, kind, notice]
+    description: "A delivery's destination was refused by the guard: not an allowed host, or an internal or (air-gapped) public address (F-009 T-08, T-10, AC-10)"
   - type: notification.preferences_changed
     category: configuration
     severities: [low]

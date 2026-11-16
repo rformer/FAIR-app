@@ -194,3 +194,64 @@ func (c Composer) WebhookBody(env Envelope, deliveryID string) ([]byte, error) {
 	}
 	return json.Marshal(body)
 }
+
+// DigestItem is one notice in a daily digest.
+type DigestItem struct {
+	Envelope Envelope
+	Label    string
+}
+
+var digestText = texttemplate.Must(texttemplate.New("digest").Parse(`Your daily digest of FAIR Risk Platform notices: {{len .Items}}
+{{range .Items}}
+- {{.Label}}{{if .Title}}: {{.Title}}{{end}}
+  {{.BU}}, {{.When}}
+  {{.Link}}
+{{end}}
+Sign in to see the details; what you see depends on your access.
+{{if .Banner}}
+--
+{{.Banner}}
+{{end}}`))
+
+var digestHTML = htmltemplate.Must(htmltemplate.New("digest").Parse(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Your daily digest</title></head>
+<body style="font-family: sans-serif; line-height: 1.5">
+<h1 style="font-size: 1.2em">Your daily digest: {{len .Items}} notices</h1>
+<ul>
+{{range .Items}}<li><a href="{{.Link}}">{{.Label}}</a>{{if .Title}}: {{.Title}}{{end}}<br><span style="color: #555">{{.BU}}, {{.When}}</span></li>
+{{end}}</ul>
+<p style="color: #555">Sign in to see the details; what you see depends on your access.</p>
+{{if .Banner}}<hr><p style="color: #555; font-size: 0.9em">{{.Banner}}</p>
+{{end}}</body></html>
+`))
+
+// Digest renders a user's held optional notices as one email (AC-19).
+func (c Composer) Digest(items []DigestItem) (Message, error) {
+	vs := make([]view, 0, len(items))
+	for _, it := range items {
+		link, err := c.Link(it.Envelope.Item.Link)
+		if err != nil {
+			return Message{}, err
+		}
+		vs = append(vs, view{Label: clean(it.Label), BU: clean(it.Envelope.BU.Name), When: it.Envelope.At.UTC().Format("2006-01-02 15:04 UTC"),
+			Link: link, Title: clean(it.Envelope.Title)})
+	}
+	data := struct {
+		Items  []view
+		Banner string
+	}{vs, clean(c.Banner)}
+	var m Message
+	var err error
+	if m.Subject, err = HeaderValue(fmt.Sprintf("[FAIR] Your daily digest: %d notices", len(items))); err != nil {
+		return Message{}, err
+	}
+	var tb, hb bytes.Buffer
+	if err := digestText.Execute(&tb, data); err != nil {
+		return Message{}, err
+	}
+	if err := digestHTML.Execute(&hb, data); err != nil {
+		return Message{}, err
+	}
+	m.Text, m.HTML = tb.String(), hb.String()
+	return m, nil
+}
