@@ -102,6 +102,8 @@ var Segments = map[string]string{
 	"analyses": "risk",
 	// F-007 (design §6): the risk register, in the risk service.
 	"register": "risk",
+	// F-008 (design §6): risk acceptances, in the risk service.
+	"acceptances": "risk",
 }
 
 type ctxKey struct{}

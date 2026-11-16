@@ -353,23 +353,12 @@ func (a *API) moveRisk(w http.ResponseWriter, r *http.Request, p authz.Principal
 }
 
 // F-007 T-10: a risk's status computed in the query from its links
-// (register.status_of's rules), not by a definer function per row, which
-// would read the caller's scope again for every risk. riskFrom joins st:
-// n links, pins, and whether any link gives a stale reason.
-const riskFrom = ` FROM register.risk r LEFT JOIN register.category c ON c.id = r.category_id
-	CROSS JOIN LATERAL (
-	  SELECT count(*) AS n, count(l.run_id) AS pins,
-	    coalesce(bool_or(l.scenario_archived OR l.run_id IS NULL OR l.run_scenario_version IS NULL OR l.run_scenario_version < l.scenario_version
-	      OR (l.run_id IS NOT NULL AND (SELECT register.max_age_days()) IS NOT NULL
-	          AND (l.run_finished_at IS NULL OR l.run_finished_at < now() - make_interval(days => (SELECT register.max_age_days()))))), false) AS reasons
-	  FROM register.risk_scenario l WHERE l.risk_id = r.id) st`
+// (register.StatusSQL over register.LinkStats), not by a definer function
+// per row.
+const riskFrom = ` FROM register.risk r LEFT JOIN register.category c ON c.id = r.category_id` + register.LinkStats
 
 // statusSQL is a risk's exposure status (AC-08) given st.
-const statusSQL = `CASE WHEN st.n = 0 THEN 'unquantified'
-	  WHEN st.reasons THEN 'stale'
-	  WHEN st.pins >= 2 THEN CASE coalesce(analysis.exposure_state(r.exposure_aggregate_id), 'failed')
-	    WHEN 'failed' THEN 'stale' WHEN 'succeeded' THEN 'current' ELSE 'computing' END
-	  ELSE 'current' END`
+const statusSQL = register.StatusSQL
 
 // exposureSQL is the summary value at path of a risk's exposure as the
 // caller sees it (RLS), for sorting.
@@ -383,7 +372,22 @@ const riskColumns = `r.id::text, r.bu_id::text, r.state, r.title, r.owner::text,
 	r.created_by::text, r.seq, st.n, r.exposure_aggregate_id::text,
 	jsonb_build_object('status', ` + statusSQL + `, 'reasons', '[]'::jsonb),
 	(SELECT jsonb_build_object('version', t.current_version, 'decision', t.decision, 'next_due', t.next_due, 'overdue', coalesce(t.next_due < current_date, false))
-	 FROM register.treatment t WHERE t.risk_id = r.id)`
+	 FROM register.treatment t WHERE t.risk_id = r.id),
+	` + acceptanceSQL
+
+// acceptanceSQL is a risk's open acceptance as the caller sees it (F-008
+// T-05; acceptance.view, RLS): active or suspended before a pending one, its
+// state as read (past its expiry: expired), its expiry, tier, and why an
+// active one needs review (F-008-AC-14: stale exposure, treatment no longer
+// accept, moved since approval); null without one.
+const acceptanceSQL = `(SELECT jsonb_build_object('id', x.id, 'state', CASE WHEN x.state IN ('active', 'suspended') AND x.expires_on <= current_date THEN 'expired' ELSE x.state END,
+	  'expires_on', x.expires_on, 'tier', x.tier, 'renewal_pending', EXISTS (SELECT 1 FROM acceptance.acceptance y WHERE y.renews = x.id AND y.state = 'pending'),
+	  'needs_review', CASE WHEN x.state <> 'active' OR x.expires_on <= current_date THEN '[]'::jsonb ELSE to_jsonb(array_remove(ARRAY[
+	    CASE WHEN (` + statusSQL + `) <> 'current' THEN 'stale' END,
+	    CASE WHEN EXISTS (SELECT 1 FROM register.treatment t WHERE t.risk_id = r.id AND t.decision IS DISTINCT FROM 'accept') THEN 'treatment' END,
+	    CASE WHEN r.bu_id IS DISTINCT FROM x.approved_bu_id THEN 'moved' END], NULL)) END)
+	 FROM acceptance.acceptance x WHERE x.risk_id = r.id AND (x.state IN ('active', 'suspended') OR (x.state = 'pending' AND x.renews IS NULL))
+	 ORDER BY x.state = 'pending', x.seq DESC LIMIT 1)`
 
 func scanRisk(row pgx.Row) (map[string]any, error) {
 	var (
@@ -394,8 +398,9 @@ func scanRisk(row pgx.Row) (map[string]any, error) {
 		seq, scenarios        int64
 		aggregate             *string
 		status, treatment     []byte
+		accepted              []byte
 	)
-	if err := row.Scan(&id, &bu, &state, &title, &owner, &cat, &cn, &version, &created, &by, &seq, &scenarios, &aggregate, &status, &treatment); err != nil {
+	if err := row.Scan(&id, &bu, &state, &title, &owner, &cat, &cn, &version, &created, &by, &seq, &scenarios, &aggregate, &status, &treatment, &accepted); err != nil {
 		return nil, err
 	}
 	out := map[string]any{"id": id, "bu_id": bu, "state": state, "title": title, "owner": owner, "category": nil, "current_version": version,
@@ -406,6 +411,10 @@ func scanRisk(row pgx.Row) (map[string]any, error) {
 	// The plan's summary as the caller sees it (treatment.view, RLS): null
 	// without one or without the permission.
 	out["owner_name"] = nil // ownerNames fills it
+	out["acceptance"] = nil
+	if accepted != nil {
+		out["acceptance"] = json.RawMessage(accepted)
+	}
 	out["treatment"] = nil
 	if treatment != nil {
 		out["treatment"] = json.RawMessage(treatment)
@@ -524,6 +533,21 @@ func (a *API) listRisks(w http.ResponseWriter, r *http.Request, p authz.Principa
 		where = append(where, seesTreatment, "EXISTS (SELECT 1 FROM register.treatment t WHERE t.risk_id = r.id AND t.next_due < current_date)")
 	default:
 		problem(w, http.StatusBadRequest, "invalid_value", "overdue is true or false", nil)
+		return
+	}
+	// F-008 T-05: by acceptance (as the caller sees acceptances).
+	switch v := q.Get("acceptance"); v {
+	case "":
+	case "none":
+		where = append(where, "("+acceptanceSQL+") IS NULL")
+	case "active", "pending", "suspended", "expired":
+		where = append(where, "("+acceptanceSQL+") ->> 'state' = "+arg(v))
+	case "needs_review":
+		where = append(where, "jsonb_array_length(("+acceptanceSQL+") -> 'needs_review') > 0")
+	case "expiring": // within 30 days
+		where = append(where, "("+acceptanceSQL+") ->> 'state' = 'active' AND (("+acceptanceSQL+") ->> 'expires_on')::date <= current_date + 30")
+	default:
+		problem(w, http.StatusBadRequest, "invalid_value", "acceptance is active, pending, suspended, expired, needs_review, expiring or none", nil)
 		return
 	}
 	order, ok := listSorts[q.Get("sort")]

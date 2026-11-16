@@ -116,6 +116,16 @@ components:
         scenarios: { type: integer, description: The number of linked scenarios }
         exposure_aggregate_id: { type: [string, "null"], format: uuid, description: "The exposure aggregate (two or more pins)" }
         status: { $ref: "#/components/schemas/Status" }
+        acceptance:
+          type: [object, "null"]
+          description: The risk's open acceptance as the caller sees it (F-008; acceptance.view); null without one
+          properties:
+            id: { type: string, format: uuid }
+            state: { type: string, enum: [pending, active, suspended, expired] }
+            expires_on: { type: string, format: date }
+            tier: { type: integer }
+            renewal_pending: { type: boolean }
+            needs_review: { type: array, items: { type: string, enum: [stale, treatment, moved] } }
         treatment:
           type: [object, "null"]
           description: The plan's summary as the caller sees it (treatment.view); null without a plan or the permission
@@ -209,6 +219,7 @@ paths:
         - { name: status, in: query, schema: { type: string, enum: [current, stale, unquantified, computing] }, description: "The exposure status (AC-08, AC-09)" }
         - { name: decision, in: query, schema: { type: string, enum: [mitigate, transfer, avoid, accept, none] }, description: "The treatment decision, among the risks whose treatment the caller sees" }
         - { name: overdue, in: query, schema: { type: boolean }, description: "Risks with overdue actions, among those whose treatment the caller sees" }
+        - { name: acceptance, in: query, schema: { type: string, enum: [active, pending, suspended, expired, needs_review, expiring, none] }, description: "By acceptance (F-008), as the caller sees acceptances; expiring: active and within 30 days" }
         - { name: sort, in: query, schema: { type: string, enum: [newest, title, mean, p90], default: newest }, description: "mean and p90 order by the exposure as the caller sees it (AC-14), largest first; risks without one last" }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
         - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }

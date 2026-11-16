@@ -59,6 +59,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/rformer/fair-app/internal/acceptance"
+	"github.com/rformer/fair-app/internal/acceptanceapi"
 	"github.com/rformer/fair-app/internal/analysis"
 	"github.com/rformer/fair-app/internal/analysisapi"
 	"github.com/rformer/fair-app/internal/api/enginev1"
@@ -387,6 +388,12 @@ func run() error {
 			srv.Mux().Handle(prefix, rh)
 			srv.Mux().Handle(prefix+"/", rh)
 		}
+		// The acceptance API (F-008 design §6).
+		acch := server.SecurityHeaders((&acceptanceapi.API{DB: pool, Authz: grants, Settings: acceptanceLimits{sc}}).Handler(jwtKeys, nil))
+		for _, prefix := range acceptanceapi.Prefixes {
+			srv.Mux().Handle(prefix, acch)
+			srv.Mux().Handle(prefix+"/", acch)
+		}
 	} else {
 		logger.Warn("the risk API is off: it needs the gateway's JWT keys (FAIR_JWT_KEYS_DIR)")
 	}
@@ -486,4 +493,11 @@ func auditSink(env string, db audit.Beginner) (audit.Emitter, error) {
 		return nil, err
 	}
 	return audit.WithTrail(e, audit.Trail{DB: db}), nil
+}
+
+// acceptanceLimits reads F-008's settings in force (acceptanceapi.Limits).
+type acceptanceLimits struct{ sc *settings.Client }
+
+func (l acceptanceLimits) Limits() (acceptance.Limits, error) {
+	return acceptance.LimitsFrom(func(k string) (int, error) { return l.sc.Int(k, "") })
 }

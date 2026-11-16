@@ -1,0 +1,318 @@
+openapi: 3.1.0
+info:
+  title: FAIR Acceptance API
+  version: "1"
+  contact: { name: FAIR Risk Platform, url: "https://github.com/rformer/FAIR-app" }
+  description: |
+    F-008 design §6. Risk acceptances, served by the risk service behind the gateway, which
+    authenticates the session and forwards an internal JWT (ES256, audience `risk`, at most
+    5 minutes) and the DB context token it was minted with (F-001 design §4, §5.2).
+
+    An acceptance accepts a register risk (F-007) as it stands: requested with a justification and
+    an expiry, placed in an exposure tier by the risk's mean annualized loss, and approved by holders
+    of acceptance.approve at the tier's business unit who are neither the requester nor the risk's
+    owner. It expires on its date unless renewed. Acceptances are BU-owned, read under row-level
+    security. Without an acceptance permission anywhere the routes do not exist for the caller (404,
+    F-001 AC-25).
+servers:
+  - url: /
+security:
+  - internalJWT: []
+    dbContext: []
+tags:
+  - { name: acceptances, description: "Risk acceptances (F-008 R-01 to R-05)" }
+components:
+  securitySchemes:
+    internalJWT: { type: http, scheme: bearer, bearerFormat: JWT }
+    dbContext: { type: apiKey, in: header, name: X-Fair-DB-Context }
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 8, maxLength: 128 }
+    ID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    Error:
+      description: An error
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Invalid:
+      description: The request's problems, by JSON pointer
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Acceptance:
+      description: The acceptance
+      content: { application/json: { schema: { $ref: "#/components/schemas/Acceptance" } } }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: >-
+            not_found, forbidden, not_your_tier, separation_of_duties, invalid_request, invalid_value, invalid_expiry,
+            exposure_not_current, not_accept, pending_exists, already_accepted, already_decided, not_pending, not_active,
+            not_renewable, risk_closed, unavailable, unauthenticated
+        detail: { type: string }
+        problems:
+          type: array
+          items: { type: object, properties: { pointer: { type: string }, message: { type: string } } }
+    Acceptance:
+      type: object
+      required: [id, bu_id, risk_id, state, tier, tier_bu_id, approvals_needed, approvals, mean, expires_on, requested_by, needs_review]
+      properties:
+        id: { type: string, format: uuid }
+        bu_id: { type: string, format: uuid }
+        risk_id: { type: string, format: uuid }
+        risk_title: { type: [string, "null"] }
+        renews: { type: [string, "null"], format: uuid }
+        state:
+          type: string
+          enum: [pending, active, suspended, expired, ended]
+          description: As read; an active or suspended acceptance on or past its expiry date reads as expired.
+        stored_state: { type: string }
+        end_reason: { type: [string, "null"], enum: [rejected, withdrawn, revoked, replaced, risk_closed, null] }
+        tier: { type: integer, minimum: 1, maximum: 3 }
+        tier_bu_id: { type: string, format: uuid, description: Where approvers must hold acceptance.approve }
+        approvals_needed: { type: integer }
+        approvals: { type: integer, description: Approvals given in the current round }
+        mean: { type: number, description: The mean annualized loss the tier was placed on }
+        expires_on: { type: string, format: date }
+        approved_bu_id: { type: [string, "null"], format: uuid }
+        requested_by: { type: string, format: uuid }
+        requested_at: { type: string, format: date-time }
+        activated_at: { type: [string, "null"], format: date-time }
+        ended_at: { type: [string, "null"], format: date-time }
+        seq: { type: integer }
+        needs_review:
+          type: [array, "null"]
+          description: Why an active acceptance needs review (AC-14); null when the caller does not see the risk
+          items: { type: string, enum: [stale, treatment, moved] }
+paths:
+  /api/v1/acceptances:
+    get:
+      operationId: listAcceptances
+      tags: [acceptances]
+      summary: The acceptances the caller sees (AC-19)
+      x-permission: acceptance.view (BU-scoped, RLS)
+      parameters:
+        - { name: state, in: query, schema: { type: string, enum: [pending, active, suspended, expired, ended, needs_review] } }
+        - { name: bu, in: query, schema: { type: string, format: uuid }, description: "A business unit and (unless subtree=false) its subtree" }
+        - { name: subtree, in: query, schema: { type: boolean, default: true } }
+        - { name: risk, in: query, schema: { type: string, format: uuid } }
+        - { name: expiring_within, in: query, schema: { type: integer, minimum: 0, maximum: 3650 }, description: Active acceptances expiring within so many days }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+      responses:
+        "200":
+          description: Acceptances, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [acceptances, more]
+                properties:
+                  acceptances: { type: array, items: { $ref: "#/components/schemas/Acceptance" } }
+                  more: { type: boolean }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: requestAcceptance
+      tags: [acceptances]
+      summary: Request acceptance of a register risk, or renew an active acceptance (AC-01, AC-02, AC-11)
+      description: >-
+        The risk is open, its treatment decision is accept and its exposure current; the expiry is after today and
+        within acceptance.max_duration_days; one open request per risk (a renewal of an active acceptance beside it).
+        The request is placed in its tier, and its evidence (the exposure, the pins, the tier) recorded.
+      x-permission: acceptance.request at the risk's BU
+      x-audit-events: [acceptance.requested]
+      x-reason-field: justification
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [risk_id, justification, expires_on]
+              additionalProperties: false
+              properties:
+                risk_id: { type: string, format: uuid }
+                justification: { type: string, minLength: 1, maxLength: 5000 }
+                conditions: { type: string, maxLength: 5000 }
+                expires_on: { type: string, format: date }
+                renews: { type: [string, "null"], format: uuid, description: The active acceptance this request renews }
+      responses:
+        "201": { $ref: "#/components/responses/Acceptance" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /api/v1/acceptances/inbox:
+    get:
+      operationId: inbox
+      tags: [acceptances]
+      summary: The pending and suspended acceptances the caller may decide (AC-08)
+      description: acceptance.approve at their tier's business unit, neither the requester nor the risk's owner, not yet decided by the caller in this round; oldest first, at most 200.
+      x-permission: acceptance.approve
+      responses:
+        "200":
+          description: Acceptances
+          content:
+            application/json:
+              schema: { type: object, required: [acceptances], properties: { acceptances: { type: array, items: { $ref: "#/components/schemas/Acceptance" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/acceptances/tiers:
+    get:
+      operationId: tiers
+      tags: [acceptances]
+      summary: The exposure tiers in force (design §3.4)
+      x-permission: any acceptance permission
+      responses:
+        "200":
+          description: The tiers
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tiers, max_duration_days]
+                properties:
+                  tiers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        tier: { type: integer }
+                        max_mean: { type: [integer, "null"] }
+                        levels_up: { type: [integer, "null"] }
+                        root: { type: boolean }
+                        approvals: { type: integer }
+                  max_duration_days: { type: integer }
+        "404": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /api/v1/acceptances/{id}:
+    get:
+      operationId: getAcceptance
+      tags: [acceptances]
+      summary: An acceptance with its history, its evidence and what the caller may do (AC-16)
+      x-permission: acceptance.view (BU-scoped, RLS)
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: The acceptance
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Acceptance" }
+                  - type: object
+                    properties:
+                      steps:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            n: { type: integer }
+                            kind: { type: string }
+                            actor: { type: [string, "null"], format: uuid }
+                            at: { type: string, format: date-time }
+                            reason: { type: [string, "null"] }
+                            data: { type: object }
+                      evidence: { type: object, description: "The request's evidence: justification, conditions, the exposure, the pins, the tier" }
+                      may_decide: { type: boolean }
+                      may_withdraw: { type: boolean }
+                      may_revoke: { type: boolean }
+                      may_renew: { type: boolean }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/acceptances/{id}/decisions:
+    post:
+      operationId: decideAcceptance
+      tags: [acceptances]
+      summary: Approve or reject a pending or suspended acceptance (AC-05 to AC-07)
+      description: >-
+        By a holder of acceptance.approve at the tier's business unit who is neither the requester nor the risk's owner,
+        once per round. An approval may shorten the expiry; when the tier's approvals are complete the acceptance is
+        active (a renewal replaces the acceptance it renews, without a gap). A rejection ends it.
+      x-permission: acceptance.approve at the tier's BU
+      x-audit-events: [acceptance.approved, acceptance.rejected, acceptance.activated, acceptance.reactivated, acceptance.replaced]
+      x-reason-field: rationale
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/ID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision, rationale]
+              additionalProperties: false
+              properties:
+                decision: { type: string, enum: [approve, reject] }
+                rationale: { type: string, minLength: 1, maxLength: 5000 }
+                expires_on: { type: [string, "null"], format: date, description: A shorter expiry (approvals only) }
+      responses:
+        "200": { $ref: "#/components/responses/Acceptance" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /api/v1/acceptances/{id}/withdraw:
+    post:
+      operationId: withdrawAcceptance
+      tags: [acceptances]
+      summary: Withdraw a pending request (the requester) (AC-03)
+      x-permission: the requester
+      x-audit-events: [acceptance.withdrawn]
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/ID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "200": { $ref: "#/components/responses/Acceptance" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/acceptances/{id}/revoke:
+    post:
+      operationId: revokeAcceptance
+      tags: [acceptances]
+      summary: Revoke an active or suspended acceptance (AC-15)
+      description: By an approver who could approve it at its tier.
+      x-permission: acceptance.approve at the tier's BU
+      x-audit-events: [acceptance.revoked]
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/ID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        "200": { $ref: "#/components/responses/Acceptance" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
