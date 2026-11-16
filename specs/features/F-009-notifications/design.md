@@ -1,5 +1,5 @@
 # F-009 Notifications — Design
-Status: In Review | Owner: Robert Former | Last updated: 2026-11-16
+Status: Approved | Owner: Robert Former | Last updated: 2026-11-16
 Requirements: `requirements.md` (Approved 2026-11-16) · ADR-003, ADR-005, ADR-006, ADR-007
 
 ## 1. Overview
@@ -256,3 +256,4 @@ Channels, tests and refusals are category `config`; deliveries and preferences a
 
 ## Change Log
 - 2026-11-16: Initial draft, In Review. Service, secrets, intake and findings decided with Robert Former.
+- 2026-11-16: Approved by Robert Former.
