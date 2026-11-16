@@ -15,7 +15,7 @@ Every feature spec includes **Deployment modes** (SaaS, self-hosted, air-gapped)
 | F-006 | Results & visualization (LEC, ALE distribution, comparisons) | F-005 | **Done** (2026-11-13) |
 | F-007 | Risk register (linked to analyses, BU roll-ups) | F-003, F-005 | **Done** (2026-11-15) |
 | F-008 | Risk acceptance lifecycle (approval tiers, expiry, renewal) | F-002, F-007 | **Done** (2026-11-16) |
-| F-009 | Notifications (SMTP/webhook; offline-capable) | F-008 | Requirements **In Review** (2026-11-16) |
+| F-009 | Notifications (SMTP/webhook; offline-capable) | F-008 | Requirements **Approved** (2026-11-16); design in progress |
 | F-010 | Reporting & export | F-006, F-007 | Not started |
 | F-011 | Integrations / automation inputs | F-003 | Not started |
 | F-012 | Platform engineering: CI/CD, FIPS images, SBOM/signing, SaaS IaC + GitOps, observability | — | Not started (CI, images, SBOM and signing so far built under F-001 T-00c and F-015/F-001 tasks) |
