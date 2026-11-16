@@ -1,0 +1,12 @@
+A risk acceptance waits for your decision
+
+Business unit: Claims
+When: 2026-11-16 09:30 UTC
+
+Open the acceptance in the FAIR Risk Platform:
+https://fair.example.com/acceptances/8f0c2a1e-1b7e-4c55-9a1d-2f4f8c3b9d10
+
+Sign in to see the details; what you see depends on your access.
+
+--
+Authorized use only.
