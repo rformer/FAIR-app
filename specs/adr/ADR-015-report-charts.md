@@ -1,5 +1,5 @@
 # ADR-015 Charts in PDF reports: Go vector charts
-Status: Proposed (F-010 design, 2026-11-16)
+Status: Accepted (Robert Former, 2026-11-16; F-010 design)
 Date: 2026-11-16
 
 ## Context

@@ -1,5 +1,5 @@
 # F-010 Reporting and export — Design
-Status: In Review | Owner: Robert Former | Last updated: 2026-11-16
+Status: Approved | Owner: Robert Former | Last updated: 2026-11-16
 Requirements: `requirements.md` (Approved 2026-11-16) · ADR-005, ADR-006, ADR-007 (amendment 6, §3.3), ADR-012, ADR-014, ADR-015 (new)
 
 ## 1. Overview
@@ -179,3 +179,4 @@ Conventions as before: operationId = handler; mutating routes declare `x-permiss
 
 ## Change Log
 - 2026-11-16: Initial draft, In Review. Decided with Robert Former: the risk service, the report store, ADR-015's Go vector charts, Noto Sans, and the delegated read-only context (ADR-007 amendment 6).
+- 2026-11-16: Approved by Robert Former, with ADR-015 and the tasks.

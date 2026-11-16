@@ -1,5 +1,5 @@
 # F-010 Reporting and export — Tasks
-Status: In Review | Design: In Review 2026-11-16
+Status: **Approved** (Robert Former, 2026-11-16) | Design: Approved 2026-11-16
 
 Sizing: S ≤ 1 day · M = 2–3 days · L = up to 1 week (split when picked up).
 Prerequisites, all done:
@@ -56,3 +56,4 @@ Rules for every task:
 
 ## Change Log
 - 2026-11-16: Initial draft, In Review.
+- 2026-11-16: Approved by Robert Former.
