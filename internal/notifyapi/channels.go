@@ -466,3 +466,17 @@ func (a *API) listDeliveries(w http.ResponseWriter, r *http.Request, p authz.Pri
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"deliveries": items, "more": more})
 }
+
+// listBUs answers the business units a webhook may take notices of (names
+// only), for the channels page.
+func (a *API) listBUs(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	if !a.admin(w, r, p) {
+		return
+	}
+	raw, err := a.channelJSON(r, p, "SELECT notify.bus()")
+	if err != nil {
+		failChannel(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"bus": raw})
+}

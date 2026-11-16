@@ -182,4 +182,12 @@ func TestNotifyChannels(t *testing.T) {
 			t.Errorf("%s: %d", q, got.code)
 		}
 	}
+
+	// T-13: the business units a webhook may take (names only), for view and manage.
+	if got := na.call(t, "GET", "aud", "/api/v1/notifications/bus", nil); got.code != 200 || !strings.Contains(got.raw, `"code":"A"`) {
+		t.Errorf("bus: %d %s", got.code, got.raw)
+	}
+	if got := na.call(t, "GET", "owen", "/api/v1/notifications/bus", nil); got.code != 404 {
+		t.Errorf("owen lists the BUs: %d", got.code)
+	}
 }

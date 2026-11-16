@@ -159,6 +159,9 @@ func TestPostureUIHarness(t *testing.T) {
 		seedRegister(t, e, ae.keys, riskSrv.URL)
 		seedAcceptances(t, e, ae.keys, riskSrv.URL)
 	}
+	// F-009 T-13: the notify service, with a test relay.
+	nh := startHarnessNotify(t, e, ae.keys)
+	defer nh.stop()
 	// The UI: built assets, and index.html for the app's routes.
 	ui := gateway.StaticUI(dist)
 	g := &gateway.Gateway{
@@ -167,11 +170,12 @@ func TestPostureUIHarness(t *testing.T) {
 		ContextKey: ctxKey1,
 		JWT:        ae.keys,
 		Origin:     "http://localhost:8099",
-		Upstreams:  map[string]*url.URL{"posture": up, "audit": auditUp, "risk": riskUp},
+		Upstreams:  map[string]*url.URL{"posture": up, "audit": auditUp, "risk": riskUp, "notify": nh.Upstream},
 		UI:         ui,
 	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /dev/smtp", nh.ServeDev)
 	mux.HandleFunc("GET /dev/ready", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 	mux.HandleFunc("GET /dev/as/{user}", func(w http.ResponseWriter, r *http.Request) {
 		id := e.adminQuery("SELECT id FROM iam.app_user WHERE email = '" + r.PathValue("user") + "@example.test'")

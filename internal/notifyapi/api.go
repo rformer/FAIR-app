@@ -68,6 +68,7 @@ var routes = []route{
 	{"POST", "/api/v1/notifications/channels/{id}/remove", (*API).removeChannel},
 	{"POST", "/api/v1/notifications/channels/{id}/test", (*API).testChannel},
 	{"GET", "/api/v1/notifications/deliveries", (*API).listDeliveries},
+	{"GET", "/api/v1/notifications/bus", (*API).listBUs},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).

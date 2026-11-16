@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import { describe, getMe, send, type Me } from "./api";
 import { AcceptanceInbox, AcceptanceList } from "./acceptance/Acceptances";
 import { AcceptancePage } from "./acceptance/AcceptancePage";
+import { ChannelsPage, DeliveriesPage } from "./notify/Channels";
+import { NotificationsLink, NotificationsPage, PreferencesPage } from "./notify/Notifications";
 import { RequestForm as AcceptanceRequestForm } from "./acceptance/RequestForm";
 import { AggregateForm, AggregatePage, AggregatesPage } from "./analysis/Aggregates";
 import { ComparePage } from "./analysis/Compare";
@@ -77,7 +79,9 @@ function App() {
   // The platform shell's routing arrives with later features: the path
   // chooses the page (the gateway serves the app for every route).
   const path = window.location.pathname;
-  const section = path.startsWith("/register")
+  const section = path.startsWith("/notifications")
+    ? "notifications"
+    : path.startsWith("/register")
     ? "register"
     : path.startsWith("/acceptances")
     ? "acceptances"
@@ -156,11 +160,16 @@ function App() {
                 Audit trail
               </a>
             </li>
+            <li>
+              <NotificationsLink current={section === "notifications"} />
+            </li>
           </ul>
         </nav>
       </header>
       <main id="main" tabIndex={-1}>
-        {section === "register" ? (
+        {section === "notifications" ? (
+          <NotificationRoutes path={path} />
+        ) : section === "register" ? (
           <RegisterRoutes path={path} />
         ) : section === "acceptances" ? (
           <AcceptanceRoutes path={path} />
@@ -182,6 +191,16 @@ function App() {
       </main>
     </>
   );
+}
+
+// F-009 T-13: /notifications, /notifications/preferences, /notifications/channels,
+// /notifications/deliveries.
+function NotificationRoutes({ path }: { path: string }) {
+  if (path === "/notifications" || path === "/notifications/") return <NotificationsPage />;
+  if (path === "/notifications/preferences") return <PreferencesPage />;
+  if (path === "/notifications/channels") return <ChannelsPage />;
+  if (path === "/notifications/deliveries") return <DeliveriesPage />;
+  return <p role="alert">Not found.</p>;
 }
 
 // F-007 T-08: /register, /register/new, /register/risks/{id}, /register/risks/{id}/edit;

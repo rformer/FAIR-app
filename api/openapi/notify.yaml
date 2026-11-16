@@ -444,3 +444,29 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+  /api/v1/notifications/bus:
+    get:
+      operationId: listBUs
+      tags: [channels]
+      summary: The business units a webhook may take notices of (names only), for the channels page
+      x-permission: notification.view or notification.manage at the top business unit
+      responses:
+        "200":
+          description: Business units
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bus:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        name: { type: string }
+                        code: { type: string }
+                        parent_id: { type: [string, "null"], format: uuid }
+                        restricted: { type: boolean }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
