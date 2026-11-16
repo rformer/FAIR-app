@@ -30,6 +30,7 @@ import (
 	"github.com/rformer/fair-app/internal/access/catalog"
 	"github.com/rformer/fair-app/internal/estimate/bank"
 	"github.com/rformer/fair-app/internal/migrate"
+	"github.com/rformer/fair-app/internal/notify"
 	"github.com/rformer/fair-app/internal/profilepkg"
 	"github.com/rformer/fair-app/internal/risk/starter"
 	"github.com/rformer/fair-app/pkg/audit"
@@ -68,7 +69,7 @@ func setupWith(t *testing.T, rel func() (*catalog.Catalog, *catalog.BuiltinRoles
 
 	e := &env{t: t, root: root, db: "fairtest_" + randHex(6), secrets: map[string]string{}, adminEnv: os.Environ(), release: rel}
 	dir := t.TempDir()
-	for _, r := range []string{"app_migrator", "app_rw", "app_engine", "app_posture", "app_gateway", "app_audit"} {
+	for _, r := range []string{"app_migrator", "app_rw", "app_engine", "app_posture", "app_gateway", "app_audit", "app_notify"} {
 		p := filepath.Join(dir, r)
 		if err := os.WriteFile(p, []byte(randHex(24)+"\n"), 0o600); err != nil {
 			t.Fatal(err)
@@ -89,6 +90,7 @@ func setupWith(t *testing.T, rel func() (*catalog.Catalog, *catalog.BuiltinRoles
 		"FAIR_POSTURE_PASSWORD_FILE":  e.secrets["app_posture"],
 		"FAIR_GATEWAY_PASSWORD_FILE":  e.secrets["app_gateway"],
 		"FAIR_AUDIT_PASSWORD_FILE":    e.secrets["app_audit"],
+		"FAIR_NOTIFY_PASSWORD_FILE":   e.secrets["app_notify"],
 	})
 	res, err := e.migrate("")
 	if err != nil {
@@ -151,7 +153,12 @@ func (e *env) migrate(dir string) (migrate.Result, error) {
 	if err != nil {
 		return migrate.Result{}, err
 	}
-	return migrate.Run(ctx, conn, migrations, migrate.Release{Catalog: payload, ProfilePackages: pkgs, Events: events, Starter: starterLib, Bank: questions})
+	kinds, err := notify.SyncPayload()
+	if err != nil {
+		return migrate.Result{}, err
+	}
+	return migrate.Run(ctx, conn, migrations, migrate.Release{Catalog: payload, ProfilePackages: pkgs, Events: events, Starter: starterLib, Bank: questions,
+		NoticeKinds: kinds})
 }
 
 // auditEventPayload is the build's security event catalog (F-002 T-02).
@@ -219,12 +226,12 @@ func (e *env) mustFail(role, sql, wantSubstr string) {
 func TestRoleAttributes(t *testing.T) {
 	e := setup(t)
 	out, err := e.as("app_rw", `SELECT string_agg(rolname||':'||rolcanlogin||':'||rolbypassrls||':'||rolsuper||':'||rolinherit, ',' ORDER BY rolname)
-		FROM pg_roles WHERE rolname IN ('fair_owner','authz_definer','posture_definer','rollup_definer','bu_guard_definer','audit_definer','risk_definer','estimate_definer','analysis_definer','register_definer','acceptance_definer','app_migrator','app_rw','app_engine','app_posture','app_audit')`)
+		FROM pg_roles WHERE rolname IN ('fair_owner','authz_definer','posture_definer','rollup_definer','bu_guard_definer','audit_definer','risk_definer','estimate_definer','analysis_definer','register_definer','acceptance_definer','notify_definer','app_migrator','app_rw','app_engine','app_posture','app_audit','app_notify')`)
 	if err != nil {
 		t.Fatal(err, out)
 	}
-	want := "acceptance_definer:false:false:false:false,analysis_definer:false:false:false:false,app_audit:true:false:false:false,app_engine:true:false:false:false,app_migrator:true:false:false:false,app_posture:true:false:false:false,app_rw:true:false:false:false," +
-		"audit_definer:false:false:false:false,authz_definer:false:false:false:false,bu_guard_definer:false:false:false:false,estimate_definer:false:false:false:false,fair_owner:false:false:false:false,posture_definer:false:false:false:false,register_definer:false:false:false:false,risk_definer:false:false:false:false,rollup_definer:false:false:false:false"
+	want := "acceptance_definer:false:false:false:false,analysis_definer:false:false:false:false,app_audit:true:false:false:false,app_engine:true:false:false:false,app_migrator:true:false:false:false,app_notify:true:false:false:false,app_posture:true:false:false:false,app_rw:true:false:false:false," +
+		"audit_definer:false:false:false:false,authz_definer:false:false:false:false,bu_guard_definer:false:false:false:false,estimate_definer:false:false:false:false,fair_owner:false:false:false:false,notify_definer:false:false:false:false,posture_definer:false:false:false:false,register_definer:false:false:false:false,risk_definer:false:false:false:false,rollup_definer:false:false:false:false"
 	if out != want {
 		t.Fatalf("role attributes\n got: %s\nwant: %s", out, want)
 	}
@@ -278,7 +285,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON iam.rls_probe TO app_rw;
 
 func TestOwnerRolesCannotLogIn(t *testing.T) {
 	e := setup(t)
-	for _, r := range []string{"fair_owner", "authz_definer", "posture_definer", "rollup_definer", "bu_guard_definer", "audit_definer", "risk_definer", "estimate_definer", "analysis_definer", "register_definer", "acceptance_definer"} {
+	for _, r := range []string{"fair_owner", "authz_definer", "posture_definer", "rollup_definer", "bu_guard_definer", "audit_definer", "risk_definer", "estimate_definer", "analysis_definer", "register_definer", "acceptance_definer", "notify_definer"} {
 		cmd := exec.CommandContext(context.Background(), "psql", "--no-psqlrc", "-X", "-d", e.db, "-c", "SELECT 1")
 		cmd.Env = withVars(e.adminEnv, map[string]string{"PGUSER": r, "PGPASSWORD": "irrelevant"})
 		if out, err := cmd.CombinedOutput(); err == nil {
@@ -316,6 +323,7 @@ func TestBootstrapRepairsRoleDrift(t *testing.T) {
 		"FAIR_POSTURE_PASSWORD_FILE":  e.secrets["app_posture"],
 		"FAIR_GATEWAY_PASSWORD_FILE":  e.secrets["app_gateway"],
 		"FAIR_AUDIT_PASSWORD_FILE":    e.secrets["app_audit"],
+		"FAIR_NOTIFY_PASSWORD_FILE":   e.secrets["app_notify"],
 	})
 	out, err := e.as("app_rw", "SELECT rolbypassrls FROM pg_roles WHERE rolname = 'app_rw'")
 	if err != nil || out != "f" {

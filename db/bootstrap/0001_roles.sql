@@ -40,9 +40,15 @@
 --                           T-02): requests, decisions, the lifecycle job;
 --                           RLS admits it only where a table allows it
 --                           (ADR-007 amendments 3 and 5)
+--   notify_definer NOLOGIN  owns the notify schema's functions (F-009 T-02):
+--                           collecting the features' outboxes, recipients,
+--                           deliveries; reads users and scopes, never RLS data
+--   app_notify     LOGIN    the notify service (F-009 T-02): the notify schema
+--                           only through notify_definer's functions; NOBYPASSRLS
 --
 -- Required psql variables: dbname, migrator_password, rw_password,
--- engine_password, posture_password, gateway_password, audit_password
+-- engine_password, posture_password, gateway_password, audit_password,
+-- notify_password
 
 \set ON_ERROR_STOP on
 
@@ -50,14 +56,14 @@ DO $$
 DECLARE
   r text;
 BEGIN
-  FOREACH r IN ARRAY ARRAY['fair_owner', 'authz_definer', 'posture_definer', 'rollup_definer', 'bu_guard_definer', 'audit_definer', 'risk_definer', 'estimate_definer', 'analysis_definer', 'register_definer', 'acceptance_definer'] LOOP
+  FOREACH r IN ARRAY ARRAY['fair_owner', 'authz_definer', 'posture_definer', 'rollup_definer', 'bu_guard_definer', 'audit_definer', 'risk_definer', 'estimate_definer', 'analysis_definer', 'register_definer', 'acceptance_definer', 'notify_definer'] LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
       EXECUTE format('CREATE ROLE %I NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS', r);
     END IF;
     EXECUTE format('ALTER ROLE %I NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS', r);
   END LOOP;
 
-  FOREACH r IN ARRAY ARRAY['app_migrator', 'app_rw', 'app_engine', 'app_posture', 'app_gateway', 'app_audit'] LOOP
+  FOREACH r IN ARRAY ARRAY['app_migrator', 'app_rw', 'app_engine', 'app_posture', 'app_gateway', 'app_audit', 'app_notify'] LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
       EXECUTE format('CREATE ROLE %I LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS', r);
     END IF;
@@ -73,12 +79,14 @@ ALTER ROLE app_engine   PASSWORD :'engine_password';
 ALTER ROLE app_posture  PASSWORD :'posture_password';
 ALTER ROLE app_gateway  PASSWORD :'gateway_password';
 ALTER ROLE app_audit    PASSWORD :'audit_password';
+ALTER ROLE app_notify   PASSWORD :'notify_password';
 
 ALTER ROLE app_rw      CONNECTION LIMIT 200;
 ALTER ROLE app_engine  CONNECTION LIMIT 100;
 ALTER ROLE app_posture CONNECTION LIMIT 50;
 ALTER ROLE app_gateway CONNECTION LIMIT 100;
 ALTER ROLE app_audit   CONNECTION LIMIT 50;
+ALTER ROLE app_notify  CONNECTION LIMIT 50;
 
 -- The migrator may become fair_owner only by an explicit SET ROLE (no inherited privileges).
 GRANT fair_owner TO app_migrator WITH INHERIT FALSE, SET TRUE;
@@ -105,10 +113,12 @@ GRANT analysis_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
 GRANT register_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
 -- And for risk acceptance (F-008 T-02).
 GRANT acceptance_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
+-- And for notifications (F-009 T-02).
+GRANT notify_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
 
 -- Lock down the database: nobody connects unless granted.
 REVOKE ALL ON DATABASE :"dbname" FROM PUBLIC;
-GRANT CONNECT ON DATABASE :"dbname" TO app_migrator, app_rw, app_engine, app_posture, app_gateway, app_audit;
+GRANT CONNECT ON DATABASE :"dbname" TO app_migrator, app_rw, app_engine, app_posture, app_gateway, app_audit, app_notify;
 GRANT CREATE ON DATABASE :"dbname" TO fair_owner;
 
 -- No objects in the public schema.
@@ -120,3 +130,4 @@ ALTER ROLE app_engine SET row_security = on;
 ALTER ROLE app_posture SET row_security = on;
 ALTER ROLE app_gateway SET row_security = on;
 ALTER ROLE app_audit   SET row_security = on;
+ALTER ROLE app_notify  SET row_security = on;

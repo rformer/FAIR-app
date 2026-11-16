@@ -88,6 +88,14 @@ type BankSync struct {
 	Retired []string `json:"retired"`
 }
 
+// KindSync is what notify.sync_kinds reports: notice kinds added, changed
+// and retired (F-009 T-02).
+type KindSync struct {
+	Added   []string `json:"added"`
+	Changed []string `json:"changed"`
+	Retired []string `json:"retired"`
+}
+
 // Release is what a build ships besides its migrations.
 type Release struct {
 	Catalog         []byte   // catalog.SyncPayload, for iam.sync_release
@@ -95,6 +103,7 @@ type Release struct {
 	Events          []byte   // audit.(*Catalog).SyncPayload, for audit.sync_event_types
 	Starter         []byte   // starter.SyncPayload, for risk.sync_starter (F-003 T-10)
 	Bank            []byte   // bank.SyncPayload, for estimate.sync_bank (F-004 T-11)
+	NoticeKinds     []byte   // notify.SyncPayload, for notify.sync_kinds (F-009 T-02)
 }
 
 // Result summarizes a run.
@@ -105,6 +114,7 @@ type Result struct {
 	Events   EventSync
 	Starter  StarterSync
 	Bank     BankSync
+	Kinds    KindSync
 }
 
 // ConnConfig builds the migrator's connection (see dbconn.Config). The user
@@ -137,6 +147,9 @@ func Run(ctx context.Context, conn *pgx.Conn, migrations fs.FS, rel Release) (Re
 	}
 	if len(rel.Bank) == 0 {
 		return res, errors.New("migrate: the release has no calibration question bank")
+	}
+	if len(rel.NoticeKinds) == 0 {
+		return res, errors.New("migrate: the release has no notice kinds")
 	}
 	types, err := resourceTypes(rel.Catalog)
 	if err != nil {
@@ -242,7 +255,13 @@ REVOKE ALL ON fair_meta.schema_migrations FROM PUBLIC;`).ReadAll()
 		if err := tx.QueryRow(ctx, "SELECT estimate.sync_bank($1::jsonb)", string(rel.Bank)).Scan(&out); err != nil {
 			return fmt.Errorf("calibration question bank: %w", err)
 		}
-		return json.Unmarshal(out, &res.Bank)
+		if err := json.Unmarshal(out, &res.Bank); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx, "SELECT notify.sync_kinds($1::jsonb)", string(rel.NoticeKinds)).Scan(&out); err != nil {
+			return fmt.Errorf("notice kinds: %w", err)
+		}
+		return json.Unmarshal(out, &res.Kinds)
 	})
 	if err != nil {
 		return res, fmt.Errorf("migrate: %w", err)
