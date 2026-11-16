@@ -1,0 +1,227 @@
+# NIST SP 800-53 Rev 5 control implementation statements for F-009
+# (notifications), task T-16. Source for the platform's OSCAL component
+# definition (F-014 assembles the features' files); checked by
+# internal/compliance tests: the controls are exactly F-009's control
+# mapping, every evidence path and test exists, and the OSCAL output
+# validates against the pinned schema.
+#
+# responsibility, per deployment mode (ADR-005):
+#   provider  the platform (and, in SaaS, the vendor operating it) meets it
+#   shared    the platform provides the mechanism; the customer operates it
+#   customer  the customer meets it
+# customer: what the customer does wherever the responsibility is shared
+# or customer. Evidence tests are "<package dir>:<test name>".
+feature: F-009
+title: Notifications
+status: approved # signed off by Robert Former, 2026-11-16
+controls:
+  - id: ac-3
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Each user reads and marks only their own notifications, selected by
+      the signed database context; another user's notification is neither
+      listed nor marked. Every recipient is re-checked when a notice is
+      fanned out and again before each email or webhook post: an inactive
+      user, one without the permission the notice was addressed by, or one
+      who can no longer see the item is dropped with the reason recorded. A
+      notification links to the item, where the reader's own access decides
+      what is shown. Webhooks receive only notices about business units in
+      their configured subtree, and a restricted business unit's notices
+      only by a webhook configured inside its restricted subtree.
+    evidence:
+      code: [db/migrations/0127_notify_fan_out.sql, db/migrations/0128_notify_user_api.sql, db/migrations/0129_notify_delivery.sql,
+             db/migrations/0131_register_notices.sql, internal/notifyapi/api.go]
+      tests: ["db/tests:TestSTRIDEF009Access", "db/tests:TestSTRIDEF009Recheck", "db/tests:TestSTRIDEF009Content", "db/tests:TestNotifyFanOut"]
+
+  - id: ac-6
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Configuring the SMTP relay and webhooks, rotating secrets and sending
+      test messages need notification.manage at the top business unit, a
+      privileged permission; reading the channels and the delivery log
+      needs notification.view (Platform Admin and Auditor); others are not
+      told the channels exist. The notify service connects as its own
+      database role, which can call only the notify functions and reads
+      no table directly; it is the only workload permitted egress to mail
+      relays and webhooks.
+    customer: >-
+      Grant notification.manage only to the administrators who run the
+      channels, and review it in access reviews (F-001).
+    evidence:
+      code: [internal/notifyapi/channels.go, db/migrations/0125_notify_service_role.sql, deploy/k8s/notify.yaml, db/migrations/0130_notify_channels.sql]
+      tests: ["db/tests:TestSTRIDEF009Access", "db/tests:TestNotifyServiceRole", "db/tests:TestNotifyChannels"]
+
+  - id: au-2
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      The security event catalog defines the notification events: channel
+      created, changed, disabled, enabled and removed, secret rotated, test
+      sent, preferences changed, delivery failed and destination refused.
+      Reading one's own notifications changes no security state and is not
+      recorded.
+    evidence:
+      code: [pkg/audit/catalog.yaml]
+      tests: ["pkg/audit:TestCatalogMatchesCode", "db/tests:TestNotifyAuditEvents"]
+
+  - id: au-12
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Every channel change and test is recorded in its transaction with the
+      actor and the reason, preference changes with the user, and delivery
+      failures and refused destinations with the system as actor. If the
+      event cannot be recorded the change is not made. Secrets never appear
+      in an event.
+    customer: >-
+      Monitor the audit trail's capacity and forwarding (F-002).
+    evidence:
+      code: [db/migrations/0130_notify_channels.sql, db/migrations/0129_notify_delivery.sql]
+      tests: ["db/tests:TestNotifyAuditEvents", "db/tests:TestNotifyChannels", "db/tests:TestSTRIDEF009Secrets"]
+
+  - id: cm-6
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Notification behaviour is set by F-015 settings with bounds and
+      profile floors: notification.detail (minimal or titles; restricted
+      business units are always minimal), notification.allowed_hosts (a set
+      of host names and suffixes; adding a host needs dual approval),
+      notification.retry_hours (1 to 72) and notification.log_retention_days
+      (30 to 365).
+    customer: >-
+      Choose the detail, the allowed destinations, the retry window and the
+      log retention through the posture workflow.
+    evidence:
+      code: [pkg/settings/profiles.go, bindings/notification.detail.yaml, bindings/notification.allowed_hosts.yaml, bindings/notification.retry_hours.yaml,
+             bindings/notification.log_retention_days.yaml]
+      tests: ["db/tests:TestNotifySettings"]
+
+  - id: cm-7
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Nothing leaves the platform until it is configured: no channel exists
+      on install, the allowed hosts are empty, so no destination is allowed,
+      and notices carry minimal content by default. The in-app list works
+      without any channel. In an air-gapped installation only private
+      addresses can be destinations.
+    customer: >-
+      Add only the relay and webhook destinations the organization needs.
+    evidence:
+      code: [bindings/notification.allowed_hosts.yaml, internal/notify/guard.go, internal/notify/install.go]
+      tests: ["db/tests:TestNotifySettings", "internal/notify:TestCheckAddr", "internal/notify:TestCheckInstall"]
+
+  - id: ia-5
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Webhook signing secrets are generated by the platform (32 random
+      bytes), shown once when created or rotated and never returned again;
+      rotation keeps the previous secret signing for 24 hours, and removing
+      a webhook erases its secrets. The API never accepts an SMTP password:
+      the relay names a file in the service's SMTP directory, read only when
+      sending, and the credentials are sent only inside TLS.
+    customer: >-
+      Deliver the relay's password file through the deployment's key store,
+      give each webhook secret only to its receiver, and rotate secrets on
+      the organization's schedule.
+    evidence:
+      code: [internal/notify/secrets.go, internal/notify/send.go, internal/notifyapi/channels.go, db/migrations/0130_notify_channels.sql]
+      tests: ["db/tests:TestSTRIDEF009Secrets", "db/tests:TestNotifyChannels", "internal/notify:TestSMTPSender"]
+
+  - id: ir-6
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Security events reach the people who must act on them: break-glass
+      sign-ins and emergency enablement, setting exceptions expiring and
+      failed reverts, and high and critical security findings become
+      notices to the holders of the responsible permission, in the app and
+      by email, and cannot be muted. Undelivered notices open a finding of
+      their own.
+    customer: >-
+      Configure the relay and, where wanted, a webhook to the organization's
+      incident tooling, and keep the responsible permissions assigned.
+    evidence:
+      code: [internal/notify/kinds.go, db/migrations/0126_notify_collect.sql, db/migrations/0129_notify_delivery.sql]
+      tests: ["db/tests:TestNotifyCollect", "db/tests:TestNotifyDelivery", "internal/notify:TestKinds"]
+
+  - id: sc-7
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Destinations must match the allow-list; every resolved address is
+      checked and loopback, link-local, metadata, multicast, the cluster's
+      own ranges and other internal ranges are refused whatever the list
+      says, and in air-gapped mode only private addresses are allowed. The
+      address checked is the address dialled, so a name cannot be rebound
+      between check and connection; no proxy is used and no redirect is
+      followed. Destinations are checked when configured and again at each
+      delivery. A network policy limits egress to the notify service.
+    customer: >-
+      Keep the allow-list to the destinations in use and set the cluster's
+      ranges (FAIR_NOTIFY_CLUSTER_CIDRS).
+    evidence:
+      code: [internal/notify/guard.go, deploy/k8s/notify.yaml]
+      tests: ["db/tests:TestSTRIDEF009Destinations", "internal/notify:TestCheckAddr", "internal/notify:TestResolve", "internal/notify:TestDialChecksAndPins",
+              "internal/notify:TestHTTPClient"]
+
+  - id: sc-8
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Email leaves only over TLS 1.2 or later, by implicit TLS or required
+      STARTTLS (a relay that does not offer it gets nothing), and webhooks
+      only over HTTPS at TLS 1.2 or later; certificates are verified against
+      the system's roots or the relay's configured trust anchors.
+    customer: >-
+      Operate relays and receivers with certificates the platform can
+      verify.
+    evidence:
+      code: [internal/notify/send.go, internal/notify/guard.go]
+      tests: ["internal/notify:TestSTRIDEF009TLSFloor", "internal/notify:TestSMTPSender", "internal/notify:TestHTTPClient"]
+
+  - id: sc-13
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Webhook deliveries are signed with HMAC-SHA-256 over the delivery id,
+      timestamp and body (the Standard Webhooks format), and secrets are
+      sealed with AES-256-GCM, both from the Go FIPS 140 module; a delivery
+      keeps its id across retries, so receivers can discard replays.
+    evidence:
+      code: [internal/notify/send.go, internal/notify/secrets.go]
+      tests: ["internal/notify:TestSignStandardWebhooks", "internal/notify:TestSTRIDEF009Signing", "db/tests:TestSTRIDEF009Signing", "internal/notify:TestKeyring"]
+
+  - id: sc-28
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Webhook secrets are stored only as ciphertext under the
+      notify/webhook-secrets key files, which the deployment's key store
+      delivers and rotates; the tables holding them are readable by the
+      notify definer role alone.
+    customer: >-
+      Protect and rotate the key files through the key store (F-001).
+    evidence:
+      code: [internal/notify/secrets.go, db/migrations/0124_notify_schema.sql]
+      tests: ["db/tests:TestSTRIDEF009Secrets", "internal/notify:TestKeyring", "db/tests:TestNotifySchema"]
+
+  - id: si-10
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Notices are composed by fixed templates from a minimal envelope:
+      content is escaped in HTML, control characters are removed from text,
+      headers refuse CR and LF and are encoded, and links are built from
+      the platform's base URL and the item's path only. Channel
+      configurations are validated before saving: https webhook URLs
+      without credentials, known notice kinds, and relay settings without
+      passwords.
+    evidence:
+      code: [internal/notify/templates.go, internal/notifyapi/channels.go]
+      tests: ["internal/notify:TestInjection", "db/tests:TestSTRIDEF009Injection", "internal/notify:TestMinimalContent", "db/tests:TestNotifyChannels"]
+
+  - id: si-12
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Content sent outside the platform is minimal by default (the kind, the
+      business unit, a link and, by setting, a title never shown for
+      restricted units). The delivery log keeps no content and is purged
+      after notification.log_retention_days; in-app notifications are kept
+      180 days.
+    customer: >-
+      Set the log retention to the organization's records schedule.
+    evidence:
+      code: [internal/notify/worker.go, db/migrations/0129_notify_delivery.sql, docs/formats/fair-notification-v1.md]
+      tests: ["db/tests:TestNotifyDelivery", "db/tests:TestSTRIDEF009Content", "internal/notify:TestMinimalContent"]

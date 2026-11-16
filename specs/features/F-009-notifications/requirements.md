@@ -85,7 +85,7 @@ F-009 delivers the notices the other features already queue, and the few they le
 | Vendor SecOps alerts | F-015's channel (unchanged) | None | None |
 
 ## Control mapping (NIST SP 800-53r5)
-To be proposed with the tasks.
+AC-3, AC-6, AU-2, AU-12, CM-6, CM-7, IA-5, IR-6, SC-7, SC-8, SC-13, SC-28, SI-10, SI-12.
 
 ## Out of scope
 - F-015's vendor SecOps webhook (unchanged; F-009 may carry it later).
@@ -112,3 +112,4 @@ To be proposed with the tasks.
 ## Change Log
 - 2026-11-16: Initial draft, In Review.
 - 2026-11-16: Approved by Robert Former; OQ1 to OQ8 resolved as proposed.
+- 2026-11-16: Control mapping added (AC-3, AC-6, AU-2, AU-12, CM-6, CM-7, IA-5, IR-6, SC-7, SC-8, SC-13, SC-28, SI-10, SI-12), with T-16; statements in `compliance/statements/F-009.yaml`, signed off by Robert Former 2026-11-16.
