@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "permissions": [
     {"key": "acceptance.approve", "resource_type": "acceptance", "action": "approve", "privileged": true, "risk_data": true, "introduced_in": 1},
     {"key": "acceptance.request", "resource_type": "acceptance", "action": "write", "privileged": false, "risk_data": true, "introduced_in": 1},
@@ -40,6 +40,7 @@
     {"key": "library.edit", "resource_type": "library", "action": "write", "privileged": false, "risk_data": true, "introduced_in": 1},
     {"key": "library.view", "resource_type": "library", "action": "read", "privileged": false, "risk_data": true, "introduced_in": 1},
     {"key": "notification.manage", "resource_type": "notification", "action": "admin", "privileged": true, "risk_data": false, "introduced_in": 1},
+    {"key": "notification.view", "resource_type": "notification", "action": "read", "privileged": false, "risk_data": false, "introduced_in": 4},
     {"key": "posture.export", "resource_type": "posture", "action": "export", "privileged": true, "risk_data": false, "introduced_in": 1},
     {"key": "posture.view", "resource_type": "posture", "action": "read", "privileged": false, "risk_data": false, "introduced_in": 1},
     {"key": "profile.approve", "resource_type": "profile", "action": "approve", "privileged": true, "risk_data": false, "introduced_in": 1},

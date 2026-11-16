@@ -111,6 +111,32 @@ const (
 	KeyAcceptanceMaxDuration    = "acceptance.max_duration_days"
 )
 
+// F-009 setting keys (design §4).
+const (
+	KeyNotificationDetail       = "notification.detail"
+	KeyNotificationAllowedHosts = "notification.allowed_hosts"
+	KeyNotificationRetryHours   = "notification.retry_hours"
+	KeyNotificationLogRetention = "notification.log_retention_days"
+)
+
+// F009Defs returns the F-009 (notifications) setting definitions,
+// registered by the notify service. notification.allowed_hosts is a set of
+// host names and "*." suffixes (SetAll: any host); every host added is a
+// loosening, which needs dual approval (design §4, amended 2026-11-16). The
+// service keeps the other limits (at most 72 retry hours, 365 days).
+func F009Defs() []Def {
+	return []Def{
+		{Key: KeyNotificationDetail, Kind: KindEnum, Direction: OrderedEnum, Order: []string{"titles", "minimal"}, Controls: []string{"AC-4", "SC-8"},
+			Description: "What email and webhook notices carry beyond a link: minimal, or the item's title (never for restricted business units)"},
+		{Key: KeyNotificationAllowedHosts, Kind: KindSet, Direction: SubsetIsStricter, LooseningNeedsApproval: true, Controls: []string{"AC-4", "SC-7"},
+			Description: "Hosts (names or *. suffixes) that email and webhook notices may be sent to; none until set"},
+		{Key: KeyNotificationRetryHours, Kind: KindInt, Direction: HigherIsStricter, Controls: []string{"SI-4", "AU-5"},
+			Description: "Hours a failing email or webhook delivery is retried before it is reported failed (1 to 72)"},
+		{Key: KeyNotificationLogRetention, Kind: KindInt, Direction: HigherIsStricter, Controls: []string{"AU-11"},
+			Description: "Days the notification delivery log is kept (30 to 365)"},
+	}
+}
+
 // F008Defs returns the F-008 (risk acceptance) setting definitions,
 // registered by the risk service. The tiers: a risk's mean annualized loss
 // up to tier1_max is tier 1, up to tier2_max tier 2, else tier 3 (at the
@@ -215,10 +241,14 @@ func F002Defs() []Def {
 }
 
 // ReleaseDefs are the setting definitions a release binds: F-001's,
-// F-002's, F-004's, F-005's, F-007's and F-008's. Profile packages cover exactly these
+// F-002's, F-004's, F-005's, F-007's, F-008's and F-009's. Profile packages cover exactly these
 // (internal/profilegen).
 func ReleaseDefs() []Def {
-	return append(append(append(append(append(F001Defs(), F002Defs()...), F004Defs()...), F005Defs()...), F007Defs()...), F008Defs()...)
+	defs := F001Defs()
+	for _, more := range [][]Def{F002Defs(), F004Defs(), F005Defs(), F007Defs(), F008Defs(), F009Defs()} {
+		defs = append(defs, more...)
+	}
+	return defs
 }
 
 const day = 24 * time.Hour
@@ -313,6 +343,11 @@ func BuiltinProfiles() []Profile {
 			KeyAcceptanceTier2Approvals: {Default: 1, Weakest: 1},
 			KeyAcceptanceTier3Approvals: {Default: 2, Weakest: 1},
 			KeyAcceptanceMaxDuration:    {Default: 365, Weakest: 730},
+			// F-009 (design §4): the same in every family; no host until one is approved.
+			KeyNotificationDetail:       {Default: "minimal", Weakest: "titles"},
+			KeyNotificationAllowedHosts: {Default: []string{}, Weakest: []string{SetAll}},
+			KeyNotificationRetryHours:   {Default: 24, Weakest: 1},
+			KeyNotificationLogRetention: {Default: 90, Weakest: 30},
 		}
 	}
 

@@ -2,6 +2,7 @@ package profilegen
 
 import (
 	"encoding/json"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -97,7 +98,7 @@ func TestF001BindingsResolveInAllProfiles(t *testing.T) {
 				continue
 			}
 			fromBindings[id].Settings[d.Key] = bound
-			if want := builtin[id].Settings[d.Key]; bound != want {
+			if want := builtin[id].Settings[d.Key]; !reflect.DeepEqual(bound, want) {
 				t.Errorf("%s/%s: binding gives %+v, pkg/settings stand-in has %+v", d.Key, id, bound, want)
 			}
 		}

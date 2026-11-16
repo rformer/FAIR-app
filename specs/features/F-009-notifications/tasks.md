@@ -17,7 +17,8 @@ Rules for every task:
 ## Phase A — Foundations
 | # | Task | Traces to | Verification | Size | Status |
 |---|---|---|---|---|---|
-| T-01 | Permission catalog version 4 (`notification.view`: Platform Admin, Auditor); F-015 direction `EmptyIsStricter` (Go and SQL comparators); `settings.F009Defs()` (four settings, bindings, packages 1.8.0) | AC-06, AC-10, AC-14, AC-17; §4, §10 | Upgrade test of the catalog; comparator parity; `TestNotifySettings` | M | Not started |
+| T-01 | Permission catalog version 4 (`notification.view`: Platform Admin, Auditor) | AC-17; §10 | `TestCatalogVersion4Upgrade` | S | Done (2026-11-16) |
+| T-01b | F-015's `set` type (`subset_is_stricter`; Go, SQL migration 0123, package tools); `settings.F009Defs()` (four settings, bindings, packages 1.8.0) | AC-06, AC-10, AC-14, AC-17; §4, §10 | Set property tests; comparator parity; `TestNotifySettings` | M | Done (2026-11-16) |
 | T-02 | Bootstrap roles `app_notify`, `notify_definer`; schema `notify` (§5) with `notify.kind` synced by `iam migrate`; grants on the outboxes; PF028 | AC-01, AC-13; §5 | DB tests: access by role, append and state checks, the sync | M | Not started |
 | T-03 | `cmd/notify` scaffold (image target `notify`, `deploy/k8s/notify.yaml` with its NetworkPolicy), keys `notify/jwt` and `notify/secrets` (`iam keys upgrade`, rotate), `notify.CheckInstall` per mode, the leader, gateway segment `notifications` | §2, §11 | Unit tests; `TestDeploymentModeMatrix` rows; the keys tests | M | Not started |
 
@@ -60,3 +61,4 @@ Rules for every task:
 ## Change Log
 - 2026-11-16: Initial draft, In Review.
 - 2026-11-16: Approved by Robert Former.
+- 2026-11-16: T-01 split (design §4 amended with Robert Former): T-01 is catalog version 4; T-01b is the set type and the settings. Both done: `TestCatalogVersion4Upgrade` (`catalogVersion3` derives version 3 for `TestCatalogVersion3Upgrade`); `settings.KindSet` (`ValidSet`, `CanonicalSet`, `SetAll`, `Client.Set`), migration 0123 (`posture.check_value`, `posture.compare`, sets never BU-scopable), `bindings/notification.*.yaml`, packages 1.8.0 with 52 settings (tests use a synthetic 1.9.0); `TestNotifySettings`, `TestSetComparator`, `TestValidSet`, sets in `TestPostureStrictnessParity`.

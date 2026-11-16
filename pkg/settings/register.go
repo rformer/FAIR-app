@@ -31,12 +31,12 @@ func (r DBRegistrar) Register(ctx context.Context, ownerFeature, version string,
 	return r.DB.QueryRow(ctx, "SELECT posture.register_settings($1, $2, $3::jsonb)", ownerFeature, version, string(b)).Scan(&n)
 }
 
-var kindNames = map[Kind]string{KindDuration: "duration", KindInt: "int", KindBool: "bool", KindEnum: "enum", KindString: "string"}
+var kindNames = map[Kind]string{KindDuration: "duration", KindInt: "int", KindBool: "bool", KindEnum: "enum", KindString: "string", KindSet: "set"}
 
 var directionNames = map[Direction]string{
 	LowerIsStricter: "lower_is_stricter", HigherIsStricter: "higher_is_stricter",
 	TrueIsStricter: "true_is_stricter", FalseIsStricter: "false_is_stricter", OrderedEnum: "ordered",
-	NonEmptyIsStricter: "nonempty_is_stricter",
+	NonEmptyIsStricter: "nonempty_is_stricter", SubsetIsStricter: "subset_is_stricter",
 }
 
 // EncodeDefs is the JSON form of definitions that posture.register_settings

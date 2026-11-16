@@ -26,7 +26,16 @@ const (
 	KindBool                 // bool
 	KindEnum                 // string, one of Def.Order
 	KindString               // string, at most MaxStringLen bytes, no control characters (F-002 T-04)
+	KindSet                  // []string: a set, sorted and without repeats; see ValidSet (F-009 T-01b)
 )
+
+// MaxSetLen is the most elements a KindSet value has; each element is a
+// string as KindString's, not empty.
+const MaxSetLen = 64
+
+// SetAll is the element that stands for every element: a set holding it is
+// the universal set, which holds it alone.
+const SetAll = "*"
 
 // MaxStringLen is the longest KindString value, in bytes.
 const MaxStringLen = 255
@@ -42,6 +51,7 @@ const (
 	FalseIsStricter                     // bools
 	OrderedEnum                         // enums: Def.Order lists weakest → strictest
 	NonEmptyIsStricter                  // strings: any non-empty value is as strict as any other; empty is weaker
+	SubsetIsStricter                    // sets: a subset is stricter; a set that adds any element is weaker (F-009 T-01b)
 )
 
 // Def declares a registered security setting (F-015 AC-01).
@@ -94,6 +104,12 @@ func (d Def) Validate(v any) error {
 		if !ok || len(s) > MaxStringLen || strings.ContainsFunc(s, unicode.IsControl) {
 			return fmt.Errorf("%w: %s wants a string of at most %d bytes without control characters", ErrType, d.Key, MaxStringLen)
 		}
+	case KindSet:
+		s, ok := v.([]string)
+		if !ok || !ValidSet(s) {
+			return fmt.Errorf("%w: %s wants a sorted set of at most %d distinct non-empty strings of at most %d bytes, %q only alone", ErrType, d.Key,
+				MaxSetLen, MaxStringLen, SetAll)
+		}
 	default:
 		return fmt.Errorf("%w: %s has unknown kind", ErrType, d.Key)
 	}
@@ -135,6 +151,10 @@ func (d Def) Compare(a, b any) (int, error) {
 			}
 			return cmp3(nonEmpty(a.(string)), nonEmpty(b.(string))), nil
 		}
+	case KindSet:
+		if d.Direction == SubsetIsStricter {
+			return compareSets(a.([]string), b.([]string)), nil
+		}
 	}
 	return 0, fmt.Errorf("settings: %s has incompatible kind/direction", d.Key)
 }
@@ -166,6 +186,60 @@ func (d Def) Strictest(vals ...any) (any, error) {
 		}
 	}
 	return best, nil
+}
+
+// ValidSet reports whether s is a KindSet value: sorted (byte order), no
+// repeats, at most MaxSetLen elements, each 1 to MaxStringLen bytes without
+// control characters, and SetAll only alone. CanonicalSet makes one.
+func ValidSet(s []string) bool {
+	if s == nil || len(s) > MaxSetLen {
+		return false
+	}
+	for i, e := range s {
+		if e == "" || len(e) > MaxStringLen || strings.ContainsFunc(e, unicode.IsControl) || (i > 0 && s[i-1] >= e) || (e == SetAll && len(s) > 1) {
+			return false
+		}
+	}
+	return true
+}
+
+// CanonicalSet is s sorted, without repeats (never nil).
+func CanonicalSet(s []string) []string {
+	out := slices.Clone(s)
+	slices.Sort(out)
+	out = slices.Compact(out)
+	if out == nil {
+		out = []string{}
+	}
+	return out
+}
+
+// compareSets orders sets by inclusion: a proper subset is stricter (+1), a
+// proper superset weaker (-1). Sets that each hold an element the other
+// lacks are each weaker than the other (-1): either, compared with the
+// other, allows something more, so a change between them is a loosening.
+// The universal set {SetAll} includes every set.
+func compareSets(a, b []string) int {
+	if slices.Equal(a, b) {
+		return 0
+	}
+	if subset(a, b) {
+		return 1
+	}
+	return -1
+}
+
+// subset: every element of a is in b (b universal: always).
+func subset(a, b []string) bool {
+	if len(b) == 1 && b[0] == SetAll {
+		return true
+	}
+	for _, e := range a {
+		if _, found := slices.BinarySearch(b, e); !found {
+			return false
+		}
+	}
+	return true
 }
 
 func cmp3(a, b int64) int {

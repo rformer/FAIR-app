@@ -13,10 +13,8 @@ import (
 // Estimator role is created, built-in roles gain their keys, and custom
 // roles are untouched (F-001 AC-57).
 func TestCatalogVersion3Upgrade(t *testing.T) {
-	c3, br3 := release(t)
-	if c3.Version != 3 {
-		t.Fatalf("the shipped catalog is version %d", c3.Version)
-	}
+	// Version 3 is the shipped catalog without version 4's additions.
+	c3, br3 := catalogVersion3(t)
 	added := []string{"calibration.audit", "calibration.manage", "calibration.take", "estimate.request", "estimate.submit"}
 	c2, br2 := cloneRelease(c3, br3)
 	c2.Version, br2.CatalogVersion = 2, 2
@@ -78,6 +76,62 @@ func TestCatalogVersion3Upgrade(t *testing.T) {
 
 	// The same release again changes nothing.
 	if again := e.sync(t, c3, br3); len(again.AddedPermissions)+len(again.CreatedRoles)+len(again.VersionedRoles) != 0 {
+		t.Fatalf("second sync %+v", again)
+	}
+}
+
+// catalogVersion3 is the shipped catalog as it was at version 3: without
+// version 4's notification.view (F-009 T-01).
+func catalogVersion3(t *testing.T) (*catalog.Catalog, *catalog.BuiltinRoles) {
+	t.Helper()
+	c, br := release(t)
+	if c.Version != 4 {
+		t.Fatalf("the shipped catalog is version %d", c.Version)
+	}
+	c3, br3 := cloneRelease(c, br)
+	c3.Version, br3.CatalogVersion = 3, 3
+	dropPermission(c3, br3, "notification.view")
+	return c3, br3
+}
+
+// F-009 T-01 (F-009 design §10): permission catalog version 4 on an
+// installation at version 3: notification.view arrives with a notice,
+// Platform Admin and Auditor gain it, custom roles are untouched.
+func TestCatalogVersion4Upgrade(t *testing.T) {
+	c4, br4 := release(t)
+	c3, br3 := catalogVersion3(t)
+	e := setupWith(t, func() (*catalog.Catalog, *catalog.BuiltinRoles, error) { return c3, br3, nil })
+	for _, u := range []string{"platform", "aud", "rita"} {
+		e.mustOwner("INSERT INTO iam.app_user (email, display_name) VALUES ('" + u + "@example.test', '" + u + "')")
+	}
+	e.mustOwner("SELECT iam.bootstrap_platform_admin(" + uid("platform") + ")")
+	e.mustOwner(`WITH r AS (INSERT INTO iam.role (name) VALUES ('Notice Reader') RETURNING id)
+		INSERT INTO iam.role_version (role_id, version, permissions, change_reason) SELECT id, 1, ARRAY['posture.view'], 'test' FROM r`)
+	e.mustOwner(grant("platform", "user:rita", "Notice Reader", "ENTERPRISE"))
+	e.mustOwner(grant("platform", "user:aud", "Auditor", "ENTERPRISE"))
+
+	r := e.sync(t, c4, br4)
+	slices.Sort(r.VersionedRoles)
+	if r.PreviousVersion != 3 || r.Version != 4 || strings.Join(r.AddedPermissions, ",") != "notification.view" || len(r.CreatedRoles) != 0 ||
+		strings.Join(r.VersionedRoles, ",") != "Auditor,Platform Admin" || len(r.CustomRolesChanged) != 0 {
+		t.Fatalf("sync result %+v", r)
+	}
+	if got := e.mustOwner("SELECT string_agg(subject, ',') FROM iam.catalog_notice WHERE catalog_version = 4 AND kind = 'added'"); got != "notification.view" {
+		t.Fatalf("added notices %s", got)
+	}
+	if got := e.mustOwner("SELECT action || ':' || privileged || ':' || risk_data FROM iam.permission WHERE key = 'notification.view'"); got != "read:false:false" {
+		t.Fatalf("notification.view %s", got)
+	}
+	if v, perms := e.rolePerms("Notice Reader"); v != 1 || strings.Join(perms, ",") != "posture.view" {
+		t.Fatalf("custom role v%d %v", v, perms)
+	}
+	e.drain()
+	for _, c := range []struct{ user, want string }{{"platform", "t"}, {"aud", "t"}, {"rita", "f"}} {
+		if got := e.adminQuery("SELECT iam.user_has_permission(" + uid(c.user) + ", 'notification.view', " + buID("ENTERPRISE") + ")"); got != c.want {
+			t.Errorf("%s holds notification.view: %s", c.user, got)
+		}
+	}
+	if again := e.sync(t, c4, br4); len(again.AddedPermissions)+len(again.CreatedRoles)+len(again.VersionedRoles) != 0 {
 		t.Fatalf("second sync %+v", again)
 	}
 }

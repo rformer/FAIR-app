@@ -57,7 +57,7 @@ func TestPostureEffectiveSettings(t *testing.T) {
 	if snap, err = src.Snapshot(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if snap.Profile != "fedramp-moderate" || snap.ProfileVersion != "1.7.0" || len(snap.Instance) != 48 ||
+	if snap.Profile != "fedramp-moderate" || snap.ProfileVersion != "1.8.0" || len(snap.Instance) != 52 ||
 		string(snap.Instance["session.idle_timeout"]) != `"15m0s"` {
 		t.Fatalf("seeded snapshot: profile %s %s, %d values, idle %s", snap.Profile, snap.ProfileVersion, len(snap.Instance), snap.Instance["session.idle_timeout"])
 	}

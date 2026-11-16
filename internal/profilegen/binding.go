@@ -275,15 +275,18 @@ func (b Binding) Def() (settings.Def, error) {
 		}
 	case "string":
 		d.Kind = settings.KindString
-	case "set":
-		return d, errors.New(`type "set" is not supported until a setting needs it`)
+	case "set": // F-009 T-01b
+		d.Kind = settings.KindSet
+		if b.BUScopable {
+			return d, errors.New("set settings are never BU-scopable (inclusion is a partial order)")
+		}
 	default:
 		return d, fmt.Errorf("unknown type %q", b.Type)
 	}
 	dirs := map[string]settings.Direction{
 		"lower_is_stricter": settings.LowerIsStricter, "higher_is_stricter": settings.HigherIsStricter,
 		"true_is_stricter": settings.TrueIsStricter, "false_is_stricter": settings.FalseIsStricter, "ordered": settings.OrderedEnum,
-		"nonempty_is_stricter": settings.NonEmptyIsStricter,
+		"nonempty_is_stricter": settings.NonEmptyIsStricter, "subset_is_stricter": settings.SubsetIsStricter,
 	}
 	dir, ok := dirs[b.Direction]
 	valid := map[settings.Kind][]string{
@@ -292,6 +295,7 @@ func (b Binding) Def() (settings.Def, error) {
 		settings.KindBool:     {"true_is_stricter", "false_is_stricter"},
 		settings.KindEnum:     {"ordered"},
 		settings.KindString:   {"nonempty_is_stricter"},
+		settings.KindSet:      {"subset_is_stricter"},
 	}
 	if !ok || !slices.Contains(valid[d.Kind], b.Direction) {
 		return d, fmt.Errorf("direction %q does not fit type %s", b.Direction, b.Type)
@@ -327,6 +331,12 @@ func (b Binding) Bound(profile string) (settings.Bound, error) {
 		switch {
 		case d.Kind == settings.KindString:
 			return settings.Bound{}, errors.New("string settings have no bound (any value is within it)")
+		case d.Kind == settings.KindSet:
+			// The largest set allowed (often {"*"}: any).
+			if pb.Bound.Min != nil || pb.Bound.Allowed != nil || pb.Bound.Max == nil {
+				return settings.Bound{}, errors.New("set bounds use max (the largest set allowed)")
+			}
+			raw = pb.Bound.Max
 		case d.Kind == settings.KindBool || d.Kind == settings.KindEnum:
 			if pb.Bound.Max != nil || pb.Bound.Min != nil || len(pb.Bound.Allowed) == 0 {
 				return settings.Bound{}, fmt.Errorf("%s bounds use allowed", b.Type)
@@ -401,6 +411,20 @@ func parseValue(d settings.Def, raw any) (any, error) {
 			return nil, fmt.Errorf("%v is not a string", raw)
 		}
 		v = s
+	case settings.KindSet:
+		xs, ok := raw.([]any)
+		if !ok {
+			return nil, fmt.Errorf("%v is not a list", raw)
+		}
+		set := []string{}
+		for _, x := range xs {
+			e, ok := x.(string)
+			if !ok {
+				return nil, fmt.Errorf("%v is not a list of strings", raw)
+			}
+			set = append(set, e)
+		}
+		v = settings.CanonicalSet(set) // bindings list elements in any order
 	}
 	if err := d.Validate(v); err != nil {
 		return nil, err

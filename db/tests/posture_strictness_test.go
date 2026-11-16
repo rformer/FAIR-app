@@ -32,11 +32,12 @@ func strictCases() []strictCase {
 		{settings.Def{Key: "p.bool_false", Kind: settings.KindBool, Direction: settings.FalseIsStricter}, "false_is_stricter", "NULL"},
 		{settings.Def{Key: "p.enum", Kind: settings.KindEnum, Direction: settings.OrderedEnum, Order: order}, "ordered", "ARRAY['off','flag','warn','reauthenticate']"},
 		{settings.Def{Key: "p.string", Kind: settings.KindString, Direction: settings.NonEmptyIsStricter}, "nonempty_is_stricter", "NULL"}, // F-002 T-04
+		{settings.Def{Key: "p.set", Kind: settings.KindSet, Direction: settings.SubsetIsStricter}, "subset_is_stricter", "NULL"},           // F-009 T-01b
 	}
 }
 
 func kindName(k settings.Kind) string {
-	return map[settings.Kind]string{settings.KindDuration: "duration", settings.KindInt: "int", settings.KindBool: "bool", settings.KindEnum: "enum", settings.KindString: "string"}[k]
+	return map[settings.Kind]string{settings.KindDuration: "duration", settings.KindInt: "int", settings.KindBool: "bool", settings.KindEnum: "enum", settings.KindString: "string", settings.KindSet: "set"}[k]
 }
 
 func randomStrictValue(r *rand.Rand, d settings.Def) any {
@@ -50,6 +51,17 @@ func randomStrictValue(r *rand.Rand, d settings.Def) any {
 		return r.IntN(2) == 1
 	case settings.KindString:
 		return []string{"", "", "siem.example:6514", "collector:4317", "relay:6514"}[r.IntN(5)]
+	case settings.KindSet:
+		if r.IntN(8) == 0 {
+			return []string{settings.SetAll}
+		}
+		var s []string
+		for _, h := range []string{"*.example.com", "a.example", "b.example", "Z.example", "é.example"} {
+			if r.IntN(2) == 0 {
+				s = append(s, h)
+			}
+		}
+		return settings.CanonicalSet(s)
 	default:
 		return d.Order[r.IntN(len(d.Order))]
 	}
@@ -88,6 +100,10 @@ func TestPostureStrictnessParity(t *testing.T) {
 		settings.KindEnum: {`"flag"`, `"off"`, `"Flag"`, `"block"`, `1`, `null`},
 		settings.KindString: {`""`, `"siem.example:6514"`, `"é"`, `"a\nb"`, `"tab\there"`, `"del\u007f"`, `"nel\u0085"`, `1`, `null`, `true`,
 			`"` + strings.Repeat("x", 255) + `"`, `"` + strings.Repeat("x", 256) + `"`, `"` + strings.Repeat("é", 128) + `"`, `"` + strings.Repeat("é", 127) + `"`},
+		// F-009 T-01b: canonical sets only (byte order: "Z" < "a" < "é").
+		settings.KindSet: {`[]`, `["a"]`, `["Z","a"]`, `["a","Z"]`, `["a","a"]`, `["*"]`, `["*","a"]`, `[""]`, `["a
+b"]`, `[1]`, `"a"`, `null`, `{}`,
+			`["a","é"]`, `["é","a"]`, `["` + strings.Repeat("x", 255) + `"]`, `["` + strings.Repeat("x", 256) + `"]`, setOf(64), setOf(65)},
 	}
 	for _, c := range strictCases() {
 		for _, raw := range candidates[c.def.Kind] {
@@ -134,6 +150,9 @@ func TestPostureStrictnessParity(t *testing.T) {
 		}
 		got = e.adminQuery(fmt.Sprintf(`SELECT string_agg(posture.strictest(d, x.v)::text, '|' ORDER BY x.i)
 			FROM posture.setting_def d, (VALUES %s) x(i, v) WHERE d.key = '%s'`, strings.Join(rows, ","), c.def.Key))
+		if c.def.Kind == settings.KindSet { // jsonb prints arrays with a space after each comma
+			got = strings.ReplaceAll(got, `", "`, `","`)
+		}
 		if got != strings.Join(want, "|") {
 			t.Errorf("%s: database and Go strictest-of differ\n db: %s\n go: %s", c.def.Key, got, strings.Join(want, "|"))
 		}
@@ -142,4 +161,13 @@ func TestPostureStrictnessParity(t *testing.T) {
 		t.Errorf("strictest of nothing: %s", got)
 	}
 	e.wantState("app_posture", "PERFORM posture.strictest(NULL::posture.setting_def, '{}')", "42501")
+}
+
+// setOf is a canonical JSON set of n distinct elements.
+func setOf(n int) string {
+	var s []string
+	for i := range n {
+		s = append(s, fmt.Sprintf("%q", fmt.Sprintf("h%03d", i)))
+	}
+	return "[" + strings.Join(s, ",") + "]"
 }

@@ -141,7 +141,8 @@ profiles:
 		"unknown key":               {swap("bu_scopable: false", "bu_scopable: false\nbu_scoped: true"), "field bu_scoped not found"},
 		"type disagrees":            {swap("type: duration", "type: int"), "is not an integer"},
 		"direction disagrees":       {swap("lower_is_stricter\nbu", "higher_is_stricter\nbu"), "disagree with the registered definition"},
-		"set type":                  {swap("type: duration", "type: set"), `type "set" is not supported`},
+		"set type, wrong direction": {swap("type: duration", "type: set"), `direction "lower_is_stricter" does not fit type set`}, // F-009 T-01b
+		"set type, BU-scopable":     {strings.Replace(swap("type: duration", "type: set"), "bu_scopable: false", "bu_scopable: true", 1), "set settings are never BU-scopable"},
 		"unknown catalog":           {swap("catalog: nist-sp-800-53-r5", "catalog: iso-27001"), `unknown catalog "iso-27001"`},
 		"bad duration":              {swap("default: 15m\n    bound: { max: 15m }\n    source", "default: fifteen\n    bound: { max: 15m }\n    source"), "invalid duration"},
 		// F-002 T-04: string settings take no bound, and the loosening flag

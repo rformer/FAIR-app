@@ -1,0 +1,18 @@
+# F-009 T-01b: binding for notification.log_retention_days: AU-11; days the delivery log is kept (F-009 design §4).
+setting: notification.log_retention_days
+type: int
+direction: higher_is_stricter
+bu_scopable: false
+profiles:
+  fedramp-moderate:
+    default: 90
+    bound: { min: 30 }
+    platform_choice: "The delivery log is kept 90 days (F-009 AC-17); at least 30"
+  cmmc-l2-r2:
+    default: 90
+    bound: { min: 30 }
+    platform_choice: "Matches FedRAMP Moderate"
+  enterprise-baseline:
+    default: 90
+    bound: { min: 30 }
+    platform_choice: "Matches FedRAMP Moderate"

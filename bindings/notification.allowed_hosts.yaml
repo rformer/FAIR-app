@@ -1,0 +1,19 @@
+# F-009 T-01b: binding for notification.allowed_hosts: AC-4, SC-7; hosts notices may be sent to (F-009 design §4).
+setting: notification.allowed_hosts
+type: set
+direction: subset_is_stricter
+bu_scopable: false
+loosening_needs_approval: true
+profiles:
+  fedramp-moderate:
+    default: []
+    bound: { max: ["*"] }
+    platform_choice: "None until the customer approves one (F-009 AC-10); every host added needs dual approval"
+  cmmc-l2-r2:
+    default: []
+    bound: { max: ["*"] }
+    platform_choice: "None until the customer approves one; every host added needs dual approval"
+  enterprise-baseline:
+    default: []
+    bound: { max: ["*"] }
+    platform_choice: "None until the customer approves one; every host added needs dual approval"

@@ -3,22 +3,22 @@
   "generator": "profilegen/1.0.0",
   "packages": [
     {
-      "file": "profile-cmmc-l2-r2-1.7.0.json",
+      "file": "profile-cmmc-l2-r2-1.8.0.json",
       "id": "cmmc-l2-r2",
-      "version": "1.7.0",
-      "sha256": "11dc0227b728c72238defd7a5ce994537963fff5760d04ed6a2b551196faa214"
+      "version": "1.8.0",
+      "sha256": "982b6f58ff1981423575926a106623f2f8bea834ded8adce48023f36c8ba5169"
     },
     {
-      "file": "profile-enterprise-baseline-1.7.0.json",
+      "file": "profile-enterprise-baseline-1.8.0.json",
       "id": "enterprise-baseline",
-      "version": "1.7.0",
-      "sha256": "913d90e908fe0e16082460d8b42f2170ed5ee779a53e1e0ad582a360cde251ca"
+      "version": "1.8.0",
+      "sha256": "59c51ce798a68c1fe13eb9c7c3c06569fbb4f04a7e4ca9366fdf246b6b23430a"
     },
     {
-      "file": "profile-fedramp-moderate-1.7.0.json",
+      "file": "profile-fedramp-moderate-1.8.0.json",
       "id": "fedramp-moderate",
-      "version": "1.7.0",
-      "sha256": "b47d02034ec43232854e70a8a2899a838a88ee22e96522da4dd646528a0baaf4"
+      "version": "1.8.0",
+      "sha256": "9502bc3c7d6ec32b922fc1bfdb11c7e32a3a9ecff6491390bb390c9cccecaba4"
     }
   ]
 }

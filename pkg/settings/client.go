@@ -167,6 +167,9 @@ func (c *Client) Bool(key, buID string) (bool, error) { return typed[bool](c, ke
 // Enum is Get for an enum setting.
 func (c *Client) Enum(key, buID string) (string, error) { return typed[string](c, key, buID) }
 
+// Set returns a set setting's effective value (F-009 T-01b), sorted.
+func (c *Client) Set(key, buID string) ([]string, error) { return typed[[]string](c, key, buID) }
+
 func typed[T any](c *Client, key, buID string) (T, error) {
 	var zero T
 	v, err := c.Get(key, buID)
@@ -230,6 +233,13 @@ func DecodeValue(d Def, raw json.RawMessage) (any, error) {
 	case KindEnum, KindString:
 		var s string
 		if err := json.Unmarshal(raw, &s); err != nil {
+			return bad()
+		}
+		v = s
+	case KindSet:
+		// As stored: sorted, without repeats (the database refuses others).
+		var s []string
+		if err := json.Unmarshal(raw, &s); err != nil || s == nil {
 			return bad()
 		}
 		v = s

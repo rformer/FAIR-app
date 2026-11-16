@@ -1,0 +1,19 @@
+# F-009 T-01b: binding for notification.detail: AC-4, SC-8; what email and webhook notices carry (F-009 design §4).
+setting: notification.detail
+type: enum
+direction: ordered
+order: [titles, minimal]
+bu_scopable: false
+profiles:
+  fedramp-moderate:
+    default: minimal
+    bound: { allowed: [minimal, titles] }
+    platform_choice: "Minimal by default (F-009 AC-05); titles may be allowed (AC-06), never for restricted business units"
+  cmmc-l2-r2:
+    default: minimal
+    bound: { allowed: [minimal, titles] }
+    platform_choice: "Matches FedRAMP Moderate"
+  enterprise-baseline:
+    default: minimal
+    bound: { allowed: [minimal, titles] }
+    platform_choice: "Matches FedRAMP Moderate"

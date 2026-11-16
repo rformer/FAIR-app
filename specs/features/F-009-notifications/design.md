@@ -23,7 +23,7 @@ Requirements: `requirements.md` (Approved 2026-11-16) · ADR-003, ADR-005, ADR-0
 | `cmd/notify`, `internal/notify` | The service: leader (collect, fan out, digests, retention, the finding), delivery workers, the SMTP and webhook senders, the destination guard, templates; `notify.CheckInstall` |
 | `internal/notifyapi` | The notifications API (§6), contract `api/openapi/notify.yaml` |
 | `internal/keys` | Service `notify`: `notify/jwt`, `notify/secrets` (the AES key; `iam keys rotate -kind notify-secrets`); `iam keys upgrade` adds them |
-| `pkg/settings` | `settings.F009Defs()` (§4); F-015 gains direction `EmptyIsStricter` for strings; packages 1.8.0 |
+| `pkg/settings` | `settings.F009Defs()` (§4); F-015's reserved `set` type with direction `subset_is_stricter` (amended 2026-11-16); packages 1.8.0 |
 | `internal/access/catalog` | Catalog version 4: `notification.view` (Platform Admin, Auditor) |
 | `internal/gateway` | Segment `notifications` → upstream `notify` |
 | `deploy/k8s/notify.yaml` | Deployment, Service, NetworkPolicy (egress: the database and NATS; SMTP and HTTPS to the destinations the customer allows) |
@@ -84,7 +84,7 @@ A recipient is re-checked when the in-app row is added and again before each ema
   - headers `webhook-id` (the delivery id), `webhook-timestamp` and `webhook-signature: v1,<base64 HMAC-SHA-256(secret, id.timestamp.body)>`;
   - for 24 hours after a rotation, deliveries carry a signature by the old secret as well.
 - **The destination guard (SSRF; AC-10; OQ7).** Each delivery:
-  - matches the host against `notification.allowed_hosts`, a comma-separated list of names and `*.` suffixes; an empty list allows nothing;
+  - matches the host against `notification.allowed_hosts`, a set of host names and `*.` suffixes (`*` alone: any host); the empty set allows nothing;
   - resolves the host, and refuses loopback, link-local, unspecified, multicast and the cluster's ranges (`FAIR_NOTIFY_CLUSTER_CIDRS`);
   - in air-gapped mode, refuses anything outside private ranges (RFC 1918, RFC 4193);
   - dials the checked address itself;
@@ -144,13 +144,16 @@ The leader deletes, daily:
 | Key | Kind | Default | Bounds (weakest) | Stricter |
 |---|---|---|---|---|
 | `notification.detail` | enum | `minimal` | `titles` | `minimal` |
-| `notification.allowed_hosts` | string | empty (nothing allowed) | any list | empty (new direction `EmptyIsStricter`; a change from empty needs approval, `loosening_needs_approval`) |
+| `notification.allowed_hosts` | set | `[]` (nothing allowed) | `["*"]` (any host) | a subset (`subset_is_stricter`); every host added is a loosening, which needs dual approval (`loosening_needs_approval`) |
 | `notification.retry_hours` | int | 24 | 1 to 72 | higher |
 | `notification.log_retention_days` | int | 90 | 30 to 365 | higher |
 
 - Packages 1.8.0 (52 settings). Tests use a synthetic 1.9.0 for later releases.
-- `EmptyIsStricter` gains its Go and SQL comparators, parity-tested as F-015 T-13's.
-- `notification.allowed_hosts` is at most 255 bytes (F-015's string limit). Suffixes keep the list short.
+- **The set type (amended 2026-11-16).** F-015's reserved `set` type is implemented for `notification.allowed_hosts`, in Go (`settings.KindSet`, `SubsetIsStricter`), SQL (`posture.check_value`, `posture.compare`; migration 0123) and the package tools, parity-tested as F-015 T-13's.
+  - **Values:** sorted, without repeats, at most 64 elements of 1 to 255 bytes each. `*` stands for every element and appears alone.
+  - **Strictness:** a proper subset is stricter. A set that adds any element is weaker, even when it also drops one, so replacing a host needs approval too.
+  - **Scope:** sets are never BU-scopable, since inclusion is a partial order.
+  - **Bounds:** a binding gives a set's bound as `max`, here `["*"]`.
 
 ## 5. Data model
 Schema `notify`, owned through `notify_definer`. No table is BU-owned; every read and write goes through definer functions that take the user from the signed context.
@@ -231,7 +234,7 @@ Channels, tests and refusals are category `config`; deliveries and preferences a
   - The UI header's unread count.
 - **F-007:** `register.notice_outbox` and `register.notice_sweep` on the risk service's leader.
 - **F-015:**
-  - Direction `EmptyIsStricter`.
+  - The `set` type (`subset_is_stricter`).
   - Four settings; packages 1.8.0.
   - `posture.finding_outbox` and its trigger.
   - `posture.notification_finding`.
@@ -257,3 +260,4 @@ Channels, tests and refusals are category `config`; deliveries and preferences a
 ## Change Log
 - 2026-11-16: Initial draft, In Review. Service, secrets, intake and findings decided with Robert Former.
 - 2026-11-16: Approved by Robert Former.
+- 2026-11-16: §4 amended with Robert Former (found in T-01): `notification.allowed_hosts` is F-015's set type, not a string with `EmptyIsStricter`. With `EmptyIsStricter` only the first host would have needed approval; with the set type every host added is a loosening needing dual approval. T-01 is split (T-01b).
