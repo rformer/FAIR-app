@@ -24,7 +24,7 @@ F-008 manages the lifecycle of a risk acceptance: a request to accept a register
 ### F-008-R-02 Review and approval by tier
 **As an** approver, **I want** the requests that need my authority sent to me with the evidence, **so that** the size of a risk decides who accepts it.
 
-- F-008-AC-04: THE SYSTEM SHALL place each request in an exposure tier by the risk's mean annualized loss; each tier names the business unit level at which approvers must hold `acceptance.approve` (the risk's business unit, an ancestor a given number of levels up, or the root) and the number of approvals needed (one or two).
+- F-008-AC-04: THE SYSTEM SHALL place each request in an exposure tier by the risk's mean annualized loss; each tier names the business unit level at which approvers must hold `acceptance.approve` (the risk's business unit, an ancestor a given number of levels up, or the root) and the number of approvals needed (one or two). For a risk inside a restricted business unit, the level never leaves its restricted subtree: an ancestor beyond it, and the root, are the top of that subtree (amended 2026-11-15).
 - F-008-AC-05: THE SYSTEM SHALL accept a decision on a request only from a holder of `acceptance.approve` at the tier's business unit or above it, who is neither the requester nor the risk's owner; two approvals SHALL come from two different people.
 - F-008-AC-06: WHEN an approver approves or rejects a request THE SYSTEM SHALL record the decision with a rationale; an approval MAY shorten the expiry, and a rejection ends the request.
 - F-008-AC-07: WHEN a request has the approvals its tier needs THE SYSTEM SHALL make the acceptance active until its expiry date, and show it on the risk (F-007-AC-18).
@@ -90,3 +90,4 @@ To be proposed with the tasks.
 ## Change Log
 - 2026-11-15: Initial draft. Scope decisions taken with Robert Former: approval authority by configurable exposure tiers; tiers placed by mean annualized loss; every acceptance expires and is renewed by a new approval; re-review when the exposure enters a higher tier (suspended) or goes stale (flagged).
 - 2026-11-15: **Approved** by Robert Former, with the open questions' proposals as stated (to be settled in the design).
+- 2026-11-15: AC-04 amended (Robert Former): inside a restricted subtree a tier's level stops at its top, since approvers above it cannot see the acceptance (F-001 restricted business units).
