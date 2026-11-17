@@ -1,5 +1,5 @@
 # F-011 Integrations and automation inputs — Requirements
-Status: In Review | Owner: Robert Former | Last updated: 2026-11-17
+Status: Approved | Owner: Robert Former | Last updated: 2026-11-17
 
 ## Summary
 F-011 brings data the customer already holds into the platform, so that analyses start from the organization's own facts rather than from blank forms, and stay current as those facts change. It answers the product vision's OQ1 with four inputs for v1: an **asset inventory** (assets and their values from a CMDB or asset register), **loss event history** (incidents and losses that become reference classes for calibrated estimates, F-004), an **existing risk register** (a one-time or repeated import of risks kept in spreadsheets or another tool), and **control status** (whether the controls scenarios rely on are in place, from the customer's control or GRC tool). Data arrives in two ways: pushed to the platform's API by the customer's own automation (F-001 service accounts) or uploaded as files, which works in every deployment mode; and, where the customer configures one, pulled on a schedule from a source system by a connector, only from allow-listed hosts and, in air-gapped mode, only inside the enclave. Automation assists and humans decide (P4): incoming data is matched to existing records, checked, and presented as proposed changes; nothing an analysis depends on changes until a person with the right permission accepts it, and because scenarios pin versions (F-003), accepting a change never alters a past result. Every run, change and refusal is recorded, and credentials are kept as files or sealed secrets, never shown again.
@@ -112,14 +112,15 @@ To be proposed with the tasks.
 - F-004: reference classes as estimate aids; F-007: the register, staleness; F-009: notices and the destination guard.
 
 ## Open Questions
-- OQ1. Which inputs in v1 (product vision OQ1)? Proposed: the four above (assets, loss events, risk register, control status), chosen because each feeds an existing feature without a new model.
-- OQ2. Which pull connectors ship in v1? Proposed: a generic HTTPS JSON connector (paged GET with a declarative mapping) and a ServiceNow CMDB connector for assets; vendor connectors beyond that follow demand. API push and file upload cover every source in the meantime.
-- OQ3. Vulnerability data in v1? Proposed: no (the product vision keeps scanning out of scope); customers can bring summarized vulnerability counts in as loss-event-style data later.
-- OQ4. Review by default (AC-10 to AC-13)? Proposed: yes, everything is proposed; `auto_accept` applies only descriptive fields, per integration, off by default.
-- OQ5. A new permission `integration.view` (not privileged) for integration owners and auditors, in a permission catalog version 6 (Auditor and Platform Admin gain it)? Proposed: yes (re-sign the catalog).
-- OQ6. Distribution fitting (F-005 left it here)? Proposed: out of scope for v1; reference classes from loss events (AC-18) feed F-004's estimate aids, and the estimator still gives the range.
-- OQ7. Loss event visibility (AC-19)? Proposed: loss events are BU-owned records under RLS (`library.view`), like library entries, so restricted units' history stays inside them.
-- OQ8. Limits? Proposed: files up to 20 MiB, 10,000 records per batch or run, 12 connector runs per integration per hour, 50 integrations per installation.
+- OQ1 (resolved 2026-11-17: as proposed). Which inputs in v1 (product vision OQ1)? Proposed: the four above (assets, loss events, risk register, control status), chosen because each feeds an existing feature without a new model.
+- OQ2 (resolved 2026-11-17: as proposed). Which pull connectors ship in v1? Proposed: a generic HTTPS JSON connector (paged GET with a declarative mapping) and a ServiceNow CMDB connector for assets; vendor connectors beyond that follow demand. API push and file upload cover every source in the meantime.
+- OQ3 (resolved 2026-11-17: as proposed). Vulnerability data in v1? Proposed: no (the product vision keeps scanning out of scope); customers can bring summarized vulnerability counts in as loss-event-style data later.
+- OQ4 (resolved 2026-11-17: as proposed). Review by default (AC-10 to AC-13)? Proposed: yes, everything is proposed; `auto_accept` applies only descriptive fields, per integration, off by default.
+- OQ5 (resolved 2026-11-17: as proposed). A new permission `integration.view` (not privileged) for integration owners and auditors, in a permission catalog version 6 (Auditor and Platform Admin gain it)? Proposed: yes (re-sign the catalog).
+- OQ6 (resolved 2026-11-17: as proposed). Distribution fitting (F-005 left it here)? Proposed: out of scope for v1; reference classes from loss events (AC-18) feed F-004's estimate aids, and the estimator still gives the range.
+- OQ7 (resolved 2026-11-17: as proposed). Loss event visibility (AC-19)? Proposed: loss events are BU-owned records under RLS (`library.view`), like library entries, so restricted units' history stays inside them.
+- OQ8 (resolved 2026-11-17: as proposed). Limits? Proposed: files up to 20 MiB, 10,000 records per batch or run, 12 connector runs per integration per hour, 50 integrations per installation.
 
 ## Change Log
 - 2026-11-17: Initial draft, In Review.
+- 2026-11-17: Approved by Robert Former; OQ1 to OQ8 resolved as proposed.
