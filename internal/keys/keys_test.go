@@ -1,6 +1,7 @@
 package keys
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -515,5 +516,55 @@ func TestNotifyKeys(t *testing.T) {
 	}
 	if _, err := WebhookSecretKeys(filepath.Join(d, Notify, WebhookSecretsDir)); err == nil {
 		t.Error("a key file named otherwise")
+	}
+}
+
+// F-010 T-04 (design §3.3): the risk service's report context key.
+func TestReportContextKeys(t *testing.T) {
+	t0 := time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC)
+	d := t.TempDir()
+	s, err := Init(d, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sdir := filepath.Join(d, Risk, SecretsDir)
+	if id, err := ReadID(filepath.Join(sdir, ReportContextID)); err != nil || id != s.ReportContext || !strings.HasPrefix(id, "rctx") {
+		t.Fatalf("report context id %q (set %q): %v", id, s.ReportContext, err)
+	}
+	if err := Check(d); err != nil {
+		t.Fatal(err)
+	}
+	old, _ := ReadSecret(filepath.Join(sdir, ReportContextKey), SecretLen)
+	id, err := Rotate(d, KindReportCtx, t0.Add(time.Hour))
+	if err != nil || id == s.ReportContext {
+		t.Fatalf("rotate: %s %v", id, err)
+	}
+	if now, _ := ReadSecret(filepath.Join(sdir, ReportContextKey), SecretLen); bytes.Equal(now, old) {
+		t.Error("rotation kept the secret")
+	}
+	// The same secret as the gateway's DB-context key is refused.
+	gw, _ := os.ReadFile(filepath.Join(d, Gateway, SecretsDir, DBContextKey))
+	if err := os.WriteFile(filepath.Join(sdir, ReportContextKey), gw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Check(d); err == nil {
+		t.Error("a report key equal to the gateway's passed")
+	}
+	// A directory from before F-010 gets risk/secrets from upgrade.
+	if err := os.RemoveAll(sdir); err != nil {
+		t.Fatal(err)
+	}
+	if err := Check(d); err == nil {
+		t.Fatal("a directory without the report context key passed")
+	}
+	added, err := Upgrade(d, t0.Add(2*time.Hour))
+	if err != nil || !slices.Equal(added, []string{Risk + "/" + SecretsDir}) {
+		t.Fatalf("upgrade: %v %v", added, err)
+	}
+	if err := Check(d); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := Upgrade(d, t0.Add(3*time.Hour)); err != nil || len(again) != 0 {
+		t.Fatalf("second upgrade: %v %v", again, err)
 	}
 }

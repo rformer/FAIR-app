@@ -6,3 +6,7 @@ path "secret/data/fair/risk/jwt" {
 path "secret/data/fair/risk/engine-client" {
   capabilities = ["read"]
 }
+# F-010 T-04: the report context key.
+path "secret/data/fair/risk/secrets" {
+  capabilities = ["read"]
+}

@@ -22,13 +22,25 @@ var ErrKeyMismatch = errors.New("keys: authz.ctx_key holds a different secret un
 // fair_owner. Registering a key the database already holds is a no-op
 // (registered = false). Audited to emit (the install log).
 func RegisterDBContext(ctx context.Context, conn *pgx.Conn, emit audit.Emitter, dir string) (id string, registered bool, err error) {
-	id, err = ReadID(filepath.Join(dir, Gateway, SecretsDir, DBContextID))
+	return registerContextKey(ctx, conn, emit, filepath.Join(dir, Gateway, SecretsDir), DBContextID, DBContextKey, "session")
+}
+
+// RegisterReportContext adds the risk service's delegated report context
+// key (risk/secrets/report-context.id and .key in dir) to authz.ctx_key with
+// purpose report (F-010 design §3.3; ADR-007 amendment 6): the database
+// honours its tokens only in read-only transactions for a running report.
+func RegisterReportContext(ctx context.Context, conn *pgx.Conn, emit audit.Emitter, dir string) (id string, registered bool, err error) {
+	return registerContextKey(ctx, conn, emit, filepath.Join(dir, Risk, SecretsDir), ReportContextID, ReportContextKey, "report")
+}
+
+func registerContextKey(ctx context.Context, conn *pgx.Conn, emit audit.Emitter, sdir, idFile, keyFile, purpose string) (id string, registered bool, err error) {
+	id, err = ReadID(filepath.Join(sdir, idFile))
 	if err != nil {
 		return "", false, err
 	}
-	sec, err := ReadSecret(filepath.Join(dir, Gateway, SecretsDir, DBContextKey), SecretLen)
+	sec, err := ReadSecret(filepath.Join(sdir, keyFile), SecretLen)
 	if err != nil {
-		return "", false, fmt.Errorf("%s: %w", DBContextKey, err)
+		return "", false, fmt.Errorf("%s: %w", keyFile, err)
 	}
 	tx, err := conn.Begin(ctx)
 	if err != nil {
@@ -39,15 +51,16 @@ func RegisterDBContext(ctx context.Context, conn *pgx.Conn, emit audit.Emitter, 
 		return "", false, err
 	}
 	var have []byte
-	switch err := tx.QueryRow(ctx, "SELECT secret FROM authz.ctx_key WHERE key_id = $1", id).Scan(&have); {
-	case err == nil && bytes.Equal(have, sec):
+	var havePurpose string
+	switch err := tx.QueryRow(ctx, "SELECT secret, purpose FROM authz.ctx_key WHERE key_id = $1", id).Scan(&have, &havePurpose); {
+	case err == nil && bytes.Equal(have, sec) && havePurpose == purpose:
 		return id, false, nil
 	case err == nil:
 		return "", false, ErrKeyMismatch
 	case !errors.Is(err, pgx.ErrNoRows):
 		return "", false, err
 	}
-	if _, err := tx.Exec(ctx, "SELECT authz.add_ctx_key($1, $2)", id, sec); err != nil {
+	if _, err := tx.Exec(ctx, "SELECT authz.add_ctx_key($1, $2, $3)", id, sec, purpose); err != nil {
 		return "", false, err
 	}
 	if err := emit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "key.db_context_registered", Severity: audit.SeverityHigh, Actor: "system:installer",
@@ -70,7 +83,9 @@ func RetireDBContext(ctx context.Context, conn *pgx.Conn, emit audit.Emitter, id
 		return err
 	}
 	var others int
-	if err := tx.QueryRow(ctx, "SELECT count(*) FROM authz.ctx_key WHERE retired_at IS NULL AND key_id <> $1", id).Scan(&others); err != nil {
+	// Another active key of the same purpose must remain (F-010: session and report keys are counted apart).
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM authz.ctx_key WHERE retired_at IS NULL AND key_id <> $1
+		AND purpose = (SELECT purpose FROM authz.ctx_key WHERE key_id = $1)`, id).Scan(&others); err != nil {
 		return err
 	}
 	if others == 0 {

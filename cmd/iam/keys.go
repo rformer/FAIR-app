@@ -20,11 +20,11 @@ import (
 
 const keysUsage = `usage:
   iam keys init -dir DIR                      create every key (never overwrites)
-  iam keys upgrade -dir DIR                   add the keys of services newer than DIR (F-002: audit/; F-003: risk/; F-005: the engine channel; F-009: notify/)
-  iam keys rotate -dir DIR -kind KIND         add a key: jwt, login-ticket, db-context, checkpoint, engine or notify-secrets
+  iam keys upgrade -dir DIR                   add the keys of services newer than DIR (F-002: audit/; F-003: risk/; F-005: the engine channel; F-009: notify/; F-010: risk/secrets/)
+  iam keys rotate -dir DIR -kind KIND         add a key: jwt, login-ticket, db-context, checkpoint, engine, notify-secrets or report-context
   iam keys check -dir DIR                     check a key directory as a whole
-  iam keys register -dir DIR                  add the gateway's DB-context key to the database
-  iam keys retire-db-context -id ID           retire a DB-context key the gateway no longer uses`
+  iam keys register -dir DIR                  add the gateway's DB-context key and the risk service's report context key to the database
+  iam keys retire-db-context -id ID           retire a DB-context or report context key no longer used`
 
 // runKeys implements `iam keys` (F-001 T-41, design §10; docs/install/keys.md).
 // init, rotate and check work on files only; register and retire-db-context
@@ -141,6 +141,17 @@ func keysCommand(args []string, out io.Writer) error {
 		k, added, err := keys.RegisterDBContext(ctx, conn, emit, *dir)
 		if err == nil && !added {
 			_, err = fmt.Fprintf(out, "DB-context key %s is already registered\n", k)
+		}
+		if err != nil {
+			return err
+		}
+		// F-010 T-04: the risk service's report context key (purpose report).
+		k, added, err = keys.RegisterReportContext(ctx, conn, emit, *dir)
+		if err != nil {
+			return fmt.Errorf("report context key: %w (iam keys upgrade adds it to older key directories)", err)
+		}
+		if !added {
+			_, err = fmt.Fprintf(out, "report context key %s is already registered\n", k)
 		}
 		return err
 	}

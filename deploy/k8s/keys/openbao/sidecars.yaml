@@ -265,6 +265,8 @@ spec:
           env:
             - { name: FAIR_JWT_KEYS_DIR, value: /keys/jwt }
             - { name: FAIR_ENGINE_CLIENT_DIR, value: /keys/engine-client }
+            - { name: FAIR_REPORT_CONTEXT_KEY_FILE, value: /keys/secrets/report-context.key }
+            - { name: FAIR_REPORT_CONTEXT_KEY_ID_FILE, value: /keys/secrets/report-context.id }
           volumeMounts:
             - { name: keys, mountPath: /keys, readOnly: true }
       volumes:
