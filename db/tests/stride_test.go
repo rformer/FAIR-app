@@ -360,6 +360,34 @@ var strideF009 = map[string][]string{
 	},
 }
 
+// strideF010 maps F-010's design §7 rows (T-19).
+var strideF010 = map[string][]string{
+	"I: a report or the dashboard shows data its requester cannot see | Reads under the requester's own context and existing RLS (request context, or the delegated context bound to their run); restricted BUs by roll-up mode; calibration tables never read": {
+		"db/tests:TestSTRIDEF010Visibility", "db/tests:TestReportDashboard", "db/tests:TestReportReaders", "internal/reports:TestReadersReadNoCalibration",
+	},
+	"E, S: the delegated context is used to write, for another user, or outside a run | Purpose-`report` keys held only by the risk service; honoured only in read-only transactions, for the run's requester, with the run's nonce while it is running; scope version checked": {
+		"db/tests:TestSTRIDEF010DelegatedContext", "db/tests:TestReportDelegatedContext",
+	},
+	"I: report files reach someone else | Runs and files listed and served to their requester only, permission re-checked at download; files in a private store; notices carry links only": {
+		"db/tests:TestSTRIDEF010Files", "db/tests:TestReportRuns", "db/tests:TestReportSchedules",
+	},
+	"I: trends leak restricted or hidden data | Snapshot rows under RLS; roll-up rows only to viewers who see every included risk and have the aggregate-only coverage": {
+		"db/tests:TestSTRIDEF010Trends", "db/tests:TestReportTrend",
+	},
+	"T: injection through report content | Values only as text in PDF strings and structure; CSV formula cells neutralized; canonical JSON; fixed file names; no external resources in PDFs": {
+		"db/tests:TestSTRIDEF010Injection", "internal/reports/doc:TestCSV", "internal/reports/doc:TestJSON", "internal/report:TestDocUnicodeAndRules",
+	},
+	"T: a report file altered after it left | SHA-256 per file in the listing and in `report.generated`": {
+		"db/tests:TestSTRIDEF010Digests",
+	},
+	"R: data taken out cannot be attributed | Requests (with reasons), generation, failures, downloads and schedule changes recorded in their transactions; a download fails if its event cannot be": {
+		"db/tests:TestReportAuditEvents",
+	},
+	"D: huge or many reports exhaust the service | Scope, size, running and schedule limits checked before work; a River queue with bounded workers; schedules catch up once": {
+		"db/tests:TestSTRIDEF010Limits", "db/tests:TestBenchmarkGateReports", "db/tests:TestReportRuns", "db/tests:TestReportSchedules",
+	},
+}
+
 // The threat tables and the suites agree: every row has tests, every test
 // exists and is run by make test-stride, and no mapping names a row the
 // design no longer has. Runs without a database.
@@ -391,6 +419,7 @@ func TestSTRIDECatalog(t *testing.T) {
 		{"F-007-risk-register", "## 7.", 8, strideF007},
 		{"F-008-risk-acceptance", "## 7.", 8, strideF008},
 		{"F-009-notifications", "## 7.", 9, strideF009},
+		{"F-010-reporting-export", "## 7.", 8, strideF010},
 	} {
 		rows := threatRows(t, filepath.Join(root, "specs", "features", c.feature, "design.md"), c.section)
 		if len(rows) < c.min {
