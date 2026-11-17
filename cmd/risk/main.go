@@ -318,11 +318,25 @@ func run() error {
 	acceptanceJob := acceptance.Job{DB: pool, OnError: func(err error) { logger.Error("acceptance job", "error", err.Error()) }}
 	// F-009 T-12 (design §3.7): the register's stale and overdue notices.
 	noticeJob := register.NoticeJob{DB: pool, OnError: func(err error) { logger.Error("register notices", "error", err.Error()) }}
+	// F-010 T-13 (design §3.6): report files past report.retention_days.
+	var purger *reports.Purger
+	if reportStore != nil {
+		purger = &reports.Purger{DB: pool, Store: reportStore, Retention: func() (int, error) { return sc.Int(settings.KeyReportRetention, "") },
+			OnError: func(err error) { logger.Error("report retention", "error", err.Error()) }}
+	}
 	go leader.Run(ctx, func(ctx context.Context) error {
-		done := make(chan error, 2)
+		done := make(chan error, 3)
 		go func() { done <- acceptanceJob.Run(ctx) }()
 		go func() { done <- noticeJob.Run(ctx) }()
+		go func() {
+			if purger == nil {
+				done <- nil
+				return
+			}
+			done <- purger.Run(ctx)
+		}()
 		err := jobs.Run(ctx)
+		<-done
 		<-done
 		<-done
 		return err

@@ -1068,6 +1068,13 @@ events:
     bu: required
     attributes: [failure, kind, requested_by, run]
     description: "A report could not be generated: its requester lost report.export, a limit was exceeded, or generation failed after its retries (F-010 T-09, AC-18, AC-23)"
+  - type: report.files_purged
+    category: risk_data
+    severities: [info]
+    requires: [target]
+    bu: required
+    attributes: [files, formats, kind, run]
+    description: "A report's files were deleted from the report store after report.retention_days, every version of each; the run and its digests remain (F-010 T-13, AC-15)"
   - type: report.generated
     category: risk_data
     severities: [low]
