@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	pdfreport "github.com/rformer/fair-app/internal/report"
 )
 
 // F-001 T-38 (AC-48, AC-64): the entitlement report and the restricted-BU
@@ -217,14 +219,17 @@ func TestEntitlementReport(t *testing.T) {
 	if pc.code != 200 || len(pr) < 4 {
 		t.Fatalf("partial's CSV: %d %d rows", pc.code, len(pr))
 	}
+	// F-010 T-07: the text through the PDF's fonts (embedded, ToUnicode).
 	p := be.do(t, "GET", "/api/v1/entitlements/report?format=pdf", auditor, nil, nil)
-	if p.code != 200 || p.hdr.Get("Content-Type") != "application/pdf" || !strings.HasPrefix(p.raw, "%PDF-1.7") ||
-		!strings.Contains(p.raw, "(ann@example.test) Tj") || !strings.Contains(p.raw, "/StructTreeRoot") ||
-		!strings.Contains(p.raw, "1 other restricted BU\\(s\\) exist") {
-		t.Fatalf("PDF: %d %v %.200s", p.code, p.hdr, p.raw)
+	ptext, err := pdfreport.Text([]byte(p.raw), true)
+	if p.code != 200 || p.hdr.Get("Content-Type") != "application/pdf" || !strings.HasPrefix(p.raw, "%PDF-1.7") || err != nil ||
+		!strings.Contains(ptext, "ann@example.test") || !strings.Contains(p.raw, "/StructTreeRoot") ||
+		!strings.Contains(ptext, "1 other restricted BU(s) exist") {
+		t.Fatalf("PDF: %d %v %v %.300s", p.code, p.hdr, err, ptext)
 	}
-	if lp := be.do(t, "GET", "/api/v1/entitlements/restricted?format=pdf", admin, nil, nil); lp.code != 200 || !strings.Contains(lp.raw, `(aud2@example.test \(user\)) Tj`) {
-		t.Fatalf("listing PDF: %d", lp.code)
+	lp := be.do(t, "GET", "/api/v1/entitlements/restricted?format=pdf", admin, nil, nil)
+	if ltext, err := pdfreport.Text([]byte(lp.raw), true); lp.code != 200 || err != nil || !strings.Contains(ltext, "aud2@example.test (user)") {
+		t.Fatalf("listing PDF: %d %v", lp.code, err)
 	}
 	if got := e.adminQuery(`SELECT string_agg(payload->'attributes'->>'format' || ':' || (payload->>'target') || ':' || (payload->'attributes'->>'rows'), ',' ORDER BY id)
 		FROM (SELECT id, 'audit' AS topic, body AS payload FROM audit.intake) ev WHERE payload->>'type' = 'entitlement.exported'`); got != "csv:report:entitlements:1,csv:report:entitlements:"+fmt.Sprint(len(pr)-1)+",pdf:report:entitlements:"+fmt.Sprint(len(all)-1)+",pdf:report:restricted_bus:"+fmt.Sprint(len(rowsOf(adminListing, "restricted_bus"))) {

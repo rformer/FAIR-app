@@ -232,6 +232,28 @@ jobs:
         with:
           version: v2.15.0
 
+  # F-010 T-07 (design §3.5): the PDF writer's samples are PDF/UA-1, checked
+  # by veraPDF (pinned by digest; CI only, never at runtime).
+  pdfua:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        env:
+          GOFIPS140: ""
+        with:
+          go-version-file: go.mod
+      - name: Write the sample PDFs
+        run: |
+          mkdir -p "$RUNNER_TEMP/pdf"
+          FAIR_PDF_OUT="$RUNNER_TEMP/pdf" go test -count=1 -run 'TestWriteSample' ./internal/report/ ./internal/reports/
+          ls -l "$RUNNER_TEMP/pdf"
+      - name: veraPDF, PDF/UA-1
+        run: |
+          docker run --rm -v "$RUNNER_TEMP/pdf:/data:ro" verapdf/cli@sha256:f085855d442ad415e79fabbabcdd1803c2db4ee097cd5b94506c95ecdcfa1728 \
+            --flavour ua1 --format text /data/entitlements.pdf /data/unicode.pdf /data/report.pdf | tee verapdf.txt
+          ! grep -v '^PASS ' verapdf.txt
+
   # F-005 T-04 (ADR-013): the engine's lint, format, types and tests with the
   # locked tools, and lock files that regenerate exactly; T-09: the
   # statistical validation suite (scripts/engine-check.sh).
