@@ -1082,6 +1082,41 @@ events:
     bu: required
     attributes: [files, kind, left_out, requested_by, risk_count, run]
     description: "A report was generated under its requester's delegated read-only context and its files stored, with each file's SHA-256 digest (F-010 T-09, AC-11, AC-14)"
+  - type: report.schedule_changed
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [cadence, filters, formats, kind, reason, schedule, version]
+    description: "A report schedule was changed by its owner: its filters, formats, cadence or reason (F-010 T-16, AC-19, AC-23)"
+  - type: report.schedule_created
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [cadence, filters, formats, kind, reason, schedule]
+    description: "A report schedule was created by a holder of report.export at its business unit, for themselves (F-010 T-16, AC-19, AC-23)"
+  - type: report.schedule_deleted
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [kind, reason, schedule]
+    description: "A report schedule was deleted by its owner, with a reason (F-010 T-16, AC-23)"
+  - type: report.schedule_resumed
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [kind, schedule, version]
+    description: "A suspended report schedule was resumed by its owner, who holds report.export again (F-010 T-16, AC-20)"
+  - type: report.schedule_suspended
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [kind, owner, schedule, suspended_reason]
+    description: "A report schedule fell due while its owner was inactive or no longer held report.export at its business unit, and was suspended; its owner is notified (F-010 T-16, AC-20)"
   - type: report.requested
     category: risk_data
     severities: [low]

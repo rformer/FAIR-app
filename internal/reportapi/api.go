@@ -20,6 +20,12 @@
 //
 //	GET  /api/v1/reports/dashboard/trend?bu=&from=&to=   the snapshots the caller may see   report.view at the BU
 //
+// T-16 serves schedules (the owner's own; report.export at the BU):
+//
+//	GET, POST          /api/v1/reports/schedules
+//	GET, PUT, DELETE   /api/v1/reports/schedules/{id}       PUT with expected_version, DELETE with a reason
+//	POST               /api/v1/reports/schedules/{id}/resume
+//
 // Without report.view or report.export anywhere the routes do not exist for
 // the caller (404, F-001 AC-25); another user's run is 404 like a missing
 // one. The database records every event (design §8) in the change's
@@ -80,6 +86,12 @@ var routes = []route{
 	{"GET", "/api/v1/reports", (*API).listReports},
 	{"GET", "/api/v1/reports/{id}", (*API).getReport},
 	{"GET", "/api/v1/reports/{id}/files/{format}", (*API).downloadFile},
+	{"GET", "/api/v1/reports/schedules", (*API).listSchedules},
+	{"POST", "/api/v1/reports/schedules", (*API).createSchedule},
+	{"GET", "/api/v1/reports/schedules/{id}", (*API).getSchedule},
+	{"PUT", "/api/v1/reports/schedules/{id}", (*API).updateSchedule},
+	{"DELETE", "/api/v1/reports/schedules/{id}", (*API).deleteSchedule},
+	{"POST", "/api/v1/reports/schedules/{id}/resume", (*API).resumeSchedule},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).
@@ -177,6 +189,14 @@ func fail(w http.ResponseWriter, err error) {
 		problem(w, http.StatusConflict, "not_succeeded", pg.Message, nil)
 	case errors.As(err, &pg) && pg.Code == "PF029" && pg.Hint == "purged":
 		problem(w, http.StatusGone, "purged", pg.Message, nil)
+	case errors.As(err, &pg) && pg.Code == "PF029" && pg.Hint == "invalid_schedule":
+		problem(w, http.StatusUnprocessableEntity, "invalid_value", pg.Message, nil)
+	case errors.As(err, &pg) && pg.Code == "PF029" && (pg.Hint == "stale_version" || pg.Hint == "not_suspended"):
+		problem(w, http.StatusConflict, pg.Hint, pg.Message, nil)
+	case errors.As(err, &pg) && pg.Code == "PF029" && pg.Hint == "reason_required":
+		problem(w, http.StatusBadRequest, "reason_required", pg.Message, nil)
+	case errors.As(err, &pg) && pg.Code == "PF030":
+		problem(w, http.StatusConflict, "too_many_schedules", pg.Message, map[string]any{"limit": 20})
 	case errors.As(err, &pg) && pg.Code == "42501":
 		problem(w, http.StatusForbidden, "forbidden", pg.Message, nil)
 	default:

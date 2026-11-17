@@ -44,6 +44,8 @@ Requirements: `requirements.md` (Approved 2026-11-16) · ADR-003, ADR-005, ADR-0
 | `iam.notice_outbox` (F-001) | `breakglass.login`, `breakglass.emergency_enabled` | holders of `breakglass.manage` at the root | the break-glass account, `/audit?target=…` | yes |
 | `posture.finding_outbox` (new, §3.6) | `finding.opened` (high, critical) | holders of `drift.acknowledge` at the root | the finding, `/posture` | yes |
 | `register.notice_outbox` (new, §3.7) | `risk.stale`, `risk.action_overdue` | the risk's owner | risk, its BU, `/register/risks/{id}` | no |
+| `report.notice_outbox` (F-010 T-16) | `report.ready`, `report.failed` | the scheduled run's requester (the schedule's owner) | report, its BU, `/reports/{id}` | no |
+| | `report.schedule_suspended` | the schedule's owner | report_schedule, its BU, `/reports/schedules/{id}` | yes |
 
 - **Permission holders** are resolved through `iam.permission_holders(permission, bu)`, including inherited holders.
 - **The 50 cap:** when holders number more than 50, the first 50 by name receive the notice. The notice records how many were left out.
@@ -268,3 +270,4 @@ Channels, tests and refusals are category `config`; deliveries and preferences a
 - 2026-11-16: T-10 (clarifications, approved with the task): the banner's short form is its first sentence (at most 300 characters), shown while `banner.enabled` is on; the finding opens when a security notice has no email or webhook delivery sent or still pending (retries count as hope); a delivery of a removed or disabled channel is dropped (`channel_removed`) when it comes due; digests go once a UTC day from the user's hour, as soon as the leader runs then.
 - 2026-11-16: T-11 (clarification, approved with the task): §6's `GET /channels/smtp`, `GET /channels/webhooks[/{id}]` and `GET /status` are one `GET /notifications/channels` (each channel with its state, backlog and failures in 24 hours); a destination refused when configured is answered 422 and nothing is saved, and only refusals at delivery are recorded (`notification.destination_refused`); a removed webhook's secrets are erased.
 - 2026-11-16: T-13 (clarification, approved with the task): §6 gains `GET /notifications/bus` (`notify.bus()`, migration 0132): the active business units' names, codes and restriction for the webhook form, to notification.view or manage at the root, since channel administrators choose a webhook's subtree across the installation.
+- 2026-11-17: F-010 T-16: source `report` (migration 0142): `report.notice_outbox` collected by `notify.collect`; `notify.recheck` sends a report notice only to its run's requester and a schedule notice only to its owner; nouns "the report", "the report schedule".

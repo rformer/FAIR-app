@@ -157,7 +157,7 @@ func TestInjection(t *testing.T) {
 // Every release kind renders, with a noun for its item type.
 func TestEveryKindRenders(t *testing.T) {
 	types := map[string]string{"estimate": "estimate_request", "acceptance": "acceptance", "posture": "posture", "iam": "breakglass",
-		"finding": "finding", "register": "risk", "notify": "test"}
+		"finding": "finding", "register": "risk", "report": "report", "notify": "test"}
 	for _, k := range Kinds {
 		e := sampleEnvelope()
 		e.Kind, e.Item.Type, e.Item.Link = k.Kind, types[k.Source], "/x"

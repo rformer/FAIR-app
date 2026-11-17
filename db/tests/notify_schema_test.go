@@ -20,7 +20,7 @@ func TestNotifySchema(t *testing.T) {
 	if got := len(e.install.Kinds.Added); got != len(notify.Kinds) {
 		t.Fatalf("install synced %d kinds, want %d", got, len(notify.Kinds))
 	}
-	if got := e.adminQuery("SELECT count(*) FILTER (WHERE mandatory) || '/' || count(*) FILTER (WHERE security) || '/' || count(*) FROM notify.kind"); got != "12/6/18" {
+	if got := e.adminQuery("SELECT count(*) FILTER (WHERE mandatory) || '/' || count(*) FILTER (WHERE security) || '/' || count(*) FROM notify.kind"); got != "13/6/21" { // F-010 T-16: report.ready, report.failed, report.schedule_suspended (mandatory)
 		t.Errorf("kinds mandatory/security/total = %s", got)
 	}
 

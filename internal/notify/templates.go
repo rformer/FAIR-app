@@ -61,6 +61,8 @@ var itemNoun = map[string]string{
 	"breakglass":       "the break-glass account's audit history",
 	"finding":          "the Security Posture page",
 	"risk":             "the risk",
+	"report":           "the report",
+	"report_schedule":  "the report schedule",
 	"test":             "the platform",
 }
 

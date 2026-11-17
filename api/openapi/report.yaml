@@ -85,6 +85,42 @@ components:
         started_at: { type: [string, "null"], format: date-time }
         finished_at: { type: [string, "null"], format: date-time }
         files: { type: array, items: { $ref: "#/components/schemas/File" } }
+    ScheduleInput:
+      type: object
+      additionalProperties: false
+      required: [formats, cadence, hour]
+      properties:
+        kind: { type: string, enum: [register, portfolio, acceptances, treatment, risk], description: "Required on create; fixed after" }
+        bu_id: { type: string, format: uuid, description: "Required on create; fixed after" }
+        params: { type: object }
+        formats: { type: array, minItems: 1, maxItems: 3, uniqueItems: true, items: { type: string, enum: [pdf, csv, json] } }
+        cadence: { type: string, enum: [daily, weekly, monthly] }
+        weekday: { type: [integer, "null"], minimum: 0, maximum: 6, description: "Weekly: 0 Sunday to 6 Saturday" }
+        monthday: { type: [integer, "null"], minimum: 1, maximum: 28, description: Monthly }
+        hour: { type: integer, minimum: 0, maximum: 23, description: UTC }
+        reason: { type: string, maxLength: 500 }
+        expected_version: { type: integer, description: "Required on updates" }
+    Schedule:
+      type: object
+      required: [id, kind, bu_id, formats, cadence, hour, next_at, state, version]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string }
+        bu_id: { type: string, format: uuid }
+        bu_name: { type: [string, "null"] }
+        params: { type: object }
+        formats: { type: array, items: { type: string } }
+        cadence: { type: string, enum: [daily, weekly, monthly] }
+        weekday: { type: [integer, "null"] }
+        monthday: { type: [integer, "null"] }
+        hour: { type: integer }
+        reason: { type: [string, "null"] }
+        next_at: { type: string, format: date-time }
+        state: { type: string, enum: [active, suspended] }
+        suspended_reason: { type: [string, "null"], enum: [inactive, no_permission, null] }
+        version: { type: integer }
+        created_at: { type: string, format: date-time }
+        last_run: { type: [object, "null"], description: "The latest run: id, state, requested_at" }
 paths:
   /api/v1/reports/kinds:
     get:
@@ -336,3 +372,109 @@ paths:
         "409": { $ref: "#/components/responses/Error" }
         "410": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+  /api/v1/reports/schedules:
+    get:
+      operationId: listSchedules
+      tags: [reports]
+      summary: The caller's own report schedules (AC-19)
+      x-permission: the owner
+      responses:
+        "200":
+          description: Schedules
+          content:
+            application/json:
+              schema: { type: object, required: [schedules], properties: { schedules: { type: array, items: { $ref: "#/components/schemas/Schedule" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createSchedule
+      tags: [reports]
+      summary: Schedule a report for oneself (AC-19)
+      description: >-
+        report.export at the business unit (403 with report.view there, 404 without). Daily, weekly (a weekday, 0 Sunday to
+        6 Saturday) or monthly (a day, 1 to 28), at an hour (UTC). At most 20 live schedules per person (409
+        too_many_schedules). A reason is required where export.reason_required is in force in the scope, as for a request;
+        the scheduled runs carry it. When due, the report is generated as its owner sees the data then, and the owner gets a
+        report.ready notice linking to it; an owner who is inactive or no longer holds report.export there has the schedule
+        suspended and is told.
+      x-permission: report.export at the BU
+      x-audit-events: [report.schedule_created]
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScheduleInput" }
+      responses:
+        "201": { description: The schedule, content: { application/json: { schema: { $ref: "#/components/schemas/Schedule" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /api/v1/reports/schedules/{id}:
+    get:
+      operationId: getSchedule
+      tags: [reports]
+      summary: One of the caller's schedules
+      x-permission: the owner
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { description: The schedule, content: { application/json: { schema: { $ref: "#/components/schemas/Schedule" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      operationId: updateSchedule
+      tags: [reports]
+      summary: Change a schedule's filters, formats, cadence or reason (the kind and business unit stay)
+      x-permission: the owner, report.export at the BU
+      x-audit-events: [report.schedule_changed]
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/ID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScheduleInput" }
+      responses:
+        "200": { description: The schedule, content: { application/json: { schema: { $ref: "#/components/schemas/Schedule" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteSchedule
+      tags: [reports]
+      summary: Delete a schedule, with a reason (its runs keep naming it)
+      x-permission: the owner
+      x-audit-events: [report.schedule_deleted]
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/ID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [reason], additionalProperties: false, properties: { reason: { type: string, minLength: 1, maxLength: 1000 } } }
+      responses:
+        "204": { description: Deleted }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/reports/schedules/{id}/resume:
+    post:
+      operationId: resumeSchedule
+      tags: [reports]
+      summary: Resume a suspended schedule (AC-20)
+      description: The owner, holding report.export at the business unit again; the next run is the first time after now.
+      x-permission: the owner, report.export at the BU
+      x-audit-events: [report.schedule_resumed]
+      x-reason-exempt: The owner resumes their own schedule; its reason stays.
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: "#/components/parameters/ID" }
+      responses:
+        "200": { description: The schedule, content: { application/json: { schema: { $ref: "#/components/schemas/Schedule" } } } }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }

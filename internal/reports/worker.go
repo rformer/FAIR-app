@@ -216,6 +216,11 @@ func (w *Worker) run(ctx context.Context, sp spec, tok, nonce string) error {
 	if err != nil {
 		return err
 	}
+	// The scope limit holds for every run, scheduled ones included (their
+	// scope is counted here, as they have no request).
+	if built.Risks > MaxRisks {
+		return errFinal{FailLimitExceeded, fmt.Sprintf("the report covers %d risks; at most %d", built.Risks, MaxRisks)}
+	}
 	d := built.Doc
 	if d.Metadata.Title == "" {
 		d.Metadata.Title = k.Title
