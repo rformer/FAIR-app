@@ -20,11 +20,15 @@ export interface Loaded<T> {
   reload: () => void;
 }
 
-/** Fetches path; reload() fetches again (after an action). */
-export function useApi<T>(path: string): Loaded<T> {
-  const [state, setState] = useState<{ data?: T; error?: unknown; loading: boolean }>({ loading: true });
+/** Fetches path (nothing while it is null); reload() fetches again (after an action). */
+export function useApi<T>(path: string | null): Loaded<T> {
+  const [state, setState] = useState<{ data?: T; error?: unknown; loading: boolean }>({ loading: path !== null });
   const [tick, setTick] = useState(0);
   useEffect(() => {
+    if (path === null) {
+      setState({ loading: false });
+      return;
+    }
     const ac = new AbortController();
     setState((s) => ({ ...s, loading: true }));
     getJSON<T>(path, ac.signal).then(

@@ -227,3 +227,11 @@ fieldset.member { border: 1px solid var(--border); border-radius: var(--radius);
 .callout.warn { border-left-color: var(--warn-fg); background: var(--warn-bg); }
 .callout p { margin: 0.25rem 0; }
 .basket { margin: 0.5rem 0 0; }
+
+/* F-010 T-17: the trend chart's legend; the dashboard's tiles. */
+.line-legend { list-style: none; display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; padding: 0; margin: 0.25rem 0 0.5rem; }
+.line-legend svg { vertical-align: middle; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: 0.75rem; margin: 0.5rem 0 1rem; padding: 0; list-style: none; }
+.tiles li { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 0.5rem 0.75rem; }
+.tiles .n { display: block; font-size: 1.5rem; font-weight: 700; }
+progress { width: 12rem; }

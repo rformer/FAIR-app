@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { ApiError, describe, send } from "../api";
+import { ApiError, describe, reasonHeader, send } from "../api";
+import { DownloadButton } from "../reason";
 import { Section, useApi } from "../components";
 import { ChartFigure } from "../charts/ChartFigure.tsx";
 import { describeExceedance, exceedanceTable, signed, type CurveSeries } from "../charts/describe.ts";
@@ -145,8 +146,9 @@ export function ComparePage() {
           description={describeExceedance(series, currency)}
           table={exceedanceTable(series, currency)}
           downloads={{
-            record: async (format) =>
-              (await send<{ download_id: string }>("POST", "/api/v1/analyses/downloads", { subject: "comparison", items, view: "curve", format })).download_id,
+            record: async (format, reason) =>
+              (await send<{ download_id: string }>("POST", "/api/v1/analyses/downloads", { subject: "comparison", items, view: "curve", format }, reasonHeader(reason)))
+                .download_id,
             footer: (downloadId) => [
               `Loss exceedance curves compared: ${c.items.map((i) => i.label).join("; ")}`,
               `Currency: ${currency ?? "not set"}.${c.unlike.length ? ` Differ in: ${c.unlike.map((u) => UNLIKE[u] ?? u).join(", ")}.` : ""}`,
@@ -207,9 +209,9 @@ export function ComparePage() {
           </table>
         </div>
         <p>
-          <a href={`/api/v1/analyses/compare.csv?view=summary&${query}`} download>
+          <DownloadButton href={`/api/v1/analyses/compare.csv?view=summary&${query}`} fallbackName="comparison-summary.csv">
             Download the table as CSV
-          </a>
+          </DownloadButton>
         </p>
       </Section>
       <Section id="compare-share" title="Share this comparison">

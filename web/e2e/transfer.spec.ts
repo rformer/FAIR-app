@@ -38,8 +38,13 @@ test("export a subtree, then import it with a dry run first (AC-24, AC-25), acce
 
   const exp = page.getByRole("region", { name: "Export" });
   await exp.getByLabel("Business unit").selectOption({ label: "Enterprise" });
-  const download = page.waitForEvent("download");
+  // F-010 T-17 (AC-16): the subtree holds the restricted R, where
+  // export.reason_required is on, so the export asks for a reason.
   await exp.getByRole("button", { name: "Download the export" }).click();
+  const dialog = page.getByRole("dialog", { name: "Why are you taking this data out?" });
+  await dialog.getByLabel("Reason for the export").fill("Copy for the claims business unit");
+  const download = page.waitForEvent("download");
+  await dialog.getByRole("button", { name: "Continue" }).click();
   const file = await download;
   await expect(exp.getByRole("status")).toContainText(/SHA-256 of the file: [0-9a-f]{64}/);
   const path = info.outputPath("export.json");

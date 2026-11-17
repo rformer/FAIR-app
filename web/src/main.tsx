@@ -31,6 +31,10 @@ import { RiskList } from "./register/RiskList";
 import { RiskPage } from "./register/RiskPage";
 import { RollupPage, RollupsPage } from "./register/Rollups";
 import { TreatmentEditor } from "./register/Treatment";
+import { ReasonPrompt } from "./reason";
+import { DashboardPage } from "./reports/Dashboard";
+import { MyReportsPage, NewReportPage, ReportPage } from "./reports/Reports";
+import { NewSchedulePage, SchedulePage, SchedulesPage } from "./reports/Schedules";
 import "./styles.css";
 
 type SessionState =
@@ -81,6 +85,8 @@ function App() {
   const path = window.location.pathname;
   const section = path.startsWith("/notifications")
     ? "notifications"
+    : path.startsWith("/reports")
+    ? "reports"
     : path.startsWith("/register")
     ? "register"
     : path.startsWith("/acceptances")
@@ -118,6 +124,11 @@ function App() {
             <li>
               <a href="/acceptances" aria-current={current("acceptances")}>
                 Acceptances
+              </a>
+            </li>
+            <li>
+              <a href="/reports" aria-current={current("reports")}>
+                Reports
               </a>
             </li>
             <li>
@@ -169,6 +180,8 @@ function App() {
       <main id="main" tabIndex={-1}>
         {section === "notifications" ? (
           <NotificationRoutes path={path} />
+        ) : section === "reports" ? (
+          <ReportRoutes path={path} />
         ) : section === "register" ? (
           <RegisterRoutes path={path} />
         ) : section === "acceptances" ? (
@@ -189,8 +202,24 @@ function App() {
           <PosturePage />
         )}
       </main>
+      <ReasonPrompt />
     </>
   );
+}
+
+// F-010 T-17: /reports (the dashboard), /reports/new, /reports/mine,
+// /reports/{id}, /reports/schedules, /reports/schedules/new,
+// /reports/schedules/{id} (F-009 notices link to the last two kinds).
+function ReportRoutes({ path }: { path: string }) {
+  if (path === "/reports" || path === "/reports/") return <DashboardPage />;
+  if (path === "/reports/new") return <NewReportPage />;
+  if (path === "/reports/mine") return <MyReportsPage />;
+  if (path === "/reports/schedules") return <SchedulesPage />;
+  if (path === "/reports/schedules/new") return <NewSchedulePage />;
+  const s = /^\/reports\/schedules\/([0-9a-f-]{36})$/.exec(path);
+  if (s?.[1]) return <SchedulePage id={s[1]} />;
+  const m = /^\/reports\/([0-9a-f-]{36})$/.exec(path);
+  return m?.[1] ? <ReportPage id={m[1]} /> : <p role="alert">Not found.</p>;
 }
 
 // F-009 T-13: /notifications, /notifications/preferences, /notifications/channels,

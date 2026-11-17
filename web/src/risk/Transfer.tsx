@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { ApiError, describe, send } from "../api";
+import { ApiError, describe, getFile, send } from "../api";
+import { withReason } from "../reason";
 import { Section, useApi } from "../components";
 import type { BU } from "./types";
 
@@ -59,8 +60,9 @@ function Export() {
           e.preventDefault();
           setDone({});
           try {
-            const resp = await fetch(`/api/v1/risk/export?bu=${encodeURIComponent(bu)}${archived ? "&archived=true" : ""}`, { credentials: "same-origin" });
-            if (!resp.ok) throw new ApiError(resp.status, "", "");
+            // F-010 T-17: a reason where export.reason_required covers the subtree.
+            const href = `/api/v1/risk/export?bu=${encodeURIComponent(bu)}${archived ? "&archived=true" : ""}`;
+            const resp = await withReason((reason) => getFile(href, reason));
             const blob = await resp.blob();
             const a = document.createElement("a");
             a.href = URL.createObjectURL(blob);

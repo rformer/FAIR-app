@@ -27,6 +27,8 @@ export function RiskPage({ id }: { id: string }) {
   const view = useApi<RiskView>(`/api/v1/register/risks/${id}`);
   const bus = useApi<{ bus: BU[] }>("/api/v1/register/bus?permission=register.view");
   const editable = useApi<{ bus: BU[] }>("/api/v1/register/bus?permission=register.edit");
+  // F-010 T-17: a report on this risk, for a holder of report.export at its BU.
+  const exporting = useApi<{ bus: BU[] }>("/api/v1/reports/bus?permission=report.export");
   const currency = useCurrency();
   usePolling(view.data?.risk.status?.status === "computing", view.reload);
   const title = view.data?.risk.title ?? "Risk";
@@ -94,6 +96,7 @@ export function RiskPage({ id }: { id: string }) {
                 )
               ) : null}
               {mayEdit && open ? <MoveRisk id={id} from={r.bu_id} bus={editable.data?.bus ?? []} onDone={view.reload} /> : null}
+              {open && exporting.data?.bus.some((b) => b.id === r.bu_id) ? <a href={`/reports/new?kind=risk&bu=${r.bu_id}&risk=${id}`}>Generate a report on this risk</a> : null}
               <a href={auditHref(`register_risk:${id}`)}>Audit history of this risk</a>
             </p>
             {r.status && r.status.status === "stale" ? (

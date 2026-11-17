@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { ApiError, describe, getJSON, send } from "../api";
+import { ApiError, describe, getJSON, reasonHeader, send } from "../api";
 import { Badge, Section, Status, useApi, type Tone } from "../components";
 import { auditHref, date } from "../links";
 import type { BU, Head } from "../risk/types";
@@ -372,7 +372,8 @@ function AggregateCharts({ a, currency }: { a: Aggregate; currency: string | nul
     .sort((x, y) => y.mean - x.mean)
     .map((c) => ({ label: c.label, value: c.mean, share: c.share_of_p95_year }));
   const downloads = (view: string, chart: string, extra = ""): ChartDownloads => ({
-    record: async (format) => (await send<{ download_id: string }>("POST", "/api/v1/analyses/downloads", { subject: "aggregate", id: a.id, view, format })).download_id,
+    record: async (format, reason) =>
+      (await send<{ download_id: string }>("POST", "/api/v1/analyses/downloads", { subject: "aggregate", id: a.id, view, format }, reasonHeader(reason))).download_id,
     footer: (downloadId) => [
       `${chart}: ${a.name}`,
       `Members: ${members.join("; ")}`,

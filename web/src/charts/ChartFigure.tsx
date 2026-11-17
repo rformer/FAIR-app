@@ -8,11 +8,16 @@
 import { useId, useRef, useState, type ReactNode } from "react";
 import { Button } from "react-aria-components";
 import type { DataTable } from "./describe.ts";
+import { attachmentName, describe, getFile } from "../api";
+import { withReason } from "../reason";
 import { fileName, pngOf, save, serializeChart } from "./export.ts";
 
 export interface ChartDownloads {
-  /** Records an image download; resolves to the download's id. */
-  record(format: "svg" | "png"): Promise<string>;
+  /**
+   * Records an image download, with a reason where the service asks for
+   * one (F-010 T-17); resolves to the download's id.
+   */
+  record(format: "svg" | "png", reason?: string): Promise<string>;
   /** The footer lines drawn into an image, given its download id. */
   footer(downloadId: string): string[];
   file: { subject: string; id: string; view: string };
@@ -43,12 +48,28 @@ export function ChartFigure({ title, description, table, downloads, children }: 
     setBusy(true);
     setError(null);
     try {
-      const downloadId = await downloads.record(format);
+      const downloadId = await withReason((reason) => downloads.record(format, reason));
       const markup = serializeChart(svg, { lines: downloads.footer(downloadId) });
       const blob = format === "svg" ? new Blob([markup], { type: "image/svg+xml" }) : await pngOf(markup);
       save(blob, fileName(downloads.file.subject, downloads.file.id, downloads.file.view, format));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "The download failed.");
+      setError(describe(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // The CSV comes from the service, which records it (and may ask for a
+  // reason first): fetched, then saved.
+  const downloadCSV = async (href: string) => {
+    if (!downloads) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const resp = await withReason((reason) => getFile(href, reason));
+      save(await resp.blob(), attachmentName(resp, fileName(downloads.file.subject, downloads.file.id, downloads.file.view, "csv")));
+    } catch (e) {
+      setError(describe(e));
     } finally {
       setBusy(false);
     }
@@ -76,9 +97,9 @@ export function ChartFigure({ title, description, table, downloads, children }: 
               Download PNG
             </Button>
             {downloads.csvHref ? (
-              <a className="chart-csv" href={downloads.csvHref} download>
+              <Button onPress={() => void downloadCSV(downloads.csvHref ?? "")} isDisabled={busy}>
                 Download CSV
-              </a>
+              </Button>
             ) : null}
           </>
         ) : null}

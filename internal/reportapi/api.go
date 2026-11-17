@@ -80,6 +80,7 @@ type route struct {
 
 var routes = []route{
 	{"GET", "/api/v1/reports/kinds", (*API).listKinds},
+	{"GET", "/api/v1/reports/bus", (*API).listBUs},
 	{"GET", "/api/v1/reports/dashboard", (*API).getDashboard},
 	{"GET", "/api/v1/reports/dashboard/trend", (*API).getTrend},
 	{"POST", "/api/v1/reports", (*API).requestReport},

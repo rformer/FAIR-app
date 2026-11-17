@@ -166,7 +166,7 @@ test("downloads: SVG and PNG recorded first, with the footer; CSV from the servi
   expect(png.body.subarray(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
 
   const download = page.waitForEvent("download");
-  await curves.getByRole("link", { name: "Download CSV" }).click();
+  await curves.getByRole("button", { name: "Download CSV" }).click();
   const csv = await download;
   expect(csv.suggestedFilename()).toBe(`run-${id.slice(0, 8)}-curve.csv`);
   const body = (await readFile((await csv.path()) ?? "")).toString("utf8");

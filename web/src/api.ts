@@ -61,7 +61,7 @@ export async function getMe(): Promise<Me> {
   return me;
 }
 
-export async function send<T>(method: "POST" | "PATCH" | "PUT", path: string, body: unknown): Promise<T> {
+export async function send<T>(method: "POST" | "PATCH" | "PUT" | "DELETE", path: string, body: unknown, headers: Record<string, string> = {}): Promise<T> {
   if (csrfToken === undefined) {
     await getMe();
   }
@@ -73,14 +73,45 @@ export async function send<T>(method: "POST" | "PATCH" | "PUT", path: string, bo
       "Content-Type": "application/json",
       "Idempotency-Key": crypto.randomUUID(),
       "X-CSRF-Token": csrfToken ?? "",
+      ...headers,
     },
     body: JSON.stringify(body),
   });
   return handle<T>(resp);
 }
 
+/**
+ * The header carrying an export's or a download's reason (F-010 T-12,
+ * design §3.6): percent-encoded UTF-8, as browsers send only Latin-1 in
+ * headers. Empty without a reason.
+ */
+export function reasonHeader(reason?: string): Record<string, string> {
+  return reason ? { "X-Fair-Reason": encodeURIComponent(reason) } : {};
+}
+
+/** A file from the API (a download), with an optional reason; errors as ApiError. */
+export async function getFile(path: string, reason?: string): Promise<Response> {
+  const resp = await fetch(path, { credentials: "same-origin", headers: { Accept: "*/*", ...reasonHeader(reason) } });
+  if (!resp.ok) await handle<never>(resp);
+  return resp;
+}
+
+/** The file name a download's Content-Disposition gives, or fallback. */
+export function attachmentName(resp: Response, fallback: string): string {
+  return /filename="([^"]+)"/.exec(resp.headers.get("Content-Disposition") ?? "")?.[1] ?? fallback;
+}
+
+/** The person closed the reason prompt: nothing was exported. */
+export class ReasonCancelled extends Error {
+  constructor() {
+    super("No reason was given, so nothing was exported.");
+    this.name = "ReasonCancelled";
+  }
+}
+
 /** A human message for an error, without leaking anything the server did not say. */
 export function describe(err: unknown): string {
+  if (err instanceof ReasonCancelled) return err.message;
   if (err instanceof ApiError) {
     switch (err.status) {
       case 401:

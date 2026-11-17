@@ -87,8 +87,11 @@ func TestPostureUIHarness(t *testing.T) {
 	defer auditSrv.Close()
 	auditUp, _ := url.Parse(auditSrv.URL)
 	// F-003 T-12: the risk API, as the risk service serves it (app_rw).
+	// F-010 T-17: export.reason_required is on in the restricted R (as
+	// F-015's overlay sets it), for the risk export, downloads and reports.
 	rp := e.appPool()
-	riskAPI := &riskapi.API{Reasons: reason.Static{}, DB: rp, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(rp), MaxAge: time.Second}),
+	rule := reason.Static{BUs: []string{e.adminQuery("SELECT id FROM iam.bu WHERE code = 'R'")}}
+	riskAPI := &riskapi.API{Reasons: rule, DB: rp, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(rp), MaxAge: time.Second}),
 		Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: rp})}
 	// F-004 T-12: the estimate API, mounted beside it as cmd/risk does.
 	estimateAPI := &estimateapi.API{DB: rp, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(rp), MaxAge: time.Second}),
@@ -107,7 +110,7 @@ func TestPostureUIHarness(t *testing.T) {
 	// exposure aggregates are worked by the same River workers.
 	registerAPI := &registerapi.API{DB: rp, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(rp), MaxAge: time.Second}),
 		Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: rp})}
-	analysisAPI := &analysisapi.API{Reasons: reason.Static{}, DB: rp, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(rp), MaxAge: time.Second}),
+	analysisAPI := &analysisapi.API{Reasons: rule, DB: rp, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(rp), MaxAge: time.Second}),
 		Settings: fixedLimits{IterationsDefault: 10000, IterationsMin: 1000, IterationsMax: 2000000, MaxActive: 5},
 		Audit:    audit.WithTrail(audit.NewMemory(), audit.Trail{DB: rp})} // F-006 T-05: downloads are recorded
 	engineSocket := os.Getenv("FAIR_UI_ENGINE_SOCKET")
@@ -151,6 +154,9 @@ func TestPostureUIHarness(t *testing.T) {
 		riskMux.Handle(prefix, acch)
 		riskMux.Handle(prefix+"/", acch)
 	}
+	// F-010 T-17: the reports API and its worker.
+	stopReports := mountHarnessReports(t, e, riskMux, rp, ae.keys, rule)
+	defer stopReports()
 	riskSrv := httptest.NewServer(riskMux)
 	defer riskSrv.Close()
 	riskUp, _ := url.Parse(riskSrv.URL)
@@ -159,6 +165,7 @@ func TestPostureUIHarness(t *testing.T) {
 		seedAnalysisRun(t, e, ae.keys, riskSrv.URL, scenario)
 		seedRegister(t, e, ae.keys, riskSrv.URL)
 		seedAcceptances(t, e, ae.keys, riskSrv.URL)
+		seedReports(t, e, ae.keys, riskSrv.URL)
 	}
 	// F-009 T-13: the notify service, with a test relay.
 	nh := startHarnessNotify(t, e, ae.keys)

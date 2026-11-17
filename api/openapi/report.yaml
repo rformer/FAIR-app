@@ -152,6 +152,34 @@ paths:
                       running: { type: integer }
                       file_bytes: { type: integer }
         "404": { $ref: "#/components/responses/Error" }
+  /api/v1/reports/bus:
+    get:
+      operationId: listBUs
+      tags: [reports]
+      summary: The business units where the caller holds report.view or report.export, for the pages' pickers (design §6)
+      x-permission: report.view or report.export anywhere
+      parameters:
+        - { name: permission, in: query, required: true, schema: { type: string, enum: [report.view, report.export] } }
+      responses:
+        "200":
+          description: Business units, by name
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [bus]
+                properties:
+                  bus:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, code, name]
+                      properties:
+                        id: { type: string, format: uuid }
+                        code: { type: string }
+                        name: { type: string }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /api/v1/reports/dashboard:
     get:
       operationId: getDashboard

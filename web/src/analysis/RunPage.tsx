@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react";
-import { send } from "../api";
+import { reasonHeader, send } from "../api";
 import { Badge, Section, Status, useApi } from "../components";
 import { auditHref, date } from "../links";
 import { amountAt, probabilityAt, type Reading } from "../charts/curve.ts";
@@ -78,7 +78,8 @@ function RunView({ run, currency }: { run: Run; currency: string | null }) {
 
   /** Downloads of a view: the image recorded first, its footer, the CSV link. */
   const downloads = (view: string, chart: string, set?: string, extra = ""): ChartDownloads => ({
-    record: async (format) => (await send<{ download_id: string }>("POST", "/api/v1/analyses/downloads", { subject: "run", id: run.id, view, format })).download_id,
+    record: async (format, reason) =>
+      (await send<{ download_id: string }>("POST", "/api/v1/analyses/downloads", { subject: "run", id: run.id, view, format }, reasonHeader(reason))).download_id,
     footer: (downloadId) => [
       `${chart}: ${title}`,
       `Control sets: ${set ?? sets.join(", ")}. Currency: ${currency ?? "not set"}.`,
