@@ -52,6 +52,16 @@ spec:
             # keys come from the key store: FAIR_ENGINE_CLIENT_DIR).
             - { name: FAIR_ENGINE_ADDR, value: engine.fair-platform.svc:8444 }
             - { name: FAIR_ENGINE_IMAGE_DIGEST, value: REPLACE_WITH_ENGINE_DIGEST } # sha256:<hex> of the engine image
+            # F-010 T-05: the report store (generated report files, deleted
+            # after report.retention_days). Required in every mode; the bucket
+            # must be versioned (not write-once); credentials are files.
+            - { name: FAIR_REPORT_STORE_BUCKET, value: REPLACE_WITH_BUCKET }
+            - { name: FAIR_REPORT_STORE_ENDPOINT, value: REPLACE_WITH_HOST_PORT }
+            - { name: FAIR_REPORT_STORE_REGION, value: us-east-1 }
+            - { name: FAIR_REPORT_STORE_ACCESS_KEY_FILE, value: /secrets/report-store/access-key }
+            - { name: FAIR_REPORT_STORE_SECRET_KEY_FILE, value: /secrets/report-store/secret-key }
+            # The store's CA, if not one the system trusts.
+            # - { name: FAIR_REPORT_STORE_CA_FILE, value: /secrets/report-store/ca.crt }
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -69,6 +79,7 @@ spec:
             - { name: tls, mountPath: /tls, readOnly: true }
             - { name: db, mountPath: /secrets/db, readOnly: true }
             - { name: db-ca, mountPath: /db-ca, readOnly: true }
+            - { name: report-store, mountPath: /secrets/report-store, readOnly: true }
       volumes:
         - name: tls
           secret: { secretName: risk-tls }
@@ -76,6 +87,8 @@ spec:
           secret: { secretName: risk-db-app, defaultMode: 0400 }
         - name: db-ca
           secret: { secretName: db-ca }
+        - name: report-store
+          secret: { secretName: report-store, defaultMode: 0400 }
 ---
 apiVersion: v1
 kind: Service
@@ -101,9 +114,10 @@ spec:
             matchLabels: { app.kubernetes.io/name: gateway }
       ports: [{ port: 8443, protocol: TCP }]
 ---
-# Egress: PostgreSQL, DNS, NATS (scope changes for the API's grant cache) and
-# the simulation engine's gate (F-005 T-10) only. The risk service makes no
-# connections outside the platform in any mode (design §7).
+# Egress: PostgreSQL, DNS, NATS (scope changes for the API's grant cache),
+# the simulation engine's gate (F-005 T-10) and the report store over TLS
+# (F-010 T-05; narrow the rule to the store's address or port where known).
+# No other outbound connection in any mode.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -121,3 +135,4 @@ spec:
         - podSelector:
             matchLabels: { app.kubernetes.io/name: engine }
       ports: [{ port: 8444, protocol: TCP }]
+    - ports: [{ port: 443, protocol: TCP }]

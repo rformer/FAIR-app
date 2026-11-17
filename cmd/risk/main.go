@@ -34,6 +34,11 @@
 //	FAIR_ENGINE_IMAGE_DIGEST the engine image's sha256:<hex>, recorded on
 //	                        every run (optional)
 //	FAIR_ANALYSIS_WORKERS   simulations run at once by this replica (2)
+//	FAIR_REPORT_STORE_*     the report store (F-010 T-05: BUCKET, ENDPOINT,
+//	                        REGION, ACCESS_KEY_FILE, SECRET_KEY_FILE,
+//	                        CA_FILE): a versioned bucket; required in
+//	                        production, with FAIR_REPORT_CONTEXT_KEY_FILE and
+//	                        FAIR_REPORT_CONTEXT_KEY_ID_FILE
 package main
 
 import (
@@ -74,6 +79,7 @@ import (
 	"github.com/rformer/fair-app/internal/natspub"
 	"github.com/rformer/fair-app/internal/register"
 	"github.com/rformer/fair-app/internal/registerapi"
+	"github.com/rformer/fair-app/internal/reports"
 	"github.com/rformer/fair-app/internal/risk"
 	"github.com/rformer/fair-app/internal/riskapi"
 	"github.com/rformer/fair-app/internal/server"
@@ -193,6 +199,10 @@ func run() error {
 	if err := risk.CheckInstall(risk.InstallCheck{Env: cfg.Env, Mode: cfg.DeploymentMode, Getenv: os.Getenv}); err != nil {
 		return err
 	}
+	// F-010 T-05 (design §11): the report store and the report context key.
+	if err := reports.CheckInstall(reports.InstallCheck{Env: cfg.Env, Mode: cfg.DeploymentMode, Getenv: os.Getenv}); err != nil {
+		return err
+	}
 	// The risk API (T-05) verifies the gateway's internal JWTs.
 	var jwtKeys *authz.LocalKeys
 	if dir := os.Getenv("FAIR_JWT_KEYS_DIR"); dir != "" {
@@ -205,6 +215,14 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	// F-010 T-05: the report store must exist and be versioned (reports
+	// are generated from T-09 on).
+	if os.Getenv(reports.StorePrefix+"_BUCKET") != "" {
+		if _, err := reports.OpenStore(ctx, cfg.Env, os.Getenv); err != nil {
+			return err
+		}
+		logger.Info("report store ready", "bucket", os.Getenv(reports.StorePrefix+"_BUCKET"))
+	}
 
 	pool, err := connect(ctx, cfg.Env)
 	if err != nil {

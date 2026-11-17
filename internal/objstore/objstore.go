@@ -159,6 +159,32 @@ func (s *Store) CheckBucket(ctx context.Context) error {
 	return nil
 }
 
+// ErrNotVersioned is returned by CheckVersioned for a bucket without
+// versioning.
+var ErrNotVersioned = errors.New("objstore: the bucket does not have versioning enabled")
+
+// CheckVersioned is CheckBucket for stores whose objects are deleted on a
+// schedule (F-010's report store, design §1): the bucket must exist and be
+// versioned, so each write has a version to record and delete; Object Lock
+// is not required.
+func (s *Store) CheckVersioned(ctx context.Context) error {
+	ok, err := s.c.BucketExists(ctx, s.bucket)
+	if err != nil {
+		return fmt.Errorf("objstore: bucket %s: %w", s.bucket, err)
+	}
+	if !ok {
+		return fmt.Errorf("objstore: bucket %s does not exist", s.bucket)
+	}
+	v, err := s.c.GetBucketVersioning(ctx, s.bucket)
+	if err != nil {
+		return fmt.Errorf("%w (%s: %w)", ErrNotVersioned, s.bucket, err)
+	}
+	if !v.Enabled() {
+		return fmt.Errorf("%w (%s)", ErrNotVersioned, s.bucket)
+	}
+	return nil
+}
+
 // Version names one version of an object.
 type Version struct {
 	Key, VersionID string

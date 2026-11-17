@@ -25,6 +25,7 @@ import (
 	"github.com/rformer/fair-app/internal/notify"
 	"github.com/rformer/fair-app/internal/posture"
 	"github.com/rformer/fair-app/internal/profilepkg"
+	"github.com/rformer/fair-app/internal/reports"
 	risksvc "github.com/rformer/fair-app/internal/risk"
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
@@ -106,6 +107,22 @@ func deploymentMode(t *testing.T, mode string) {
 	// F-005 T-10 (design §11): and the engine, through engine-gate, with
 	// its client keys.
 	riskVars := map[string]string{"FAIR_JWT_KEYS_DIR": "/keys/jwt", "FAIR_ENGINE_ADDR": "engine.fair-platform.svc:8444", "FAIR_ENGINE_CLIENT_DIR": "/keys/engine-client"}
+	// F-010 T-05 (design §11): the report store and the report context
+	// key, the same in every mode.
+	reportVars := map[string]string{"FAIR_REPORT_STORE_BUCKET": "fair-reports", "FAIR_REPORT_STORE_ENDPOINT": "s3.internal:443",
+		"FAIR_REPORT_STORE_ACCESS_KEY_FILE": "/secrets/report-store/access-key", "FAIR_REPORT_STORE_SECRET_KEY_FILE": "/secrets/report-store/secret-key",
+		"FAIR_REPORT_CONTEXT_KEY_FILE": "/keys/secrets/report-context.key", "FAIR_REPORT_CONTEXT_KEY_ID_FILE": "/keys/secrets/report-context.id"}
+	reportCheck := func(v map[string]string) error {
+		return reports.CheckInstall(reports.InstallCheck{Env: "production", Mode: mode, Getenv: func(k string) string { return v[k] }})
+	}
+	if err := reportCheck(reportVars); err != nil {
+		t.Errorf("a complete %s report install refused: %v", mode, err)
+	}
+	noReportStore := maps.Clone(reportVars)
+	delete(noReportStore, "FAIR_REPORT_STORE_BUCKET")
+	if err := reportCheck(noReportStore); err == nil {
+		t.Errorf("reports without their store in %s mode", mode)
+	}
 	if err := riskCheck(riskVars); err != nil {
 		t.Errorf("a complete %s risk install refused: %v", mode, err)
 	}

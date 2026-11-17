@@ -261,3 +261,29 @@ func TestContractRefusesAPlainBucket(t *testing.T) {
 		t.Fatalf("a missing bucket: %v", err)
 	}
 }
+
+// F-010 T-05: a versioned bucket without Object Lock serves the report
+// store; an unversioned one is refused.
+func TestContractVersionedBucket(t *testing.T) {
+	st, admin, bucket := liveStore(t, false)
+	ctx := context.Background()
+	if err := st.CheckVersioned(ctx); !errors.Is(err, ErrNotVersioned) {
+		t.Fatalf("an unversioned bucket: %v", err)
+	}
+	if err := admin.EnableVersioning(ctx, bucket); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CheckVersioned(ctx); err != nil {
+		t.Fatalf("a versioned bucket: %v", err)
+	}
+	if err := st.CheckBucket(ctx); !errors.Is(err, ErrNotWORM) {
+		t.Fatalf("a versioned bucket passes as WORM: %v", err)
+	}
+	v, err := st.Put(ctx, "reports/i/r/report.json", []byte(`{}`), time.Time{})
+	if err != nil || v.VersionID == "" {
+		t.Fatalf("put: %+v %v", v, err)
+	}
+	if err := st.Delete(ctx, v); err != nil {
+		t.Fatalf("delete an unlocked version: %v", err)
+	}
+}
