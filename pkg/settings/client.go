@@ -147,6 +147,36 @@ func (c *Client) Get(key, buID string) (any, error) {
 	return DecodeValue(d, raw)
 }
 
+// BUValues returns, for a BU-scopable setting, its value at every BU where
+// the snapshot holds one apart from the instance value (BU overrides and
+// the restricted overlay, F-015 T-22 and T-23), typed as Get types them. It
+// fails closed as Get does. F-010 uses it for the reason rule over a
+// scope's BUs (design §3.6).
+func (c *Client) BUValues(key string) (map[string]any, error) {
+	if _, err := c.Get(key, ""); err != nil {
+		return nil, err
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	d := c.defs[key]
+	out := map[string]any{}
+	if !d.BUScopable {
+		return out, nil
+	}
+	for bu, vals := range c.snap.BU {
+		raw, ok := vals[key]
+		if !ok {
+			continue
+		}
+		v, err := DecodeValue(d, raw)
+		if err != nil {
+			return nil, err
+		}
+		out[bu] = v
+	}
+	return out, nil
+}
+
 // ReauthMaxAge is the effective bu.reauth_max_age at a BU, for
 // authz.CacheOptions.ReauthMaxAge (F-015 T-24).
 func (c *Client) ReauthMaxAge(buID string) (time.Duration, error) {

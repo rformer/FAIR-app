@@ -1054,6 +1054,34 @@ events:
     bu: required
     attributes: [actions_changed, change_note, decision, version]
     description: "A new version of a register risk's treatment plan was saved: its decision (none, mitigate, transfer, avoid or accept; accept needs an acceptance, F-008), rationale, targets or actions (F-007 T-06, AC-15 to AC-18)"
+  - type: report.downloaded
+    category: risk_data
+    severities: [high]
+    requires: [target]
+    bu: required
+    attributes: [format, kind, reason, run, sha256]
+    description: "A report file left the platform: its requester downloaded it, with report.export re-checked at the report's business unit; the file's digest and the request's reason (F-010 T-09, AC-14, AC-17)"
+  - type: report.failed
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [failure, kind, requested_by, run]
+    description: "A report could not be generated: its requester lost report.export, a limit was exceeded, or generation failed after its retries (F-010 T-09, AC-18, AC-23)"
+  - type: report.generated
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [files, kind, left_out, requested_by, risk_count, run]
+    description: "A report was generated under its requester's delegated read-only context and its files stored, with each file's SHA-256 digest (F-010 T-09, AC-11, AC-14)"
+  - type: report.requested
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [filters, formats, kind, reason, risk_count, run]
+    description: "A report was requested by a holder of report.export at its business unit: its kind, scope, filters, formats and the reason, when one was given or required (F-010 T-09, AC-15, AC-16, AC-23)"
   - type: risk.currency_set
     category: configuration
     severities: [high]

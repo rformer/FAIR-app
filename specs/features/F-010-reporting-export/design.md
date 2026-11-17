@@ -52,7 +52,7 @@ Snapshot rows are append-only for every role (PF029) and purged after `report.sn
 ### 3.3 Delegated read-only context (ADR-007 amendment 6; decided 2026-11-16)
 - `authz.ctx_key` gains `purpose` (`session`, the default and the gateway's; `report`, the risk service's `risk/report-context`).
 - `authz.ctx_user()` accepts a `report`-purpose token only when **both**: the transaction is read-only (`current_setting('transaction_read_only') = 'on'`), and a `report.run` row exists with `requested_by` = the token's user, `state = 'running'` and `context_nonce` = the token's nonce. Otherwise it returns no user, so RLS returns nothing and every write function refuses.
-- The worker sets the run `running` with a fresh nonce (`report.start_run`, `report_definer`), mints the token (TTL 10 minutes, the user's current scope version), reads in `WithDBSnapshot` (READ ONLY, REPEATABLE READ) with the token, and writes results in separate transactions through `report_definer` functions, which take the run id, not a context.
+- The worker sets the run `running` with a fresh nonce (`report.start_run`, `report_definer`), mints the token (TTL 5 minutes, `authz.MaxContextTTL`; the user's current scope version), reads in `WithDBSnapshot` (READ ONLY, REPEATABLE READ) with the token, and writes results in separate transactions through `report_definer` functions, which take the run id, not a context.
 - A scope change during the read makes the token stale (scope version); the read fails and River retries with a new token, so the report always reflects one scope.
 - Only `cmd/risk` holds `risk/report-context`; the gateway's key cannot mint report tokens, and report tokens cannot open a session or pass the gateway.
 
@@ -86,7 +86,7 @@ Every report's metadata (AC-10): kind, title, scope and filters, generated at an
 - A scheduled run reads as its owner at run time (§3.3) and, when done, queues `report.ready` to the owner (item type `report`, link `/reports/{id}`; F-009 composes it minimally).
 
 ### 3.8 API for BI tools (AC-22)
-The same endpoints serve service accounts (F-001 T-33): `POST /reports` with `formats: ["json"]` or `["csv"]`, poll `GET /reports/{id}`, fetch the file. No separate data API, so scope, limits, reasons and audit are the same.
+The same endpoints serve service accounts (F-001 T-33): `POST /reports` with `formats: ["json"]` or `["csv"]`, poll `GET /reports/{id}`, fetch the file. No separate data API, so scope, limits, reasons and audit are the same. A service account holds `report.export` only as an approved scope (F-001 AC-36 as amended by T-09b, decided 2026-11-17): the one privileged scope a service account may have, through the `service_account.scopes` approval, never at once.
 
 ## 4. Settings (F-015)
 | Key | Kind | Default | Bounds | Stricter | Notes |
@@ -137,7 +137,7 @@ Conventions as before: operationId = handler; mutating routes declare `x-permiss
 | D: huge or many reports exhaust the service | Scope, size, running and schedule limits checked before work; a River queue with bounded workers; schedules catch up once | `TestSTRIDEF010Limits`, `TestBenchmarkGateReports` |
 
 ## 8. New catalog event types
-`report.requested` (medium; kind, scope, filters, formats, reason), `report.generated` (medium; files and digests, risk count, left out), `report.failed` (low), `report.downloaded` (high; format, digest, reason), `report.files_purged` (info, system), `report.schedule_created`, `report.schedule_changed`, `report.schedule_deleted`, `report.schedule_resumed` (medium), `report.schedule_suspended` (medium, system). F-003's `risk.exported` and F-006's `analysis.downloaded` gain `reason`.
+`report.requested` (low; kind, scope, filters, formats, reason), `report.generated` (low; files and digests, risk count, left out), `report.failed` (low), `report.downloaded` (high; format, digest, reason), `report.files_purged` (info, system), `report.schedule_created`, `report.schedule_changed`, `report.schedule_deleted`, `report.schedule_resumed` (low), `report.schedule_suspended` (low, system). The catalog's severities are info, low, high and critical; "medium" became low (amended 2026-11-17). F-003's `risk.exported` and F-006's `analysis.downloaded` gain `reason`.
 
 ## 9. Requirements traceability
 | AC | Design | Verification |
@@ -182,3 +182,4 @@ Conventions as before: operationId = handler; mutating routes declare `x-permiss
 - 2026-11-16: Approved by Robert Former, with ADR-015 and the tasks.
 - 2026-11-16: T-01 (OQ4 amended, Robert Former): catalog version 5 adds a Report Publisher role rather than giving Executive Viewer and Risk Analyst a privileged permission.
 - 2026-11-16: T-03 (amended with Robert Former): the snapshot tables are definer-only, like every `report` table, instead of RLS tables with a restrictive policy, so the retention purge is a plain delete (ADR-007's helpers give a definer no delete). `report.trend` returns only what §3.2 allows, set-based: BU rows in the caller's register read scope (aggregate-only units through `authz.rollup_coverage`), roll-up rows only when every included risk's BU is visible and every aggregate-only BU covered. The visibility rules are unchanged.
+- 2026-11-17: T-09: the delegated token lives 5 minutes (`authz.MaxContextTTL`; the database accepts at most 10), and every read is one transaction, so expiry and scope are fixed for the read; `report.start_run` re-checks that the requester is active and holds report.export (else the run fails `no_permission`); objects are keyed `reports/<root BU id>/<run>/<file>`; §8 severities low and high (no "medium" in the catalog). AC-22 conflicted with F-001 AC-36 (no privileged scopes for service accounts): decided with Robert Former that `report.export` becomes the one privileged scope a service account may hold, through dual approval (T-09b, §3.8).

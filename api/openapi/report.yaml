@@ -1,0 +1,219 @@
+openapi: 3.1.0
+info:
+  title: FAIR Reports API
+  version: "1"
+  contact: { name: FAIR Risk Platform, url: "https://github.com/rformer/FAIR-app" }
+  description: |
+    F-010 design §6. Reports, served by the risk service behind the gateway, which authenticates the
+    session (or a service account's token, AC-22) and forwards an internal JWT (ES256, audience `risk`,
+    at most 5 minutes) and the DB context token it was minted with (F-001 design §4, §5.2).
+
+    A report is requested by a holder of report.export at its business unit and generated in the
+    background under the requester's own row-level security (a delegated read-only context, design
+    §3.3), as PDF (PDF/UA-1), CSV (a ZIP of tables) or JSON (`fair.report.v1`). Its files are kept in
+    the report store for report.retention_days, listed and served to the requester alone, with each
+    file's SHA-256 digest. Where export.reason_required is in force for any business unit of the
+    report's scope, a reason is required. Without report.view or report.export anywhere the routes do
+    not exist for the caller (404, F-001 AC-25); another user's report is 404 like a missing one.
+servers:
+  - url: /
+security:
+  - internalJWT: []
+    dbContext: []
+tags:
+  - { name: reports, description: "Built-in reports (F-010 R-03 to R-05, R-07)" }
+components:
+  securitySchemes:
+    internalJWT: { type: http, scheme: bearer, bearerFormat: JWT }
+    dbContext: { type: apiKey, in: header, name: X-Fair-DB-Context }
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 8, maxLength: 128 }
+    ID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    Error:
+      description: An error
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: >-
+            not_found, forbidden, invalid_request, invalid_value, reason_required, limit_exceeded, too_many_running,
+            not_succeeded, purged, unavailable, unauthenticated
+        detail: { type: string }
+        limit: { type: integer, description: The limit a refused request exceeded }
+    File:
+      type: object
+      required: [format, size, sha256, purged]
+      properties:
+        format: { type: string, enum: [pdf, csv, json] }
+        size: { type: integer, description: Bytes }
+        sha256: { type: string, pattern: "^[0-9a-f]{64}$" }
+        created_at: { type: string, format: date-time }
+        purged: { type: boolean, description: Deleted after report.retention_days; the digest remains }
+    Report:
+      type: object
+      required: [id, kind, bu_id, params, formats, state, progress, files, requested_at]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [register, portfolio, acceptances, treatment, risk] }
+        bu_id: { type: string, format: uuid }
+        bu_name: { type: [string, "null"] }
+        params: { type: object, description: The kind's filters }
+        formats: { type: array, items: { type: string, enum: [pdf, csv, json] } }
+        reason: { type: [string, "null"] }
+        schedule_id: { type: [string, "null"], format: uuid }
+        state: { type: string, enum: [queued, running, succeeded, failed] }
+        progress: { type: integer, minimum: 0, maximum: 100 }
+        attempts: { type: integer }
+        data_as_of: { type: [string, "null"], format: date-time, description: The time of the read the report was built from }
+        risk_count: { type: [integer, "null"] }
+        left_out: { type: [object, "null"], additionalProperties: { type: integer }, description: "Risks left out, by why (AC-11)" }
+        failure: { type: [string, "null"], description: "A failed report's code and detail: no_permission, limit_exceeded, invalid_document, generation_failed, ..." }
+        requested_at: { type: string, format: date-time }
+        started_at: { type: [string, "null"], format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
+        files: { type: array, items: { $ref: "#/components/schemas/File" } }
+paths:
+  /api/v1/reports/kinds:
+    get:
+      operationId: listKinds
+      tags: [reports]
+      summary: The report kinds this installation generates, and the limits (design §3.4, OQ11)
+      x-permission: report.view or report.export anywhere
+      responses:
+        "200":
+          description: The kinds
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [kinds, limits]
+                properties:
+                  kinds:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        kind: { type: string }
+                        title: { type: string }
+                        formats: { type: array, items: { type: string } }
+                  limits:
+                    type: object
+                    properties:
+                      risks: { type: integer }
+                      running: { type: integer }
+                      file_bytes: { type: integer }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/reports:
+    get:
+      operationId: listReports
+      tags: [reports]
+      summary: The caller's own reports, newest first (AC-15)
+      x-permission: the requester
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+      responses:
+        "200":
+          description: Reports
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reports, more]
+                properties:
+                  reports: { type: array, items: { $ref: "#/components/schemas/Report" } }
+                  more: { type: boolean }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: requestReport
+      tags: [reports]
+      summary: Request a report, generated in the background (AC-15, AC-16, AC-18, AC-22)
+      description: >-
+        report.export at the business unit (403 with report.view there, 404 without). The scope's open risks
+        the requester sees are counted first (more than 10,000: 422 limit_exceeded); a fourth report generating
+        at once is refused (409 too_many_running). A reason is required (400 reason_required) when
+        export.reason_required is in force for the business unit or any business unit below it (the instance
+        value, overrides and the restricted overlay).
+      x-permission: report.export at the BU
+      x-audit-events: [report.requested]
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, bu_id, formats]
+              additionalProperties: false
+              properties:
+                kind: { type: string, enum: [register, portfolio, acceptances, treatment, risk] }
+                bu_id: { type: string, format: uuid }
+                params: { type: object, description: "The kind's filters (GET /reports/kinds)" }
+                formats: { type: array, minItems: 1, maxItems: 3, uniqueItems: true, items: { type: string, enum: [pdf, csv, json] } }
+                reason: { type: string, maxLength: 500, description: "Required where export.reason_required is in force in the scope" }
+      responses:
+        "202":
+          description: The report, queued
+          headers:
+            Location: { schema: { type: string } }
+          content: { application/json: { schema: { $ref: "#/components/schemas/Report" } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /api/v1/reports/{id}:
+    get:
+      operationId: getReport
+      tags: [reports]
+      summary: One of the caller's reports, with its progress and its files' sizes and digests (AC-14, AC-15)
+      x-permission: the requester
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: The report
+          content: { application/json: { schema: { $ref: "#/components/schemas/Report" } } }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/reports/{id}/files/{format}:
+    get:
+      operationId: downloadFile
+      tags: [reports]
+      summary: Download a report file (AC-14, AC-17)
+      description: >-
+        The requester only, still holding report.export at the report's business unit. The download is recorded
+        (report.downloaded) before anything is sent: 503 with no file if it cannot be. X-Fair-Digest carries the
+        file's SHA-256, as recorded.
+      x-permission: the requester, report.export at the report's BU
+      x-audit-note: A read that records report.downloaded in its transaction (design §3.6)
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { name: format, in: path, required: true, schema: { type: string, enum: [pdf, csv, json] } }
+      responses:
+        "200":
+          description: The file (report.pdf, report-csv.zip or report.json)
+          headers:
+            X-Fair-Digest: { schema: { type: string }, description: "sha256=<hex>" }
+          content:
+            application/pdf: { schema: { type: string, format: binary } }
+            application/zip: { schema: { type: string, format: binary } }
+            application/json: { schema: { type: string, format: binary } }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "410": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }

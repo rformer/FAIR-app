@@ -117,6 +117,31 @@ func TestClientGet(t *testing.T) {
 	}
 }
 
+// F-010 T-09: a BU-scopable setting's values at the BUs the snapshot
+// names; none for a setting that is not BU-scopable; closed when stale.
+func TestClientBUValues(t *testing.T) {
+	c, _, clk := newTestClient(t)
+	if _, err := c.BUValues(KeySessionNetworkBinding); !errors.Is(err, ErrNotLoaded) {
+		t.Fatalf("before load: %v", err)
+	}
+	if err := c.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := c.BUValues(KeySessionNetworkBinding); err != nil || len(got) != 1 || got[buA] != "flag" {
+		t.Errorf("network binding: %v %v", got, err)
+	}
+	if got, err := c.BUValues(KeySessionIdleTimeout); err != nil || len(got) != 0 {
+		t.Errorf("not BU-scopable: %v %v", got, err)
+	}
+	if _, err := c.BUValues("no.such"); !errors.Is(err, ErrUnknownKey) {
+		t.Errorf("unregistered: %v", err)
+	}
+	clk.add(time.Hour)
+	if _, err := c.BUValues(KeySessionNetworkBinding); !errors.Is(err, ErrStale) {
+		t.Errorf("stale: %v", err)
+	}
+}
+
 func TestClientRejectsBadValues(t *testing.T) {
 	c, src, _ := newTestClient(t)
 	src.set(8, KeySessionIdleTimeout, `15`)
