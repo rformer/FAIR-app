@@ -69,7 +69,7 @@ func readRisk(ctx context.Context, tx pgx.Tx, r Run) (Built, error) {
 	var mean, p10, p90 *float64
 	err := tx.QueryRow(ctx, `SELECT r.title, r.owner::text, c.name, `+register.StatusSQL+`, `+register.ExposureSQL("{ale,mean}")+`, `+
 		register.ExposureSQL("{ale,percentiles,p10}")+`, `+register.ExposureSQL("{ale,percentiles,p90}")+`,
-		CASE WHEN r.bu_id = ANY (authz.visible_bus('treatment', 'read')) THEN coalesce((SELECT t.decision FROM register.treatment t WHERE t.risk_id = r.id), 'none') END,
+		CASE WHEN r.bu_id = ANY ((SELECT authz.visible_bus('treatment', 'read'))::uuid[]) THEN coalesce((SELECT t.decision FROM register.treatment t WHERE t.risk_id = r.id), 'none') END,
 		(SELECT v.document FROM register.risk_version v WHERE v.risk_id = r.id AND v.version = r.current_version)
 		FROM register.risk r LEFT JOIN register.category c ON c.id = r.category_id`+register.LinkStats+`
 		WHERE r.id = $1 AND r.bu_id IN (SELECT register.subtree($2::uuid))`, p.Risk, r.BU.ID).

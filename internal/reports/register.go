@@ -83,7 +83,7 @@ func registerSQL(p RegisterParams) (string, []any) {
 	if p.Status != "" {
 		where = append(where, "("+register.StatusSQL+") = "+arg(p.Status))
 	}
-	const seesTreatment = "r.bu_id = ANY (authz.visible_bus('treatment', 'read'))"
+	const seesTreatment = "r.bu_id = ANY ((SELECT authz.visible_bus('treatment', 'read'))::uuid[])"
 	switch p.Decision {
 	case "":
 	case "none":

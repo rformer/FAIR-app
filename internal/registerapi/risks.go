@@ -500,7 +500,7 @@ func (a *API) listRisks(w http.ResponseWriter, r *http.Request, p authz.Principa
 		}
 		where = append(where, "("+statusSQL+") = "+arg(v))
 	}
-	const seesTreatment = "r.bu_id = ANY (authz.visible_bus('treatment', 'read'))"
+	const seesTreatment = "r.bu_id = ANY ((SELECT authz.visible_bus('treatment', 'read'))::uuid[])"
 	switch v := q.Get("decision"); v {
 	case "":
 	case "none":
