@@ -152,20 +152,25 @@ controls:
 
   - id: ac-6
     responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    # Amended 2026-11-17 with F-010 T-09b (report.export for service
+    # accounts, by approval only), re-signed by Robert Former 2026-11-17.
     statement: >-
       Least privilege: no account has access until a role is assigned;
       just-in-time accounts get no roles; scope is limited to the assigned
       business units and their unrestricted descendants; service accounts
-      hold only non-privileged scopes they were granted; break-glass accounts
+      hold only non-privileged scopes they were granted, apart from
+      report.export, which needs a second administrator's approval;
+      break-glass accounts
       have no risk-data permissions; roll-ups across restricted business
       units give totals only where their mode allows.
     customer: >-
       Grant the narrowest roles at the lowest business units that serve each
       job.
     evidence:
-      code: [db/migrations/0006_scope.sql, db/migrations/0053_restricted_bu_admin.sql, db/migrations/0056_service_accounts.sql]
+      code: [db/migrations/0006_scope.sql, db/migrations/0053_restricted_bu_admin.sql, db/migrations/0056_service_accounts.sql,
+             db/migrations/0136_sa_report_export.sql]
       tests: ["db/tests:TestScopeMaterialization", "db/tests:TestRollupLeakage", "db/tests:TestSTRIDEF001ServiceAccountEscalation",
-              "db/tests:TestJITProvisioning"]
+              "db/tests:TestJITProvisioning", "db/tests:TestServiceAccountReportExport"]
 
   - id: ac-6.1
     responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }

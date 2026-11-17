@@ -22,7 +22,8 @@ import (
 
 // Service accounts (T-33; AC-36, AC-37, AC-38; design §6 /service-accounts).
 // An account belongs to a BU and holds explicit API scopes: live,
-// non-privileged permissions. Every route needs service_account.manage
+// non-privileged permissions, or report.export (AC-36 as amended, F-010
+// T-09b), which always needs the approval. Every route needs service_account.manage
 // somewhere (404 otherwise); the database checks it at the account's BU.
 // Scopes the caller holds at the BU apply at once; the others answer 202
 // with a T-26 approval, applied by POST /service-accounts/apply after

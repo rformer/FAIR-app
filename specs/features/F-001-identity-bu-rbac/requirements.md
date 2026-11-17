@@ -78,7 +78,7 @@ This feature establishes who can sign in, how they authenticate, and how the ent
 - F-001-AC-35: Session cookies SHALL be Secure, HttpOnly, and SameSite=Strict. THE SYSTEM SHALL apply CSRF protection to all state-changing requests.
 
 ### F-001-R-10 Service accounts & API tokens
-- F-001-AC-36: Service accounts SHALL be scoped to a BU node and to explicit API scopes.
+- F-001-AC-36: Service accounts SHALL be scoped to a BU node and to explicit API scopes. Their scopes SHALL be non-privileged permissions, except `report.export` (F-010-AC-22), which a service account SHALL hold only when a second holder of `service_account.manage` at its BU approved it (amended 2026-11-17).
 - F-001-AC-37: Tokens SHALL expire (default maximum 90 days, configurable within profile bounds), SHALL be shown once, and SHALL be stored only as hashes.
 - F-001-AC-38: THE SYSTEM SHALL support OAuth client-credentials and mTLS client authentication.
 
@@ -175,3 +175,4 @@ None.
 - 2026-10-24: SCIM made mandatory for v1, JIT provisioning off by default; added R-15 (custom roles) and R-16 (restricted BUs); session settings bound to security profiles; added Secure defaults section.
 - 2026-10-24: Break-glass disabled by default, with opt-in at install or dual-approved enablement after install; IdP-outage recovery path added; acceptance criteria renumbered (now AC-01 to AC-64).
 - 2026-10-24: **Approved** by Robert Former.
+- 2026-11-17: AC-36 amended by Robert Former (F-010 T-09b): `report.export` is the one privileged scope a service account may hold, so BI tools can fetch reports (F-010-AC-22), and only through dual approval, never at once.

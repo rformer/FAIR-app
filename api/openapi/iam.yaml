@@ -187,7 +187,7 @@ components:
         group_mappings: { type: integer }
     ServiceAccount:
       type: object
-      description: A service account (F-001 T-33, AC-36); its scopes are live, non-privileged permissions at its BU
+      description: "A service account (F-001 T-33, AC-36); its scopes are live, non-privileged permissions at its BU, or report.export (always approved by a second administrator; F-010 T-09b)"
       properties:
         id: { type: string, format: uuid, description: Also the OAuth client_id }
         name: { type: string }
@@ -663,7 +663,8 @@ paths:
       summary: Create a service account (AC-36)
       description: |
         Needs service_account.manage at the BU. Scopes are live, non-privileged catalog
-        permissions (no admin rights). If the caller holds every scope at the BU the account is
+        permissions (no admin rights), or report.export, which always needs the approval below
+        (AC-36 as amended; F-010 T-09b). If the caller holds every scope at the BU the account is
         created (201, audited high); otherwise the request answers 202 with a
         `service_account.scopes` approval, which another holder of service_account.manage at the
         BU approves (`/approvals/{id}/decision`) before `POST /service-accounts/apply` creates it.
