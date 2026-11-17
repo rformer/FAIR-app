@@ -92,3 +92,36 @@ func TestReasonRequired(t *testing.T) {
 		t.Errorf("stale settings: %v", err)
 	}
 }
+
+// The built-in kinds' parameters come back canonical (sorted keys); bad
+// values are refused.
+func TestBuiltinParams(t *testing.T) {
+	for _, c := range []struct {
+		k        Kind
+		in, want string
+	}{
+		{RegisterKind, `{"status":"current","decision":"accept"}`, `{"decision":"accept","status":"current"}`},
+		{RegisterKind, ``, `{}`},
+		{AcceptancesKind, `{"expiring_within":30,"decided_to":"2026-01-31"}`, `{"decided_to":"2026-01-31","expiring_within":30}`},
+		{TreatmentKind, `{}`, `{}`},
+	} {
+		got, err := c.k.CheckParams(json.RawMessage(c.in))
+		if err != nil || string(got) != c.want {
+			t.Errorf("%s %s: %s %v", c.k.Name, c.in, got, err)
+		}
+	}
+	for _, c := range []struct {
+		k  Kind
+		in string
+	}{
+		{RegisterKind, `{"status":"red"}`}, {RegisterKind, `{"x":1}`}, {RegisterKind, `{} {}`},
+		{AcceptancesKind, `{"expiring_within":-1}`}, {AcceptancesKind, `{"decided_from":"soon"}`}, {TreatmentKind, `{"owner":"me"}`},
+	} {
+		if _, err := c.k.CheckParams(json.RawMessage(c.in)); !errors.Is(err, ErrParams) {
+			t.Errorf("%s %s accepted: %v", c.k.Name, c.in, err)
+		}
+	}
+	if len(Kinds()) != 3 {
+		t.Errorf("kinds: %v", Kinds())
+	}
+}

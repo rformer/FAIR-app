@@ -82,9 +82,9 @@ type reportEnv struct {
 var reportEnvs int
 
 // reportAPI serves the reports API on the risk env's keys, with the fake
-// kind, an insert-only River client, a memStore and the settings client;
+// kind (or the kinds given), an insert-only River client, a memStore and the settings client;
 // the report context key is registered (purpose report).
-func reportAPI(t *testing.T, ra *riskAPIEnv) *reportEnv {
+func reportAPI(t *testing.T, ra *riskAPIEnv, with ...map[string]reports.Kind) *reportEnv {
 	t.Helper()
 	ctx := context.Background()
 	pool := ra.appPool()
@@ -105,6 +105,9 @@ func reportAPI(t *testing.T, ra *riskAPIEnv) *reportEnv {
 	}
 	store := newMemStore()
 	kinds := map[string]reports.Kind{"register": fakeKind}
+	if len(with) > 0 {
+		kinds = with[0]
+	}
 	api := &reportapi.API{DB: pool, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool)}), Kinds: kinds,
 		Enqueue: reports.Enqueuer(rc), Store: store, Settings: sc}
 	srv := httptest.NewServer(api.Handler(ra.keys, nil))

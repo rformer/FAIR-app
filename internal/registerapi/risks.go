@@ -360,13 +360,8 @@ const riskFrom = ` FROM register.risk r LEFT JOIN register.category c ON c.id = 
 // statusSQL is a risk's exposure status (AC-08) given st.
 const statusSQL = register.StatusSQL
 
-// exposureSQL is the summary value at path of a risk's exposure as the
-// caller sees it (RLS), for sorting.
-func exposureSQL(path string) string {
-	return `CASE WHEN st.pins >= 2 THEN (SELECT (a.summary #>> '` + path + `')::float8 FROM analysis.aggregate a WHERE a.id = r.exposure_aggregate_id)
-	  WHEN st.pins = 1 THEN (SELECT (s.summary #>> '` + path + `')::float8 FROM register.risk_scenario l2
-	    JOIN analysis.result s ON s.run_id = l2.run_id AND s.control_set = l2.control_set WHERE l2.risk_id = r.id AND l2.run_id IS NOT NULL) END`
-}
+// exposureSQL is register.ExposureSQL (the caller's view of a risk's exposure).
+func exposureSQL(path string) string { return register.ExposureSQL(path) }
 
 const riskColumns = `r.id::text, r.bu_id::text, r.state, r.title, r.owner::text, r.category_id::text, c.name, r.current_version, r.created_at,
 	r.created_by::text, r.seq, st.n, r.exposure_aggregate_id::text,
@@ -375,19 +370,8 @@ const riskColumns = `r.id::text, r.bu_id::text, r.state, r.title, r.owner::text,
 	 FROM register.treatment t WHERE t.risk_id = r.id),
 	` + acceptanceSQL
 
-// acceptanceSQL is a risk's open acceptance as the caller sees it (F-008
-// T-05; acceptance.view, RLS): active or suspended before a pending one, its
-// state as read (past its expiry: expired), its expiry, tier, and why an
-// active one needs review (F-008-AC-14: stale exposure, treatment no longer
-// accept, moved since approval); null without one.
-const acceptanceSQL = `(SELECT jsonb_build_object('id', x.id, 'state', CASE WHEN x.state IN ('active', 'suspended') AND x.expires_on <= current_date THEN 'expired' ELSE x.state END,
-	  'expires_on', x.expires_on, 'tier', x.tier, 'renewal_pending', EXISTS (SELECT 1 FROM acceptance.acceptance y WHERE y.renews = x.id AND y.state = 'pending'),
-	  'needs_review', CASE WHEN x.state <> 'active' OR x.expires_on <= current_date THEN '[]'::jsonb ELSE to_jsonb(array_remove(ARRAY[
-	    CASE WHEN (` + statusSQL + `) <> 'current' THEN 'stale' END,
-	    CASE WHEN EXISTS (SELECT 1 FROM register.treatment t WHERE t.risk_id = r.id AND t.decision IS DISTINCT FROM 'accept') THEN 'treatment' END,
-	    CASE WHEN r.bu_id IS DISTINCT FROM x.approved_bu_id THEN 'moved' END], NULL)) END)
-	 FROM acceptance.acceptance x WHERE x.risk_id = r.id AND (x.state IN ('active', 'suspended') OR (x.state = 'pending' AND x.renews IS NULL))
-	 ORDER BY x.state = 'pending', x.seq DESC LIMIT 1)`
+// acceptanceSQL is register.AcceptanceSQL.
+const acceptanceSQL = register.AcceptanceSQL
 
 func scanRisk(row pgx.Row) (map[string]any, error) {
 	var (
