@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/rformer/fair-app/internal/report"
+	"github.com/rformer/fair-app/internal/reports/doc"
 	"github.com/rformer/fair-app/internal/reports/doc/doctest"
 )
 
@@ -73,11 +74,13 @@ func TestWriteSampleReport(t *testing.T) {
 	if dir == "" {
 		t.Skip("set FAIR_PDF_OUT to write the PDF/UA sample")
 	}
-	pdf, err := PDF(doctest.Sample())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "report.pdf"), pdf, 0o600); err != nil {
-		t.Fatal(err)
+	for name, d := range map[string]func() doc.Document{"report.pdf": doctest.Sample, "charts.pdf": doctest.Charts} {
+		pdf, err := PDF(d())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), pdf, 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

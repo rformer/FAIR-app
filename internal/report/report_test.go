@@ -194,8 +194,10 @@ func TestDocUnicodeAndRules(t *testing.T) {
 		}
 	}
 	all, _ := Text(pdf, false)
-	if strings.Count(all, "Confidential") < 3 {
-		t.Fatal("the marking is not in the header and footer")
+	// The marking: the first page's header is content (once), the footer an
+	// artifact.
+	if strings.Count(all, "Confidential") != 2 || strings.Count(got, "Confidential") != 1 {
+		t.Fatalf("the marking: %d in all, %d as content", strings.Count(all, "Confidential"), strings.Count(got, "Confidential"))
 	}
 	// A character the fonts lack.
 	if m := Missing("ok 日本 ok"); len(m) != 2 || m[0] != '日' {

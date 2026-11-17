@@ -251,7 +251,7 @@ jobs:
       - name: veraPDF, PDF/UA-1
         run: |
           docker run --rm -v "$RUNNER_TEMP/pdf:/data:ro" verapdf/cli@sha256:f085855d442ad415e79fabbabcdd1803c2db4ee097cd5b94506c95ecdcfa1728 \
-            --flavour ua1 --format text /data/entitlements.pdf /data/unicode.pdf /data/report.pdf | tee verapdf.txt
+            --flavour ua1 --format text /data/entitlements.pdf /data/unicode.pdf /data/report.pdf /data/charts.pdf | tee verapdf.txt
           ! grep -v '^PASS ' verapdf.txt
 
   # F-005 T-04 (ADR-013): the engine's lint, format, types and tests with the

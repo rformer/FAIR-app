@@ -9,13 +9,9 @@ import (
 	"time"
 
 	"github.com/rformer/fair-app/internal/report"
+	"github.com/rformer/fair-app/internal/report/chart"
 	"github.com/rformer/fair-app/internal/reports/doc"
 )
-
-// ChartDrawer draws a chart into a figure's canvas (ADR-015,
-// internal/report/chart from T-08); nil leaves the figure blank, its data
-// table and alternative text carrying it.
-var ChartDrawer func(c *doc.Chart) func(*report.Canvas)
 
 // PDF renders a report document as PDF/UA-1 (F-010-AC-12, design §3.5):
 // the title, what the report is (scope, filters, who and when, the data's
@@ -84,11 +80,14 @@ func PDF(d doc.Document) ([]byte, error) {
 			case doc.KindTable:
 				add(report.Block{Kind: report.TableBlock, Table: pdfTable(b.Table, m.Currency)})
 			case doc.KindChart:
-				var draw func(*report.Canvas)
-				if ChartDrawer != nil {
-					draw = ChartDrawer(b.Chart)
+				// ADR-015: vector charts; a chart whose data cannot be drawn
+				// stays a blank figure, its data table and alternative text
+				// carrying it.
+				height := 220.0
+				if b.Chart.Kind == doc.ChartBars { // a row per bar
+					height = min(220, 50+18*float64(len(b.Chart.Data.Rows)))
 				}
-				add(report.Block{Kind: report.FigureBlock, Figure: &report.Figure{Alt: b.Chart.Alt, Caption: b.Chart.Title, Height: 220, Draw: draw}})
+				add(report.Block{Kind: report.FigureBlock, Figure: &report.Figure{Alt: b.Chart.Alt, Caption: b.Chart.Title, Height: height, Draw: chart.Draw(b.Chart)}})
 				add(report.Block{Kind: report.TableBlock, Table: pdfTable(b.Chart.Data, m.Currency)})
 			}
 		}

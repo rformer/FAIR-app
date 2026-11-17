@@ -312,9 +312,12 @@ func (d Doc) PDF() ([]byte, error) {
 	fullW := pageW - 2*margin
 	bottom := margin + footerReserve
 	if l.marking != "" {
-		p := root.add("P", "")
-		l.text(p, margin, fullW, []string{l.marking}, noteSize, true, false)
-		l.y -= noteSize * 1.6
+		// The first page's header is the marking's tagged occurrence; the
+		// other pages repeat it as an artifact.
+		y := l.y
+		l.y = pageH - margin
+		l.text(root.add("P", ""), margin, fullW, []string{l.marking}, noteSize, true, false)
+		l.y = y
 	}
 	level := 0 // the last heading's level: headings never skip one
 	for bi, b := range d.Blocks {
@@ -327,7 +330,11 @@ func (d Doc) PDF() ([]byte, error) {
 			size := headingSizes[b.Level]
 			lines := l.wrap(b.Text, fullW, size, true)
 			h := float64(len(lines))*size*1.23 + size*0.6
-			if l.y-h-4*lineH < bottom { // keep with what follows
+			need := h + 4*lineH // keep with what follows
+			if bi+1 < len(d.Blocks) && d.Blocks[bi+1].Kind == FigureBlock && d.Blocks[bi+1].Figure != nil {
+				need = h + figureHeight(d.Blocks[bi+1].Figure) + 4
+			}
+			if l.y-need < bottom {
 				l.newPage()
 			}
 			l.text(root.add(fmt.Sprintf("H%d", b.Level), ""), margin, fullW, lines, size, true, false)
@@ -380,11 +387,7 @@ func (d Doc) PDF() ([]byte, error) {
 			if f == nil || strings.TrimSpace(f.Alt) == "" {
 				return nil, fmt.Errorf("report: block %d: a figure needs alternative text", bi)
 			}
-			h := f.Height
-			if h <= 0 {
-				h = 200
-			}
-			h = min(h, pageH-2*margin-footerReserve-headerReserve-20)
+			h := figureHeight(f)
 			if l.y-h < bottom {
 				l.newPage()
 			}
@@ -418,7 +421,9 @@ func (d Doc) PDF() ([]byte, error) {
 	for i := range l.pages {
 		var ops strings.Builder
 		if l.marking != "" {
-			ops.WriteString(l.artifactText(margin, pageH-margin-noteSize, l.marking, noteSize, true))
+			if i > 0 {
+				ops.WriteString(l.artifactText(margin, pageH-margin-noteSize, l.marking, noteSize, true))
+			}
 			ops.WriteString(l.artifactText(margin, margin-4, l.marking, 7, true))
 		}
 		label := fmt.Sprintf("Page %d of %d", i+1, len(l.pages))
@@ -426,6 +431,16 @@ func (d Doc) PDF() ([]byte, error) {
 		fmt.Fprintf(&l.pages[i].content, "/Artifact BMC\n%sEMC\n", ops.String())
 	}
 	return d.write(root, l)
+}
+
+// figureHeight is a figure's height on the page (200 points by default,
+// never more than a page holds).
+func figureHeight(f *Figure) float64 {
+	h := f.Height
+	if h <= 0 {
+		h = 200
+	}
+	return min(h, pageH-2*margin-footerReserve-headerReserve-20)
 }
 
 func (l *layout) table(root *elem, t *Table, tableW, bottom float64) {
@@ -442,14 +457,6 @@ func (l *layout) table(root *elem, t *Table, tableW, bottom float64) {
 		x += widths[i]
 	}
 	table := root.add("Table", "")
-	if t.Caption != "" {
-		lines := l.wrap(t.Caption, tableW, noteSize, true)
-		if l.y-float64(len(lines))*noteSize*1.23-3*lineH < bottom {
-			l.newPage()
-		}
-		l.text(table.add("Caption", ""), margin, tableW, lines, noteSize, true, false)
-		l.y -= float64(len(lines))*noteSize*1.23 + 3
-	}
 	headLines := make([][]string, len(t.Columns))
 	headH := 0.0
 	if !t.NoHeader {
@@ -459,8 +466,19 @@ func (l *layout) table(root *elem, t *Table, tableW, bottom float64) {
 		}
 		headH += 2 * padY
 	}
-	if l.y-headH-lineH-2*padY < bottom {
+	// The caption, the header row and a first row stay together.
+	var caption []string
+	captionH := 0.0
+	if t.Caption != "" {
+		caption = l.wrap(t.Caption, tableW, noteSize, true)
+		captionH = float64(len(caption))*noteSize*1.23 + 3
+	}
+	if l.y-captionH-headH-lineH-2*padY < bottom {
 		l.newPage()
+	}
+	if t.Caption != "" {
+		l.text(table.add("Caption", ""), margin, tableW, caption, noteSize, true, false)
+		l.y -= captionH
 	}
 	// The header row: content on the table's first page, an artifact when
 	// repeated.

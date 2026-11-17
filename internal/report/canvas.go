@@ -60,6 +60,12 @@ func (c *Canvas) Marker(shape string, x, y, size float64) {
 	switch shape {
 	case "triangle":
 		fmt.Fprintf(&c.ops, "%.2f %.2f m %.2f %.2f l %.2f %.2f l h f\n", x, y+s, x-s, y-s, x+s, y-s)
+	case "diamond":
+		fmt.Fprintf(&c.ops, "%.2f %.2f m %.2f %.2f l %.2f %.2f l %.2f %.2f l h f\n", x, y+s, x-s, y, x, y-s, x+s, y)
+	case "cross":
+		fmt.Fprintf(&c.ops, "%.2f %.2f m %.2f %.2f l %.2f %.2f m %.2f %.2f l S\n", x-s, y-s, x+s, y+s, x-s, y+s, x+s, y-s)
+	case "bar":
+		fmt.Fprintf(&c.ops, "%.2f %.2f %.2f %.2f re f\n", x-s/3, y-s, 2*s/3, size)
 	case "circle":
 		k := s * 0.5523 // four Béziers
 		fmt.Fprintf(&c.ops, "%.2f %.2f m %.2f %.2f %.2f %.2f %.2f %.2f c %.2f %.2f %.2f %.2f %.2f %.2f c %.2f %.2f %.2f %.2f %.2f %.2f c %.2f %.2f %.2f %.2f %.2f %.2f c f\n",
