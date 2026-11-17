@@ -124,3 +124,4 @@ To be proposed with the tasks.
 ## Change Log
 - 2026-11-17: Initial draft, In Review.
 - 2026-11-17: Approved by Robert Former; OQ1 to OQ8 resolved as proposed.
+- 2026-11-17: Design approval adds `integration.push` (not privileged) to catalog version 6 beside `integration.view` (OQ5): the permission a service account holds to push batches (design §10, D-OQ1).

@@ -1,5 +1,5 @@
 # F-011 Integrations and automation inputs — Design
-Status: In Review | Owner: Robert Former | Last updated: 2026-11-17
+Status: Approved | Owner: Robert Former | Last updated: 2026-11-17
 Requirements: `requirements.md` (Approved 2026-11-17) · ADR-003, ADR-005, ADR-006, ADR-007 (amendments 3 and 5)
 
 ## 1. Overview
@@ -214,8 +214,9 @@ Conventions as before: operationId = handler; mutating routes declare `x-permiss
 - **Proposals for loss events:** rejected. Events are observations, not analysis inputs; the analysis inputs derived from them (reference classes) are proposed.
 
 ## 13. Open items
-- D-OQ1: `integration.push` as a new permission (§10), approved with this design.
+- D-OQ1 (resolved 2026-11-17: approved with the design): `integration.push` as a new permission (§10).
 - D-OQ2: the ServiceNow connector is tested against a recorded fixture of the Table API; a live run against a developer instance is an open item, like F-001's IdP runs.
 
 ## Change Log
 - 2026-11-17: Initial draft, In Review; connectors in a new integrate service and the schema `integration` decided by Robert Former.
+- 2026-11-17: Approved by Robert Former, with D-OQ1 (`integration.push`).
