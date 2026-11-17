@@ -324,8 +324,19 @@ func run() error {
 		purger = &reports.Purger{DB: pool, Store: reportStore, Retention: func() (int, error) { return sc.Int(settings.KeyReportRetention, "") },
 			OnError: func(err error) { logger.Error("report retention", "error", err.Error()) }}
 	}
+	// F-010 T-15 (design §3.2): portfolio snapshots, taken and purged.
+	snapshots := &reports.Snapshots{DB: pool, OnError: func(err error) { logger.Error("report snapshots", "error", err.Error()) },
+		Settings: func() (int, int, error) {
+			interval, err := sc.Int(settings.KeyReportSnapshotInterval, "")
+			if err != nil {
+				return 0, 0, err
+			}
+			retention, err := sc.Int(settings.KeyReportSnapshotRetention, "")
+			return interval, retention, err
+		}}
 	go leader.Run(ctx, func(ctx context.Context) error {
-		done := make(chan error, 3)
+		done := make(chan error, 4)
+		go func() { done <- snapshots.Run(ctx) }()
 		go func() { done <- acceptanceJob.Run(ctx) }()
 		go func() { done <- noticeJob.Run(ctx) }()
 		go func() {
@@ -336,6 +347,7 @@ func run() error {
 			done <- purger.Run(ctx)
 		}()
 		err := jobs.Run(ctx)
+		<-done
 		<-done
 		<-done
 		<-done

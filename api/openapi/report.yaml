@@ -193,6 +193,48 @@ paths:
                   left_out: { type: object, additionalProperties: { type: integer } }
         "400": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+  /api/v1/reports/dashboard/trend:
+    get:
+      operationId: getTrend
+      tags: [reports]
+      summary: A business unit subtree's snapshots over a period, as the caller may see them (AC-06, AC-07)
+      description: >-
+        Snapshots are taken every report.snapshot_interval_days and kept report.snapshot_retention_days. Each point sums
+        the counts of the subtree's business units the caller reads in the register, plus their aggregate-only units
+        (totals only); the business unit's roll-up row appears only when the caller reads every risk it included and
+        covers every restricted unit it may have summed.
+      x-permission: report.view at the BU
+      parameters:
+        - { name: bu, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: from, in: query, schema: { type: string }, description: "An RFC 3339 time or a date; default a year before to" }
+        - { name: to, in: query, schema: { type: string }, description: "An RFC 3339 time or a date (its end); default now" }
+      responses:
+        "200":
+          description: The snapshots, oldest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [bu_id, from, to, snapshots]
+                properties:
+                  bu_id: { type: string, format: uuid }
+                  from: { type: string, format: date-time }
+                  to: { type: string, format: date-time }
+                  snapshots:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        snapshot_id: { type: integer }
+                        taken_at: { type: string, format: date-time }
+                        counts:
+                          type: object
+                          description: "open, current, stale (computing included), unquantified, mean_sum (a sum of means), open_actions, overdue_actions, acceptances by state"
+                        rollup:
+                          type: [object, "null"]
+                          description: "finished_at, mean, p10, p50, p90, p99"
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /api/v1/reports:
     get:
       operationId: listReports

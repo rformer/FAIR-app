@@ -34,3 +34,6 @@
   pairs Active | Expiring within 30 days | Expired | Suspended | Awaiting decision
 # Treatment
   pairs Open actions | Overdue actions
+# Trend
+  paragraph
+  table trend [taken:time open:number current:number stale:number unquantified:number sum:amount rollup_mean:amount rollup_p90:amount accepted:number overdue:number] 0 rows

@@ -17,7 +17,7 @@ import (
 // succeeded roll-up of the BU (its summary, curve and distribution, time,
 // staleness, what it covers and leaves out); the largest open risks; each
 // child BU's open risks and summed means; coverage; acceptances; treatment.
-// The trend over the period joins it with the snapshots (T-15).
+// The trend over the period comes from the snapshots (T-15).
 
 // PortfolioParams: the period, in days, the trend covers (1 to 3,650; 365).
 type PortfolioParams struct {
@@ -107,6 +107,12 @@ func readPortfolio(ctx context.Context, tx pgx.Tx, r Run) (Built, error) {
 		doc.Pair{Label: "Awaiting decision", Value: strconv.Itoa(ac["pending"])})}})
 	sections = append(sections, doc.Section{Heading: "Treatment", Level: 1, Blocks: []doc.Block{pairs(
 		doc.Pair{Label: "Open actions", Value: strconv.Itoa(d.Treatment["open"])}, doc.Pair{Label: "Overdue actions", Value: strconv.Itoa(d.Treatment["overdue"])})}})
+	// T-15: the trend over the period, from the snapshots the requester may see.
+	points, err := ReadTrend(ctx, tx, r.BU.ID, d.AsOf.AddDate(0, 0, -period), d.AsOf)
+	if err != nil {
+		return Built{}, err
+	}
+	sections = append(sections, trendSection(points, period))
 
 	notes := []string{
 		"Exposures are distributions: each figure gives its mean with percentiles; nothing is scored or rated.",
