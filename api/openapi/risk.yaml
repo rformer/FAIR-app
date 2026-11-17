@@ -47,6 +47,15 @@ components:
     internalJWT: { type: http, scheme: bearer, bearerFormat: JWT }
     dbContext: { type: apiKey, in: header, name: X-Fair-DB-Context }
   parameters:
+    Reason:
+      name: X-Fair-Reason
+      in: header
+      required: false
+      description: >-
+        Why the data leaves the platform, as percent-encoded UTF-8 (at most 500 characters). Required where
+        export.reason_required is in force for the data's business units (F-010 T-12, OQ7; 400 reason_required
+        without it); recorded as the event's reason.
+      schema: { type: string, maxLength: 1500 }
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -1055,7 +1064,9 @@ paths:
         requester sees in a BU's subtree (bu; archived=true includes archived items), each with all
         its versions, plus every version they pin that is not otherwise in the file, copied from the
         pin rows. Only what the requester sees. The body is the file in canonical form;
-        X-Fair-Digest is its SHA-256. Recorded as risk.exported with the counts and the digest.
+        X-Fair-Digest is its SHA-256. Recorded as risk.exported with the counts, the digest and the reason
+        (X-Fair-Reason; required where export.reason_required is in force for the BU's subtree or the exported
+        items' BUs).
         Format: docs/formats/fair-risk-v1.md.
       x-permission: scenario.view, library.view or control.view, for what is included
       x-audit-events: [risk.exported]
@@ -1065,6 +1076,7 @@ paths:
         - { name: controls, in: query, schema: { type: string }, description: "Control ids, comma-separated" }
         - { name: bu, in: query, schema: { type: string, format: uuid }, description: Everything the requester sees in this BU's subtree }
         - { name: archived, in: query, schema: { enum: ["true", "false"], default: "false" } }
+        - $ref: "#/components/parameters/Reason"
       responses:
         "200":
           description: The file

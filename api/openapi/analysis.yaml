@@ -27,6 +27,15 @@ components:
     internalJWT: { type: http, scheme: bearer, bearerFormat: JWT }
     dbContext: { type: apiKey, in: header, name: X-Fair-DB-Context }
   parameters:
+    Reason:
+      name: X-Fair-Reason
+      in: header
+      required: false
+      description: >-
+        Why the data leaves the platform, as percent-encoded UTF-8 (at most 500 characters). Required where
+        export.reason_required is in force for the data's business units (F-010 T-12, OQ7; 400 reason_required
+        without it); recorded as the event's reason.
+      schema: { type: string, maxLength: 1500 }
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -522,12 +531,14 @@ paths:
         - { name: set, in: query, required: false, schema: { type: string } }
         - { name: scale, in: query, required: false, schema: { type: string, enum: [log, linear], default: log } }
         - { name: relative_to, in: query, required: false, schema: { type: string } }
+        - $ref: "#/components/parameters/Reason"
       responses:
         "200":
           description: The CSV (F-006 design §3.3; text cells that a spreadsheet would read as a formula are neutralized)
           headers:
             Content-Disposition: { schema: { type: string }, description: "attachment, with an ASCII file name holding no user text" }
           content: { text/csv: { schema: { type: string } } }
+        "400": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
@@ -544,12 +555,14 @@ paths:
         - $ref: "#/components/parameters/ID"
         - { name: view, in: query, required: true, schema: { type: string, enum: [summary, curve, histogram, contributions] } }
         - { name: scale, in: query, required: false, schema: { type: string, enum: [log, linear], default: log } }
+        - $ref: "#/components/parameters/Reason"
       responses:
         "200":
           description: The CSV (F-006 design §3.3; text cells that a spreadsheet would read as a formula are neutralized)
           headers:
             Content-Disposition: { schema: { type: string }, description: "attachment, with an ASCII file name holding no user text" }
           content: { text/csv: { schema: { type: string } } }
+        "400": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
@@ -572,12 +585,14 @@ paths:
           explode: true
           schema: { type: array, minItems: 2, maxItems: 6, items: { type: string } }
         - { name: view, in: query, required: true, schema: { type: string, enum: [summary, curve] } }
+        - $ref: "#/components/parameters/Reason"
       responses:
         "200":
           description: The CSV (F-006 design §3.3; text cells that a spreadsheet would read as a formula are neutralized)
           headers:
             Content-Disposition: { schema: { type: string }, description: "attachment, with an ASCII file name holding no user text" }
           content: { text/csv: { schema: { type: string } } }
+        "400": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
@@ -593,9 +608,10 @@ paths:
         and its id returned for the image's footer. The browser draws nothing unless this succeeds.
       x-permission: analysis.view for the subject (BU-scoped, RLS)
       x-audit-events: [analysis.downloaded]
-      x-reason-exempt: A download changes nothing; it is recorded, not justified.
+      x-reason-exempt: "A download changes nothing; where export.reason_required is in force its reason is X-Fair-Reason (F-010 T-12), not the body."
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/Reason"
       requestBody:
         required: true
         content:

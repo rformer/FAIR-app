@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/rformer/fair-app/internal/reason"
 	"github.com/rformer/fair-app/internal/risk"
 	"github.com/rformer/fair-app/internal/risk/model"
 	"github.com/rformer/fair-app/pkg/audit"
@@ -80,10 +81,17 @@ func (a *API) exportRisk(w http.ResponseWriter, r *http.Request, p authz.Princip
 		problem(w, http.StatusBadRequest, "invalid_value", "name scenarios, library or controls, or a bu whose subtree to export", nil)
 		return
 	}
+	// F-010 T-12 (F-010-AC-16; OQ7): the reason, required where
+	// export.reason_required is in force for the exported data's BUs.
+	why, err := reason.FromRequest(r)
+	if err != nil {
+		problem(w, http.StatusBadRequest, "invalid_value", reason.Header+" is percent-encoded text of at most 500 characters", nil)
+		return
+	}
 	var file risk.Transfer
 	var body []byte
 	var digest string
-	err := authz.WithDBContext(r.Context(), a.DB, p.DBToken, func(tx pgx.Tx) error {
+	err = authz.WithDBContext(r.Context(), a.DB, p.DBToken, func(tx pgx.Tx) error {
 		ctx := r.Context()
 		in := map[string]map[string]bool{}
 		for _, res := range []resource{library, controls, scenarios} {
@@ -160,6 +168,9 @@ func (a *API) exportRisk(w http.ResponseWriter, r *http.Request, p authz.Princip
 			}
 			return int(x.Version - y.Version)
 		})
+		if err := a.reasonFor(ctx, tx, bu, in, why); err != nil {
+			return err
+		}
 		var c string
 		if err := tx.QueryRow(ctx, "SELECT coalesce((SELECT currency FROM risk.instance), '')").Scan(&c); err != nil {
 			return err
@@ -173,10 +184,18 @@ func (a *API) exportRisk(w http.ResponseWriter, r *http.Request, p authz.Princip
 			return err
 		}
 		return a.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "risk.exported", Severity: audit.SeverityLow, Actor: p.UserID,
-			Target: "risk:export", BUID: bu, Attributes: map[string]string{"digest": digest,
+			Target: "risk:export", BUID: bu, Reason: why, Attributes: map[string]string{"digest": digest,
 				"scenarios": strconv.Itoa(len(file.Scenarios)), "library": strconv.Itoa(len(file.Library)),
 				"controls": strconv.Itoa(len(file.Controls)), "pinned": strconv.Itoa(len(file.Pinned))}})
 	})
+	if errors.Is(err, errReasonRequired) {
+		problem(w, http.StatusBadRequest, "reason_required", "export.reason_required is in force for this data: give a reason in "+reason.Header, nil)
+		return
+	}
+	if errors.Is(err, reason.ErrNotConfigured) {
+		problem(w, http.StatusServiceUnavailable, "unavailable", "the export settings cannot be read", nil)
+		return
+	}
 	if err != nil {
 		fail(w, err)
 		return
@@ -187,6 +206,51 @@ func (a *API) exportRisk(w http.ResponseWriter, r *http.Request, p authz.Princip
 	w.Header().Set("X-Fair-Digest", "sha256="+digest)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)
+}
+
+var errReasonRequired = errors.New("riskapi: a reason is required")
+
+// reasonFor applies the reason rule to an export: a bu subtree (every BU
+// below it) and the BUs of the items exported (F-010 design §3.6).
+func (a *API) reasonFor(ctx context.Context, tx pgx.Tx, bu string, in map[string]map[string]bool, why string) error {
+	need := false
+	if bu != "" {
+		v, err := reason.InSubtree(ctx, tx, a.Reasons, bu)
+		if err != nil {
+			return err
+		}
+		need = v
+	}
+	var bus []string
+	for _, res := range []resource{scenarios, library, controls} {
+		ids := make([]string, 0, len(in[res.event]))
+		for id := range in[res.event] {
+			ids = append(ids, id)
+		}
+		if len(ids) == 0 {
+			continue
+		}
+		rows, err := tx.Query(ctx, "SELECT DISTINCT bu_id::text FROM risk."+res.head+" WHERE id = ANY ($1::uuid[])", ids)
+		if err != nil {
+			return err
+		}
+		more, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			return err
+		}
+		bus = append(bus, more...)
+	}
+	if !need {
+		v, err := reason.AtBUs(a.Reasons, bus)
+		if err != nil {
+			return err
+		}
+		need = v
+	}
+	if need && why == "" {
+		return errReasonRequired
+	}
+	return nil
 }
 
 // exportItem reads one item the caller sees, with all its versions.

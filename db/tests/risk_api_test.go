@@ -21,6 +21,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/rformer/fair-app/internal/reason"
 	risksvc "github.com/rformer/fair-app/internal/risk"
 	"github.com/rformer/fair-app/internal/risk/model/modeltest"
 	"github.com/rformer/fair-app/internal/riskapi"
@@ -54,7 +55,7 @@ func newRiskAPI(t *testing.T) *riskAPIEnv {
 		t.Fatal(err)
 	}
 	pool := r.appPool()
-	api := &riskapi.API{DB: pool, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool)}),
+	api := &riskapi.API{Reasons: reason.Static{}, DB: pool, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool)}),
 		Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: pool})}
 	srv := httptest.NewServer(api.Handler(keys, nil))
 	t.Cleanup(srv.Close)

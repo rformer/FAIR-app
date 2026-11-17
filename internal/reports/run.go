@@ -12,9 +12,9 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/rformer/fair-app/internal/keys"
+	"github.com/rformer/fair-app/internal/reason"
 	"github.com/rformer/fair-app/internal/reports/doc"
 	"github.com/rformer/fair-app/pkg/authz"
-	"github.com/rformer/fair-app/pkg/settings"
 )
 
 // F-010 T-09 (design §3.3, §3.6): report runs. A request inserts the run
@@ -175,42 +175,12 @@ func Enqueuer(c *river.Client[pgx.Tx]) func(context.Context, pgx.Tx, GenerateArg
 }
 
 // ReasonSettings reads export.reason_required (settings.Client).
-type ReasonSettings interface {
-	Bool(key, bu string) (bool, error)
-	BUValues(key string) (map[string]any, error)
-}
+type ReasonSettings = reason.Settings
 
-type rowQuerier interface {
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-}
-
-// ReasonRequired is the reason rule (design §3.6, OQ7): a reason is
-// required when export.reason_required is true for any BU in bu's subtree
-// (the instance value, BU overrides and the restricted overlay, every BU
-// of the subtree, restricted ones included). It fails closed: an error
-// when the settings cannot be read.
-func ReasonRequired(ctx context.Context, q rowQuerier, s ReasonSettings, bu string) (bool, error) {
-	inst, err := s.Bool(settings.KeyExportReasonRequired, "")
-	if err != nil || inst {
-		return inst, err
-	}
-	vals, err := s.BUValues(settings.KeyExportReasonRequired)
-	if err != nil {
-		return false, err
-	}
-	var on []string
-	for b, v := range vals {
-		if v == true {
-			on = append(on, b)
-		}
-	}
-	if len(on) == 0 {
-		return false, nil
-	}
-	slices.Sort(on)
-	var any bool
-	err = q.QueryRow(ctx, "SELECT report.any_in_subtree($1, $2::uuid[])", bu, on).Scan(&any)
-	return any, err
+// ReasonRequired is the reason rule for a report of bu's subtree (design
+// §3.6, OQ7; reason.InSubtree). It fails closed.
+func ReasonRequired(ctx context.Context, q reason.RowQuerier, s ReasonSettings, bu string) (bool, error) {
+	return reason.InSubtree(ctx, q, s, bu)
 }
 
 // LoadContextKey reads the report context key (risk/secrets/

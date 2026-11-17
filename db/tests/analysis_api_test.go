@@ -30,6 +30,7 @@ import (
 	"github.com/rformer/fair-app/internal/analysisapi"
 	"github.com/rformer/fair-app/internal/api/enginev1"
 	"github.com/rformer/fair-app/internal/enginetls"
+	"github.com/rformer/fair-app/internal/reason"
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
 )
@@ -245,7 +246,7 @@ func analysisAPI(t *testing.T, ra *riskAPIEnv, lim analysis.Limits, engine bool)
 	if err != nil {
 		t.Fatal(err)
 	}
-	api := &analysisapi.API{DB: pool, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool)}), Settings: fixedLimits(lim),
+	api := &analysisapi.API{Reasons: reason.Static{}, DB: pool, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool)}), Settings: fixedLimits(lim),
 		Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: pool})}
 	if engine {
 		api.Enqueue = analysis.Enqueuer(rc)

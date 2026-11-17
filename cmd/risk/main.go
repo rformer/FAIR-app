@@ -435,7 +435,7 @@ func run() error {
 				return fmt.Errorf("nats: %w", err)
 			}
 		}
-		api := &riskapi.API{DB: pool, Authz: grants, Audit: emitter}
+		api := &riskapi.API{DB: pool, Authz: grants, Audit: emitter, Reasons: sc}
 		h := server.SecurityHeaders(api.Handler(jwtKeys, nil))
 		for _, prefix := range riskapi.Prefixes {
 			srv.Mux().Handle(prefix, h)
@@ -449,7 +449,7 @@ func run() error {
 		}
 		// The analysis API (F-005 design §5).
 		ah := server.SecurityHeaders((&analysisapi.API{DB: pool, Authz: grants, Enqueue: enqueue, EnqueueAggregate: enqueueAggregate,
-			Settings: analysisapi.ClientSettings{C: sc}, Audit: emitter}).Handler(jwtKeys, nil))
+			Settings: analysisapi.ClientSettings{C: sc}, Audit: emitter, Reasons: sc}).Handler(jwtKeys, nil))
 		for _, prefix := range analysisapi.Prefixes {
 			srv.Mux().Handle(prefix, ah)
 			srv.Mux().Handle(prefix+"/", ah)

@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/rformer/fair-app/internal/analysis"
+	"github.com/rformer/fair-app/internal/reason"
 	"github.com/rformer/fair-app/internal/risk"
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
@@ -36,6 +37,19 @@ var (
 
 var errAudit = errors.New("analysisapi: the download could not be recorded")
 
+var errReasonRequired = errors.New("analysisapi: a reason is required")
+
+// reasonOf reads the request's reason (X-Fair-Reason); false after
+// answering 400.
+func reasonOf(w http.ResponseWriter, r *http.Request) (string, bool) {
+	why, err := reason.FromRequest(r)
+	if err != nil {
+		problem(w, http.StatusBadRequest, "invalid_value", reason.Header+" is percent-encoded text of at most 500 characters", nil)
+		return "", false
+	}
+	return why, true
+}
+
 // newDownloadID is a random UUID (version 4) naming a download in its
 // events and in the file.
 func newDownloadID() string {
@@ -48,7 +62,7 @@ func newDownloadID() string {
 
 // downloaded records the download in tx: one event per business unit,
 // naming that unit's results (ids, sorted).
-func (a *API) downloaded(ctx context.Context, tx pgx.Tx, p authz.Principal, id, subject, view, format string, byBU map[string][]string) error {
+func (a *API) downloaded(ctx context.Context, tx pgx.Tx, p authz.Principal, id, subject, view, format, why string, byBU map[string][]string) error {
 	if a.Audit == nil {
 		return errAudit
 	}
@@ -57,6 +71,15 @@ func (a *API) downloaded(ctx context.Context, tx pgx.Tx, p authz.Principal, id, 
 		bus = append(bus, bu)
 	}
 	slices.Sort(bus)
+	// F-010 T-12 (F-010-AC-16; OQ7): a reason where export.reason_required
+	// is in force at any BU of the results.
+	need, err := reason.AtBUs(a.Reasons, bus)
+	if err != nil {
+		return fmt.Errorf("%w: %v", errAudit, err)
+	}
+	if need && why == "" {
+		return errReasonRequired
+	}
 	for _, bu := range bus {
 		ids := slices.Clone(byBU[bu])
 		slices.Sort(ids)
@@ -66,7 +89,7 @@ func (a *API) downloaded(ctx context.Context, tx pgx.Tx, p authz.Principal, id, 
 			target = "analysis_comparison:" + id
 		}
 		if err := a.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "analysis.downloaded", Severity: audit.SeverityLow, Actor: p.UserID,
-			Target: target, BUID: bu, Attributes: map[string]string{"download_id": id, "subject": subject, "ids": strings.Join(ids, " "),
+			Target: target, BUID: bu, Reason: why, Attributes: map[string]string{"download_id": id, "subject": subject, "ids": strings.Join(ids, " "),
 				"view": view, "format": format}}); err != nil {
 			return fmt.Errorf("%w: %v", errAudit, err)
 		}
@@ -84,6 +107,8 @@ func answerDownload(w http.ResponseWriter, err error) {
 		notSucceeded(w)
 	case errors.Is(err, analysis.ErrHidden):
 		problem(w, http.StatusNotFound, "not_found", "", nil)
+	case errors.Is(err, errReasonRequired):
+		problem(w, http.StatusBadRequest, "reason_required", "export.reason_required is in force for these results: give a reason in "+reason.Header, nil)
 	case errors.Is(err, errAudit):
 		problem(w, http.StatusServiceUnavailable, "unavailable", "the download could not be recorded in the audit trail", nil)
 	default:
@@ -141,6 +166,10 @@ func str(s *string) string {
 // getRunData answers a run's view as CSV (AC-18).
 func (a *API) getRunData(w http.ResponseWriter, r *http.Request, p authz.Principal) {
 	if !a.anywhere(w, r, p) {
+		return
+	}
+	why, ok := reasonOf(w, r)
+	if !ok {
 		return
 	}
 	id := r.PathValue("id")
@@ -264,7 +293,7 @@ func (a *API) getRunData(w http.ResponseWriter, r *http.Request, p authz.Princip
 		if err := t.Write(&body); err != nil {
 			return err
 		}
-		return a.downloaded(ctx, tx, p, dl, "run", view, "csv", map[string][]string{run.bu: {id}})
+		return a.downloaded(ctx, tx, p, dl, "run", view, "csv", why, map[string][]string{run.bu: {id}})
 	})
 	if err != nil {
 		answerDownload(w, err)
@@ -287,6 +316,10 @@ func independence(sets []analysis.Set) string {
 // getAggregateData answers an aggregate's view as CSV (AC-18).
 func (a *API) getAggregateData(w http.ResponseWriter, r *http.Request, p authz.Principal) {
 	if !a.anywhere(w, r, p) {
+		return
+	}
+	why, ok := reasonOf(w, r)
+	if !ok {
 		return
 	}
 	id := r.PathValue("id")
@@ -355,7 +388,7 @@ func (a *API) getAggregateData(w http.ResponseWriter, r *http.Request, p authz.P
 		if err := t.Write(&body); err != nil {
 			return err
 		}
-		return a.downloaded(ctx, tx, p, dl, "aggregate", view, "csv", map[string][]string{bu: {id}})
+		return a.downloaded(ctx, tx, p, dl, "aggregate", view, "csv", why, map[string][]string{bu: {id}})
 	})
 	if err != nil {
 		answerDownload(w, err)
@@ -380,6 +413,10 @@ func comparisonBUs(c map[string]any) map[string][]string {
 // one 404, as the comparison itself.
 func (a *API) getComparisonData(w http.ResponseWriter, r *http.Request, p authz.Principal) {
 	if !a.anywhere(w, r, p) {
+		return
+	}
+	why, ok := reasonOf(w, r)
+	if !ok {
 		return
 	}
 	view := r.URL.Query().Get("view")
@@ -424,7 +461,7 @@ func (a *API) getComparisonData(w http.ResponseWriter, r *http.Request, p authz.
 		if err := t.Write(&body); err != nil {
 			return err
 		}
-		return a.downloaded(ctx, tx, p, dl, "comparison", view, "csv", comparisonBUs(c))
+		return a.downloaded(ctx, tx, p, dl, "comparison", view, "csv", why, comparisonBUs(c))
 	})
 	if err != nil {
 		answerDownload(w, err)
@@ -446,6 +483,10 @@ type downloadBody struct {
 // the download's id, which the image carries.
 func (a *API) createDownload(w http.ResponseWriter, r *http.Request, p authz.Principal) {
 	if !a.anywhere(w, r, p) {
+		return
+	}
+	why, ok := reasonOf(w, r)
+	if !ok {
 		return
 	}
 	var body downloadBody
@@ -509,7 +550,7 @@ func (a *API) createDownload(w http.ResponseWriter, r *http.Request, p authz.Pri
 			}
 			byBU = comparisonBUs(c)
 		}
-		return a.downloaded(ctx, tx, p, dl, body.Subject, body.View, body.Format, byBU)
+		return a.downloaded(ctx, tx, p, dl, body.Subject, body.View, body.Format, why, byBU)
 	})
 	if err != nil {
 		answerDownload(w, err)

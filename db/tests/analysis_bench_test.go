@@ -21,6 +21,7 @@ import (
 	"github.com/rformer/fair-app/internal/analysisapi"
 	"github.com/rformer/fair-app/internal/api/enginev1"
 	"github.com/rformer/fair-app/internal/enginetls"
+	"github.com/rformer/fair-app/internal/reason"
 	"github.com/rformer/fair-app/internal/risk/model/modeltest"
 	"github.com/rformer/fair-app/pkg/authz"
 )
@@ -147,7 +148,7 @@ func TestBenchmarkGateSimulation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = rc.Stop(context.Background()) }()
-	api := &analysisapi.API{DB: pool, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool)}),
+	api := &analysisapi.API{Reasons: reason.Static{}, DB: pool, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool)}),
 		Enqueue: analysis.Enqueuer(rc), EnqueueAggregate: analysis.AggregateEnqueuer(rc),
 		Settings: fixedLimits{IterationsDefault: simBenchIterations, IterationsMin: 1000, IterationsMax: 2_000_000, MaxActive: 50}}
 	srv := httptest.NewServer(api.Handler(ra.keys, nil))

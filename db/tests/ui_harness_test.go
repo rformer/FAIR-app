@@ -28,6 +28,7 @@ import (
 	"github.com/rformer/fair-app/internal/gateway"
 	"github.com/rformer/fair-app/internal/posture"
 	"github.com/rformer/fair-app/internal/postureapi"
+	"github.com/rformer/fair-app/internal/reason"
 	"github.com/rformer/fair-app/internal/registerapi"
 	"github.com/rformer/fair-app/internal/risk/model/modeltest"
 	"github.com/rformer/fair-app/internal/riskapi"
@@ -87,7 +88,7 @@ func TestPostureUIHarness(t *testing.T) {
 	auditUp, _ := url.Parse(auditSrv.URL)
 	// F-003 T-12: the risk API, as the risk service serves it (app_rw).
 	rp := e.appPool()
-	riskAPI := &riskapi.API{DB: rp, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(rp), MaxAge: time.Second}),
+	riskAPI := &riskapi.API{Reasons: reason.Static{}, DB: rp, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(rp), MaxAge: time.Second}),
 		Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: rp})}
 	// F-004 T-12: the estimate API, mounted beside it as cmd/risk does.
 	estimateAPI := &estimateapi.API{DB: rp, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(rp), MaxAge: time.Second}),
@@ -106,7 +107,7 @@ func TestPostureUIHarness(t *testing.T) {
 	// exposure aggregates are worked by the same River workers.
 	registerAPI := &registerapi.API{DB: rp, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(rp), MaxAge: time.Second}),
 		Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: rp})}
-	analysisAPI := &analysisapi.API{DB: rp, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(rp), MaxAge: time.Second}),
+	analysisAPI := &analysisapi.API{Reasons: reason.Static{}, DB: rp, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(rp), MaxAge: time.Second}),
 		Settings: fixedLimits{IterationsDefault: 10000, IterationsMin: 1000, IterationsMax: 2000000, MaxActive: 5},
 		Audit:    audit.WithTrail(audit.NewMemory(), audit.Trail{DB: rp})} // F-006 T-05: downloads are recorded
 	engineSocket := os.Getenv("FAIR_UI_ENGINE_SOCKET")

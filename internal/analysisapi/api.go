@@ -56,6 +56,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/rformer/fair-app/internal/analysis"
+	"github.com/rformer/fair-app/internal/reason"
 	"github.com/rformer/fair-app/internal/riskapi"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/audit"
@@ -86,6 +87,9 @@ type API struct {
 	// Audit records downloads (analysis.downloaded) in their transaction;
 	// nil answers every download 503.
 	Audit audit.Emitter
+	// Reasons gives export.reason_required (F-010 T-12) for downloads;
+	// nil answers every download 503 (fail closed).
+	Reasons reason.Settings
 }
 
 type route struct {

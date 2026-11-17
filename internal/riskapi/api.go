@@ -67,6 +67,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/rformer/fair-app/internal/reason"
 	"github.com/rformer/fair-app/internal/risk/model"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/audit"
@@ -84,6 +85,9 @@ type API struct {
 	DB    *pgxpool.Pool // app_rw
 	Authz Authorizer
 	Audit audit.Emitter
+	// Reasons gives export.reason_required (F-010 T-12) for the export;
+	// nil refuses exports (fail closed).
+	Reasons reason.Settings
 }
 
 type route struct {
