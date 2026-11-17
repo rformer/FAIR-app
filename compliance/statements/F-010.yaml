@@ -1,0 +1,205 @@
+# NIST SP 800-53 Rev 5 control implementation statements for F-010
+# (reporting and export), task T-20. Source for the platform's OSCAL
+# component definition (F-014 assembles the features' files); checked by
+# internal/compliance tests: the controls are exactly F-010's control
+# mapping, every evidence path and test exists, and the OSCAL output
+# validates against the pinned schema.
+#
+# responsibility, per deployment mode (ADR-005):
+#   provider  the platform (and, in SaaS, the vendor operating it) meets it
+#   shared    the platform provides the mechanism; the customer operates it
+#   customer  the customer meets it
+# customer: what the customer does wherever the responsibility is shared
+# or customer. Evidence tests are "<package dir>:<test name>".
+feature: F-010
+title: Reporting and export
+status: approved # signed off by Robert Former, 2026-11-17
+controls:
+  - id: ac-3
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Every dashboard, trend and report is read under its requester's own
+      access: the dashboard and trends in the request's signed database
+      context, and a report job under a delegated context that the
+      database honours only inside a read-only transaction, for the
+      requester of a report that is running with that context's nonce and
+      the requester's current scope version. Row-level security therefore
+      applies unchanged, for requested and scheduled reports alike. A
+      report and its files are listed and served to their requester alone;
+      each download re-checks report.export at the report's business unit.
+      A trend shows a roll-up's snapshot only to a viewer who reads every
+      risk it included.
+    evidence:
+      code: [db/migrations/0134_report_context.sql, db/migrations/0135_report_runs.sql, db/migrations/0141_report_snapshots.sql,
+             internal/reports/worker.go, internal/reportapi/runs.go, internal/reportapi/dashboard.go]
+      tests: ["db/tests:TestSTRIDEF010Visibility", "db/tests:TestSTRIDEF010DelegatedContext", "db/tests:TestReportDelegatedContext",
+              "db/tests:TestSTRIDEF010Files", "db/tests:TestSTRIDEF010Trends", "db/tests:TestReportRuns"]
+
+  - id: ac-4
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Restricted business units below a viewer appear in dashboards,
+      trends and reports only as their roll-up mode allows: as totals
+      computed by a separate definer role, or not at all; their risks are
+      never listed, and every report says what it leaves out and why.
+      Report files stay in the platform's own report store and are never
+      mailed or posted: a scheduled report's notice carries a link, and the
+      file is downloaded by its requester. Calibration records are never
+      read into a report.
+    evidence:
+      code: [db/migrations/0140_report_aggregate_counts.sql, db/migrations/0142_report_schedules.sql, internal/reports/dashboard.go,
+             internal/reports/read.go]
+      tests: ["db/tests:TestReportDashboard", "db/tests:TestSTRIDEF010Visibility", "db/tests:TestReportSchedules",
+              "internal/reports:TestReadersReadNoCalibration"]
+
+  - id: ac-6
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Generating, downloading and scheduling reports needs report.export at
+      the report's business unit, a privileged permission held by the
+      built-in Report Publisher and Auditor roles; report.view alone gives
+      the dashboard. A service account holds report.export only through an
+      approved scope request decided by a second administrator. The report
+      tables belong to a definer role and are reached only through its
+      functions; the delegated report context cannot write.
+    customer: >-
+      Grant Report Publisher only to those who take reports out of the
+      platform, and review it, and service accounts' report.export, in
+      access reviews (F-001).
+    evidence:
+      code: [internal/access/catalog/release/builtin_roles.json, db/migrations/0133_report_schema.sql, db/migrations/0136_sa_report_export.sql]
+      tests: ["db/tests:TestCatalogVersion5Upgrade", "db/tests:TestServiceAccountReportExport", "db/tests:TestSTRIDEF010DelegatedContext",
+              "db/tests:TestReportSchema"]
+
+  - id: au-2
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      The security event catalog defines the reporting events: a report
+      requested, generated, failed and downloaded, report files purged, and
+      a schedule created, changed, deleted, resumed or suspended, together
+      with the downloads of F-003's risk export and F-006's results.
+      Reading the dashboard changes no security state and is not recorded
+      as an event.
+    evidence:
+      code: [pkg/audit/catalog.yaml]
+      tests: ["db/tests:TestReportAuditEvents", "pkg/audit:TestCatalogMatchesCode"]
+
+  - id: au-3
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Each reporting event records the actor, the business unit, the report
+      and its kind, filters and formats, the reason where one was given or
+      required, the number of risks covered and what was left out, and each
+      file's SHA-256 digest, so a copy found outside the platform can be
+      traced to who produced and downloaded it.
+    evidence:
+      code: [pkg/audit/catalog.yaml, db/migrations/0135_report_runs.sql]
+      tests: ["db/tests:TestReportAuditEvents", "db/tests:TestSTRIDEF010Digests", "db/tests:TestExportReasons"]
+
+  - id: au-12
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Reporting events are recorded to the audit trail in the transaction
+      that makes the change they report. A download is recorded before any
+      byte is sent, and is refused with no file when its event cannot be
+      recorded.
+    evidence:
+      code: [db/migrations/0135_report_runs.sql, internal/reportapi/runs.go]
+      tests: ["db/tests:TestReportAuditEvents", "db/tests:TestReportRuns"]
+
+  - id: cm-6
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      The report settings are F-015 settings with secure defaults and
+      bounds: the marking on every page and file, the retention of report
+      files (30 days by default), the snapshot interval and retention, and
+      export.reason_required, which is business-unit scoped and on by
+      default in restricted subtrees through the restricted overlay.
+      Weakening any of them follows the posture workflow.
+    customer: >-
+      Set report.marking to the installation's classification marking and
+      the retention to the organization's records policy.
+    evidence:
+      code: [bindings/report.marking.yaml, bindings/report.retention_days.yaml, bindings/export.reason_required.yaml, pkg/settings/profiles.go]
+      tests: ["db/tests:TestReportSettings", "db/tests:TestExportReasons"]
+
+  - id: sc-5
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Report generation is bounded before any work: at most 10,000 risks in
+      a report's scope, 100 MiB per file, three reports generating per
+      requester and 20 schedules per person; jobs run on a queue with a
+      bounded number of workers and a time limit per attempt, and schedules
+      that fell due during an outage produce one report each on recovery.
+    customer: >-
+      Size the risk service's report workers (FAIR_REPORT_WORKERS) to the
+      installation.
+    evidence:
+      code: [internal/reports/run.go, internal/reports/worker.go, db/migrations/0142_report_schedules.sql]
+      tests: ["db/tests:TestSTRIDEF010Limits", "db/tests:TestReportRuns", "db/tests:TestReportSchedules"]
+
+  - id: sc-8
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      The risk service reaches the report store over TLS 1.2 or later with
+      the store's certificate verified, using credentials read from files;
+      it refuses to start in production without a configured, versioned
+      report store.
+    customer: >-
+      Provide the report store with a certificate the platform's CA bundle
+      trusts, and its credentials as files.
+    evidence:
+      code: [internal/objstore/objstore.go, internal/reports/install.go]
+      tests: ["internal/objstore:TestTLSFloor", "internal/objstore:TestConfigRefusals", "internal/reports:TestCheckInstall",
+              "internal/reports:TestOpenStoreRefusesBadConfig"]
+
+  - id: sc-13
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Report files' SHA-256 digests are computed by the FIPS 140 validated
+      Go cryptographic module as the files stream to the store, and the
+      delegated report context is authenticated with an HMAC key of its own
+      purpose, held only by the risk service.
+    evidence:
+      code: [internal/reports/worker.go, db/migrations/0134_report_context.sql]
+      tests: ["db/tests:TestSTRIDEF010Digests", "db/tests:TestReportDelegatedContext"]
+
+  - id: sc-28
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Report files are kept only in the platform's own report store, under
+      fixed object names that carry no report content, for the retention
+      period; the database keeps each file's size and digest.
+    customer: >-
+      Encrypt the report store's bucket at rest and restrict its access to
+      the risk service.
+    evidence:
+      code: [internal/reports/worker.go, internal/reports/install.go]
+      tests: ["db/tests:TestSTRIDEF010Files", "db/tests:TestReportRetention"]
+
+  - id: si-10
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Report kinds, formats and every filter are checked against their
+      definitions before a request is accepted; unknown fields are refused.
+      Values placed in reports are text only: PDF text strings in a tagged
+      structure with no actions, links or external resources, CSV cells a
+      spreadsheet would read as formulas made inert, and canonical JSON.
+      File names are fixed.
+    evidence:
+      code: [internal/reports/kinds.go, internal/reports/doc/render.go, internal/report/pdf.go]
+      tests: ["internal/reports:TestCheckParams", "db/tests:TestSTRIDEF010Injection", "internal/reports/doc:TestCSV", "internal/reports/doc:TestJSON"]
+
+  - id: si-12
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Report files are deleted, every stored version of each, once
+      report.retention_days have passed; the report's record and its
+      digests remain. Portfolio snapshots are immutable and purged after
+      report.snapshot_retention_days.
+    customer: >-
+      Copies of downloaded reports outside the platform are kept under the
+      organization's own records policy.
+    evidence:
+      code: [db/migrations/0139_report_retention.sql, internal/reports/purge.go, db/migrations/0141_report_snapshots.sql]
+      tests: ["db/tests:TestReportRetention", "db/tests:TestReportTrend"]

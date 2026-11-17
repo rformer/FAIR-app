@@ -93,7 +93,7 @@ F-010 turns what the other features hold into reports that people read outside t
 | BI access | API with service accounts | Same | Same, inside the enclave |
 
 ## Control mapping (NIST SP 800-53r5)
-To be proposed with the tasks.
+AC-3, AC-4, AC-6, AU-2, AU-3, AU-12, CM-6, SC-5, SC-8, SC-13, SC-28, SI-10, SI-12 (T-20; statements in `compliance/statements/F-010.yaml`, signed off by Robert Former 2026-11-17).
 
 ## Out of scope
 - Heat maps, likelihood-by-impact matrices and ordinal ratings (P1).
@@ -129,3 +129,4 @@ To be proposed with the tasks.
 - 2026-11-16: Approved by Robert Former; OQ1 to OQ11 resolved as proposed.
 - 2026-11-16: OQ4 amended by Robert Former (T-01): `report.export` is privileged (F-001-AC-54), and adding it to Executive Viewer and Risk Analyst would make their holders privileged users (phishing-resistant MFA, F-001-AC-06). Instead catalog version 5 adds a built-in Report Publisher role (`report.view`, `report.export`), granted beside other roles, and Auditor gains `report.export`. The draft's "today only Platform Admin holds `report.export`" was wrong: no built-in role held it.
 - 2026-11-17: AC-22 (Robert Former, T-09): service accounts cannot hold privileged permissions (F-001 AC-36), and `report.export` is privileged. Resolved by amending F-001 AC-36 (T-09b): `report.export` is the one privileged scope a service account may hold, and only through the dual-approval path.
+- 2026-11-17: Control mapping (T-20): AC-3, AC-4, AC-6, AU-2, AU-3, AU-12, CM-6, SC-5, SC-8, SC-13, SC-28, SI-10, SI-12; statements signed off by Robert Former.
