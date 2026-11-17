@@ -116,6 +116,83 @@ paths:
                       running: { type: integer }
                       file_bytes: { type: integer }
         "404": { $ref: "#/components/responses/Error" }
+  /api/v1/reports/dashboard:
+    get:
+      operationId: getDashboard
+      tags: [reports]
+      summary: A business unit subtree's portfolio, as the caller sees it (AC-01 to AC-05)
+      description: >-
+        Read in one snapshot under the caller's context: the caller's latest succeeded roll-up of the business unit
+        (its summary with the loss exceedance curve, time, staleness, what it covers and leaves out; null without one),
+        the 10 largest open risks by mean annualized loss with their 10th and 90th percentiles, each child business
+        unit's open risks and sum of means (not a percentile) with the p90 of the caller's roll-up of it, coverage by
+        exposure status, acceptances, treatment actions, and restricted business units below by their roll-up mode
+        (Aggregate only: totals from report.aggregate_counts; Excluded: nothing). Every exposure is a distribution;
+        nothing is scored.
+      x-permission: report.view at the BU
+      parameters:
+        - { name: bu, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: The dashboard
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [bu_id, as_of, rollup, largest, children, coverage, acceptances, treatment, restricted, left_out]
+                properties:
+                  bu_id: { type: string, format: uuid }
+                  as_of: { type: string, format: date-time }
+                  rollup:
+                    type: [object, "null"]
+                    properties:
+                      id: { type: string, format: uuid }
+                      finished_at: { type: string, format: date-time }
+                      stale: { type: boolean }
+                      summary: { type: object, description: "The roll-up's summary (F-005): ale (mean, percentiles), curve" }
+                      covers: { type: integer }
+                      left_out: { type: object, additionalProperties: { type: integer } }
+                      left_out_total: { type: integer }
+                      excluded_bus: { type: integer }
+                  largest:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        title: { type: string }
+                        owner: { type: string }
+                        mean: { type: [number, "null"] }
+                        p10: { type: [number, "null"] }
+                        p90: { type: [number, "null"] }
+                        status: { type: string, enum: [current, stale, computing, unquantified] }
+                  children:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        bu_id: { type: string, format: uuid }
+                        name: { type: string }
+                        open_risks: { type: integer }
+                        quantified: { type: integer }
+                        mean_sum: { type: number, description: A sum of means, not a percentile of the total }
+                        rollup_p90: { type: [number, "null"] }
+                  coverage:
+                    type: object
+                    properties:
+                      open: { type: integer }
+                      current: { type: integer }
+                      stale: { type: integer }
+                      computing: { type: integer }
+                      unquantified: { type: integer }
+                  acceptances: { type: object, additionalProperties: { type: integer }, description: "active, expiring (within 30 days), expired, suspended, pending" }
+                  treatment: { type: object, additionalProperties: { type: integer }, description: "open, overdue" }
+                  restricted:
+                    type: [object, "null"]
+                    description: "Aggregate-only units below: units, open_risks, current, stale, computing, unquantified, mean_sum"
+                  left_out: { type: object, additionalProperties: { type: integer } }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /api/v1/reports:
     get:
       operationId: listReports

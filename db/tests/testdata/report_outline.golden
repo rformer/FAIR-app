@@ -27,7 +27,7 @@
 # Largest risks
   table largest [risk:text owner:text mean:amount p10:amount p90:amount status:text] 2 rows
 # By business unit
-  table by-unit [unit:text risks:number quantified:number sum:amount] 0 rows
+  table by-unit [unit:text risks:number quantified:number sum:amount p90:amount] 0 rows
 # Coverage
   pairs Open risks | With a current analysis | Stale | Computing | Unquantified
 # Acceptances

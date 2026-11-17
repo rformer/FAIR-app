@@ -12,6 +12,10 @@
 //	GET  /api/v1/reports/{id}                    one, with its files' sizes and digests  the requester
 //	GET  /api/v1/reports/{id}/files/{format}     a file, recorded first                  the requester, report.export re-checked
 //
+// T-14 serves the dashboard:
+//
+//	GET  /api/v1/reports/dashboard?bu=           a BU subtree's portfolio                report.view at the BU
+//
 // Without report.view or report.export anywhere the routes do not exist for
 // the caller (404, F-001 AC-25); another user's run is 404 like a missing
 // one. The database records every event (design §8) in the change's
@@ -66,6 +70,7 @@ type route struct {
 
 var routes = []route{
 	{"GET", "/api/v1/reports/kinds", (*API).listKinds},
+	{"GET", "/api/v1/reports/dashboard", (*API).getDashboard},
 	{"POST", "/api/v1/reports", (*API).requestReport},
 	{"GET", "/api/v1/reports", (*API).listReports},
 	{"GET", "/api/v1/reports/{id}", (*API).getReport},

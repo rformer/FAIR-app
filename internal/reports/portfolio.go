@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -52,20 +51,15 @@ func readPortfolio(ctx context.Context, tx pgx.Tx, r Run) (Built, error) {
 	if p.PeriodDays != nil {
 		period = *p.PeriodDays
 	}
-	risks, err := RegisterRows(ctx, tx, r.BU.ID, RegisterParams{})
+	d, err := ReadDashboard(ctx, tx, r.BU.ID)
 	if err != nil {
 		return Built{}, err
 	}
-	var sections []doc.Section
-	exposure, runs, err := rollupSection(ctx, tx, r.BU.ID)
-	if err != nil {
-		return Built{}, err
-	}
-	sections = append(sections, exposure)
+	sections := []doc.Section{rollupSection(d.Rollup)}
 
-	// The largest open risks by mean annualized loss (RegisterRows' order).
+	// The largest open risks by mean annualized loss.
 	var owners []string
-	for _, x := range risks {
+	for _, x := range d.Largest {
 		owners = append(owners, x.Owner)
 	}
 	who, err := names(ctx, tx, owners)
@@ -76,92 +70,56 @@ func readPortfolio(ctx context.Context, tx pgx.Tx, r Run) (Built, error) {
 		{Key: "risk", Title: "Risk", Type: doc.ColText, Width: 3}, {Key: "owner", Title: "Owner", Type: doc.ColText, Width: 1.5},
 		{Key: "mean", Title: "Mean", Type: doc.ColAmount}, {Key: "p10", Title: "10th percentile", Type: doc.ColAmount},
 		{Key: "p90", Title: "90th percentile", Type: doc.ColAmount}, {Key: "status", Title: "Exposure status", Type: doc.ColText}}}
-	count := map[string]int{}
-	for _, x := range risks {
-		count[x.Status]++
-		if x.Mean != nil && len(top.Rows) < LargestRisks {
-			top.Rows = append(top.Rows, []string{x.Title, nameOf(who, x.Owner), numPtr(x.Mean), numPtr(x.P10), numPtr(x.P90), x.Status})
-		}
+	for _, x := range d.Largest {
+		top.Rows = append(top.Rows, []string{x.Title, nameOf(who, x.Owner), numPtr(x.Mean), numPtr(x.P10), numPtr(x.P90), x.Status})
 	}
 	sections = append(sections, doc.Section{Heading: "Largest risks", Level: 1, Blocks: []doc.Block{table(top)}})
 
-	// Each child BU's subtree.
-	children, err := childBUs(ctx, tx, r.BU.ID)
-	if err != nil {
-		return Built{}, err
-	}
 	byChild := &doc.Table{ID: "by-unit", Caption: "Open risks by business unit below", Columns: []doc.Column{
 		{Key: "unit", Title: "Business unit", Type: doc.ColText, Width: 2.5}, {Key: "risks", Title: "Open risks", Type: doc.ColNumber},
 		{Key: "quantified", Title: "With an exposure", Type: doc.ColNumber},
-		{Key: "sum", Title: "Sum of means (not a percentile of the total)", Type: doc.ColAmount, Width: 1.5}}}
-	for _, c := range children {
-		rows, err := RegisterRows(ctx, tx, c.ID, RegisterParams{})
-		if err != nil {
-			return Built{}, err
-		}
-		var sum float64
-		n := 0
-		for _, x := range rows {
-			if x.Mean != nil {
-				sum += *x.Mean
-				n++
-			}
-		}
-		byChild.Rows = append(byChild.Rows, []string{c.Name, strconv.Itoa(len(rows)), strconv.Itoa(n), num(sum)})
+		{Key: "sum", Title: "Sum of means (not a percentile of the total)", Type: doc.ColAmount, Width: 1.5},
+		{Key: "p90", Title: "90th percentile of the unit's roll-up", Type: doc.ColAmount, Width: 1.5}}}
+	for _, c := range d.Children {
+		byChild.Rows = append(byChild.Rows, []string{c.Name, strconv.Itoa(c.Open), strconv.Itoa(c.Quantified), num(c.MeanSum), numPtr(c.RollupP90)})
 	}
-	sections = append(sections, doc.Section{Heading: "By business unit", Level: 1, Blocks: []doc.Block{table(byChild)}})
+	unitBlocks := []doc.Block{table(byChild)}
+	if d.Restricted != nil {
+		v := func(k string) string { return fmt.Sprint(d.Restricted[k]) }
+		mean, _ := d.Restricted["mean_sum"].(float64)
+		unitBlocks = append(unitBlocks, para("Restricted business units appear as totals only (their roll-up mode)."), pairs(
+			doc.Pair{Label: "Restricted units (totals only)", Value: v("units")}, doc.Pair{Label: "Their open risks", Value: v("open_risks")},
+			doc.Pair{Label: "With a current analysis", Value: v("current")}, doc.Pair{Label: "Stale", Value: v("stale")},
+			doc.Pair{Label: "Unquantified", Value: v("unquantified")},
+			doc.Pair{Label: "Sum of their means (not a percentile of the total)", Value: Display(doc.ColAmount, num(mean))}))
+	}
+	sections = append(sections, doc.Section{Heading: "By business unit", Level: 1, Blocks: unitBlocks})
 
-	// Coverage, acceptances, treatment.
+	c := d.Coverage
 	sections = append(sections, doc.Section{Heading: "Coverage", Level: 1, Blocks: []doc.Block{pairs(
-		doc.Pair{Label: "Open risks", Value: strconv.Itoa(len(risks))}, doc.Pair{Label: "With a current analysis", Value: strconv.Itoa(count["current"])},
-		doc.Pair{Label: "Stale", Value: strconv.Itoa(count["stale"])}, doc.Pair{Label: "Computing", Value: strconv.Itoa(count["computing"])},
-		doc.Pair{Label: "Unquantified", Value: strconv.Itoa(count["unquantified"])})}})
-	day, err := today(ctx, tx)
-	if err != nil {
-		return Built{}, err
-	}
-	accs, err := AcceptanceRows(ctx, tx, r.BU.ID)
-	if err != nil {
-		return Built{}, err
-	}
-	ac := map[string]int{}
-	for _, a := range accs {
-		ac[a.State]++
-		if a.State == "active" && !a.Expires.After(day.AddDate(0, 0, 30)) {
-			ac["expiring"]++
-		}
-	}
+		doc.Pair{Label: "Open risks", Value: strconv.Itoa(c.Open)}, doc.Pair{Label: "With a current analysis", Value: strconv.Itoa(c.Current)},
+		doc.Pair{Label: "Stale", Value: strconv.Itoa(c.Stale)}, doc.Pair{Label: "Computing", Value: strconv.Itoa(c.Computing)},
+		doc.Pair{Label: "Unquantified", Value: strconv.Itoa(c.Unquantified)})}})
+	ac := d.Acceptances
 	sections = append(sections, doc.Section{Heading: "Acceptances", Level: 1, Blocks: []doc.Block{pairs(
 		doc.Pair{Label: "Active", Value: strconv.Itoa(ac["active"])}, doc.Pair{Label: "Expiring within 30 days", Value: strconv.Itoa(ac["expiring"])},
 		doc.Pair{Label: "Expired", Value: strconv.Itoa(ac["expired"])}, doc.Pair{Label: "Suspended", Value: strconv.Itoa(ac["suspended"])},
 		doc.Pair{Label: "Awaiting decision", Value: strconv.Itoa(ac["pending"])})}})
-	acts, err := ActionRows(ctx, tx, r.BU.ID, "", day)
-	if err != nil {
-		return Built{}, err
-	}
-	open, overdue := 0, 0
-	for _, a := range acts {
-		if a.State == "planned" || a.State == "in_progress" {
-			open++
-		}
-		if a.Overdue {
-			overdue++
-		}
-	}
 	sections = append(sections, doc.Section{Heading: "Treatment", Level: 1, Blocks: []doc.Block{pairs(
-		doc.Pair{Label: "Open actions", Value: strconv.Itoa(open)}, doc.Pair{Label: "Overdue actions", Value: strconv.Itoa(overdue)})}})
+		doc.Pair{Label: "Open actions", Value: strconv.Itoa(d.Treatment["open"])}, doc.Pair{Label: "Overdue actions", Value: strconv.Itoa(d.Treatment["overdue"])})}})
 
-	cov, err := coverage(ctx, tx, "register", r.BU.ID)
-	if err != nil {
-		return Built{}, err
-	}
-	left, notes := map[string]int{"unquantified": count["unquantified"]}, []string{
+	notes := []string{
 		"Exposures are distributions: each figure gives its mean with percentiles; nothing is scored or rated.",
 		"Sums of means are sums of each risk's mean, not percentiles of the total; the roll-up gives the total's distribution."}
-	cov.leftOutUnits(left, &notes)
-	d := doc.Document{Metadata: doc.Metadata{Title: "Portfolio: " + r.BU.Name, Filters: map[string]string{"period_days": strconv.Itoa(period)},
-		Runs: runs, LeftOut: left, Notes: notes}, Sections: sections}
-	return Built{Doc: d, Risks: len(risks)}, nil
+	if n := d.LeftOut["units_not_visible"]; n > 0 {
+		notes = append(notes, fmt.Sprintf("%d business units in the scope are not visible to the requester (or are restricted and excluded from roll-ups); their records are left out.", n))
+	}
+	if n := d.LeftOut["units_aggregate_only"]; n > 0 {
+		notes = append(notes, fmt.Sprintf("%d restricted business units in the scope appear as totals only; their risks are not listed.", n))
+	}
+	out := doc.Document{Metadata: doc.Metadata{Title: "Portfolio: " + r.BU.Name, Filters: map[string]string{"period_days": strconv.Itoa(period)},
+		Runs: d.Runs, LeftOut: d.LeftOut, Notes: notes}, Sections: sections}
+	return Built{Doc: out, Risks: c.Open}, nil
 }
 
 // childBUs are bu's direct children the requester reads in the register.
@@ -182,89 +140,32 @@ func childBUs(ctx context.Context, tx pgx.Tx, bu string) ([]doc.Ref, error) {
 	return out, rows.Err()
 }
 
-// rollupSection is the requester's latest succeeded roll-up of bu: its
+// rollupSection is the requester's latest succeeded roll-up of the BU: its
 // summary, curve and distribution, its time and staleness (F-007-AC-12),
-// what it covers and leaves out (F-007-AC-13); the runs of the risks it
-// covers for the metadata.
-func rollupSection(ctx context.Context, tx pgx.Tx, bu string) (doc.Section, []doc.RunRef, error) {
+// what it covers and leaves out (F-007-AC-13).
+func rollupSection(r *RollupView) doc.Section {
 	sec := doc.Section{Heading: "Exposure", Level: 1}
-	var (
-		id, digest       string
-		finished         time.Time
-		summary, incl    []byte
-		left             []byte
-		rootAgg, rootRun *string
-		rootSet          *string
-		excluded         int
-	)
-	err := tx.QueryRow(ctx, `SELECT id::text, finished_at, summary, digest, included, left_out, root_aggregate_id::text, root_run_id::text, root_control_set,
-		excluded_bus FROM register.rollup WHERE bu_id = $1 AND state = 'succeeded' ORDER BY finished_at DESC, seq DESC LIMIT 1`, bu).
-		Scan(&id, &finished, &summary, &digest, &incl, &left, &rootAgg, &rootRun, &rootSet, &excluded)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if r == nil {
 		sec.Blocks = append(sec.Blocks, para("The requester has no roll-up of this business unit. A roll-up (Register, Roll-ups) gives the total exposure's distribution."))
-		return sec, []doc.RunRef{}, nil
-	}
-	if err != nil {
-		return sec, nil, err
-	}
-	var now string
-	if err := tx.QueryRow(ctx, "SELECT register.rollup_plan($1) ->> 'digest'", bu).Scan(&now); err != nil {
-		return sec, nil, err
-	}
-	var items []struct {
-		RiskID string `json:"risk_id"`
-	}
-	if err := json.Unmarshal(incl, &items); err != nil {
-		return sec, nil, err
-	}
-	var leftOut map[string]int
-	if err := json.Unmarshal(left, &leftOut); err != nil {
-		return sec, nil, err
-	}
-	leftTotal := 0
-	for _, n := range leftOut {
-		leftTotal += n
+		return sec
 	}
 	stale := "no"
-	if now != digest {
+	if r.Stale {
 		stale = "yes: the register has changed since; request a new roll-up"
 	}
 	var s map[string]any
-	if summary != nil {
-		if err := json.Unmarshal(summary, &s); err != nil {
-			return sec, nil, err
-		}
-	}
-	sec.Blocks = append(sec.Blocks, pairs(doc.Pair{Label: "Roll-up", Value: id}, doc.Pair{Label: "Computed", Value: finished.UTC().Format("2006-01-02 15:04 UTC")},
-		doc.Pair{Label: "Stale", Value: stale}, doc.Pair{Label: "Risks included", Value: strconv.Itoa(len(items))},
-		doc.Pair{Label: "Risks left out", Value: strconv.Itoa(leftTotal)}, doc.Pair{Label: "Business units excluded", Value: strconv.Itoa(excluded)}))
+	_ = json.Unmarshal(r.Summary, &s)
+	sec.Blocks = append(sec.Blocks, pairs(doc.Pair{Label: "Roll-up", Value: r.ID}, doc.Pair{Label: "Computed", Value: r.FinishedAt.UTC().Format("2006-01-02 15:04 UTC")},
+		doc.Pair{Label: "Stale", Value: stale}, doc.Pair{Label: "Risks included", Value: strconv.Itoa(r.Covers)},
+		doc.Pair{Label: "Risks left out", Value: strconv.Itoa(r.LeftOutTotal)}, doc.Pair{Label: "Business units excluded", Value: strconv.Itoa(r.ExcludedBUs)}))
 	t := summaryTable("rollup", "Total annualized loss (risks combined as independent)", "Roll-up")
 	t.Rows = append(t.Rows, aleRow("Total", s))
 	sec.Blocks = append(sec.Blocks, table(t))
 	if b, ok := curveBlock("rollup-curve", "Loss exceedance curve of the total", "the total", s); ok {
 		sec.Blocks = append(sec.Blocks, b)
 	}
-	var series []byte
-	var n int
-	switch {
-	case rootAgg != nil:
-		err = tx.QueryRow(ctx, "SELECT ale, iterations FROM analysis.aggregate WHERE id = $1", *rootAgg).Scan(&series, &n)
-	case rootRun != nil && rootSet != nil:
-		err = tx.QueryRow(ctx, `SELECT s.ale, a.iterations FROM analysis.series s JOIN analysis.run a ON a.id = s.run_id
-			WHERE s.run_id = $1 AND s.control_set = $2`, *rootRun, *rootSet).Scan(&series, &n)
-	default:
-		err = pgx.ErrNoRows
-	}
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return sec, nil, err
-	}
-	if b, ok := histBlock("rollup-histogram", "Distribution of the total annual loss", series, n); ok {
+	if b, ok := histBlock("rollup-histogram", "Distribution of the total annual loss", r.series, r.iterations); ok {
 		sec.Blocks = append(sec.Blocks, b)
 	}
-	ids := make([]string, 0, len(items))
-	for _, x := range items {
-		ids = append(ids, x.RiskID)
-	}
-	runs, err := runRefs(ctx, tx, ids)
-	return sec, runs, err
+	return sec
 }
