@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -121,7 +124,30 @@ func TestBuiltinParams(t *testing.T) {
 			t.Errorf("%s %s accepted: %v", c.k.Name, c.in, err)
 		}
 	}
-	if len(Kinds()) != 3 {
+	if len(Kinds()) != 5 {
 		t.Errorf("kinds: %v", Kinds())
+	}
+}
+
+// Readers never read calibration records (F-010-AC-09, design §3.4): no
+// reader names a calibration or answer table.
+func TestReadersReadNoCalibration(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		b, err := os.ReadFile(f) // #nosec G304 -- the package's own sources
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, table := range []string{"estimate.answer", "estimate.exercise", "estimate.score", "estimate.question"} {
+			if strings.Contains(string(b), table) {
+				t.Errorf("%s reads %s", f, table)
+			}
+		}
 	}
 }

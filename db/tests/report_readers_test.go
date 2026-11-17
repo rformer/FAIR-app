@@ -267,7 +267,7 @@ func TestReportReaders(t *testing.T) {
 	if !strings.Contains(string(body), `"title":"Risk register: `) || strings.Contains(string(body), "Restricted risk") {
 		t.Errorf("the JSON: %.300s", body)
 	}
-	if kinds := re.call(t, "GET", "chief", "/api/v1/reports/kinds", nil); len(kinds.body["kinds"].([]any)) != 3 {
+	if kinds := re.call(t, "GET", "chief", "/api/v1/reports/kinds", nil); len(kinds.body["kinds"].([]any)) != 5 {
 		t.Errorf("kinds: %s", kinds.raw)
 	}
 }

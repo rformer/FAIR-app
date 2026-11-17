@@ -1,0 +1,36 @@
+== risk: 1 runs, left out map[]
+# The risk
+  pairs Risk | Owner | Category | Exposure status | Mean annualized loss | 10th percentile | 90th percentile | Treatment decision
+# Scenario: Claims leak
+  pairs Pinned run | Control set | Scenario version | Iterations | Engine version | Seed | Input digest | Results digest
+## Results
+  table s1-summary [subject:text mean:amount p10:amount p50:amount p90:amount p99:amount] 2 rows
+  chart exceedance x=loss series=[p] log=true, data s1-curve 3 rows
+  chart histogram x=from series=[share] log=false, data s1-histogram 60 rows
+## Breakdown and drivers
+  table s1-breakdown [part:text name:text mean:amount share:percent] 4 rows
+  table s1-drivers [input:text low:amount high:amount swing:amount spearman:number] 1 rows
+## Provenance
+  table s1-estimates [input:text range:text confidence:percent sources:text elicitation:text] 8 rows
+  table s1-requests [title:text version:number status:text due:date created:date] 0 rows
+# Treatment
+  pairs Decision | Plan version
+  paragraph
+  table actions [due:date action:text owner:text state:text overdue:text] 0 rows
+# Acceptance history
+  table acceptance-history [at:time step:text by:text tier:number expires:date reason:text] 3 rows
+== portfolio: 2 runs, left out map[unquantified:0]
+# Exposure
+  pairs Roll-up | Computed | Stale | Risks included | Risks left out | Business units excluded
+  table rollup [subject:text mean:amount p10:amount p50:amount p90:amount p99:amount] 1 rows
+  chart histogram x=from series=[share] log=false, data rollup-histogram 60 rows
+# Largest risks
+  table largest [risk:text owner:text mean:amount p10:amount p90:amount status:text] 2 rows
+# By business unit
+  table by-unit [unit:text risks:number quantified:number sum:amount] 0 rows
+# Coverage
+  pairs Open risks | With a current analysis | Stale | Computing | Unquantified
+# Acceptances
+  pairs Active | Expiring within 30 days | Expired | Suspended | Awaiting decision
+# Treatment
+  pairs Open actions | Overdue actions
