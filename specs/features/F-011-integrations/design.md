@@ -68,14 +68,14 @@ Requirements: `requirements.md` (Approved 2026-11-17) · ADR-003, ADR-005, ADR-0
   Both use only `GET`, never write to the source, and follow no links to other hosts. A paging URL is re-checked against the allow-list.
 
 ### 3.4 Proposals and review (AC-10 to AC-14)
-- **Computing proposals:**
-  - For an **update**, the proposed document is the target's current version with the mapped fields replaced; fields the mapping does not name are kept.
-  - For a **new record**, the proposed document is built from the record. For assets and controls it is completed with the platform's required fields from the mapping's defaults; if they cannot be completed, the record is refused.
-  - A proposal is stored only when its canonical digest differs from the current version's and from the link's last rejected digest (AC-12). A newer proposal for the same link supersedes a pending one.
+- **Computing proposals (amended 2026-11-18, decided by Robert Former: merge at review):**
+  - A proposal stores the source record's mapped values (its normalized record) and their digest: the pusher often cannot read the target under RLS (a service account with only `integration.push`), and the risk and library tables admit no second definer (ADR-007 amendment 3).
+  - The proposed document is the target's current version with the mapped fields replaced (fields the mapping does not name are kept), computed when a reviewer opens or accepts the proposal, under the reviewer's own RLS. For a **new record** it is built from the record and completed with the platform's required fields.
+  - A proposal is stored only when its record's digest differs from the link's last applied and last rejected digests (AC-12). A newer proposal for the same link supersedes a pending one. Update proposals carry no `base_version`; accepting takes `expected_version`, the version the reviewer saw.
   - Descriptive fields are name, description and external references. A proposal changing only these is applied at once when `auto_accept` is on and the pusher holds the target's edit permission. Otherwise it waits, as every value, estimate, reference data and status change does (AC-13).
 - **Review:** `GET /proposals` lists them, filtered by integration, kind, state and BU. Each shows the current and proposed documents and their diff (F-003's `DiffDocuments`), the integration, the run and the source record.
 - **Visibility:** proposals are listed only to holders of the target kind's view permission at the record's BU (`library.view`, `control.view`, `register.view`), through a definer function that checks the caller's read scope. New-record proposals use the record's intended BU.
-- **Accept:** `POST /proposals/{id}/accept`, with `expected_version` = the target version the proposal was computed against. In the caller's transaction it:
+- **Accept:** `POST /proposals/{id}/accept`, with `expected_version` = the target version the reviewer saw (the merge's base). In the caller's transaction it:
   1. checks the caller holds the target's edit permission at its BU;
   2. writes the new version through the same code as `PUT /library/{id}` (or `/controls/{id}`, `/register/risks/{id}`), or creates the record through the same code as its `POST`, so every check, trigger and event of F-003 and F-007 applies;
   3. records the provenance (`integration.applied`: proposal, run, integration, external ID, target, version, accepted by);
@@ -220,3 +220,4 @@ Conventions as before: operationId = handler; mutating routes declare `x-permiss
 ## Change Log
 - 2026-11-17: Initial draft, In Review; connectors in a new integrate service and the schema `integration` decided by Robert Former.
 - 2026-11-17: Approved by Robert Former, with D-OQ1 (`integration.push`).
+- 2026-11-18: §3.4 amended by Robert Former (T-09): proposals hold the source record's values and digest; the merged document and its diff are computed at review and accept, under the reviewer's RLS, since the pusher may not read the target; unchanged means the link's last applied or rejected digest; update proposals carry no base_version.

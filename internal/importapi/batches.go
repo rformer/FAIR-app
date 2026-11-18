@@ -117,19 +117,19 @@ func (a *API) pushBatch(w http.ResponseWriter, r *http.Request, p authz.Principa
 				refs = append(refs, rec.BU)
 			}
 		}
-		bus := map[string]bool{}
+		bus := map[string]string{} // ref -> BU id
 		if len(refs) > 0 {
-			rows, err := tx.Query(ctx, "SELECT ref FROM integration.resolve_bus($1, $2)", id, refs)
+			rows, err := tx.Query(ctx, "SELECT ref, bu_id::text FROM integration.resolve_bus($1, $2)", id, refs)
 			if err != nil {
 				return err
 			}
 			for rows.Next() {
-				var ref string
-				if err := rows.Scan(&ref); err != nil {
+				var ref, bu string
+				if err := rows.Scan(&ref, &bu); err != nil {
 					rows.Close()
 					return err
 				}
-				bus[ref] = true
+				bus[ref] = bu
 			}
 			rows.Close()
 			if err := rows.Err(); err != nil {
@@ -137,7 +137,7 @@ func (a *API) pushBatch(w http.ResponseWriter, r *http.Request, p authz.Principa
 			}
 		}
 		batch.Reject(func(rec integration.Record) (string, string, bool) {
-			if rec.BU != "" && !bus[rec.BU] {
+			if rec.BU != "" && bus[rec.BU] == "" {
 				return "/bu", "is not a live business unit inside the integration's subtree", true
 			}
 			return "", "", false
@@ -147,16 +147,17 @@ func (a *API) pushBatch(w http.ResponseWriter, r *http.Request, p authz.Principa
 		for i, rec := range batch.Records {
 			ext[i] = rec.ExternalID
 		}
-		type link struct{ target, last, rejected string }
+		type link struct{ kind, target, last, rejected string }
 		links := map[string]link{}
-		rows, err := tx.Query(ctx, "SELECT external_id, target_id::text, coalesce(last_digest, ''), coalesce(rejected_digest, '') FROM integration.match($1, $2)", id, ext)
+		rows, err := tx.Query(ctx, `SELECT external_id, target_type, target_id::text, coalesce(last_digest, ''), coalesce(rejected_digest, '')
+			FROM integration.match($1, $2)`, id, ext)
 		if err != nil {
 			return err
 		}
 		for rows.Next() {
 			var e string
 			var l link
-			if err := rows.Scan(&e, &l.target, &l.last, &l.rejected); err != nil {
+			if err := rows.Scan(&e, &l.kind, &l.target, &l.last, &l.rejected); err != nil {
 				rows.Close()
 				return err
 			}
@@ -166,25 +167,87 @@ func (a *API) pushBatch(w http.ResponseWriter, r *http.Request, p authz.Principa
 		if err := rows.Err(); err != nil {
 			return err
 		}
+		// A record matches its link's kind; a control status names its
+		// control the first time (T-09).
+		batch.Reject(func(rec integration.Record) (string, string, bool) {
+			l, linked := links[rec.ExternalID]
+			switch {
+			case linked && l.kind != targetType[rec.Kind] && targetType[rec.Kind] != "":
+				return "/kind", "the external ID is linked to a " + l.kind, true
+			case !linked && rec.Kind == integration.KindControlStatus && controlOf(rec) == "":
+				return "/control", "is required the first time an external ID is sent: the platform control it reports on", true
+			}
+			return "", "", false
+		})
 		counts = Counts{Received: batch.Received(), Valid: len(batch.Records), Refused: batch.Refusals}
+		var props []proposal
+		var changedExt []string
 		for _, rec := range batch.Records {
 			m := match{N: rec.N, Kind: rec.Kind, ExternalID: rec.ExternalID}
 			l, linked := links[rec.ExternalID]
+			tt := targetType[rec.Kind]
+			bu := bus[rec.BU]
+			if bu == "" {
+				bu = t.BU // a control status names no BU: the integration's
+			}
+			p := proposal{ExternalID: rec.ExternalID, TargetType: tt, BU: bu, Document: rec.Data, Digest: rec.Digest}
 			switch {
 			case !linked:
 				m.Match = "new"
 				counts.New++
+				p.Action = "create"
+				if rec.Kind == integration.KindControlStatus {
+					c := controlOf(rec)
+					p.Action, p.TargetID = "update", &c
+				}
 			case rec.Digest == l.last || rec.Digest == l.rejected:
 				m.Match, m.TargetID = "unchanged", l.target
 				counts.Unchanged++
 			default:
 				m.Match, m.TargetID = "changed", l.target
 				counts.Changed++
+				target := l.target
+				p.Action, p.TargetID = "update", &target
+				changedExt = append(changedExt, rec.ExternalID)
+			}
+			if p.Action != "" && tt != "" {
+				props = append(props, p)
 			}
 			if len(preview) < MaxPreview {
 				preview = append(preview, m)
 			}
 		}
+		// Descriptive-only changes, against the record last accepted.
+		if len(changedExt) > 0 {
+			prev := map[string]json.RawMessage{}
+			rows, err := tx.Query(ctx, "SELECT external_id, document FROM integration.last_applied($1, $2)", id, changedExt)
+			if err != nil {
+				return err
+			}
+			for rows.Next() {
+				var e string
+				var d json.RawMessage
+				if err := rows.Scan(&e, &d); err != nil {
+					rows.Close()
+					return err
+				}
+				prev[e] = d
+			}
+			rows.Close()
+			if err := rows.Err(); err != nil {
+				return err
+			}
+			kinds := map[string]string{}
+			for _, rec := range batch.Records {
+				kinds[rec.ExternalID] = rec.Kind
+			}
+			for i := range props {
+				if props[i].Action == "update" {
+					props[i].DescriptiveOnly = descriptiveOnly(kinds[props[i].ExternalID], prev[props[i].ExternalID], props[i].Document)
+				}
+			}
+		}
+		counts.Proposed = len(props)
 		if dry {
 			return nil
 		}
@@ -197,6 +260,16 @@ func (a *API) pushBatch(w http.ResponseWriter, r *http.Request, p authz.Principa
 			return err
 		}
 		if _, err := tx.Exec(ctx, "SELECT integration.stage($1, $2)", runID, records); err != nil {
+			return err
+		}
+		pj, err := json.Marshal(props)
+		if err != nil {
+			return err
+		}
+		if props == nil {
+			pj = []byte("[]")
+		}
+		if err := tx.QueryRow(ctx, "SELECT integration.propose($1, $2)", runID, pj).Scan(&counts.Proposed); err != nil {
 			return err
 		}
 		cj, _ := json.Marshal(counts)
