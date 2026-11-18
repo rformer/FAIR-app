@@ -27,6 +27,9 @@ type Counts struct {
 	Changed   int `json:"changed"`
 	Unchanged int `json:"unchanged"`
 	Proposed  int `json:"proposed"`
+	// Applied are descriptive-only proposals accepted at once (auto_accept,
+	// T-10b), as the pusher, where they hold the edit permission.
+	Applied int `json:"applied"`
 }
 
 // match is a valid record's match (a dry run's preview).
@@ -39,10 +42,11 @@ type match struct {
 }
 
 type target struct {
-	ID      string          `json:"id"`
-	BU      string          `json:"bu_id"`
-	Kind    string          `json:"kind"`
-	Mapping json.RawMessage `json:"mapping"`
+	ID         string          `json:"id"`
+	BU         string          `json:"bu_id"`
+	Kind       string          `json:"kind"`
+	Mapping    json.RawMessage `json:"mapping"`
+	AutoAccept bool            `json:"auto_accept"`
 }
 
 // errBatch: a batch refused whole (it is not the format), answered 422.
@@ -270,6 +274,48 @@ func (a *API) pushBatch(w http.ResponseWriter, r *http.Request, p authz.Principa
 			pj = []byte("[]")
 		}
 		if err := tx.QueryRow(ctx, "SELECT integration.propose($1, $2)", runID, pj).Scan(&counts.Proposed); err != nil {
+			return err
+		}
+		// auto_accept (AC-13): descriptive-only proposals accepted at once as
+		// the pusher, each in its own savepoint; one the pusher may not
+		// write stays pending.
+		if t.AutoAccept && a.Risk != nil {
+			var ids []string
+			rows, err := tx.Query(ctx, "SELECT integration.run_descriptive($1)::text", runID)
+			if err != nil {
+				return err
+			}
+			for rows.Next() {
+				var x string
+				if err := rows.Scan(&x); err != nil {
+					rows.Close()
+					return err
+				}
+				ids = append(ids, x)
+			}
+			rows.Close()
+			if err := rows.Err(); err != nil {
+				return err
+			}
+			for _, pid := range ids {
+				sp, err := tx.Begin(ctx)
+				if err != nil {
+					return err
+				}
+				if _, err := a.acceptOne(ctx, sp, p, pid, nil, "", true); err != nil {
+					if rb := sp.Rollback(ctx); rb != nil {
+						return rb
+					}
+					continue
+				}
+				if err := sp.Commit(ctx); err != nil {
+					return err
+				}
+				counts.Applied++
+			}
+		}
+		// Proposals left waiting: one notice for the run (F-009).
+		if _, err := tx.Exec(ctx, "SELECT integration.notify_waiting($1)", runID); err != nil {
 			return err
 		}
 		cj, _ := json.Marshal(counts)

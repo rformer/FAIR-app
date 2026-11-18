@@ -21,6 +21,7 @@ security:
     dbContext: []
 tags:
   - { name: imports, description: "Batches and runs (F-011 R-02)" }
+  - { name: proposals, description: "Reviewing proposed changes (F-011 R-03)" }
 components:
   securitySchemes:
     internalJWT: { type: http, scheme: bearer, bearerFormat: JWT }
@@ -49,7 +50,8 @@ components:
           type: string
           description: >-
             not_found, forbidden, invalid_request, invalid_value, invalid_batch, invalid_state, integration_deleted,
-            run_in_progress, too_many_runs, limit_exceeded, unsupported_media_type, unavailable, unauthenticated
+            run_in_progress, too_many_runs, limit_exceeded, unsupported_media_type, proposal_decided, stale_version,
+            archived, invalid_document, unmergeable, currency_not_set, reason_required, unavailable, unauthenticated
         detail: { type: string }
         limit: { type: integer }
     Refusal:
@@ -71,6 +73,7 @@ components:
         changed: { type: integer, description: Linked records whose digest changed }
         unchanged: { type: integer, description: "Linked records with the same digest, or the one last rejected" }
         proposed: { type: integer }
+        applied: { type: integer, description: "Descriptive-only proposals accepted at once (auto_accept), as the pusher" }
     Run:
       type: object
       required: [id, integration_id, trigger, state, counts, started_at]
@@ -89,6 +92,30 @@ components:
         failure: { type: [string, "null"] }
         started_at: { type: string, format: date-time }
         finished_at: { type: [string, "null"], format: date-time }
+    Proposal:
+      type: object
+      required: [id, integration_id, bu_id, target_type, action, state]
+      properties:
+        id: { type: string, format: uuid }
+        integration_id: { type: string, format: uuid }
+        integration_name: { type: string }
+        run_id: { type: string, format: uuid }
+        run_started_at: { type: string, format: date-time }
+        bu_id: { type: string, format: uuid }
+        bu_name: { type: string }
+        target_type: { type: string, enum: [asset, asset_group, control, risk, reference_class] }
+        target_id: { type: [string, "null"], format: uuid }
+        external_id: { type: [string, "null"] }
+        action: { type: string, enum: [create, update, archive] }
+        record: { type: [object, "null"], description: "The source record's values (fair.integration.v1)" }
+        digest: { type: [string, "null"] }
+        descriptive_only: { type: boolean }
+        state: { type: string, enum: [pending, accepted, rejected, superseded] }
+        decided_by: { type: [string, "null"], format: uuid }
+        decided_by_name: { type: [string, "null"] }
+        decided_at: { type: [string, "null"], format: date-time }
+        reason: { type: [string, "null"] }
+        created_at: { type: string, format: date-time }
 paths:
   /api/v1/imports/{integration}/batches:
     post:
@@ -104,7 +131,7 @@ paths:
         one at a time (409 run_in_progress). With dry_run=true nothing is recorded and the first 200 records' matches are
         answered. trigger=schedule or manual is the integration's own service account's (its connector).
       x-permission: integration.push or integration.manage at the integration's BU
-      x-audit-events: [integration.run]
+      x-audit-events: [integration.run, integration.proposal_accepted, library.version_saved, control.version_saved, register.risk_changed]
       x-reason-exempt: a batch is identified by its integration, its run and its records, all recorded
       parameters:
         - { $ref: "#/components/parameters/IdempotencyKey" }
@@ -174,3 +201,169 @@ paths:
           description: The run
           content: { application/json: { schema: { $ref: "#/components/schemas/Run" } } }
         "404": { $ref: "#/components/responses/Error" }
+  /api/v1/proposals:
+    get:
+      operationId: listProposals
+      tags: [proposals]
+      summary: Proposed changes from integrations, newest first (AC-10)
+      description: >-
+        The proposals the caller may review: those whose kind's view permission (library.view for assets and asset groups,
+        control.view for controls, register.view for risks) the caller holds at the proposal's business unit. Pending ones by
+        default.
+      x-permission: the kind's view permission at the proposal's BU
+      parameters:
+        - { name: state, in: query, schema: { type: string, enum: [pending, accepted, rejected, superseded], default: pending } }
+        - { name: kind, in: query, schema: { type: string, enum: [asset, asset_group, control, risk, reference_class] } }
+        - { name: integration, in: query, schema: { type: string, format: uuid } }
+        - { name: bu, in: query, schema: { type: string, format: uuid }, description: "A business unit and its subtree" }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+      responses:
+        "200":
+          description: Proposals
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [proposals, more]
+                properties:
+                  proposals: { type: array, items: { $ref: "#/components/schemas/Proposal" } }
+                  more: { type: boolean }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/proposals/{id}:
+    get:
+      operationId: getProposal
+      tags: [proposals]
+      summary: A proposal with its target's current version, the merged document and the diff (AC-10)
+      description: >-
+        The merged document is the target's current version with the record's fields replaced, computed as the caller reads
+        the target (design 3.4 as amended); problems list why it cannot be written (an invalid document, members not accepted
+        yet, a target the caller cannot see).
+      x-permission: the kind's view permission at the proposal's BU
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: The proposal
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Proposal" }
+                  - type: object
+                    properties:
+                      current: { type: [object, "null"], description: "version, document, archived" }
+                      proposed: { type: [object, "null"], description: The document accepting would write }
+                      diff: { type: [object, "null"], description: "F-003's diff: changes by pointer, pins" }
+                      problems: { type: array, items: { type: object } }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/proposals/{id}/accept:
+    post:
+      operationId: acceptProposal
+      tags: [proposals]
+      summary: Accept a proposal, writing the record's new version through its own save code (AC-11, AC-14, AC-25)
+      description: >-
+        The record's edit permission at its business unit (403 otherwise). An update needs expected_version, the version the
+        caller reviewed it against (409 stale_version when the record moved on); a create makes the record at the proposal's
+        business unit; an archive archives it. Every check, trigger and event of saving the record applies (422
+        invalid_document, 409 archived, 409 currency_not_set). The provenance and the link are recorded in the same
+        transaction. Scenarios pinned to older versions see a newer one and are not changed.
+      x-permission: the kind's edit permission at the record's BU
+      x-audit-events: [integration.proposal_accepted, library.created, library.version_saved, library.archived, control.version_saved,
+        register.risk_created, register.risk_changed]
+      x-reason-field: change_note
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }, { $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                expected_version: { type: integer, minimum: 1, description: "Updates: the target's version reviewed" }
+                change_note: { type: string, maxLength: 1000, description: "The new version's change note; by default Accepted from the integration (the external id)" }
+      responses:
+        "200":
+          description: The proposal, accepted
+          content: { application/json: { schema: { $ref: "#/components/schemas/Proposal" } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /api/v1/proposals/accept:
+    post:
+      operationId: acceptMany
+      tags: [proposals]
+      summary: Accept up to 200 proposals at once, each with its own checks, all or nothing (AC-11)
+      description: >-
+        As accepting each in turn in one transaction: the first that is refused refuses them all (its id in
+        X-Fair-Failed-Proposal, its error as accepting it alone would answer).
+      x-permission: each proposal's kind's edit permission at its record's BU
+      x-audit-events: [integration.proposal_accepted, library.created, library.version_saved, library.archived, control.version_saved,
+        register.risk_created, register.risk_changed]
+      x-reason-field: change_note
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [proposals]
+              additionalProperties: false
+              properties:
+                proposals:
+                  type: array
+                  minItems: 1
+                  maxItems: 200
+                  items:
+                    type: object
+                    required: [id]
+                    additionalProperties: false
+                    properties:
+                      id: { type: string, format: uuid }
+                      expected_version: { type: integer, minimum: 1 }
+                change_note: { type: string, maxLength: 1000 }
+      responses:
+        "200":
+          description: The proposals, accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted: { type: array, items: { $ref: "#/components/schemas/Proposal" } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /api/v1/proposals/{id}/reject:
+    post:
+      operationId: rejectProposal
+      tags: [proposals]
+      summary: Reject a proposal with a reason; the same source values are not proposed again (AC-12)
+      x-permission: the kind's edit permission at the record's BU
+      x-audit-events: [integration.proposal_rejected]
+      x-reason-field: reason
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }, { $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 500 }
+      responses:
+        "200":
+          description: The proposal, rejected
+          content: { application/json: { schema: { $ref: "#/components/schemas/Proposal" } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }

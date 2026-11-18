@@ -27,7 +27,7 @@ type Kind struct {
 
 // Sources are the outboxes notify.collect reads (§3.1), and notify itself
 // (test messages).
-var Sources = []string{"estimate", "acceptance", "posture", "iam", "finding", "register", "report", "notify"}
+var Sources = []string{"estimate", "acceptance", "posture", "iam", "finding", "register", "report", "integration", "notify"}
 
 // Kinds are the release's notice kinds (design §3.1; OQ5).
 var Kinds = []Kind{
@@ -51,6 +51,8 @@ var Kinds = []Kind{
 	{"report.ready", "report", "report.ready", false, false, "A report you scheduled is ready"},
 	{"report.failed", "report", "report.failed", false, false, "A report you scheduled could not be generated"},
 	{"report.schedule_suspended", "report", "report.schedule_suspended", true, false, "A report schedule of yours was suspended"},
+	// F-011 T-10b: an integration's run left proposals waiting for review.
+	{"integration.proposals_waiting", "integration", "integration.proposals_waiting", false, false, "Changes proposed by an integration are waiting for your review"},
 	{"notify.test", "notify", "test", false, false, "A test message"},
 }
 

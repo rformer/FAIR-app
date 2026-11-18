@@ -76,13 +76,13 @@ import (
 	"github.com/rformer/fair-app/internal/enginetls"
 	"github.com/rformer/fair-app/internal/estimate"
 	"github.com/rformer/fair-app/internal/estimateapi"
+	"github.com/rformer/fair-app/internal/importapi"
 	"github.com/rformer/fair-app/internal/keys"
 	"github.com/rformer/fair-app/internal/migrate"
 	"github.com/rformer/fair-app/internal/natspub"
 	"github.com/rformer/fair-app/internal/objstore"
 	"github.com/rformer/fair-app/internal/register"
 	"github.com/rformer/fair-app/internal/registerapi"
-	"github.com/rformer/fair-app/internal/importapi"
 	"github.com/rformer/fair-app/internal/reportapi"
 	"github.com/rformer/fair-app/internal/reports"
 	"github.com/rformer/fair-app/internal/risk"
@@ -495,7 +495,8 @@ func run() error {
 			srv.Mux().Handle(prefix+"/", ah)
 		}
 		// The register API (F-007 design §6).
-		rh := server.SecurityHeaders((&registerapi.API{DB: pool, Authz: grants, Audit: emitter, EnqueueAggregate: enqueueAggregate}).Handler(jwtKeys, nil))
+		regAPI := &registerapi.API{DB: pool, Authz: grants, Audit: emitter, EnqueueAggregate: enqueueAggregate}
+		rh := server.SecurityHeaders(regAPI.Handler(jwtKeys, nil))
 		for _, prefix := range registerapi.Prefixes {
 			srv.Mux().Handle(prefix, rh)
 			srv.Mux().Handle(prefix+"/", rh)
@@ -517,7 +518,7 @@ func run() error {
 			srv.Mux().Handle(prefix+"/", reph)
 		}
 		// The imports API (F-011 design §6.2).
-		imph := server.SecurityHeaders((&importapi.API{DB: pool, Authz: grants}).Handler(jwtKeys, nil))
+		imph := server.SecurityHeaders((&importapi.API{DB: pool, Authz: grants, Risk: api, Register: regAPI}).Handler(jwtKeys, nil))
 		for _, prefix := range importapi.Prefixes {
 			srv.Mux().Handle(prefix, imph)
 			srv.Mux().Handle(prefix+"/", imph)

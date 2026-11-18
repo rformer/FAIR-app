@@ -727,6 +727,20 @@ events:
     bu: required
     attributes: [integration, name]
     description: "An integration was paused: its connector stops and its batches are refused until resumed (F-011 T-07, AC-05, AC-26)"
+  - type: integration.proposal_accepted
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [action, external_id, integration, proposal, target, target_type, version]
+    description: "A proposed change from an integration was accepted by a holder of the record's edit permission and written as the record's new version (or archived), with its provenance (F-011 T-10, AC-11, AC-25, AC-26)"
+  - type: integration.proposal_rejected
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [action, external_id, integration, proposal, reason, target_type]
+    description: "A proposed change from an integration was rejected with a reason; the same source values are not proposed again (F-011 T-10, AC-12, AC-26)"
   - type: integration.resumed
     category: configuration
     severities: [high]

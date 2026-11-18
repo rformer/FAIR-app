@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/rformer/fair-app/internal/integration"
 	"github.com/rformer/fair-app/internal/risk"
 	"github.com/rformer/fair-app/internal/risk/model"
 	"github.com/rformer/fair-app/pkg/audit"
@@ -104,6 +105,9 @@ type versionItem struct {
 	CreatedAt  time.Time       `json:"created_at"`
 	ChangeNote string          `json:"change_note"`
 	Document   json.RawMessage `json:"document,omitempty"`
+	// Provenance is where the version came from, when an integration's
+	// proposal made it (F-011 AC-25).
+	Provenance *integration.Provenance `json:"provenance,omitempty"`
 }
 
 type pinItem struct {
@@ -378,22 +382,9 @@ func (a *API) create(res resource, w http.ResponseWriter, r *http.Request, p aut
 	note := strings.TrimSpace(body.ChangeNote)
 	var id string
 	err := authz.WithDBContext(r.Context(), a.DB, p.DBToken, func(tx pgx.Tx) error {
-		ctx := r.Context()
-		if err := needsCurrency(ctx, tx, doc); err != nil {
-			return err
-		}
-		q, args := "INSERT INTO risk."+res.head+" (bu_id) VALUES ($1) RETURNING id::text", []any{body.BUID}
-		if len(res.kinds) > 1 {
-			q, args = "INSERT INTO risk."+res.head+" (bu_id, kind) VALUES ($1, $2) RETURNING id::text", []any{body.BUID, kind}
-		}
-		if err := tx.QueryRow(ctx, q, args...).Scan(&id); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, "INSERT INTO risk."+res.versions+" ("+res.headColumn+", version, document, digest, change_note) VALUES ($1, 1, $2, $3, $4)",
-			id, doc.Canonical, doc.Digest, note); err != nil {
-			return err
-		}
-		return a.event(ctx, tx, res, p, res.createdType, id, body.BUID, kind, 1, doc, note, nil)
+		var err error
+		id, err = a.createTx(r.Context(), tx, res, p, body.BUID, kind, doc, note, nil)
+		return err
 	})
 	if err != nil {
 		failSave(w, err)
@@ -450,15 +441,7 @@ func (a *API) save(res resource, w http.ResponseWriter, r *http.Request, p authz
 	note := strings.TrimSpace(body.ChangeNote)
 	version := *body.ExpectedVersion + 1
 	err = authz.WithDBContext(r.Context(), a.DB, p.DBToken, func(tx pgx.Tx) error {
-		ctx := r.Context()
-		if err := needsCurrency(ctx, tx, doc); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, "INSERT INTO risk."+res.versions+" ("+res.headColumn+", version, document, digest, change_note) VALUES ($1, $2, $3, $4, $5)",
-			id, version, doc.Canonical, doc.Digest, note); err != nil {
-			return err
-		}
-		return a.event(ctx, tx, res, p, res.savedType, id, h.BUID, h.Kind, version, doc, note, nil)
+		return a.saveTx(r.Context(), tx, res, p, id, h.BUID, h.Kind, version, doc, note, nil)
 	})
 	if err != nil {
 		failSave(w, err)
@@ -576,7 +559,19 @@ func (a *API) versions(res resource, w http.ResponseWriter, r *http.Request, p a
 			err := row.Scan(&v.Version, &v.Digest, &v.Author, &v.CreatedAt, &v.ChangeNote)
 			return v, err
 		})
-		return err
+		if err != nil || res.event == "scenario" {
+			return err
+		}
+		prov, err := integration.ProvenanceOf(r.Context(), tx, provenanceType(res, h.Kind), h.ID)
+		if err != nil {
+			return err
+		}
+		for i := range out {
+			if pv, ok := prov[out[i].Version]; ok {
+				out[i].Provenance = &pv
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		fail(w, err)
@@ -868,17 +863,8 @@ func (a *API) setArchived(res resource, archive bool, w http.ResponseWriter, r *
 		problem(w, http.StatusConflict, "not_applicable", "it is "+state+" already", nil)
 		return
 	}
-	typ := res.restoredType
-	if archive {
-		typ = res.archivedType
-	}
 	err = authz.WithDBContext(r.Context(), a.DB, p.DBToken, func(tx pgx.Tx) error {
-		ctx := r.Context()
-		if _, err := tx.Exec(ctx, "SELECT risk.set_archived($1, $2, $3)", res.event, h.ID, archive); err != nil {
-			return err
-		}
-		return a.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: typ, Severity: audit.SeverityLow, Actor: p.UserID,
-			Target: res.event + ":" + h.ID, BUID: h.BUID, Attributes: map[string]string{"reason": strings.TrimSpace(body.Reason)}})
+		return a.archiveTx(r.Context(), tx, res, p, h.ID, h.BUID, archive, body.Reason)
 	})
 	if err != nil {
 		fail(w, err)
@@ -971,4 +957,12 @@ func (a *API) listScopeBUs(w http.ResponseWriter, r *http.Request, p authz.Princ
 		out = []bu{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"bus": out})
+}
+
+// provenanceType is the integration's target type of a resource's kind.
+func provenanceType(res resource, kind string) string {
+	if res.event == "control" {
+		return "control"
+	}
+	return kind
 }

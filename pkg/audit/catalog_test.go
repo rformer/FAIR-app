@@ -31,14 +31,15 @@ var sqlHelpers = map[string]int{
 	"iam.approval_audit": 0, "iam.authn_event": 0, "iam.breakglass_event": 0, "iam.bu_event": 0, "iam.catalog_audit": 0, "iam.claim_group_event": 0,
 	"iam.idp_event": 0, "iam.mapping_event": 0, "iam.role_event": 0, "iam.sa_event": 0, "iam.scim_event": 0,
 	"iam.session_event": 0, "iam.sod_event": 0, "iam.role_write_version": 4, "iam.review_event": 0,
-	"analysis.emit":        0, // F-005 T-02
-	"register.emit":        0, // F-007 T-07
-	"acceptance.emit":      0, // F-008 T-04
-	"notify.emit":          0, // F-009 T-10
-	"notify.channel_event": 0, // F-009 T-11
-	"report.emit":          0, // F-010 T-09
-	"report.emit_schedule": 0, // F-010 T-16
-	"integration.emit":     0, // F-011 T-07
+	"analysis.emit":              0, // F-005 T-02
+	"register.emit":              0, // F-007 T-07
+	"acceptance.emit":            0, // F-008 T-04
+	"notify.emit":                0, // F-009 T-10
+	"notify.channel_event":       0, // F-009 T-11
+	"report.emit":                0, // F-010 T-09
+	"report.emit_schedule":       0, // F-010 T-16
+	"integration.emit":           0, // F-011 T-07
+	"integration.decision_event": 0, // F-011 T-10a
 }
 
 // dynamicTypes are types built at run time from a fixed set of parts.

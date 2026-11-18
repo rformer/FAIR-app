@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/rformer/fair-app/internal/integration"
 	"github.com/rformer/fair-app/internal/register"
 	"github.com/rformer/fair-app/internal/risk/model"
 	"github.com/rformer/fair-app/pkg/audit"
@@ -140,21 +141,9 @@ func (a *API) createRisk(w http.ResponseWriter, r *http.Request, p authz.Princip
 	}
 	var id string
 	err := authz.WithDBContext(r.Context(), a.DB, p.DBToken, func(tx pgx.Tx) error {
-		ctx := audit.WithTx(r.Context(), tx)
-		if err := tx.QueryRow(ctx, "INSERT INTO register.risk (bu_id) VALUES ($1) RETURNING id::text", body.BUID).Scan(&id); err != nil {
-			return err
-		}
-		if err := insertVersion(ctx, tx, id, 1, doc, digest, note); err != nil {
-			return err
-		}
-		if err := a.emit(ctx, audit.Event{Type: "register.risk_created", Severity: audit.SeverityLow, Actor: p.UserID, Target: target + id, BUID: body.BUID,
-			Attributes: map[string]string{"version": "1", "digest": digest}}); err != nil {
-			return err
-		}
-		if err := a.linkEvents(ctx, p, id, body.BUID, 1, nil, doc); err != nil {
-			return err
-		}
-		return a.afterVersion(ctx, tx, p, id, body.BUID, 1, nil, doc, false)
+		var err error
+		id, err = a.createTx(r.Context(), tx, p, body.BUID, doc, digest, note)
+		return err
 	})
 	if err != nil {
 		fail(w, err)
@@ -221,22 +210,7 @@ func (a *API) saveRisk(w http.ResponseWriter, r *http.Request, p authz.Principal
 	}
 	version := *body.ExpectedVersion + 1
 	err := authz.WithDBContext(r.Context(), a.DB, p.DBToken, func(tx pgx.Tx) error {
-		ctx := audit.WithTx(r.Context(), tx)
-		prev, err := currentDoc(ctx, tx, h)
-		if err != nil {
-			return err
-		}
-		if err := insertVersion(ctx, tx, h.ID, version, doc, digest, note); err != nil {
-			return err
-		}
-		if err := a.emit(ctx, audit.Event{Type: "register.risk_changed", Severity: audit.SeverityLow, Actor: p.UserID, Target: target + h.ID, BUID: h.BU,
-			Attributes: map[string]string{"version": strconv.Itoa(version), "digest": digest, "change_note": note}}); err != nil {
-			return err
-		}
-		if err := a.linkEvents(ctx, p, h.ID, h.BU, version, prev, doc); err != nil {
-			return err
-		}
-		return a.afterVersion(ctx, tx, p, h.ID, h.BU, version, prev, doc, false)
+		return a.saveTx(r.Context(), tx, p, h, version, doc, digest, note)
 	})
 	if err != nil {
 		fail(w, err)
@@ -686,7 +660,23 @@ func (a *API) listRiskVersions(w http.ResponseWriter, r *http.Request, p authz.P
 			}
 			versions = append(versions, map[string]any{"stream": stream, "version": v, "digest": digest, "change_note": note, "author": by, "created_at": at})
 		}
-		return rows.Err()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		rows.Close()
+		// F-011 AC-25: versions an integration's proposal made.
+		prov, err := integration.ProvenanceOf(r.Context(), tx, "risk", id)
+		if err != nil {
+			return err
+		}
+		for _, v := range versions {
+			if v["stream"] == "risk" {
+				if pv, ok := prov[v["version"].(int)]; ok {
+					v["provenance"] = pv
+				}
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		fail(w, err)

@@ -11,6 +11,14 @@
 //	POST /api/v1/imports/{integration}/batches[?dry_run=true]   JSON or CSV   integration.push or manage at its BU
 //	GET  /api/v1/imports/runs/{id}                              a run         integration.view or manage, or its actor
 //
+// T-10a serves the review (the kind's view permission at the proposal's
+// BU to read, its edit permission to decide):
+//
+//	GET  /api/v1/proposals[?state=&kind=&integration=&bu=]      proposals
+//	GET  /api/v1/proposals/{id}                                 one, merged with its target and the diff
+//	POST /api/v1/proposals/{id}/accept                          written through the risk API's save code
+//	POST /api/v1/proposals/{id}/reject                          with a reason
+//
 // A batch is processed in its request, in one transaction: checked record
 // by record (internal/integration), its records' business units resolved
 // inside the integration's subtree, matched by external ID, staged, and
@@ -29,6 +37,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/rformer/fair-app/internal/registerapi"
 	"github.com/rformer/fair-app/internal/riskapi"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/authz"
@@ -38,6 +47,11 @@ import (
 type API struct {
 	DB    *pgxpool.Pool // app_rw
 	Authz riskapi.Authorizer
+	// Risk writes accepted proposals through the risk API's save code
+	// (T-10a); nil answers accepts 503.
+	Risk *riskapi.API
+	// Register writes accepted risk proposals (T-10b).
+	Register *registerapi.API
 	// Now is the clock (tests).
 	Now func() time.Time
 }
@@ -50,6 +64,11 @@ type route struct {
 var routes = []route{
 	{"POST", "/api/v1/imports/{integration}/batches", (*API).pushBatch},
 	{"GET", "/api/v1/imports/runs/{id}", (*API).getRun},
+	{"GET", "/api/v1/proposals", (*API).listProposals},
+	{"GET", "/api/v1/proposals/{id}", (*API).getProposal},
+	{"POST", "/api/v1/proposals/{id}/accept", (*API).acceptProposal},
+	{"POST", "/api/v1/proposals/accept", (*API).acceptMany},
+	{"POST", "/api/v1/proposals/{id}/reject", (*API).rejectProposal},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).
@@ -63,7 +82,7 @@ func Routes() []string {
 }
 
 // Prefixes are the path prefixes the API owns (for the service's mux).
-var Prefixes = []string{"/api/v1/imports"}
+var Prefixes = []string{"/api/v1/imports", "/api/v1/proposals"}
 
 // Handler returns the API with authentication and idempotency.
 func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {
