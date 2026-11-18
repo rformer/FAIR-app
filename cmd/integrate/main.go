@@ -189,7 +189,13 @@ func run() error {
 	leader := auditsvc.Leader{Pool: pool, Key: integration.LeaderLockKey, OnChange: func(leading bool) {
 		logger.Info("leader", "leading", leading, "replica", replica)
 	}}
+	// T-17b: the leader also purges staged records past
+	// integration.records_retention_days, daily.
+	purger := integration.Purger{DB: pool, Retention: func() (int, error) {
+		return sc.Int(settings.KeyIntegrationRecordRetention, "")
+	}}
 	go leader.Run(ctx, func(ctx context.Context) error {
+		go func() { _ = purger.Run(ctx, func(err error) { logger.Error("purging staged records", "error", err.Error()) }) }()
 		if runner == nil {
 			<-ctx.Done()
 			return ctx.Err()

@@ -755,6 +755,13 @@ events:
     bu: required
     attributes: [action, external_id, integration, proposal, reason, target_type]
     description: "A proposed change from an integration was rejected with a reason; the same source values are not proposed again (F-011 T-10, AC-12, AC-26)"
+  - type: integration.records_purged
+    category: risk_data
+    severities: [info]
+    requires: [target]
+    bu: required
+    attributes: [days, integration, name, records, run]
+    description: "A run's staged records were purged after integration.records_retention_days; the run, its counts and refusals, its proposals, links and provenance remain (F-011 T-17b)"
   - type: integration.resumed
     category: configuration
     severities: [high]
