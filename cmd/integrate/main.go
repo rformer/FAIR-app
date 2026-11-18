@@ -8,9 +8,9 @@
 // T-15 scaffold: hardened server with health and readiness, FIPS
 // enforcement, structured logging, audit emission of lifecycle events, a
 // database pool as app_integrate, the install checks of design §11, F-011's
-// settings registered, and leader election (one replica leads). The
-// integrations API (T-16) and the connector runner (T-17) arrive with their
-// tasks.
+// settings registered, and leader election (one replica leads). T-16: the
+// integrations API (internal/integrateapi), served by every replica. The
+// connector runner (and connector tests) arrive with T-17.
 //
 // Environment: as for every service (FAIR_ENV, FAIR_DEPLOYMENT_MODE,
 // FAIR_LISTEN_ADDR, FAIR_TLS_CERT_FILE, FAIR_TLS_KEY_FILE, FAIR_REQUIRE_FIPS,
@@ -35,6 +35,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"os"
 	"os/signal"
 	"syscall"
@@ -45,10 +46,14 @@ import (
 	auditsvc "github.com/rformer/fair-app/internal/audit"
 	"github.com/rformer/fair-app/internal/config"
 	"github.com/rformer/fair-app/internal/dbconn"
+	"github.com/rformer/fair-app/internal/egress"
+	"github.com/rformer/fair-app/internal/integrateapi"
 	"github.com/rformer/fair-app/internal/integration"
 	"github.com/rformer/fair-app/internal/keys"
+	"github.com/rformer/fair-app/internal/notify"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/audit"
+	"github.com/rformer/fair-app/pkg/authz"
 	"github.com/rformer/fair-app/pkg/settings"
 )
 
@@ -85,12 +90,24 @@ func run() error {
 	if err := integration.CheckInstall(integration.InstallCheck{Env: cfg.Env, Mode: cfg.DeploymentMode, Getenv: os.Getenv}); err != nil {
 		return err
 	}
+	var keyring *integration.Keyring
 	if dir := os.Getenv("FAIR_INTEGRATE_SECRETS_DIR"); dir != "" {
 		ks, err := keys.IntegrateSecretKeys(dir)
 		if err != nil || len(ks) == 0 {
 			return fmt.Errorf("FAIR_INTEGRATE_SECRETS_DIR: no connector-credentials key (%v)", err)
 		}
+		if keyring, err = integration.NewKeyring(ks); err != nil {
+			return fmt.Errorf("FAIR_INTEGRATE_SECRETS_DIR: %w", err)
+		}
 		logger.Info("connector-credentials keys", "keys", len(ks))
+	} else {
+		logger.Warn("no connector-credentials keys (FAIR_INTEGRATE_SECRETS_DIR): credentials cannot be set")
+	}
+	var cluster []netip.Prefix
+	if s := os.Getenv("FAIR_INTEGRATE_CLUSTER_CIDRS"); s != "" {
+		if cluster, err = notify.ParsePrefixes(s); err != nil {
+			return fmt.Errorf("FAIR_INTEGRATE_CLUSTER_CIDRS: %w", err)
+		}
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -145,6 +162,34 @@ func run() error {
 	srv.AddReadinessCheck(server.ReadinessCheck{Name: "database", Check: func(ctx context.Context) error {
 		return schemaReady(ctx, pool)
 	}})
+
+	// Sources pass the guard (design §3.1, AC-04): integration.allowed_hosts
+	// as in force, the cluster's ranges refused, private ranges only when
+	// air-gapped.
+	guard := egress.Guard{Setting: settings.KeyIntegrationAllowedHosts, Cluster: cluster, AirGapped: cfg.DeploymentMode == config.ModeAirGapped,
+		Allowed: func() []string {
+			hosts, err := sc.Set(settings.KeyIntegrationAllowedHosts, "")
+			if err != nil {
+				return nil // nothing is allowed until the setting is read
+			}
+			return hosts
+		}}
+
+	// The integrations API (T-16): every replica serves it.
+	if dir := os.Getenv("FAIR_JWT_KEYS_DIR"); dir != "" {
+		jwtKeys, err := authz.LoadLocalKeys(dir)
+		if err != nil {
+			return fmt.Errorf("FAIR_JWT_KEYS_DIR: %w", err)
+		}
+		api := &integrateapi.API{DB: pool, Keys: keyring, Guard: guard}
+		h := server.SecurityHeaders(api.Handler(jwtKeys, nil))
+		for _, prefix := range integrateapi.Prefixes {
+			srv.Mux().Handle(prefix, h)
+			srv.Mux().Handle(prefix+"/", h)
+		}
+	} else {
+		logger.Warn("the integrations API is off: it needs the gateway's JWT keys (FAIR_JWT_KEYS_DIR)")
+	}
 
 	err = srv.Run(ctx, cfg.ShutdownTimeout)
 	_ = emitter.Emit(context.Background(), audit.Event{Type: "service.stopped", Severity: audit.SeverityInfo, Actor: "system:integrate"})

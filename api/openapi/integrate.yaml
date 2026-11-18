@@ -1,0 +1,390 @@
+openapi: 3.1.0
+info:
+  title: FAIR Integrations API
+  version: "1"
+  contact: { name: FAIR Risk Platform, url: "https://github.com/rformer/FAIR-app" }
+  description: |
+    F-011 design §6.1. Integrations (sources of assets, loss events, risks and control status),
+    their connectors' credentials and their runs, served by the integrate service behind the
+    gateway, which authenticates the session and forwards an internal JWT (ES256, audience
+    `integrate`, at most 5 minutes) and the DB context token it was minted with (F-001 design
+    §4, §5.2).
+
+    The database decides who may do what: `integration.view` or `integration.manage` at the
+    integration's business unit (grants above a restricted business unit do not reach it,
+    F-011-AC-02). An integration the caller may not see answers 404; one they see but may not
+    change answers 403. Credentials are write-only (AC-03): they are sealed by the service and
+    never answered; an integration says only which are set. A connector's source host is checked
+    against `integration.allowed_hosts` and the destination guard on every save and test; a
+    refusal is recorded (`integration.destination_refused`, AC-04).
+
+    Batches, runs' records, proposals and loss events are the risk service's (`import.yaml`).
+servers:
+  - url: /
+security:
+  - internalJWT: []
+    dbContext: []
+tags:
+  - { name: integrations, description: "Integrations and their connectors (F-011 R-01)" }
+  - { name: credentials, description: "Connector credentials, write-only (F-011-AC-03)" }
+  - { name: runs, description: "An integration's runs (F-011-AC-08)" }
+components:
+  securitySchemes:
+    internalJWT: { type: http, scheme: bearer, bearerFormat: JWT }
+    dbContext: { type: apiKey, in: header, name: X-Fair-DB-Context }
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 8, maxLength: 128 }
+    ID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Purpose:
+      name: purpose
+      in: path
+      required: true
+      description: "source: the source's token, or username and password; client: the integration's service account's client secret"
+      schema: { type: string, enum: [source, client] }
+  responses:
+    Integration:
+      description: The integration
+      content: { application/json: { schema: { $ref: "#/components/schemas/Integration" } } }
+    Error:
+      description: An error
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: >-
+            invalid_request, invalid_value, invalid_integration, invalid_mapping, invalid_connector,
+            invalid_credential, integration_fixed, destination_refused, destination_unresolved,
+            source_failed, name_taken, stale_version, invalid_state, integration_deleted,
+            limit_exceeded, reason_required, forbidden, not_found, unavailable, unauthenticated
+        detail: { type: string }
+    Connector:
+      type: object
+      required: [type, source, schedule_minutes]
+      additionalProperties: false
+      properties:
+        type: { type: string, enum: [http_json, servicenow_cmdb] }
+        source: { type: string, format: uri, maxLength: 2048, description: "An https URL with no user or fragment; its host must be in integration.allowed_hosts" }
+        schedule_minutes: { type: integer, minimum: 15, maximum: 1440 }
+        settings: { type: object, description: "The connector's own: field mapping, paging, CMDB class (design §3.3)" }
+    Mapping:
+      type: object
+      additionalProperties: false
+      description: The declarative CSV mapping (design §3.2); no expressions
+      properties:
+        columns: { type: object, additionalProperties: { type: string }, description: "Column name to field path" }
+        values: { type: object, additionalProperties: { type: object, additionalProperties: { type: string } } }
+        defaults: { type: object, additionalProperties: { type: string } }
+        separator: { type: string, maxLength: 1 }
+    IntegrationBody:
+      type: object
+      additionalProperties: false
+      properties:
+        bu_id: { type: string, format: uuid, description: "Create: the business unit it writes into (its subtree). Change: unchanged or absent." }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        kind: { type: string, enum: [assets, loss_events, risks, control_status], description: Fixed once created }
+        delivery: { type: string, enum: [push, file, connector], description: Fixed once created }
+        mapping: { $ref: "#/components/schemas/Mapping" }
+        connector: { oneOf: [{ $ref: "#/components/schemas/Connector" }, { type: "null" }], description: Connector integrations only }
+        service_account_id: { type: [string, "null"], format: uuid, description: "The service account a connector pushes as, at the business unit or above it" }
+        auto_accept: { type: boolean, description: Descriptive-only changes are applied as the pusher }
+        expected_version: { type: integer, description: Change only }
+    Integration:
+      type: object
+      required: [id, bu_id, name, kind, delivery, state, version, credentials]
+      properties:
+        id: { type: string, format: uuid }
+        bu_id: { type: string, format: uuid }
+        bu_name: { type: string }
+        name: { type: string }
+        kind: { type: string, enum: [assets, loss_events, risks, control_status] }
+        delivery: { type: string, enum: [push, file, connector] }
+        mapping: { type: object }
+        connector: { oneOf: [{ $ref: "#/components/schemas/Connector" }, { type: "null" }] }
+        service_account_id: { type: [string, "null"], format: uuid }
+        service_account_name: { type: [string, "null"] }
+        auto_accept: { type: boolean }
+        state: { type: string, enum: [active, paused, deleted] }
+        version: { type: integer }
+        created_at: { type: string, format: date-time }
+        changed_at: { type: [string, "null"], format: date-time }
+        deleted_at: { type: [string, "null"], format: date-time }
+        next_run_at: { type: [string, "null"], format: date-time }
+        last_run_at: { type: [string, "null"], format: date-time }
+        run_requested_at: { type: [string, "null"], format: date-time, description: A connector run asked for now, not yet sent }
+        failures: { type: integer, description: Consecutive failed connector runs }
+        credentials:
+          type: array
+          description: Which credentials are set; never their values
+          items:
+            type: object
+            required: [purpose, set_at]
+            properties:
+              purpose: { type: string, enum: [source, client] }
+              set_at: { type: string, format: date-time }
+    Credential:
+      type: object
+      additionalProperties: false
+      description: "source: token, or username and password; client: client_secret. Values are one line of at most 4,096 characters."
+      properties:
+        token: { type: string, writeOnly: true }
+        username: { type: string, writeOnly: true }
+        password: { type: string, writeOnly: true }
+        client_secret: { type: string, writeOnly: true }
+    Run:
+      type: object
+      required: [id, integration_id, trigger, state, started_at]
+      properties:
+        id: { type: string, format: uuid }
+        integration_id: { type: string, format: uuid }
+        integration_name: { type: string }
+        bu_id: { type: string, format: uuid }
+        trigger: { type: string, enum: [push, upload, schedule, manual] }
+        actor: { type: [string, "null"], format: uuid }
+        actor_name: { type: [string, "null"] }
+        complete: { type: boolean }
+        state: { type: string, enum: [running, succeeded, failed] }
+        counts: { type: [object, "null"], description: "received, valid, refused, new, changed, unchanged, proposed, applied" }
+        refusals:
+          type: array
+          description: The first 1,000 refused records, by position and pointer (single run only)
+          items: { type: object }
+        failure: { type: [string, "null"] }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
+    TestResult:
+      type: object
+      required: [records, problems]
+      properties:
+        records: { type: integer, description: Records on the source's first page }
+        problems: { type: array, maxItems: 20, items: { type: object }, description: The first mapping problems }
+    ReasonBody:
+      type: object
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 500 }
+paths:
+  /api/v1/integrations:
+    get:
+      operationId: listIntegrations
+      tags: [integrations]
+      summary: The integrations the caller views or manages, by name (AC-01)
+      x-permission: integration.view or integration.manage at each integration's business unit
+      parameters:
+        - { name: deleted, in: query, schema: { type: boolean }, description: Include deleted integrations (kept for provenance) }
+      responses:
+        "200":
+          description: The integrations
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [integrations]
+                properties:
+                  integrations: { type: array, items: { $ref: "#/components/schemas/Integration" } }
+        "400": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createIntegration
+      tags: [integrations]
+      summary: Create an integration; a connector's source host must pass the allow-list and the guard (AC-01, AC-02, AC-04)
+      x-permission: integration.manage at the business unit (inside it, for a restricted business unit)
+      x-audit-events: [integration.created, integration.destination_refused]
+      x-reason-exempt: an integration's creation records what it is (kind, delivery, service account)
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/IntegrationBody" } } }
+      responses:
+        "201": { $ref: "#/components/responses/Integration" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /api/v1/integrations/{id}:
+    get:
+      operationId: getIntegration
+      tags: [integrations]
+      summary: An integration, with which credentials are set (never their values, AC-03)
+      x-permission: integration.view or integration.manage at its business unit
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { $ref: "#/components/responses/Integration" }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      operationId: updateIntegration
+      tags: [integrations]
+      summary: Change an integration's name, mapping, connector, service account or auto_accept; business unit, kind and delivery are fixed (AC-01, AC-04)
+      x-permission: integration.manage at its business unit
+      x-audit-events: [integration.changed, integration.destination_refused]
+      x-reason-exempt: a change records what changed and the version
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }, { $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/IntegrationBody" } } }
+      responses:
+        "200": { $ref: "#/components/responses/Integration" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteIntegration
+      tags: [integrations]
+      summary: Delete an integration with a reason; its credentials go, its runs and the provenance of what it brought in stay (AC-05)
+      x-permission: integration.manage at its business unit
+      x-audit-events: [integration.deleted]
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }, { $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ReasonBody" } } }
+      responses:
+        "200": { $ref: "#/components/responses/Integration" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/integrations/{id}/pause:
+    post:
+      operationId: pauseIntegration
+      tags: [integrations]
+      summary: Pause an active integration; batches and connector runs are refused until it resumes (AC-05)
+      x-permission: integration.manage at its business unit
+      x-audit-events: [integration.paused]
+      x-reason-exempt: pausing is recorded with its actor and is undone by resuming
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }, { $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { $ref: "#/components/responses/Integration" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/integrations/{id}/resume:
+    post:
+      operationId: resumeIntegration
+      tags: [integrations]
+      summary: Resume a paused integration; a connector is due at once and its failures reset (AC-05)
+      x-permission: integration.manage at its business unit
+      x-audit-events: [integration.resumed]
+      x-reason-exempt: resuming is recorded with its actor and is undone by pausing
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }, { $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { $ref: "#/components/responses/Integration" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/integrations/{id}/run:
+    post:
+      operationId: runIntegration
+      tags: [runs]
+      summary: Queue a connector run now; the runner sends it as a manual run, as the integration's service account (AC-08)
+      x-permission: integration.manage at its business unit
+      x-audit-events: [integration.changed]
+      x-reason-exempt: the request is recorded (changes run_requested) and the run it causes is recorded with its counts
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }, { $ref: "#/components/parameters/ID" }]
+      responses:
+        "202": { $ref: "#/components/responses/Integration" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /api/v1/integrations/{id}/test:
+    post:
+      operationId: testIntegration
+      tags: [integrations]
+      summary: Fetch the connector's first page through the guard and answer its count and first mapping problems; nothing is submitted (AC-04)
+      x-permission: integration.manage at its business unit
+      x-audit-events: [integration.destination_refused]
+      x-reason-exempt: a test changes nothing; a refused destination is recorded
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }, { $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: What the first page held
+          content: { application/json: { schema: { $ref: "#/components/schemas/TestResult" } } }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /api/v1/integrations/{id}/credentials/{purpose}:
+    put:
+      operationId: putCredential
+      tags: [credentials]
+      summary: Set or replace a connector credential, sealed under integrate/secrets and never returned (AC-03)
+      x-permission: integration.manage at its business unit
+      x-audit-events: [integration.credential_set]
+      x-reason-exempt: a credential change is recorded with its purpose; the value is never recorded
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }, { $ref: "#/components/parameters/ID" }, { $ref: "#/components/parameters/Purpose" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/Credential" } } }
+      responses:
+        "200": { $ref: "#/components/responses/Integration" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteCredential
+      tags: [credentials]
+      summary: Remove a connector credential (AC-03)
+      x-permission: integration.manage at its business unit
+      x-audit-events: [integration.credential_removed]
+      x-reason-exempt: a credential's removal is recorded with its purpose
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }, { $ref: "#/components/parameters/ID" }, { $ref: "#/components/parameters/Purpose" }]
+      responses:
+        "200": { $ref: "#/components/responses/Integration" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/integrations/{id}/runs:
+    get:
+      operationId: listRuns
+      tags: [runs]
+      summary: An integration's runs, newest first, without their refusals; deleted integrations' runs are kept (AC-05, AC-08)
+      x-permission: integration.view or integration.manage at its business unit
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { name: before, in: query, schema: { type: string, format: uuid }, description: Runs older than this one }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+      responses:
+        "200":
+          description: The runs
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [runs, more]
+                properties:
+                  runs: { type: array, items: { $ref: "#/components/schemas/Run" } }
+                  more: { type: boolean }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/integrations/{id}/runs/{run}:
+    get:
+      operationId: getRun
+      tags: [runs]
+      summary: One run with its counts and refusals (AC-08)
+      x-permission: integration.view or integration.manage at the integration's business unit, or the run's actor
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { name: run, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: The run
+          content: { application/json: { schema: { $ref: "#/components/schemas/Run" } } }
+        "404": { $ref: "#/components/responses/Error" }

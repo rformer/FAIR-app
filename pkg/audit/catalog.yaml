@@ -691,7 +691,7 @@ events:
     requires: [target]
     bu: required
     attributes: [auto_accept, changes, integration, name, version]
-    description: "An integration's name, mapping, connector, service account or auto_accept was changed by a holder of integration.manage at its business unit (F-011 T-07, AC-01, AC-26)"
+    description: "An integration's name, mapping, connector, service account or auto_accept was changed by a holder of integration.manage at its business unit, or a connector run was requested now (changes run_requested; F-011 T-07, T-16, AC-01, AC-08, AC-26)"
   - type: integration.created
     category: configuration
     severities: [high]
@@ -727,6 +727,13 @@ events:
     bu: required
     attributes: [change, data_kind, proposed, reference_class]
     description: "A reference class's derivation from loss events was set or removed by a holder of library.edit at its business unit; a new version is proposed when the computed data differs (F-011 T-12, AC-18)"
+  - type: integration.destination_refused
+    category: configuration
+    severities: [high]
+    requires: [target]
+    bu: required
+    attributes: [detail, during, host, integration, name]
+    description: "A connector's source was refused by the destination guard (not in integration.allowed_hosts, a refused address range, or outside the enclave when air-gapped) when an integration was saved or tested; the save or test was refused (F-011 T-16, AC-04, AC-26)"
   - type: integration.paused
     category: configuration
     severities: [high]
