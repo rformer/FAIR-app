@@ -110,8 +110,9 @@ func TestIntegrationsAPI(t *testing.T) {
 		"mapping": map[string]any{"columns": map[string]any{"ID": "external_id", "Name": "name"}}}, "integrate-create-push"); again.code != 201 || again.body["id"] != pushID {
 		t.Errorf("replay: %d %s", again.code, again.raw)
 	}
+	pointers := map[string]any{"columns": map[string]any{"/id": "external_id", "/name": "name"}}
 	conn := create("platform", map[string]any{"bu_id": ia.bu["A"], "name": "CMDB pull", "kind": "assets", "delivery": "connector",
-		"connector": connector("https://cmdb.example.test/api/apps"), "service_account_id": saRoot})
+		"connector": connector("https://cmdb.example.test/api/apps"), "service_account_id": saRoot, "mapping": pointers})
 	if conn.code != 201 || conn.body["next_run_at"] == nil || conn.body["service_account_name"] != "sa-root" {
 		t.Fatalf("create connector: %d %s", conn.code, conn.raw)
 	}
@@ -128,7 +129,7 @@ func TestIntegrationsAPI(t *testing.T) {
 		"a look-alike host":  {"https://cmdb.example.test.invalid/x", "destination_refused"},
 	} {
 		got := create("platform", map[string]any{"bu_id": ia.bu["A"], "name": "Refused " + name, "kind": "assets", "delivery": "connector",
-			"connector": connector(tc.source), "service_account_id": saRoot})
+			"connector": connector(tc.source), "service_account_id": saRoot, "mapping": pointers})
 		if got.code != 422 || got.body["error"] != tc.code {
 			t.Errorf("%s: %d %s", name, got.code, got.raw)
 		}
@@ -148,8 +149,9 @@ func TestIntegrationsAPI(t *testing.T) {
 		"a mapping key":       {"bu_id": ia.bu["A"], "name": "x", "kind": "assets", "delivery": "file", "mapping": map[string]any{"formula": "=1"}},
 		"a schedule":          {"bu_id": ia.bu["A"], "name": "x", "kind": "assets", "delivery": "connector", "connector": map[string]any{"type": "http_json", "source": "https://cmdb.example.test/", "schedule_minutes": 1}, "service_account_id": saRoot},
 		"a connector on push": {"bu_id": ia.bu["A"], "name": "x", "kind": "assets", "delivery": "push", "connector": connector("https://cmdb.example.test/")},
-		"no service account":  {"bu_id": ia.bu["A"], "name": "x", "kind": "assets", "delivery": "connector", "connector": connector("https://cmdb.example.test/")},
-		"sa-b at A":           {"bu_id": ia.bu["A"], "name": "x", "kind": "assets", "delivery": "connector", "connector": connector("https://cmdb.example.test/"), "service_account_id": ia.adminQuery("SELECT id FROM iam.service_account WHERE name = 'sa-b'")},
+		"no service account":  {"bu_id": ia.bu["A"], "name": "x", "kind": "assets", "delivery": "connector", "connector": connector("https://cmdb.example.test/"), "mapping": pointers},
+		"CSV columns":         {"bu_id": ia.bu["A"], "name": "x", "kind": "assets", "delivery": "connector", "connector": connector("https://cmdb.example.test/"), "service_account_id": saRoot, "mapping": map[string]any{"columns": map[string]any{"ID": "external_id"}}},
+		"sa-b at A":           {"bu_id": ia.bu["A"], "name": "x", "kind": "assets", "delivery": "connector", "connector": connector("https://cmdb.example.test/"), "service_account_id": ia.adminQuery("SELECT id FROM iam.service_account WHERE name = 'sa-b'"), "mapping": pointers},
 		"a taken name":        {"bu_id": ia.bu["A"], "name": "cmdb EXPORT", "kind": "assets", "delivery": "push"},
 	} {
 		if got := create("platform", body); got.code != 422 && got.code != 409 {
@@ -165,7 +167,7 @@ func TestIntegrationsAPI(t *testing.T) {
 	}
 	before := ia.events(t, "integration.destination_refused", "")
 	if got := create("mallory", map[string]any{"bu_id": ia.bu["A"], "name": "Mallory's", "kind": "assets", "delivery": "connector",
-		"connector": connector("https://other.example.test/"), "service_account_id": saRoot}); got.code != 404 {
+		"connector": connector("https://other.example.test/"), "service_account_id": saRoot, "mapping": pointers}); got.code != 404 {
 		t.Errorf("mallory: %d %s", got.code, got.raw)
 	}
 	if got := ia.events(t, "integration.destination_refused", ""); got != before {
@@ -231,7 +233,7 @@ func TestIntegrationsAPI(t *testing.T) {
 		t.Errorf("aud changes: %d %s", got.code, got.raw)
 	}
 	if got := put("platform", connID, map[string]any{"name": "CMDB pull", "expected_version": 1, "connector": connector("https://inside.example.test/apps"),
-		"service_account_id": saRoot}); got.code != 422 || got.body["error"] != "destination_refused" {
+		"service_account_id": saRoot, "mapping": pointers}); got.code != 422 || got.body["error"] != "destination_refused" {
 		t.Errorf("refused on change: %d %s", got.code, got.raw)
 	}
 	if got := ia.events(t, "integration.destination_refused", "body ->> 'target' = 'integration:"+connID+"' AND body -> 'attributes' ->> 'host' = 'inside.example.test'"); got != "1" {
@@ -297,7 +299,7 @@ func TestIntegrationsAPI(t *testing.T) {
 		t.Errorf("a push integration tested: %d %s", got.code, got.raw)
 	}
 	if got := put("platform", connID, map[string]any{"name": "CMDB pull", "expected_version": 1, "connector": connector("https://cmdb.example.test/refused"),
-		"service_account_id": saRoot}); got.code != 200 {
+		"service_account_id": saRoot, "mapping": pointers}); got.code != 200 {
 		t.Fatalf("change the source: %d %s", got.code, got.raw)
 	}
 	if got := test("platform", connID); got.code != 422 || got.body["error"] != "destination_refused" {

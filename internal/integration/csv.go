@@ -139,25 +139,12 @@ func ParseCSV(raw []byte, input string, m Mapping) (*Batch, error) {
 		if blank(row) {
 			continue
 		}
-		rec := map[string]any{"kind": kind}
-		for _, f := range Fields[kind] {
-			val := ""
-			if col := colFor(m, f); col != "" {
-				if i := index[col]; i < len(row) {
-					val = strings.TrimSpace(row[i])
-				}
+		rec := mapRecord(kind, m, sep, func(col string) string {
+			if i := index[col]; i < len(row) {
+				return row[i]
 			}
-			if val == "" {
-				val = m.Defaults[f]
-			}
-			if t, ok := m.Values[f][val]; ok {
-				val = t
-			}
-			if val == "" {
-				continue
-			}
-			set(rec, f, val, sep)
-		}
+			return ""
+		})
 		one, err := json.Marshal(rec)
 		if err != nil {
 			return nil, batchError("row %d: %v", n, err)
@@ -165,6 +152,32 @@ func ParseCSV(raw []byte, input string, m Mapping) (*Batch, error) {
 		b.add(n, one, allowed, seen, columnOf)
 	}
 	return b, nil
+}
+
+// mapRecord builds a record of kind by the mapping from a source's values:
+// get answers the value of a mapped column (a CSV column, or a connector's
+// JSON pointer into an item), "" when it is absent. Values are trimmed,
+// defaulted, then translated by the mapping's value table (F-011 T-06,
+// T-17: CSV files and connectors map alike).
+func mapRecord(kind string, m Mapping, sep string, get func(col string) string) map[string]any {
+	rec := map[string]any{"kind": kind}
+	for _, f := range Fields[kind] {
+		val := ""
+		if col := colFor(m, f); col != "" {
+			val = strings.TrimSpace(get(col))
+		}
+		if val == "" {
+			val = m.Defaults[f]
+		}
+		if t, ok := m.Values[f][val]; ok {
+			val = t
+		}
+		if val == "" {
+			continue
+		}
+		set(rec, f, val, sep)
+	}
+	return rec
 }
 
 // colFor is the column the mapping maps to field f ("" without one).

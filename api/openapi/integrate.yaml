@@ -77,11 +77,20 @@ components:
         type: { type: string, enum: [http_json, servicenow_cmdb] }
         source: { type: string, format: uri, maxLength: 2048, description: "An https URL with no user or fragment; its host must be in integration.allowed_hosts" }
         schedule_minutes: { type: integer, minimum: 15, maximum: 1440 }
-        settings: { type: object, description: "The connector's own: field mapping, paging, CMDB class (design §3.3)" }
+        settings:
+          type: object
+          description: >-
+            http_json: list (a JSON pointer to the item array; absent: the body is the array) and paging,
+            either {next: <pointer to the next page's URL, on the same host>} or {offset_param, limit_param,
+            page_size (1 to 1,000, default 100)}. servicenow_cmdb: class (default cmdb_ci_business_app) and
+            page_size; the source is the instance's base URL, read through the Table API.
     Mapping:
       type: object
       additionalProperties: false
-      description: The declarative CSV mapping (design §3.2); no expressions
+      description: >-
+        The declarative mapping (design §3.2, §3.3); no expressions. For a file, columns are CSV column
+        names; for a connector, JSON pointers into an item (servicenow_cmdb without columns: sys_id, name,
+        short_description, asset type application).
       properties:
         columns: { type: object, additionalProperties: { type: string }, description: "Column name to field path" }
         values: { type: object, additionalProperties: { type: object, additionalProperties: { type: string } } }

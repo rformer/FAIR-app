@@ -45,9 +45,9 @@ import (
 	"github.com/rformer/fair-app/pkg/authz"
 )
 
-// Tester fetches a connector's first page without submitting it (the
-// connectors arrive with the runner, T-17). An error wrapping
-// egress.ErrRefused is a refused destination (recorded, AC-04).
+// Tester fetches a connector's first page without submitting it
+// (integration.Fetcher, T-17). An error wrapping egress.ErrRefused is a
+// refused destination (recorded, AC-04).
 type Tester interface {
 	Test(ctx context.Context, req integration.TestRequest) (integration.TestResult, error)
 }

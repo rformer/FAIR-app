@@ -9,8 +9,9 @@
 // enforcement, structured logging, audit emission of lifecycle events, a
 // database pool as app_integrate, the install checks of design §11, F-011's
 // settings registered, and leader election (one replica leads). T-16: the
-// integrations API (internal/integrateapi), served by every replica. The
-// connector runner (and connector tests) arrive with T-17.
+// integrations API (internal/integrateapi), served by every replica. T-17:
+// the connectors (integration.Fetcher, also the API's tests) and the
+// connector runner on the leader, submitting through the gateway.
 //
 // Environment: as for every service (FAIR_ENV, FAIR_DEPLOYMENT_MODE,
 // FAIR_LISTEN_ADDR, FAIR_TLS_CERT_FILE, FAIR_TLS_KEY_FILE, FAIR_REQUIRE_FIPS,
@@ -24,6 +25,8 @@
 //	FAIR_INTEGRATE_GATEWAY_URL    the gateway's https URL connectors submit to;
 //	                              required in production
 //	FAIR_INTEGRATE_GATEWAY_CA_FILE the CA of the gateway's certificate (optional)
+//	FAIR_INTEGRATE_CA_FILE        CAs of the sources' certificates, added to the
+//	                              system's (optional)
 //	FAIR_INTEGRATE_CLUSTER_CIDRS  the cluster's pod and service ranges, never a
 //	                              source; required in production
 //	POD_NAME                      this replica's name, in leader logs
@@ -32,9 +35,12 @@ package main
 import (
 	"context"
 	"crypto/fips140"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/netip"
 	"os"
 	"os/signal"
@@ -143,13 +149,52 @@ func run() error {
 	}
 	go sc.Run(ctx, func(err error) { logger.Error("settings refresh", "error", err.Error()) })
 
-	// One replica leads (design §3.3): it claims due connector runs (T-17).
+	// Sources pass the guard (design §3.1, AC-04): integration.allowed_hosts
+	// as in force, the cluster's ranges refused, private ranges only when
+	// air-gapped; their certificates verified against the system's roots
+	// and FAIR_INTEGRATE_CA_FILE.
+	guard := egress.Guard{Setting: settings.KeyIntegrationAllowedHosts, Cluster: cluster, AirGapped: cfg.DeploymentMode == config.ModeAirGapped,
+		Allowed: func() []string {
+			hosts, err := sc.Set(settings.KeyIntegrationAllowedHosts, "")
+			if err != nil {
+				return nil // nothing is allowed until the setting is read
+			}
+			return hosts
+		}}
+	sourceTLS, err := tlsWithCA(os.Getenv("FAIR_INTEGRATE_CA_FILE"), true)
+	if err != nil {
+		return fmt.Errorf("FAIR_INTEGRATE_CA_FILE: %w", err)
+	}
+	fetcher := integration.Fetcher{Guard: guard, TLS: sourceTLS}
+
+	// One replica leads (design §3.3): every 30 seconds it claims due
+	// connector integrations, fetches them and submits each batch through
+	// the gateway as the integration's service account (T-17).
+	var runner *integration.Runner
+	if gw := os.Getenv("FAIR_INTEGRATE_GATEWAY_URL"); gw != "" && keyring != nil {
+		u, err := integration.GatewayURL(gw)
+		if err != nil {
+			return err
+		}
+		gwTLS, err := tlsWithCA(os.Getenv("FAIR_INTEGRATE_GATEWAY_CA_FILE"), false)
+		if err != nil {
+			return fmt.Errorf("FAIR_INTEGRATE_GATEWAY_CA_FILE: %w", err)
+		}
+		client := &http.Client{Timeout: 2 * time.Minute, Transport: &http.Transport{Proxy: nil, TLSClientConfig: gwTLS, TLSHandshakeTimeout: 10 * time.Second},
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		runner = &integration.Runner{DB: pool, Keys: keyring, Fetch: fetcher, Submit: integration.GatewaySubmitter{URL: u, Client: client}}
+	} else {
+		logger.Warn("connectors do not run: they need FAIR_INTEGRATE_GATEWAY_URL and the connector-credentials keys")
+	}
 	leader := auditsvc.Leader{Pool: pool, Key: integration.LeaderLockKey, OnChange: func(leading bool) {
 		logger.Info("leader", "leading", leading, "replica", replica)
 	}}
 	go leader.Run(ctx, func(ctx context.Context) error {
-		<-ctx.Done()
-		return ctx.Err()
+		if runner == nil {
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		return runner.Run(ctx, 30*time.Second, func(err error) { logger.Error("connector run", "error", err.Error()) })
 	}, func(err error) { logger.Error("leader", "error", err.Error()) })
 
 	srv := server.New(server.Options{
@@ -163,25 +208,13 @@ func run() error {
 		return schemaReady(ctx, pool)
 	}})
 
-	// Sources pass the guard (design §3.1, AC-04): integration.allowed_hosts
-	// as in force, the cluster's ranges refused, private ranges only when
-	// air-gapped.
-	guard := egress.Guard{Setting: settings.KeyIntegrationAllowedHosts, Cluster: cluster, AirGapped: cfg.DeploymentMode == config.ModeAirGapped,
-		Allowed: func() []string {
-			hosts, err := sc.Set(settings.KeyIntegrationAllowedHosts, "")
-			if err != nil {
-				return nil // nothing is allowed until the setting is read
-			}
-			return hosts
-		}}
-
 	// The integrations API (T-16): every replica serves it.
 	if dir := os.Getenv("FAIR_JWT_KEYS_DIR"); dir != "" {
 		jwtKeys, err := authz.LoadLocalKeys(dir)
 		if err != nil {
 			return fmt.Errorf("FAIR_JWT_KEYS_DIR: %w", err)
 		}
-		api := &integrateapi.API{DB: pool, Keys: keyring, Guard: guard}
+		api := &integrateapi.API{DB: pool, Keys: keyring, Guard: guard, Tester: fetcher}
 		h := server.SecurityHeaders(api.Handler(jwtKeys, nil))
 		for _, prefix := range integrateapi.Prefixes {
 			srv.Mux().Handle(prefix, h)
@@ -194,6 +227,31 @@ func run() error {
 	err = srv.Run(ctx, cfg.ShutdownTimeout)
 	_ = emitter.Emit(context.Background(), audit.Event{Type: "service.stopped", Severity: audit.SeverityInfo, Actor: "system:integrate"})
 	return err
+}
+
+// tlsWithCA is a TLS 1.2+ client configuration whose roots are the CA file's
+// certificates, added to the system's when withSystem (no file: the
+// system's).
+func tlsWithCA(file string, withSystem bool) (*tls.Config, error) {
+	c := &tls.Config{MinVersion: tls.VersionTLS12}
+	if file == "" {
+		return c, nil
+	}
+	pem, err := os.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
+	pool := x509.NewCertPool()
+	if withSystem {
+		if sys, err := x509.SystemCertPool(); err == nil {
+			pool = sys
+		}
+	}
+	if !pool.AppendCertsFromPEM(pem) {
+		return nil, errors.New("no certificate in the file")
+	}
+	c.RootCAs = pool
+	return c, nil
 }
 
 // schemaReady checks that the database is reachable, the integration schema

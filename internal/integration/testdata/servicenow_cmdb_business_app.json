@@ -1,0 +1,31 @@
+[
+  {
+    "result": [
+      {
+        "sys_id": "0d4a3f1e1b2c4d10a8f5e6c7d8e9f001",
+        "name": "Claims Portal",
+        "short_description": "Customer-facing claims submission and tracking",
+        "support_group": "Claims IT",
+        "business_criticality": "1 - most critical"
+      },
+      {
+        "sys_id": "0d4a3f1e1b2c4d10a8f5e6c7d8e9f002",
+        "name": "Policy Administration",
+        "short_description": "Policy issuance, endorsements and renewals",
+        "support_group": "Underwriting IT",
+        "business_criticality": "2 - somewhat critical"
+      }
+    ]
+  },
+  {
+    "result": [
+      {
+        "sys_id": "0d4a3f1e1b2c4d10a8f5e6c7d8e9f003",
+        "name": "Data Warehouse",
+        "short_description": "",
+        "support_group": "Claims IT",
+        "business_criticality": "3 - less critical"
+      }
+    ]
+  }
+]

@@ -80,6 +80,19 @@ func connector(raw json.RawMessage) (*integration.Connector, error) {
 	return &c, nil
 }
 
+// connectorRuns refuses connector settings the connectors cannot run, and
+// a mapping they cannot map by (T-17: columns are JSON pointers into an
+// item), 422 invalid_connector.
+func connectorRuns(w http.ResponseWriter, kind string, c integration.Connector, mapping string) bool {
+	var m integration.Mapping
+	_ = json.Unmarshal([]byte(mapping), &m) // checked by checkMapping
+	if err := integration.CheckSettings(kind, c, m); err != nil {
+		problem(w, http.StatusUnprocessableEntity, "invalid_connector", err.Error())
+		return false
+	}
+	return true
+}
+
 // checkDestination runs the guard over the source host. A refused host is
 // recorded (integration.destination_refused, in its own transaction: the
 // save is refused) by a caller who may manage the integration, and answered
@@ -184,6 +197,9 @@ func (a *API) createIntegration(w http.ResponseWriter, r *http.Request, p authz.
 			problem(w, http.StatusUnprocessableEntity, "invalid_integration", "only a connector integration has connector settings")
 			return
 		}
+		if !connectorRuns(w, b.Kind, *c, mapping) {
+			return
+		}
 		if !a.checkDestination(w, r, p, b.BUID, "", c.Host(), "save") {
 			return
 		}
@@ -250,6 +266,9 @@ func (a *API) updateIntegration(w http.ResponseWriter, r *http.Request, p authz.
 	if c != nil {
 		if cur.Delivery != "connector" {
 			problem(w, http.StatusUnprocessableEntity, "invalid_integration", "only a connector integration has connector settings")
+			return
+		}
+		if !connectorRuns(w, cur.Kind, *c, mapping) {
 			return
 		}
 		if !a.checkDestination(w, r, p, cur.BUID, iid, c.Host(), "save") {

@@ -733,7 +733,7 @@ events:
     requires: [target]
     bu: required
     attributes: [detail, during, host, integration, name]
-    description: "A connector's source was refused by the destination guard (not in integration.allowed_hosts, a refused address range, or outside the enclave when air-gapped) when an integration was saved or tested; the save or test was refused (F-011 T-16, AC-04, AC-26)"
+    description: "A connector's source was refused by the destination guard (not in integration.allowed_hosts, a refused address range, outside the enclave when air-gapped, or a page on another host) when an integration was saved, tested or run; the save, test or run was refused (F-011 T-16, T-17, AC-04, AC-26)"
   - type: integration.paused
     category: configuration
     severities: [high]
@@ -764,11 +764,11 @@ events:
     description: "A paused integration was resumed (F-011 T-07, AC-05, AC-26)"
   - type: integration.run
     category: risk_data
-    severities: [low]
+    severities: [low, high]
     requires: [target]
     bu: required
-    attributes: [changed, complete, integration, name, new, proposed, received, refused, run, trigger, unchanged, valid]
-    description: "A batch was received by an integration (pushed, uploaded or fetched by its connector) and its records staged, with their counts (F-011 T-08, AC-08, AC-26)"
+    attributes: [changed, complete, failure, integration, name, new, proposed, received, refused, run, state, trigger, unchanged, valid]
+    description: "A batch was received by an integration (pushed, uploaded or fetched by its connector) and its records staged, with their counts (low; F-011 T-08), or a connector run failed before its batch was received, with the failure (high, state failed; F-011 T-17) (AC-08, AC-26)"
   - type: library.created
     category: risk_data
     severities: [low]
