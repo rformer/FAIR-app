@@ -388,6 +388,37 @@ var strideF010 = map[string][]string{
 	},
 }
 
+// strideF011 maps F-011's design §7 rows (T-20).
+var strideF011 = map[string][]string{
+	"E: an integration writes outside its scope or kind | BU subtree and kind checked per record in the database; restricted subtrees only by managers inside; accepted changes run under the reviewer's RLS; connectors push as a scoped service account": {
+		"db/tests:TestSTRIDEF011Scope", "db/tests:TestImportBatches", "db/tests:TestIntegrations",
+	},
+	"T, E: imported data changes an analysis silently | Everything but descriptive fields is a proposal; pins never move; accept checks expected_version; derived reference classes are proposals": {
+		"db/tests:TestSTRIDEF011Proposals", "db/tests:TestProposals", "db/tests:TestProposalReview", "db/tests:TestLossEventsAndDerivations",
+	},
+	"I, E: a connector is used to reach internal systems (SSRF) | Allow-list with dual approval; F-009's guard (internal ranges refused, private only air-gapped, the checked address dialled, no redirects or proxies); paging URLs re-checked; egress only from the integrate pod": {
+		"db/tests:TestSTRIDEF011Destinations", "db/tests:TestIntegrationsAPI", "db/tests:TestConnectorRunner", "internal/egress:TestCheckAddr", "internal/egress:TestResolve", "internal/egress:TestDialChecksAndPins", "internal/egress:TestHTTPClient", "internal/integration:TestConnectorRefusals",
+	},
+	"I: credentials disclosed | Sealed under a key file, accepted once, never returned or logged; decrypted only by the runner": {
+		"db/tests:TestSTRIDEF011Secrets", "db/tests:TestIntegrationsAPI", "internal/integration:TestKeyring",
+	},
+	"T: injection through imported values | Typed validation per kind; text only as data; CSV formula prefixes neutralized when exported (F-010); canonical JSON; no expression mappings": {
+		"db/tests:TestSTRIDEF011Injection", "internal/integration:TestParseJSONRefusesBatches", "internal/integration:TestValidateKinds",
+	},
+	"I: loss events or proposals leak across BUs | Loss events under RLS (library); proposals listed by the target's view scope; derivations within one restricted root": {
+		"db/tests:TestSTRIDEF011Visibility", "db/tests:TestLossEventsAndDerivations",
+	},
+	"S: a forged batch or a replayed upload | Batches need a token for a principal holding `integration.push` or `manage`; Idempotency-Key; staged digests; external IDs scoped to their integration": {
+		"db/tests:TestSTRIDEF011Batches", "db/tests:TestImportBatches",
+	},
+	"R: changes not attributable | Integration, credential, run, refusal and decision events in their transactions; provenance per version": {
+		"db/tests:TestIntegrationAuditEvents", "db/tests:TestIntegrationsAPI",
+	},
+	"D: huge or frequent batches exhaust the service | Size, record, run-rate and integration limits before work; bounded pages and timeouts; one run per integration at a time": {
+		"db/tests:TestSTRIDEF011Limits", "db/tests:TestBenchmarkGateImports", "db/tests:TestImportBatches",
+	},
+}
+
 // The threat tables and the suites agree: every row has tests, every test
 // exists and is run by make test-stride, and no mapping names a row the
 // design no longer has. Runs without a database.
@@ -420,6 +451,7 @@ func TestSTRIDECatalog(t *testing.T) {
 		{"F-008-risk-acceptance", "## 7.", 8, strideF008},
 		{"F-009-notifications", "## 7.", 9, strideF009},
 		{"F-010-reporting-export", "## 7.", 8, strideF010},
+		{"F-011-integrations", "## 7.", 9, strideF011},
 	} {
 		rows := threatRows(t, filepath.Join(root, "specs", "features", c.feature, "design.md"), c.section)
 		if len(rows) < c.min {
