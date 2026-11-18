@@ -1,0 +1,15 @@
+{
+  "format": "fair.integration.v1",
+  "complete": true,
+  "records": [
+    {"kind": "asset", "external_id": "CMDB-1001", "bu": "CLAIMS", "name": "  Claims platform ", "asset_type": "application",
+     "description": "Policy and claims processing.", "value": {"min": "250000", "ml": 1.5e6, "max": "4000000.00", "confidence": "0.90", "basis": "Replacement cost"}},
+    {"kind": "asset", "external_id": "CMDB-1002", "bu": "CLAIMS", "name": "Claims data warehouse", "asset_type": "data store"},
+    {"kind": "asset_group", "external_id": "GRP-1", "bu": "CLAIMS", "name": "Claims systems", "members": ["CMDB-1001", "CMDB-1002"]},
+    {"kind": "asset", "external_id": "CMDB-1003", "bu": "CLAIMS", "name": "", "asset_type": "application"},
+    {"kind": "asset", "external_id": "CMDB-1001", "bu": "CLAIMS", "name": "Duplicate", "asset_type": "application"},
+    {"kind": "risk", "external_id": "R-1", "bu": "CLAIMS", "title": "Not an asset"},
+    {"kind": "asset", "external_id": "CMDB-1004", "bu": "CLAIMS", "name": "Unordered", "asset_type": "application", "value": {"min": "5", "ml": "1", "max": "9"}},
+    {"kind": "asset", "external_id": "CMDB-1005", "bu": "CLAIMS", "name": "Extra", "asset_type": "application", "owner": "someone"}
+  ]
+}

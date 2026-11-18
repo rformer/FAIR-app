@@ -1,0 +1,57 @@
+{
+  "complete": false,
+  "records": [
+    {
+      "n": 1,
+      "kind": "loss_event",
+      "external_id": "E-1",
+      "bu": "CLAIMS",
+      "data": {
+        "amounts": {
+          "response": "12500.5"
+        },
+        "bu": "CLAIMS",
+        "event_type": "Phishing",
+        "external_id": "E-1",
+        "kind": "loss_event",
+        "occurred_on": "2026-01-15"
+      },
+      "digest": "554a92f7cc52fde7bda3b0ddf4a5f98227e9f1b52da538e75a779faa2ef50b15"
+    },
+    {
+      "n": 3,
+      "kind": "loss_event",
+      "external_id": "E-2",
+      "bu": "FIN",
+      "data": {
+        "amounts": {
+          "fines_judgments": "250000",
+          "response": "4000"
+        },
+        "bu": "FIN",
+        "event_type": "Payment fraud",
+        "external_id": "E-2",
+        "kind": "loss_event",
+        "occurred_on": "2026-02-03"
+      },
+      "digest": "8b4288ec5299426a67e12826b35120d57241dc0abed3ec3e9c3d6665867eeb65"
+    }
+  ],
+  "refusals": 2,
+  "refused": [
+    {
+      "n": 4,
+      "external_id": "E-3",
+      "column": "Date",
+      "pointer": "/occurred_on",
+      "message": "must be a date (YYYY-MM-DD)"
+    },
+    {
+      "n": 5,
+      "external_id": "E-4",
+      "column": "Response cost",
+      "pointer": "/amounts/response",
+      "message": "is not a decimal number"
+    }
+  ]
+}

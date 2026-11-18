@@ -1,0 +1,91 @@
+{
+  "complete": true,
+  "records": [
+    {
+      "n": 1,
+      "kind": "asset",
+      "external_id": "CMDB-1001",
+      "bu": "CLAIMS",
+      "data": {
+        "asset_type": "application",
+        "bu": "CLAIMS",
+        "description": "Policy and claims processing.",
+        "external_id": "CMDB-1001",
+        "kind": "asset",
+        "name": "Claims platform",
+        "value": {
+          "basis": "Replacement cost",
+          "confidence": "0.9",
+          "max": "4000000",
+          "min": "250000",
+          "ml": "1500000"
+        }
+      },
+      "digest": "d846590e1bd4ef8b4720f8d471954303f3698349907b1d0b69be835cc01fc41e"
+    },
+    {
+      "n": 2,
+      "kind": "asset",
+      "external_id": "CMDB-1002",
+      "bu": "CLAIMS",
+      "data": {
+        "asset_type": "data store",
+        "bu": "CLAIMS",
+        "external_id": "CMDB-1002",
+        "kind": "asset",
+        "name": "Claims data warehouse"
+      },
+      "digest": "df9af42ab92f560163033fe3b06a61b8c2dca8153e18f07d81e0654859f679bb"
+    },
+    {
+      "n": 3,
+      "kind": "asset_group",
+      "external_id": "GRP-1",
+      "bu": "CLAIMS",
+      "data": {
+        "bu": "CLAIMS",
+        "external_id": "GRP-1",
+        "kind": "asset_group",
+        "members": [
+          "CMDB-1001",
+          "CMDB-1002"
+        ],
+        "name": "Claims systems"
+      },
+      "digest": "6197ea7be78c0f0c278ee8a552075d7eee5c28f5e847d03ca199d818368668ca"
+    }
+  ],
+  "refusals": 5,
+  "refused": [
+    {
+      "n": 4,
+      "external_id": "CMDB-1003",
+      "pointer": "/name",
+      "message": "is required"
+    },
+    {
+      "n": 5,
+      "external_id": "CMDB-1001",
+      "pointer": "/external_id",
+      "message": "appears earlier in the batch, at record 1"
+    },
+    {
+      "n": 6,
+      "external_id": "R-1",
+      "pointer": "/kind",
+      "message": "is \"risk\", want one of asset, asset_group"
+    },
+    {
+      "n": 7,
+      "external_id": "CMDB-1004",
+      "pointer": "/value",
+      "message": "must have min \u003c= ml \u003c= max"
+    },
+    {
+      "n": 8,
+      "external_id": "CMDB-1005",
+      "pointer": "/owner",
+      "message": "is not a field of this record"
+    }
+  ]
+}
