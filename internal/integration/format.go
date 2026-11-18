@@ -17,6 +17,7 @@ import (
 	"net/mail"
 	"regexp"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -502,3 +503,22 @@ func columnOf(columns map[string]string, pointer string) string {
 	}
 	return columns[strings.TrimPrefix(pointer, "/")]
 }
+
+// Reject drops the records check refuses (business units outside the
+// integration's subtree, T-08), recording each refusal; refusals stay in
+// position order.
+func (b *Batch) Reject(check func(Record) (pointer, message string, refused bool)) {
+	kept := b.Records[:0]
+	for _, r := range b.Records {
+		if p, m, bad := check(r); bad {
+			b.refuse(Refusal{N: r.N, ExternalID: r.ExternalID, Pointer: p, Message: m})
+			continue
+		}
+		kept = append(kept, r)
+	}
+	b.Records = kept
+	sort.SliceStable(b.Refused, func(i, j int) bool { return b.Refused[i].N < b.Refused[j].N })
+}
+
+// Received is how many records the batch held.
+func (b *Batch) Received() int { return len(b.Records) + b.Refusals }

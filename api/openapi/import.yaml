@@ -1,0 +1,176 @@
+openapi: 3.1.0
+info:
+  title: FAIR Imports API
+  version: "1"
+  contact: { name: FAIR Risk Platform, url: "https://github.com/rformer/FAIR-app" }
+  description: |
+    F-011 design §6.2. Batches of records for integrations, served by the risk service behind the gateway,
+    which authenticates the session or a service account's token and forwards an internal JWT (ES256,
+    audience `risk`, at most 5 minutes) and the DB context token it was minted with (F-001 design §4, §5.2).
+
+    A batch is a `fair.integration.v1` document (docs/formats/fair-integration-v1.md) or CSV read by the
+    integration's mapping. It is processed in its request: checked record by record (a refused record does
+    not refuse the others), its records' business units resolved inside the integration's subtree, matched
+    by external ID, staged, and recorded as a run with its counts. Nothing an analysis depends on changes
+    here: valid records become proposed changes (F-011 R-03). Without integration.push, integration.manage
+    or integration.view anywhere the routes do not exist for the caller (404, F-001 AC-25).
+servers:
+  - url: /
+security:
+  - internalJWT: []
+    dbContext: []
+tags:
+  - { name: imports, description: "Batches and runs (F-011 R-02)" }
+components:
+  securitySchemes:
+    internalJWT: { type: http, scheme: bearer, bearerFormat: JWT }
+    dbContext: { type: apiKey, in: header, name: X-Fair-DB-Context }
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 8, maxLength: 128 }
+    ID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    Error:
+      description: An error
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: >-
+            not_found, forbidden, invalid_request, invalid_value, invalid_batch, invalid_state, integration_deleted,
+            run_in_progress, too_many_runs, limit_exceeded, unsupported_media_type, unavailable, unauthenticated
+        detail: { type: string }
+        limit: { type: integer }
+    Refusal:
+      type: object
+      required: [n, pointer, message]
+      properties:
+        n: { type: integer, description: "The record's 1-based position (a CSV's data row)" }
+        external_id: { type: string }
+        column: { type: string, description: "CSV only: the column of the field" }
+        pointer: { type: string, description: The JSON pointer of the problem in the record }
+        message: { type: string }
+    Counts:
+      type: object
+      properties:
+        received: { type: integer }
+        valid: { type: integer }
+        refused: { type: integer }
+        new: { type: integer, description: Valid records with no link yet }
+        changed: { type: integer, description: Linked records whose digest changed }
+        unchanged: { type: integer, description: "Linked records with the same digest, or the one last rejected" }
+        proposed: { type: integer }
+    Run:
+      type: object
+      required: [id, integration_id, trigger, state, counts, started_at]
+      properties:
+        id: { type: string, format: uuid }
+        integration_id: { type: string, format: uuid }
+        integration_name: { type: string }
+        bu_id: { type: string, format: uuid }
+        trigger: { type: string, enum: [push, upload, schedule, manual] }
+        actor: { type: [string, "null"], format: uuid }
+        actor_name: { type: [string, "null"] }
+        complete: { type: boolean }
+        state: { type: string, enum: [running, succeeded, failed] }
+        counts: { $ref: "#/components/schemas/Counts" }
+        refusals: { type: array, maxItems: 1000, items: { $ref: "#/components/schemas/Refusal" } }
+        failure: { type: [string, "null"] }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
+paths:
+  /api/v1/imports/{integration}/batches:
+    post:
+      operationId: pushBatch
+      tags: [imports]
+      summary: Send a batch of records to an integration (AC-06 to AC-09)
+      description: >-
+        integration.push (a service account) or integration.manage (an administrator) at the integration's business
+        unit (403 with integration.view only, 404 otherwise); a paused or deleted integration refuses batches (409).
+        The body is application/json (fair.integration.v1) or text/csv (read by the integration's mapping), at most
+        20 MiB and 10,000 records. A batch that is not the format is refused whole (422 invalid_batch); otherwise each
+        record is checked on its own and refused records are listed. At most 12 batches an hour per integration (429),
+        one at a time (409 run_in_progress). With dry_run=true nothing is recorded and the first 200 records' matches are
+        answered. trigger=schedule or manual is the integration's own service account's (its connector).
+      x-permission: integration.push or integration.manage at the integration's BU
+      x-audit-events: [integration.run]
+      x-reason-exempt: a batch is identified by its integration, its run and its records, all recorded
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { name: integration, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: dry_run, in: query, schema: { type: boolean, default: false } }
+        - { name: trigger, in: query, schema: { type: string, enum: [schedule, manual] } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, description: "fair.integration.v1 (docs/formats/fair-integration-v1.schema.json)" }
+          text/csv:
+            schema: { type: string, description: "CSV with a header row, read by the integration's mapping" }
+      responses:
+        "200":
+          description: A dry run's result (nothing recorded)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [dry_run, counts, refused, matches]
+                properties:
+                  dry_run: { const: true }
+                  counts: { $ref: "#/components/schemas/Counts" }
+                  refused: { type: array, items: { $ref: "#/components/schemas/Refusal" } }
+                  matches:
+                    type: array
+                    maxItems: 200
+                    items:
+                      type: object
+                      properties:
+                        n: { type: integer }
+                        kind: { type: string }
+                        external_id: { type: string }
+                        match: { type: string, enum: [new, changed, unchanged] }
+                        target_id: { type: string, format: uuid }
+        "201":
+          description: The run, recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [dry_run, counts, refused, run]
+                properties:
+                  dry_run: { const: false }
+                  counts: { $ref: "#/components/schemas/Counts" }
+                  refused: { type: array, items: { $ref: "#/components/schemas/Refusal" } }
+                  run: { $ref: "#/components/schemas/Run" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+        "415": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /api/v1/imports/runs/{id}:
+    get:
+      operationId: getRun
+      tags: [imports]
+      summary: A run, with its counts and refusals (AC-08)
+      x-permission: integration.view or integration.manage at the integration's BU, or the run's actor
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: The run
+          content: { application/json: { schema: { $ref: "#/components/schemas/Run" } } }
+        "404": { $ref: "#/components/responses/Error" }

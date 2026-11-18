@@ -66,6 +66,13 @@ func integrationFixture(t *testing.T) *integrationEnv {
 	t.Helper()
 	e := assignmentFixture(t)
 	e.addCtxKey(ctxKey1)
+	integrationUsers(e)
+	return &integrationEnv{env: e, pool: rolePool(t, e, "app_integrate")}
+}
+
+// integrationUsers adds the fixture's users and service accounts to an
+// assignment-fixture environment.
+func integrationUsers(e *env) {
 	for _, u := range []string{"aud", "rman"} {
 		e.mustOwner(fmt.Sprintf("INSERT INTO iam.app_user (email, display_name) VALUES ('%s@example.test', '%s')", u, u))
 	}
@@ -81,7 +88,6 @@ func integrationFixture(t *testing.T) *integrationEnv {
 			SELECT u.id, '%[1]s', %[2]s, r.id, 'client_credentials', %[3]s FROM u, r`, sa[0], buID(sa[1]), uid("platform")))
 	}
 	e.drain()
-	return &integrationEnv{env: e, pool: rolePool(t, e, "app_integrate")}
 }
 
 // as runs fn as app_integrate for user.

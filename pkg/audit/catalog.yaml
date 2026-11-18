@@ -734,6 +734,13 @@ events:
     bu: required
     attributes: [integration, name]
     description: "A paused integration was resumed (F-011 T-07, AC-05, AC-26)"
+  - type: integration.run
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [changed, complete, integration, name, new, proposed, received, refused, run, trigger, unchanged, valid]
+    description: "A batch was received by an integration (pushed, uploaded or fetched by its connector) and its records staged, with their counts (F-011 T-08, AC-08, AC-26)"
   - type: library.created
     category: risk_data
     severities: [low]

@@ -82,6 +82,7 @@ import (
 	"github.com/rformer/fair-app/internal/objstore"
 	"github.com/rformer/fair-app/internal/register"
 	"github.com/rformer/fair-app/internal/registerapi"
+	"github.com/rformer/fair-app/internal/importapi"
 	"github.com/rformer/fair-app/internal/reportapi"
 	"github.com/rformer/fair-app/internal/reports"
 	"github.com/rformer/fair-app/internal/risk"
@@ -514,6 +515,12 @@ func run() error {
 		for _, prefix := range reportapi.Prefixes {
 			srv.Mux().Handle(prefix, reph)
 			srv.Mux().Handle(prefix+"/", reph)
+		}
+		// The imports API (F-011 design §6.2).
+		imph := server.SecurityHeaders((&importapi.API{DB: pool, Authz: grants}).Handler(jwtKeys, nil))
+		for _, prefix := range importapi.Prefixes {
+			srv.Mux().Handle(prefix, imph)
+			srv.Mux().Handle(prefix+"/", imph)
 		}
 	} else {
 		logger.Warn("the risk API is off: it needs the gateway's JWT keys (FAIR_JWT_KEYS_DIR)")

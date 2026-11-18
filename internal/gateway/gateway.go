@@ -106,6 +106,8 @@ var Segments = map[string]string{
 	"acceptances": "risk",
 	// F-010 (design §6): reports, in the risk service.
 	"reports": "risk",
+	// F-011 (design §6.2): batches and runs, in the risk service.
+	"imports": "risk",
 	// F-009 (design §6): notifications, in the notify service.
 	"notifications": "notify",
 }
