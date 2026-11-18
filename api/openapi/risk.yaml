@@ -296,6 +296,18 @@ paths:
                   pins: { type: array, items: { $ref: "#/components/schemas/Pin" } }
                   taxonomy: { type: array, items: { $ref: "#/components/schemas/Node" } }
                   currency: { type: [string, "null"], description: The installation currency of every amount (AC-07) }
+                  control_lapsed:
+                    type: array
+                    description: >-
+                      Controls the latest version uses as in place in a current control set whose latest version records another
+                      implementation status (F-011 AC-24); adopting and re-running makes the exposure current again
+                    items:
+                      type: object
+                      properties:
+                        scenario_id: { type: string, format: uuid }
+                        control_id: { type: string, format: uuid }
+                        status: { type: string, enum: [partial, planned, not_in_place] }
+                        assessed_on: { type: [string, "null"], format: date }
         "404": { $ref: "#/components/responses/Error" }
     put:
       operationId: saveScenario

@@ -376,8 +376,17 @@ func (a *API) acceptOne(ctx context.Context, tx pgx.Tx, p authz.Principal, id st
 		target, version = m.id, &v
 	}
 	var out json.RawMessage
-	err = tx.QueryRow(ctx, "SELECT integration.accepted($1, $2, $3)", id, target, version).Scan(&out)
-	return out, err
+	if err := tx.QueryRow(ctx, "SELECT integration.accepted($1, $2, $3)", id, target, version).Scan(&out); err != nil {
+		return nil, err
+	}
+	// A control no longer in place notifies the owners of the scenarios
+	// relying on it (T-13, AC-24); nothing else changes.
+	if pr.TargetType == "control" && version != nil {
+		if _, err := tx.Exec(ctx, "SELECT integration.control_lapsed($1, $2)", target, *version); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 func (a *API) rejectProposal(w http.ResponseWriter, r *http.Request, p authz.Principal) {

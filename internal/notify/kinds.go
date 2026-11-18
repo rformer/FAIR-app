@@ -53,6 +53,8 @@ var Kinds = []Kind{
 	{"report.schedule_suspended", "report", "report.schedule_suspended", true, false, "A report schedule of yours was suspended"},
 	// F-011 T-10b: an integration's run left proposals waiting for review.
 	{"integration.proposals_waiting", "integration", "integration.proposals_waiting", false, false, "Changes proposed by an integration are waiting for your review"},
+	// F-011 T-13: a control a scenario of yours relies on is no longer in place.
+	{"control.lapsed", "integration", "control.lapsed", false, false, "A control a scenario of yours relies on is no longer in place"},
 	{"notify.test", "notify", "test", false, false, "A test message"},
 }
 

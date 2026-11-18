@@ -64,6 +64,7 @@ var itemNoun = map[string]string{
 	"report":           "the report",
 	"report_schedule":  "the report schedule",
 	"integration_run":  "the proposed changes",
+	"scenario":         "the scenario",
 	"test":             "the platform",
 }
 

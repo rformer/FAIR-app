@@ -534,6 +534,20 @@ func (a *API) get(res resource, w http.ResponseWriter, r *http.Request, p authz.
 			return
 		}
 		out["taxonomy"] = model.Taxonomy(doc.Value.(*model.Scenario))
+		// F-011 AC-24: controls it relies on that are no longer in place.
+		var lapsed []integration.Lapse
+		if err := authz.WithDBContext(r.Context(), a.DB, p.DBToken, func(tx pgx.Tx) error {
+			m, err := integration.ControlLapsed(r.Context(), tx, []string{h.ID})
+			lapsed = m[h.ID]
+			return err
+		}); err != nil {
+			fail(w, err)
+			return
+		}
+		if lapsed == nil {
+			lapsed = []integration.Lapse{}
+		}
+		out["control_lapsed"] = lapsed
 	}
 	writeJSON(w, http.StatusOK, out)
 }

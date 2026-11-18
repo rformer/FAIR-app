@@ -611,6 +611,26 @@ func (a *API) getRisk(w http.ResponseWriter, r *http.Request, p authz.Principal)
 		if err != nil {
 			return err
 		}
+		// F-011 AC-24: controls its scenarios rely on that are no longer
+		// in place, on each link and for the risk.
+		sids := make([]string, len(ls))
+		for i, l := range ls {
+			sids[i] = l["scenario_id"].(string)
+		}
+		lapses, err := integration.ControlLapsed(ctx, tx, sids)
+		if err != nil {
+			return err
+		}
+		all := []integration.Lapse{}
+		for _, l := range ls {
+			mine := lapses[l["scenario_id"].(string)]
+			if mine == nil {
+				mine = []integration.Lapse{}
+			}
+			l["control_lapsed"] = mine
+			all = append(all, mine...)
+		}
+		risk["control_lapsed"] = all
 		agg, _ := risk["exposure_aggregate_id"].(*string)
 		exp, err := exposure(ctx, tx, agg, ls)
 		if err != nil {

@@ -279,7 +279,15 @@ paths:
                 type: object
                 required: [risk, version, links, exposure]
                 properties:
-                  risk: { $ref: "#/components/schemas/Risk" }
+                  risk:
+                    allOf:
+                      - { $ref: "#/components/schemas/Risk" }
+                      - type: object
+                        properties:
+                          control_lapsed:
+                            type: array
+                            description: "Controls its scenarios rely on that are no longer in place, by scenario (F-011 AC-24)"
+                            items: { type: object }
                   version:
                     type: object
                     properties:
@@ -298,6 +306,7 @@ paths:
                         scenario_name: { type: [string, "null"] }
                         open: { type: boolean }
                         scenario_version: { type: [integer, "null"], description: The scenario's latest version }
+                        control_lapsed: { type: array, items: { type: object }, description: "Controls this scenario relies on that are no longer in place (F-011 AC-24)" }
                         scenario_archived: { type: boolean }
                         pin:
                           type: [object, "null"]
