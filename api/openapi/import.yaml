@@ -299,7 +299,8 @@ paths:
       summary: Accept up to 200 proposals at once, each with its own checks, all or nothing (AC-11)
       description: >-
         As accepting each in turn in one transaction: the first that is refused refuses them all (its id in
-        X-Fair-Failed-Proposal, its error as accepting it alone would answer).
+        X-Fair-Failed-Proposal, its error as accepting it alone would answer). Asset proposals are accepted before
+        asset groups, so that a group accepted with its members pins them.
       x-permission: each proposal's kind's edit permission at its record's BU
       x-audit-events: [integration.proposal_accepted, library.created, library.version_saved, library.archived, control.version_saved,
         register.risk_created, register.risk_changed]

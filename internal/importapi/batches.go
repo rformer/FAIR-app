@@ -6,6 +6,7 @@ import (
 	"mime"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -147,9 +148,23 @@ func (a *API) pushBatch(w http.ResponseWriter, r *http.Request, p authz.Principa
 			return "", "", false
 		})
 		// Matches by external ID (AC-07).
-		ext := make([]string, len(batch.Records))
-		for i, rec := range batch.Records {
-			ext[i] = rec.ExternalID
+		// The records' external IDs and their groups' members (T-11).
+		ext := make([]string, 0, len(batch.Records))
+		inBatch := map[string]bool{} // assets of this batch
+		members := map[int][]string{}
+		for _, rec := range batch.Records {
+			ext = append(ext, rec.ExternalID)
+			switch rec.Kind {
+			case integration.KindAsset:
+				inBatch[rec.ExternalID] = true
+			case integration.KindAssetGroup:
+				var g integration.AssetGroup
+				if err := json.Unmarshal(rec.Data, &g); err != nil {
+					return err
+				}
+				members[rec.N] = g.Members
+				ext = append(ext, g.Members...)
+			}
 		}
 		type link struct{ kind, target, last, rejected string }
 		links := map[string]link{}
@@ -180,6 +195,14 @@ func (a *API) pushBatch(w http.ResponseWriter, r *http.Request, p authz.Principa
 				return "/kind", "the external ID is linked to a " + l.kind, true
 			case !linked && rec.Kind == integration.KindControlStatus && controlOf(rec) == "":
 				return "/control", "is required the first time an external ID is sent: the platform control it reports on", true
+			}
+			// A group's members are assets of this integration: linked, or
+			// in this batch (design §3.5).
+			for i, m := range members[rec.N] {
+				if ml, ok := links[m]; ok && ml.kind == "asset" || inBatch[m] {
+					continue
+				}
+				return "/members/" + strconv.Itoa(i), "is not an asset of this integration: send it in the same batch or accept it first", true
 			}
 			return "", "", false
 		})

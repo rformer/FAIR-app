@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -216,6 +217,26 @@ func (a *API) acceptProposal(w http.ResponseWriter, r *http.Request, p authz.Pri
 	writeJSON(w, http.StatusOK, out)
 }
 
+type acceptItem struct {
+	ID              string `json:"id"`
+	ExpectedVersion *int   `json:"expected_version"`
+}
+
+func ids(xs []acceptItem) []string {
+	out := make([]string, len(xs))
+	for i, x := range xs {
+		out[i] = x.ID
+	}
+	return out
+}
+
+func b2i(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 // errNoRegister: risk proposals need the register API.
 var errNoRegister = errors.New("importapi: the register API is not configured")
 
@@ -229,11 +250,8 @@ func (a *API) acceptMany(w http.ResponseWriter, r *http.Request, p authz.Princip
 		return
 	}
 	var body struct {
-		Proposals []struct {
-			ID              string `json:"id"`
-			ExpectedVersion *int   `json:"expected_version"`
-		} `json:"proposals"`
-		ChangeNote string `json:"change_note"`
+		Proposals  []acceptItem `json:"proposals"`
+		ChangeNote string       `json:"change_note"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
@@ -257,6 +275,16 @@ func (a *API) acceptMany(w http.ResponseWriter, r *http.Request, p authz.Princip
 	out := []json.RawMessage{}
 	var failed string
 	err := authz.WithDBContext(r.Context(), a.DB, p.DBToken, func(tx pgx.Tx) error {
+		// Assets before groups, so that a group accepted with its members
+		// pins them (T-11); otherwise in the order given.
+		var groups []string
+		if err := tx.QueryRow(r.Context(), `SELECT coalesce(array_agg(x), '{}') FROM unnest($1::uuid[]) x
+			WHERE (integration.proposal_get(x) ->> 'target_type') = 'asset_group'`, ids(body.Proposals)).Scan(&groups); err != nil {
+			return err
+		}
+		slices.SortStableFunc(body.Proposals, func(x, y acceptItem) int {
+			return b2i(slices.Contains(groups, x.ID)) - b2i(slices.Contains(groups, y.ID))
+		})
 		for _, x := range body.Proposals {
 			j, err := a.acceptOne(r.Context(), tx, p, x.ID, x.ExpectedVersion, body.ChangeNote, false)
 			if err != nil {
