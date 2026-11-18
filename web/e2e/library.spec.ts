@@ -21,7 +21,12 @@ test.afterEach(() => {
 
 async function as(page: Page, user: string) {
   await page.goto(`/dev/as/${user}`);
-  await page.getByRole("button", { name: "Acknowledge and continue" }).click();
+  // Wait for the acknowledgement to be recorded: navigating before it is
+  // would show the banner again.
+  await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith("/api/v1/auth/banner/ack") && r.ok()),
+    page.getByRole("button", { name: "Acknowledge and continue" }).click(),
+  ]);
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 }
 

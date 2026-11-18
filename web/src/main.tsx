@@ -4,6 +4,11 @@ import { describe, getMe, send, type Me } from "./api";
 import { AcceptanceInbox, AcceptanceList } from "./acceptance/Acceptances";
 import { AcceptancePage } from "./acceptance/AcceptancePage";
 import { ChannelsPage, DeliveriesPage } from "./notify/Channels";
+import { IntegrationForm, IntegrationPage, IntegrationsPage } from "./integrations/Integrations";
+import { LossEventsPage } from "./integrations/LossEvents";
+import { RegisterImportPage } from "./integrations/RegisterImport";
+import { ProposalPage, ProposalsPage } from "./integrations/Review";
+import { RunPage as IntegrationRunPage } from "./integrations/Runs";
 import { NotificationsLink, NotificationsPage, PreferencesPage } from "./notify/Notifications";
 import { RequestForm as AcceptanceRequestForm } from "./acceptance/RequestForm";
 import { AggregateForm, AggregatePage, AggregatesPage } from "./analysis/Aggregates";
@@ -85,6 +90,8 @@ function App() {
   const path = window.location.pathname;
   const section = path.startsWith("/notifications")
     ? "notifications"
+    : path.startsWith("/integrations")
+    ? "integrations"
     : path.startsWith("/reports")
     ? "reports"
     : path.startsWith("/register")
@@ -162,6 +169,11 @@ function App() {
               </a>
             </li>
             <li>
+              <a href="/integrations" aria-current={current("integrations")}>
+                Integrations
+              </a>
+            </li>
+            <li>
               <a href="/posture" aria-current={current("posture")}>
                 Security posture
               </a>
@@ -180,6 +192,8 @@ function App() {
       <main id="main" tabIndex={-1}>
         {section === "notifications" ? (
           <NotificationRoutes path={path} />
+        ) : section === "integrations" ? (
+          <IntegrationRoutes path={path} />
         ) : section === "reports" ? (
           <ReportRoutes path={path} />
         ) : section === "register" ? (
@@ -222,6 +236,23 @@ function ReportRoutes({ path }: { path: string }) {
   return m?.[1] ? <ReportPage id={m[1]} /> : <p role="alert">Not found.</p>;
 }
 
+// F-011 T-18: /integrations, /integrations/new, /integrations/{id}[/edit],
+// /integrations/{id}/runs/{run}, /integrations/proposals[/{id}] (F-009
+// notices link to ?run=), /integrations/loss-events.
+function IntegrationRoutes({ path }: { path: string }) {
+  if (path === "/integrations" || path === "/integrations/") return <IntegrationsPage />;
+  if (path === "/integrations/new") return <IntegrationForm />;
+  if (path === "/integrations/proposals") return <ProposalsPage />;
+  if (path === "/integrations/loss-events") return <LossEventsPage />;
+  const p = /^\/integrations\/proposals\/([0-9a-f-]{36})$/.exec(path);
+  if (p?.[1]) return <ProposalPage id={p[1]} />;
+  const r = /^\/integrations\/([0-9a-f-]{36})\/runs\/([0-9a-f-]{36})$/.exec(path);
+  if (r?.[1] && r[2]) return <IntegrationRunPage integration={r[1]} id={r[2]} />;
+  const m = /^\/integrations\/([0-9a-f-]{36})(\/edit)?$/.exec(path);
+  if (!m?.[1]) return <p role="alert">Not found.</p>;
+  return m[2] ? <IntegrationForm id={m[1]} /> : <IntegrationPage id={m[1]} />;
+}
+
 // F-009 T-13: /notifications, /notifications/preferences, /notifications/channels,
 // /notifications/deliveries.
 function NotificationRoutes({ path }: { path: string }) {
@@ -237,6 +268,7 @@ function NotificationRoutes({ path }: { path: string }) {
 function RegisterRoutes({ path }: { path: string }) {
   if (path === "/register" || path === "/register/") return <RiskList />;
   if (path === "/register/new") return <RiskEditor />;
+  if (path === "/register/import") return <RegisterImportPage />; // F-011 T-18
   if (path === "/register/rollups") return <RollupsPage />;
   const ru = /^\/register\/rollups\/([0-9a-f-]{36})$/.exec(path);
   if (ru?.[1]) return <RollupPage id={ru[1]} />;

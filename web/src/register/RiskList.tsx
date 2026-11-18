@@ -63,6 +63,7 @@ export function RiskList({ search = window.location.search }: { search?: string 
             New risk
           </a>
         ) : null}
+        {editable.data && editable.data.bus.length > 0 ? <a href="/register/import">Import a register</a> : null}
         <a href="/register/rollups">Roll-ups</a>
       </p>
       <Section id="coverage" title="Coverage" intro="Open risks whose exposure is current, against those stale, unquantified or still computing.">

@@ -1,3 +1,4 @@
+import type { Lapse, ProvenanceT } from "../integrations/Provenance";
 // F-003 T-12: the risk API's shapes (api/openapi/risk.yaml) and the scenario
 // document (internal/risk/model; JSON Schema urn:fair:risk:scenario:1).
 
@@ -98,6 +99,8 @@ export interface Version {
   created_at: string;
   change_note: string;
   document?: ScenarioDoc;
+  /** F-011 AC-25: where the version came from, when an integration's proposal made it. */
+  provenance?: ProvenanceT;
 }
 
 export interface PinItem {
@@ -125,6 +128,8 @@ export interface ScenarioView {
   pins: PinItem[];
   taxonomy: TaxonomyNode[];
   currency: string | null;
+  /** F-011 AC-24: controls used as in place that no longer are. */
+  control_lapsed?: Lapse[];
 }
 
 export interface Change {

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { describe, getJSON } from "../api";
 import { Section, Status, useApi } from "../components";
 import { date, show } from "../links";
+import { ProvenanceText } from "../integrations/Provenance";
 import type { DiffView, Version } from "./types";
 
 // F-003 T-12, T-13 (AC-15, AC-17): a scenario's, library entry's or
@@ -16,7 +17,9 @@ export function History({ base, current }: { base: string; current: number }) {
   return (
     <Section id="history" title="Versions">
       <Status loaded={versions}>
-        {(data) => (
+        {(data) => {
+          const imported = data.versions.some((x) => x.provenance);
+          return (
           <>
             <div className="table-wrap">
               <table className="data">
@@ -26,6 +29,7 @@ export function History({ base, current }: { base: string; current: number }) {
                     <th scope="col">Version</th>
                     <th scope="col">Saved</th>
                     <th scope="col">Change note</th>
+                    {imported ? <th scope="col">Came from</th> : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -34,6 +38,11 @@ export function History({ base, current }: { base: string; current: number }) {
                       <td>{x.version}</td>
                       <td>{date(x.created_at)}</td>
                       <td>{x.change_note}</td>
+                      {imported ? (
+                        <td>
+                          <ProvenanceText p={x.provenance} />
+                        </td>
+                      ) : null}
                     </tr>
                   ))}
                 </tbody>
@@ -85,7 +94,8 @@ export function History({ base, current }: { base: string; current: number }) {
             ) : null}
             {diff.data ? <DiffTable d={diff.data} /> : null}
           </>
-        )}
+          );
+        }}
       </Status>
     </Section>
   );

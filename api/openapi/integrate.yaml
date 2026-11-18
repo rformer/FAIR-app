@@ -222,6 +222,33 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
+  /api/v1/integrations/options:
+    get:
+      operationId: integrationOptions
+      tags: [integrations]
+      summary: What the integration form offers, the business units where the caller manages integrations and the service accounts a connector there may push as
+      x-permission: integration.manage (only the business units where it is held)
+      responses:
+        "200":
+          description: The options
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [bus, service_accounts]
+                properties:
+                  bus:
+                    type: array
+                    items: { type: object, properties: { id: { type: string, format: uuid }, code: { type: string }, name: { type: string } } }
+                  service_accounts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        name: { type: string }
+                        bu_id: { type: string, format: uuid }
+                        bu_name: { type: string }
   /api/v1/integrations/{id}:
     get:
       operationId: getIntegration

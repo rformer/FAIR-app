@@ -15,6 +15,7 @@
 //	PUT    /api/v1/integrations/{id}/credentials/{purpose}  set a credential, write-only
 //	DELETE /api/v1/integrations/{id}/credentials/{purpose}  remove it
 //	GET    /api/v1/integrations/{id}/runs[/{run}]        its runs
+//	GET    /api/v1/integrations/options                  what the form offers (T-18)
 //
 // The database decides who may do what (integration.view or manage at the
 // integration's BU, iam.holds_permission; grants above a restricted BU do
@@ -67,6 +68,7 @@ type route struct {
 
 var routes = []route{
 	{"GET", "/api/v1/integrations", (*API).listIntegrations},
+	{"GET", "/api/v1/integrations/options", (*API).integrationOptions},
 	{"POST", "/api/v1/integrations", (*API).createIntegration},
 	{"GET", "/api/v1/integrations/{id}", (*API).getIntegration},
 	{"PUT", "/api/v1/integrations/{id}", (*API).updateIntegration},

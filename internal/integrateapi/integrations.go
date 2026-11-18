@@ -146,6 +146,18 @@ func (a *API) listIntegrations(w http.ResponseWriter, r *http.Request, p authz.P
 	writeJSON(w, http.StatusOK, map[string]any{"integrations": raw})
 }
 
+// integrationOptions answers what the integration form offers: the
+// business units where the caller manages integrations, and the service
+// accounts a connector there may push as (F-011 T-18).
+func (a *API) integrationOptions(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	raw, err := a.one(r, p, "SELECT integration.options()")
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, raw)
+}
+
 func (a *API) getIntegration(w http.ResponseWriter, r *http.Request, p authz.Principal) {
 	iid, ok := id(w, r, "id")
 	if !ok {

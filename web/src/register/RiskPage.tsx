@@ -11,6 +11,7 @@ import { Badge, ReasonAction, Section, Status, useApi } from "../components";
 import { auditHref, date, show } from "../links";
 import type { BU } from "../risk/types";
 import { AcceptanceSection } from "../acceptance/RiskAcceptance";
+import { LapsedBanner, ProvenanceText, type ProvenanceT } from "../integrations/Provenance";
 import { TreatmentSection } from "./Treatment";
 import { REASON_LABEL, STATUS_LABEL, type LinkView, type RiskView } from "./types";
 
@@ -112,6 +113,7 @@ export function RiskPage({ id }: { id: string }) {
                 </ul>
               </div>
             ) : null}
+            <LapsedBanner lapses={r.control_lapsed} names={Object.fromEntries(v.links.map((l) => [l.scenario_id, l.scenario_name ?? "a scenario"]))} />
             <Summary v={v} />
             <Scenarios v={v} id={id} canAdopt={mayEdit && open} onAdopted={view.reload} />
             <ExposureView v={v} currency={currency} />
@@ -377,6 +379,7 @@ interface VersionRow {
   version: number;
   change_note: string;
   created_at: string;
+  provenance?: ProvenanceT;
 }
 
 interface Change {
@@ -409,6 +412,7 @@ function RiskHistory({ id, current }: { id: string; current: number }) {
                       <th scope="col">Version</th>
                       <th scope="col">Saved</th>
                       <th scope="col">Change note</th>
+                      {data.versions.some((x) => x.provenance) ? <th scope="col">Came from</th> : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -418,6 +422,11 @@ function RiskHistory({ id, current }: { id: string; current: number }) {
                         <td>{x.version}</td>
                         <td>{date(x.created_at)}</td>
                         <td>{x.change_note}</td>
+                        {data.versions.some((y) => y.provenance) ? (
+                          <td>
+                            <ProvenanceText p={x.provenance} />
+                          </td>
+                        ) : null}
                       </tr>
                     ))}
                   </tbody>

@@ -3,6 +3,7 @@
 
 import type { AcceptanceSummary } from "../acceptance/types";
 import type { Tone } from "../components";
+import type { Lapse } from "../integrations/Provenance";
 
 export interface Pin {
   run_id: string;
@@ -35,6 +36,8 @@ export interface ExposureStatus {
 }
 
 export interface RiskHead {
+  /** F-011 AC-24: controls its scenarios rely on that are no longer in place. */
+  control_lapsed?: Lapse[];
   id: string;
   bu_id: string;
   state: "open" | "closed";

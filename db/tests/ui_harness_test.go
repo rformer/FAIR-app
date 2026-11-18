@@ -154,6 +154,8 @@ func TestPostureUIHarness(t *testing.T) {
 		riskMux.Handle(prefix, acch)
 		riskMux.Handle(prefix+"/", acch)
 	}
+	// F-011 T-18: the imports API, mounted beside them as cmd/risk does.
+	mountHarnessImports(riskMux, rp, ae.keys, riskAPI, registerAPI)
 	// F-010 T-17: the reports API and its worker.
 	stopReports := mountHarnessReports(t, e, riskMux, rp, ae.keys, rule)
 	defer stopReports()
@@ -167,6 +169,11 @@ func TestPostureUIHarness(t *testing.T) {
 		seedAcceptances(t, e, ae.keys, riskSrv.URL)
 		seedReports(t, e, ae.keys, riskSrv.URL)
 	}
+	// F-011 T-18: the integrations API (the integrate service), and
+	// integrations with runs, proposals and loss events.
+	integrateUp, stopIntegrate := startHarnessIntegrate(t, e, ae.keys)
+	defer stopIntegrate()
+	seedIntegrations(t, e, ae.keys, riskSrv.URL, integrateUp.String())
 	// F-009 T-13: the notify service, with a test relay.
 	nh := startHarnessNotify(t, e, ae.keys)
 	defer nh.stop()
@@ -178,7 +185,7 @@ func TestPostureUIHarness(t *testing.T) {
 		ContextKey: ctxKey1,
 		JWT:        ae.keys,
 		Origin:     "http://localhost:8099",
-		Upstreams:  map[string]*url.URL{"posture": up, "audit": auditUp, "risk": riskUp, "notify": nh.Upstream},
+		Upstreams:  map[string]*url.URL{"posture": up, "audit": auditUp, "risk": riskUp, "notify": nh.Upstream, "integrate": integrateUp},
 		UI:         ui,
 	}
 

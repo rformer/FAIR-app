@@ -6,6 +6,7 @@ import { auditHref, date } from "../links";
 import { ArchiveAction } from "./Actions";
 import { EstimateFields, fieldId, newEstimate } from "./EstimateFields";
 import { History } from "./History";
+import { DerivationSection } from "../integrations/LossEvents";
 import {
   FACTORS,
   FORMS,
@@ -310,6 +311,10 @@ export function EntryPage({ section, id }: { section: EntrySection; id: string }
                 Last change: {v.version.change_note} ({date(v.version.created_at)})
               </p>
             </Section>
+            {/* F-011 T-18: a reference class may be derived from loss events (AC-18). */}
+            {d.kind === "reference_class" ? (
+              <DerivationSection id={id} buId={h.bu_id} canEdit={mayEdit && !h.inherited && !h.archived_at} />
+            ) : null}
             <History key={h.current_version} base={`${api(section)}/${id}`} current={h.current_version} />
           </>
         );

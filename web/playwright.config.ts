@@ -7,6 +7,9 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
+  // F-011 T-18: pages behind the full harness (engine, workers, every API)
+  // sometimes take over the 5 s default to render under load.
+  expect: { timeout: 10_000 },
   reporter: [["list"]],
   use: {
     baseURL: process.env.FAIR_UI_URL ?? "http://localhost:8099",

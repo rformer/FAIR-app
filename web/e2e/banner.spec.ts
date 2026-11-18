@@ -30,7 +30,12 @@ test("no access before acknowledgment (AC-34), accessibly", async ({ page }) => 
   expect(blocked.status()).toBe(403);
   expect((await blocked.json()).error).toBe("banner_required");
 
-  await page.getByRole("button", { name: "Acknowledge and continue" }).click();
+  // Wait for the acknowledgement to be recorded: navigating before it is
+  // would show the banner again.
+  await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith("/api/v1/auth/banner/ack") && r.ok()),
+    page.getByRole("button", { name: "Acknowledge and continue" }).click(),
+  ]);
   await expect(page.getByRole("heading", { level: 1, name: "Security posture" })).toBeVisible();
   expect((await page.request.get("/api/v1/posture/settings")).status()).toBe(200);
 

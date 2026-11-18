@@ -4,6 +4,7 @@ import { Badge, ReasonAction, Section, Status, useApi, type Tone } from "../comp
 import { auditHref, date } from "../links";
 import { Provenance, ScenarioRequests } from "../estimate/Requests";
 import { ScenarioRuns } from "../analysis/Runs";
+import { LapsedBanner } from "../integrations/Provenance";
 import { ArchiveAction, MoveAction } from "./Actions";
 import { History } from "./History";
 import { at, factorLabel, showEstimate, type BU, type Estimate, type ScenarioView, type TaxonomyNode } from "./types";
@@ -62,6 +63,7 @@ export function ScenarioPage({ id }: { id: string }) {
               {mayEdit ? <ArchiveAction base={`/api/v1/scenarios/${id}`} archived={v.scenario.archived_at !== null} what="scenario" onDone={view.reload} /> : null}
               <a href={auditHref(`scenario:${id}`)}>Audit history of this scenario</a>
             </p>
+            <LapsedBanner lapses={v.control_lapsed} />
             <Summary v={v} />
             <Taxonomy v={v} />
             <Pins v={v} id={id} canEdit={canEdit} onAdopted={view.reload} />
