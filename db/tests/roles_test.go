@@ -83,14 +83,14 @@ func setupWith(t *testing.T, rel func() (*catalog.Catalog, *catalog.BuiltinRoles
 	})
 
 	e.script("db-bootstrap.sh", map[string]string{
-		"PGDATABASE":                  e.db,
-		"FAIR_MIGRATOR_PASSWORD_FILE": e.secrets["app_migrator"],
-		"FAIR_RW_PASSWORD_FILE":       e.secrets["app_rw"],
-		"FAIR_ENGINE_PASSWORD_FILE":   e.secrets["app_engine"],
-		"FAIR_POSTURE_PASSWORD_FILE":  e.secrets["app_posture"],
-		"FAIR_GATEWAY_PASSWORD_FILE":  e.secrets["app_gateway"],
-		"FAIR_AUDIT_PASSWORD_FILE":    e.secrets["app_audit"],
-		"FAIR_NOTIFY_PASSWORD_FILE":   e.secrets["app_notify"],
+		"PGDATABASE":                   e.db,
+		"FAIR_MIGRATOR_PASSWORD_FILE":  e.secrets["app_migrator"],
+		"FAIR_RW_PASSWORD_FILE":        e.secrets["app_rw"],
+		"FAIR_ENGINE_PASSWORD_FILE":    e.secrets["app_engine"],
+		"FAIR_POSTURE_PASSWORD_FILE":   e.secrets["app_posture"],
+		"FAIR_GATEWAY_PASSWORD_FILE":   e.secrets["app_gateway"],
+		"FAIR_AUDIT_PASSWORD_FILE":     e.secrets["app_audit"],
+		"FAIR_NOTIFY_PASSWORD_FILE":    e.secrets["app_notify"],
 		"FAIR_INTEGRATE_PASSWORD_FILE": e.secrets["app_integrate"],
 	})
 	res, err := e.migrate("")
@@ -317,14 +317,14 @@ func TestBootstrapRepairsRoleDrift(t *testing.T) {
 	e := setup(t)
 	e.admin(e.db, "ALTER ROLE app_rw BYPASSRLS")
 	e.script("db-bootstrap.sh", map[string]string{
-		"PGDATABASE":                  e.db,
-		"FAIR_MIGRATOR_PASSWORD_FILE": e.secrets["app_migrator"],
-		"FAIR_RW_PASSWORD_FILE":       e.secrets["app_rw"],
-		"FAIR_ENGINE_PASSWORD_FILE":   e.secrets["app_engine"],
-		"FAIR_POSTURE_PASSWORD_FILE":  e.secrets["app_posture"],
-		"FAIR_GATEWAY_PASSWORD_FILE":  e.secrets["app_gateway"],
-		"FAIR_AUDIT_PASSWORD_FILE":    e.secrets["app_audit"],
-		"FAIR_NOTIFY_PASSWORD_FILE":   e.secrets["app_notify"],
+		"PGDATABASE":                   e.db,
+		"FAIR_MIGRATOR_PASSWORD_FILE":  e.secrets["app_migrator"],
+		"FAIR_RW_PASSWORD_FILE":        e.secrets["app_rw"],
+		"FAIR_ENGINE_PASSWORD_FILE":    e.secrets["app_engine"],
+		"FAIR_POSTURE_PASSWORD_FILE":   e.secrets["app_posture"],
+		"FAIR_GATEWAY_PASSWORD_FILE":   e.secrets["app_gateway"],
+		"FAIR_AUDIT_PASSWORD_FILE":     e.secrets["app_audit"],
+		"FAIR_NOTIFY_PASSWORD_FILE":    e.secrets["app_notify"],
 		"FAIR_INTEGRATE_PASSWORD_FILE": e.secrets["app_integrate"],
 	})
 	out, err := e.as("app_rw", "SELECT rolbypassrls FROM pg_roles WHERE rolname = 'app_rw'")

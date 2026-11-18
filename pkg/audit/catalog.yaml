@@ -685,6 +685,55 @@ events:
     severities: [high]
     attributes: [email_domains, enabled, kind, metadata_source, name]
     description: "An identity provider's settings changed"
+  - type: integration.changed
+    category: configuration
+    severities: [high]
+    requires: [target]
+    bu: required
+    attributes: [auto_accept, changes, integration, name, version]
+    description: "An integration's name, mapping, connector, service account or auto_accept was changed by a holder of integration.manage at its business unit (F-011 T-07, AC-01, AC-26)"
+  - type: integration.created
+    category: configuration
+    severities: [high]
+    requires: [target]
+    bu: required
+    attributes: [auto_accept, delivery, integration, kind, name, service_account]
+    description: "An integration (a source of assets, loss events, risks or control status) was created by a holder of integration.manage at its business unit (F-011 T-07, AC-01, AC-26)"
+  - type: integration.credential_removed
+    category: configuration
+    severities: [high]
+    requires: [target]
+    bu: required
+    attributes: [integration, name, purpose]
+    description: "A connector's sealed credential was removed (F-011 T-07, AC-03, AC-26)"
+  - type: integration.credential_set
+    category: configuration
+    severities: [high]
+    requires: [target]
+    bu: required
+    attributes: [integration, name, purpose]
+    description: "A connector's credential was set or replaced, sealed under integrate/secrets; never returned (F-011 T-07, AC-03, AC-26)"
+  - type: integration.deleted
+    category: configuration
+    severities: [high]
+    requires: [target]
+    bu: required
+    attributes: [integration, name, reason]
+    description: "An integration was deleted with a reason; its credentials are removed, its runs and provenance kept (F-011 T-07, AC-05, AC-26)"
+  - type: integration.paused
+    category: configuration
+    severities: [high]
+    requires: [target]
+    bu: required
+    attributes: [integration, name]
+    description: "An integration was paused: its connector stops and its batches are refused until resumed (F-011 T-07, AC-05, AC-26)"
+  - type: integration.resumed
+    category: configuration
+    severities: [high]
+    requires: [target]
+    bu: required
+    attributes: [integration, name]
+    description: "A paused integration was resumed (F-011 T-07, AC-05, AC-26)"
   - type: library.created
     category: risk_data
     severities: [low]
