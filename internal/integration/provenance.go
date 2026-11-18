@@ -14,10 +14,11 @@ import (
 // external ID, when it was received and who accepted it when.
 type Provenance struct {
 	Version         int             `json:"version"`
-	IntegrationID   string          `json:"integration_id"`
-	IntegrationName string          `json:"integration_name"`
-	RunID           string          `json:"run_id"`
-	ExternalID      string          `json:"external_id"`
+	IntegrationID   *string         `json:"integration_id"`
+	IntegrationName *string         `json:"integration_name"`
+	RunID           *string         `json:"run_id"`
+	DerivationID    *string         `json:"derivation_id,omitempty"` // a derivation's proposal (T-12)
+	ExternalID      *string         `json:"external_id"`
 	ReceivedAt      json.RawMessage `json:"received_at"`
 	AcceptedAt      json.RawMessage `json:"accepted_at"`
 	AcceptedByName  *string         `json:"accepted_by_name"`

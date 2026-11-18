@@ -22,6 +22,7 @@ security:
 tags:
   - { name: imports, description: "Batches and runs (F-011 R-02)" }
   - { name: proposals, description: "Reviewing proposed changes (F-011 R-03)" }
+  - { name: loss-events, description: "Loss events and derived reference classes (F-011 R-05)" }
 components:
   securitySchemes:
     internalJWT: { type: http, scheme: bearer, bearerFormat: JWT }
@@ -42,6 +43,32 @@ components:
       description: An error
       content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
   schemas:
+    LossEvent:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        bu_id: { type: string, format: uuid }
+        integration_id: { type: string, format: uuid }
+        external_id: { type: string }
+        occurred_on: { type: string, format: date }
+        event_type: { type: string }
+        description: { type: string, nullable: true }
+        amounts: { type: object, additionalProperties: { type: string }, description: "By form of loss, canonical decimals in the installation currency" }
+        archived_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    Derivation:
+      type: object
+      properties:
+        reference_class_id: { type: string, format: uuid }
+        bu_id: { type: string, format: uuid }
+        filter: { type: object }
+        data_kind: { type: string, enum: [counts, losses] }
+        set_by_name: { type: string, nullable: true }
+        set_at: { type: string, format: date-time }
+        pending_proposal: { type: string, format: uuid, nullable: true }
+        proposed: { type: boolean }
+        computed: { type: object, description: "The period and data the derivation computes now (GET)" }
     Error:
       type: object
       required: [error]
@@ -341,6 +368,116 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
+  /api/v1/loss-events:
+    get:
+      operationId: listLossEvents
+      tags: [loss-events]
+      summary: The loss events the caller sees (library.view at their BU; restricted units' only inside), newest first (AC-17, AC-19)
+      x-permission: library.view
+      parameters:
+        - { name: bu, in: query, schema: { type: string, format: uuid }, description: "A business unit and its subtree" }
+        - { name: type, in: query, schema: { type: string, maxLength: 100 } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date }, description: "Exclusive" }
+        - { name: archived, in: query, schema: { type: boolean }, description: "Include events a complete run no longer holds" }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0 } }
+      responses:
+        "200":
+          description: The loss events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  loss_events: { type: array, items: { $ref: "#/components/schemas/LossEvent" } }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/loss-events/{id}:
+    get:
+      operationId: getLossEvent
+      tags: [loss-events]
+      summary: A loss event
+      x-permission: library.view
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: The loss event
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LossEvent" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/library/{id}/derivation:
+    get:
+      operationId: getDerivation
+      tags: [loss-events]
+      summary: A reference class's derivation from loss events and the data it computes now (AC-18)
+      x-permission: library.view
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: The derivation
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Derivation" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    put:
+      operationId: putDerivation
+      tags: [loss-events]
+      summary: Set a reference class's derivation; a new version is proposed when the computed data differs (AC-18)
+      description: >-
+        Counts events in a subtree of the class's business unit, of the event types and period, within the class's
+        restricted root only (design 3.5). Proposals of derivations are reviewed and accepted like integrations' proposals.
+      x-permission: library.edit
+      x-audit-events: [integration.derivation_changed]
+      x-reason-exempt: a derivation proposes a version, which its acceptance records with a change note
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }, { $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filter, data_kind]
+              additionalProperties: false
+              properties:
+                data_kind: { type: string, enum: [counts, losses] }
+                filter:
+                  type: object
+                  required: [bu_id, event_types, from, to]
+                  additionalProperties: false
+                  properties:
+                    bu_id: { type: string, format: uuid }
+                    event_types: { type: array, minItems: 1, maxItems: 50, uniqueItems: true, items: { type: string, maxLength: 100 } }
+                    from: { type: string, format: date }
+                    to: { type: string, format: date }
+                    granularity: { type: string, enum: [month, quarter, year], description: "Counts only" }
+                    forms: { type: array, minItems: 1, items: { type: string }, description: "Losses only: the forms of loss summed" }
+      responses:
+        "200":
+          description: The derivation, and whether a version was proposed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Derivation" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteDerivation
+      tags: [loss-events]
+      summary: Remove a reference class's derivation; its pending proposal is superseded, its versions kept
+      x-permission: library.edit
+      x-audit-events: [integration.derivation_changed]
+      x-reason-exempt: removing a derivation changes no record
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }, { $ref: "#/components/parameters/ID" }]
+      responses:
+        "204": { description: Removed }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /api/v1/proposals/{id}/reject:
     post:
       operationId: rejectProposal

@@ -48,6 +48,9 @@ func reviewAllAPI(t *testing.T) *importEnv {
 			mux.Handle(p+"/", h)
 		}
 	}
+	for _, p := range importapi.Patterns {
+		mux.Handle(p, imp.Handler(im.keys, nil))
+	}
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	im.url = srv.URL

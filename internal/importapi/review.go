@@ -323,6 +323,9 @@ func (a *API) acceptOne(ctx context.Context, tx pgx.Tx, p authz.Principal, id st
 	note := strings.TrimSpace(changeNote)
 	if note == "" {
 		note = "Accepted from " + pr.IntegrationName + " (" + pr.ExternalID + ")"
+		if pr.DerivationID != nil {
+			note = "Accepted from its derivation from loss events"
+		}
 		if auto {
 			note = "Accepted automatically from " + pr.IntegrationName + " (" + pr.ExternalID + "): names and descriptions only"
 		}

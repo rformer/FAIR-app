@@ -96,6 +96,7 @@ Requirements: `requirements.md` (Approved 2026-11-17) · ADR-003, ADR-005, ADR-0
   - Computing it gives the reference class's `data`, counts per period or loss amounts sorted, plus `sources: [{type: integration, ref: "derivation:<id>"}]`.
   - When a run changes matching events, or the analyst changes the derivation, the risk service computes the data. It proposes a new reference class version when the data differs.
   - A derivation counts only events whose restricted root equals the class's BU's (`iam.restricted_root`). An unrestricted class never counts restricted units' events, and a class inside a restricted subtree counts only that subtree.
+  - **Derivation proposals (amended 2026-11-18):** a proposal's origin is either an integration and its run (records) or a derivation (`derivation_id`, the reference class), never both. A derivation proposal updates its class, has no external ID, supersedes the class's pending one, and is reviewed and accepted like any other (`library.edit` at the class's BU); its provenance names the derivation. Both an analyst's change of the derivation and a run that changes matching events propose, when the computed data differs from the last computed.
 
 ### 3.6 The register import (AC-20 to AC-22)
 - **The request:** `POST /register/imports?dry_run=` (`register.edit` at the target BU) takes CSV with a column mapping, or `fair.register-import.v1` JSON. It names a source label, which scopes the external IDs.
@@ -133,7 +134,7 @@ Packages 1.10.0 (59 settings). Limits (OQ8) are constants checked in Go and the 
 | `integration.run` | id, integration_id, trigger (`push`, `upload`, `schedule`, `manual`), actor, dry_run, complete, state, counts, refusals (≤ 1,000), started_at, finished_at | Definer only; `integration.runs` |
 | `integration.record` | run_id, n, external_id, data (canonical), digest | Definer only; purged after retention |
 | `integration.link` | integration_id, external_id, target_type, target_id, last_digest, rejected_digest | Definer only; unique (integration_id, external_id) |
-| `integration.proposal` | id, integration_id, run_id, bu_id, target_type, target_id (null for new), action (`create`, `update`, `archive`), base_version, document, digest, descriptive_only, state (`pending`, `accepted`, `rejected`, `superseded`), decided_by, decided_at, reason | Definer only; through `integration.proposals` (the caller's view scope), accept and reject functions |
+| `integration.proposal` | id, integration_id and run_id, or derivation_id (§3.5), bu_id, target_type, target_id (null for new), action (`create`, `update`, `archive`), base_version, document, digest, descriptive_only, state (`pending`, `accepted`, `rejected`, `superseded`), decided_by, decided_at, reason | Definer only; through `integration.proposals` (the caller's view scope), accept and reject functions |
 | `integration.applied` | proposal_id, target_type, target_id, version, accepted_by, accepted_at | Definer only; read by the risk API for provenance |
 | `integration.loss_event` | id, bu_id, integration_id, external_id, occurred_on, event_type, description, amounts, archived_at, seq | BU-owned, RLS type `library` (`shared_down`); inserted and updated only by `integration_definer` (amendments 3, 5) |
 | `integration.derivation` | reference_class_id, bu_id, filter, data_kind, digest, set_by, set_at | Definer only |
@@ -221,3 +222,4 @@ Conventions as before: operationId = handler; mutating routes declare `x-permiss
 - 2026-11-17: Initial draft, In Review; connectors in a new integrate service and the schema `integration` decided by Robert Former.
 - 2026-11-17: Approved by Robert Former, with D-OQ1 (`integration.push`).
 - 2026-11-18: §3.4 amended by Robert Former (T-09): proposals hold the source record's values and digest; the merged document and its diff are computed at review and accept, under the reviewer's RLS, since the pusher may not read the target; unchanged means the link's last applied or rejected digest; update proposals carry no base_version.
+- 2026-11-18: §3.5 and §5 amended by Robert Former (T-12): derivation proposals have the derivation as their origin instead of an integration and run; analysts' derivation changes and runs both propose.

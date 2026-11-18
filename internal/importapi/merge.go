@@ -36,6 +36,7 @@ type review struct {
 	Action          string          `json:"action"`
 	Record          json.RawMessage `json:"record"`
 	State           string          `json:"state"`
+	DerivationID    *string         `json:"derivation_id"`
 }
 
 // errUnmergeable: the record cannot make a document yet (an asset group
@@ -114,6 +115,31 @@ func mergeFor(ctx context.Context, tx pgx.Tx, p authz.Principal, pr review) (mer
 			"rationale": rationale, "sources": []any{map[string]any{"type": "integration", "ref": source}}}
 	}
 	switch pr.TargetType {
+	case "reference_class":
+		// A derivation's proposal (T-12): the computed period and data, the
+		// derivation named among the class's sources.
+		if pr.DerivationID == nil || !m.exists {
+			return m, errUnmergeable{"reference classes change only through their derivation"}
+		}
+		var r struct {
+			Period json.RawMessage `json:"period"`
+			Data   json.RawMessage `json:"data"`
+		}
+		if err := json.Unmarshal(pr.Record, &r); err != nil {
+			return m, err
+		}
+		doc["period"], doc["data"] = r.Period, r.Data
+		ref := "derivation:" + *pr.DerivationID
+		sources := []any{}
+		if old, ok := doc["sources"].([]any); ok {
+			for _, s := range old {
+				if o, ok := s.(map[string]any); ok && o["type"] == "integration" && o["ref"] == ref {
+					continue
+				}
+				sources = append(sources, s)
+			}
+		}
+		doc["sources"] = append(sources, map[string]any{"type": "integration", "ref": ref})
 	case "asset":
 		var r integration.Asset
 		if err := json.Unmarshal(pr.Record, &r); err != nil {

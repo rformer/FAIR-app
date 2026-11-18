@@ -720,6 +720,13 @@ events:
     bu: required
     attributes: [integration, name, reason]
     description: "An integration was deleted with a reason; its credentials are removed, its runs and provenance kept (F-011 T-07, AC-05, AC-26)"
+  - type: integration.derivation_changed
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [change, data_kind, proposed, reference_class]
+    description: "A reference class's derivation from loss events was set or removed by a holder of library.edit at its business unit; a new version is proposed when the computed data differs (F-011 T-12, AC-18)"
   - type: integration.paused
     category: configuration
     severities: [high]

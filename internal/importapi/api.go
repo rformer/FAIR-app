@@ -69,6 +69,11 @@ var routes = []route{
 	{"POST", "/api/v1/proposals/{id}/accept", (*API).acceptProposal},
 	{"POST", "/api/v1/proposals/accept", (*API).acceptMany},
 	{"POST", "/api/v1/proposals/{id}/reject", (*API).rejectProposal},
+	{"GET", "/api/v1/loss-events", (*API).listLossEvents},
+	{"GET", "/api/v1/loss-events/{id}", (*API).getLossEvent},
+	{"GET", "/api/v1/library/{id}/derivation", (*API).getDerivation},
+	{"PUT", "/api/v1/library/{id}/derivation", (*API).putDerivation},
+	{"DELETE", "/api/v1/library/{id}/derivation", (*API).deleteDerivation},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).
@@ -82,7 +87,12 @@ func Routes() []string {
 }
 
 // Prefixes are the path prefixes the API owns (for the service's mux).
-var Prefixes = []string{"/api/v1/imports", "/api/v1/proposals"}
+var Prefixes = []string{"/api/v1/imports", "/api/v1/proposals", "/api/v1/loss-events"}
+
+// Patterns are routes the API serves inside another API's prefix (the
+// risk API's /api/v1/library), mounted as they are: more specific, they
+// take precedence in the service's mux.
+var Patterns = []string{"/api/v1/library/{id}/derivation"}
 
 // Handler returns the API with authentication and idempotency.
 func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {

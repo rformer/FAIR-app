@@ -523,6 +523,9 @@ func run() error {
 			srv.Mux().Handle(prefix, imph)
 			srv.Mux().Handle(prefix+"/", imph)
 		}
+		for _, pattern := range importapi.Patterns {
+			srv.Mux().Handle(pattern, imph)
+		}
 	} else {
 		logger.Warn("the risk API is off: it needs the gateway's JWT keys (FAIR_JWT_KEYS_DIR)")
 	}

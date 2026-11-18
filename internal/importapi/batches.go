@@ -207,6 +207,33 @@ func (a *API) pushBatch(w http.ResponseWriter, r *http.Request, p authz.Principa
 			return "", "", false
 		})
 		counts = Counts{Received: batch.Received(), Valid: len(batch.Records), Refused: batch.Refusals}
+		// Loss events are written, not proposed (T-12): matched against
+		// the events the integration holds by digest.
+		type held struct {
+			digest   string
+			archived bool
+		}
+		events := map[string]held{}
+		if t.Kind == "loss_events" {
+			rows, err := tx.Query(ctx, "SELECT external_id, coalesce(digest, ''), archived FROM integration.loss_event_match($1, $2)", id, ext)
+			if err != nil {
+				return err
+			}
+			for rows.Next() {
+				var e string
+				var h held
+				if err := rows.Scan(&e, &h.digest, &h.archived); err != nil {
+					rows.Close()
+					return err
+				}
+				events[e] = h
+			}
+			rows.Close()
+			if err := rows.Err(); err != nil {
+				return err
+			}
+		}
+		var lossEvents []map[string]any
 		var props []proposal
 		var changedExt []string
 		for _, rec := range batch.Records {
@@ -218,7 +245,33 @@ func (a *API) pushBatch(w http.ResponseWriter, r *http.Request, p authz.Principa
 				bu = t.BU // a control status names no BU: the integration's
 			}
 			p := proposal{ExternalID: rec.ExternalID, TargetType: tt, BU: bu, Document: rec.Data, Digest: rec.Digest}
+			h, isHeld := events[rec.ExternalID]
 			switch {
+			case rec.Kind == integration.KindLossEvent:
+				var e integration.LossEvent
+				if err := json.Unmarshal(rec.Data, &e); err != nil {
+					return err
+				}
+				switch {
+				case !isHeld:
+					m.Match = "new"
+					counts.New++
+				case h.digest == rec.Digest && !h.archived:
+					m.Match = "unchanged"
+					counts.Unchanged++
+				default:
+					m.Match = "changed"
+					counts.Changed++
+				}
+				ev := map[string]any{"external_id": rec.ExternalID, "bu_id": bu, "occurred_on": e.OccurredOn, "event_type": e.EventType,
+					"amounts": e.Amounts, "digest": rec.Digest}
+				if e.Description != "" {
+					ev["description"] = e.Description
+				}
+				if e.Amounts == nil {
+					ev["amounts"] = map[string]any{}
+				}
+				lossEvents = append(lossEvents, ev)
 			case !linked:
 				m.Match = "new"
 				counts.New++
@@ -288,6 +341,18 @@ func (a *API) pushBatch(w http.ResponseWriter, r *http.Request, p authz.Principa
 		}
 		if _, err := tx.Exec(ctx, "SELECT integration.stage($1, $2)", runID, records); err != nil {
 			return err
+		}
+		if t.Kind == "loss_events" {
+			if lossEvents == nil {
+				lossEvents = []map[string]any{}
+			}
+			ej, err := json.Marshal(lossEvents)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, "SELECT integration.put_loss_events($1, $2)", runID, ej); err != nil {
+				return err
+			}
 		}
 		pj, err := json.Marshal(props)
 		if err != nil {
