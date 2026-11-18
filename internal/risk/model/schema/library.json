@@ -82,7 +82,27 @@
             "properties": { "framework": { "$ref": "urn:fair:risk:common:1#/$defs/name" }, "identifier": { "$ref": "urn:fair:risk:common:1#/$defs/name" } }
           }
         },
-        "effects": { "$ref": "urn:fair:risk:common:1#/$defs/effects" }
+        "effects": { "$ref": "urn:fair:risk:common:1#/$defs/effects" },
+        "implementation": {
+          "description": "F-011 design §3.7: whether the control is in place, as last assessed.",
+          "type": "object",
+          "required": ["status", "assessed_on"],
+          "additionalProperties": false,
+          "properties": {
+            "status": { "enum": ["in_place", "partial", "planned", "not_in_place"] },
+            "assessed_on": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+            "source": {
+              "type": "object",
+              "required": ["type", "ref"],
+              "additionalProperties": false,
+              "properties": {
+                "type": { "enum": ["person", "document", "dataset", "integration"] },
+                "ref": { "type": "string", "minLength": 1, "maxLength": 1000 },
+                "note": { "type": "string", "maxLength": 1000 }
+              }
+            }
+          }
+        }
       }
     },
     "reference_class": {

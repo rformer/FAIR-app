@@ -287,13 +287,26 @@ type LossProfile struct {
 // Control is a safeguard with its effects and framework references (AC-12,
 // AC-14).
 type Control struct {
-	Kind          string      `json:"kind"`
-	SchemaVersion int         `json:"schema_version"`
-	Name          string      `json:"name"`
-	Description   string      `json:"description,omitempty"`
-	References    []Reference `json:"references,omitempty"`
-	Effects       []Effect    `json:"effects"`
+	Kind           string          `json:"kind"`
+	SchemaVersion  int             `json:"schema_version"`
+	Name           string          `json:"name"`
+	Description    string          `json:"description,omitempty"`
+	References     []Reference     `json:"references,omitempty"`
+	Effects        []Effect        `json:"effects"`
+	Implementation *Implementation `json:"implementation,omitempty"`
 }
+
+// Implementation is whether a control is in place, as last assessed (F-011
+// T-05, design §3.7): its status, the date of the assessment and, where it
+// came from a person, document, dataset or integration, its source.
+type Implementation struct {
+	Status     string  `json:"status"`
+	AssessedOn string  `json:"assessed_on"`
+	Source     *Source `json:"source,omitempty"`
+}
+
+// ImplementationStatuses are a control's implementation statuses.
+var ImplementationStatuses = []string{"in_place", "partial", "planned", "not_in_place"}
 
 // ReferenceClass is the customer's own data to inform estimates: counts of
 // events over periods, or observed losses (F-004 AC-13; design §3.8).

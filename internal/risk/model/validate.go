@@ -834,6 +834,27 @@ func (v *validator) control(c *Control) {
 		refs[r] = true
 	}
 	v.effects("/effects", c.Effects)
+	if c.Implementation != nil {
+		v.implementation("/implementation", c.Implementation)
+	}
+}
+
+// implementation checks a control's implementation status (F-011 design
+// §3.7). Its source, when given, is not an elicitation.
+func (v *validator) implementation(ptr string, im *Implementation) {
+	if !oneOf(im.Status, ImplementationStatuses) {
+		v.add(ptr+"/status", "is %q, want one of %s", im.Status, strings.Join(ImplementationStatuses, ", "))
+	}
+	if _, err := time.Parse(time.DateOnly, im.AssessedOn); err != nil {
+		v.add(ptr+"/assessed_on", "must be a date (YYYY-MM-DD)")
+	}
+	if s := im.Source; s != nil {
+		if !oneOf(s.Type, SourceTypes) || s.Type == SourceElicitation {
+			v.add(ptr+"/source/type", "is %q, want one of person, document, dataset, integration", s.Type)
+		}
+		v.text(ptr+"/source/ref", s.Ref, MaxLine, true, false)
+		v.text(ptr+"/source/note", s.Note, MaxLine, false, false)
+	}
 }
 
 // ValidateEstimate checks one estimate, for a factor estimated in unit, as

@@ -256,6 +256,8 @@ func Corpus() []Case {
 		{"equal range", "asset", "/value", est("5", "5", "5", "currency")},
 		{"value basis instead of a value", "asset", "/value", nil},
 		{"group valued by members", "asset_group", "/value", nil},
+		{"implementation status (F-011)", "control", "/implementation", map[string]any{"status": "not_in_place", "assessed_on": "2026-11-01", "source": map[string]any{"type": "integration", "ref": "GRC tool", "note": "Quarterly control test"}}},
+		{"implementation without a source", "control", "/implementation", map[string]any{"status": "in_place", "assessed_on": "2026-11-01"}},
 		{"all six forms", "loss_profile", "/magnitudes", map[string]any{
 			"productivity": est("0", "1", "2", "currency"), "response": est("0", "1", "2", "currency"),
 			"replacement": est("0", "1", "2", "currency"), "fines_judgments": est("0", "1", "2", "currency"),
@@ -384,6 +386,13 @@ func Corpus() []Case {
 				map[string]any{"framework": "ISO 27001", "identifier": "A.8.7"}}, "/references/1", false},
 			{"reference without identifier", "/references/0/identifier", "", "", false},
 		},
+		"control_implementation": {
+			{"unknown status", "/implementation/status", "retired", "", false},
+			{"assessed on no date", "/implementation/assessed_on", "last week", "", false},
+			{"an elicitation source", "/implementation/source/type", "elicitation", "", false},
+			{"a source without a ref", "/implementation/source/ref", "", "", false},
+			{"an unknown field", "/implementation/owner", "SecOps", "", true},
+		},
 	}
 	for _, k := range []string{"scenario", "asset", "asset_group", "threat_community", "loss_profile", "control", "reference_class"} {
 		for _, m := range invalid[k] {
@@ -398,6 +407,17 @@ func Corpus() []Case {
 			}
 			out = append(out, Case{Name: k + ": " + m.name, Kind: k, Doc: mustJSON(d), Pointer: p, Structural: m.structural})
 		}
+	}
+	// A control's implementation status (F-011 T-05): mutations of a control
+	// that has one.
+	for _, m := range invalid["control_implementation"] {
+		d := Set(Set(Control(), "/implementation", map[string]any{"status": "in_place", "assessed_on": "2026-11-01",
+			"source": map[string]any{"type": "integration", "ref": "GRC tool"}}), m.pointer, m.value)
+		p := m.problem
+		if p == "" {
+			p = m.pointer
+		}
+		out = append(out, Case{Name: "control: " + m.name, Kind: "control", Doc: mustJSON(d), Pointer: p, Structural: m.structural})
 	}
 	// Accepted estimates (F-004 design §3.5): mutations of a scenario whose
 	// contact frequency carries elicitation provenance.
