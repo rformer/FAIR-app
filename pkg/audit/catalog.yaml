@@ -1047,6 +1047,13 @@ events:
     requires: [target]
     attributes: [category, change, name]
     description: "A register category was added, renamed, archived or restored by register.edit at the root (F-007 T-04, OQ3); filed under the root BU"
+  - type: register.imported
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [created, integration, label, proposed, rows, run, unchanged]
+    description: "A register file was imported by a holder of register.edit at the business unit, all or nothing: new external IDs created unquantified risks, known ones became proposals (F-011 T-14, AC-20 to AC-22)"
   - type: register.pin_set
     category: risk_data
     severities: [low]

@@ -1,6 +1,7 @@
 package importapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"mime"
@@ -83,14 +84,53 @@ func (a *API) pushBatch(w http.ResponseWriter, r *http.Request, p authz.Principa
 	if !ok {
 		return
 	}
+	var res batchOut
+	err := authz.WithDBContext(r.Context(), a.DB, p.DBToken, func(tx pgx.Tx) error {
+		var err error
+		res, err = a.runBatch(r.Context(), tx, p, id, ct, body, dry, trigger, nil)
+		return err
+	})
+	run, counts, batch, preview := res.run, res.counts, res.batch, res.preview
+	var eb errBatch
+	if errors.As(err, &eb) {
+		problem(w, http.StatusUnprocessableEntity, "invalid_batch", eb.msg, nil)
+		return
+	}
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	out := map[string]any{"dry_run": dry, "counts": counts, "refused": nonNil(batch.Refused)}
+	if dry {
+		out["matches"] = nonNilMatches(preview)
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+	out["run"] = run
+	writeJSON(w, http.StatusCreated, out)
+}
+
+// batchOut is a batch's result.
+type batchOut struct {
+	run     json.RawMessage
+	counts  Counts
+	batch   *integration.Batch
+	preview []match
+}
+
+// runBatch receives a batch for integration id in tx as p: parsed,
+// matched, staged and proposed (a dry run only matches). hook, when given,
+// runs before the run finishes (the register import accepts its creates
+// there, T-14).
+func (a *API) runBatch(ctx context.Context, tx pgx.Tx, p authz.Principal, id, ct string, body []byte, dry bool, trigger string,
+	hook func(runID string, counts *Counts) error) (batchOut, error) {
 	var (
 		run     json.RawMessage
 		counts  Counts
 		batch   *integration.Batch
 		preview []match
 	)
-	err := authz.WithDBContext(r.Context(), a.DB, p.DBToken, func(tx pgx.Tx) error {
-		ctx := r.Context()
+	err := func() error {
 		var raw []byte
 		if err := tx.QueryRow(ctx, "SELECT integration.batch_target($1)", id).Scan(&raw); err != nil {
 			return err
@@ -402,6 +442,11 @@ func (a *API) pushBatch(w http.ResponseWriter, r *http.Request, p authz.Principa
 				counts.Applied++
 			}
 		}
+		if hook != nil {
+			if err := hook(runID, &counts); err != nil {
+				return err
+			}
+		}
 		// Proposals left waiting: one notice for the run (F-009).
 		if _, err := tx.Exec(ctx, "SELECT integration.notify_waiting($1)", runID); err != nil {
 			return err
@@ -409,24 +454,8 @@ func (a *API) pushBatch(w http.ResponseWriter, r *http.Request, p authz.Principa
 		cj, _ := json.Marshal(counts)
 		refused, _ := json.Marshal(nonNil(batch.Refused))
 		return tx.QueryRow(ctx, "SELECT integration.finish_run($1, $2, $3)", runID, cj, refused).Scan(&run)
-	})
-	var eb errBatch
-	if errors.As(err, &eb) {
-		problem(w, http.StatusUnprocessableEntity, "invalid_batch", eb.msg, nil)
-		return
-	}
-	if err != nil {
-		fail(w, err)
-		return
-	}
-	out := map[string]any{"dry_run": dry, "counts": counts, "refused": nonNil(batch.Refused)}
-	if dry {
-		out["matches"] = nonNilMatches(preview)
-		writeJSON(w, http.StatusOK, out)
-		return
-	}
-	out["run"] = run
-	writeJSON(w, http.StatusCreated, out)
+	}()
+	return batchOut{run, counts, batch, preview}, err
 }
 
 func nullable(s string) any {

@@ -74,6 +74,7 @@ var routes = []route{
 	{"GET", "/api/v1/library/{id}/derivation", (*API).getDerivation},
 	{"PUT", "/api/v1/library/{id}/derivation", (*API).putDerivation},
 	{"DELETE", "/api/v1/library/{id}/derivation", (*API).deleteDerivation},
+	{"POST", "/api/v1/register/imports", (*API).registerImport},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).
@@ -92,7 +93,7 @@ var Prefixes = []string{"/api/v1/imports", "/api/v1/proposals", "/api/v1/loss-ev
 // Patterns are routes the API serves inside another API's prefix (the
 // risk API's /api/v1/library), mounted as they are: more specific, they
 // take precedence in the service's mux.
-var Patterns = []string{"/api/v1/library/{id}/derivation"}
+var Patterns = []string{"/api/v1/library/{id}/derivation", "/api/v1/register/imports"}
 
 // Handler returns the API with authentication and idempotency.
 func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {

@@ -368,6 +368,61 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
+  /api/v1/register/imports:
+    post:
+      operationId: registerImport
+      tags: [imports]
+      summary: Import a register file into a business unit, all or nothing, after a dry run (AC-20 to AC-22)
+      description: >-
+        CSV with a mapping of every column (external_id, title, description, owner, category, text, rating), or
+        fair.register-import.v1 records. Owners are matched by email among the users who may own a risk at the BU,
+        categories by name. Ratings and scores are never imported: a rating column is refused, a text column is kept in
+        the description. New external IDs create unquantified risks; those the source label already linked become
+        proposals. The import runs only with the fingerprint its dry run returned.
+      x-permission: register.edit at the BU
+      x-audit-events: [register.imported, integration.created, integration.run, integration.proposal_accepted, register.risk_created]
+      x-reason-exempt: an import records its source label, run and provenance
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { name: dry_run, in: query, schema: { type: boolean } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bu_id, label]
+              additionalProperties: false
+              properties:
+                bu_id: { type: string, format: uuid }
+                label: { type: string, minLength: 1, maxLength: 100, description: "The source label; it scopes the external IDs" }
+                format: { type: string, enum: [fair.register-import.v1] }
+                records:
+                  type: array
+                  items:
+                    type: object
+                    required: [external_id, title]
+                    additionalProperties: false
+                    properties:
+                      external_id: { type: string }
+                      title: { type: string }
+                      description: { type: string }
+                      owner: { type: string, format: email }
+                      category: { type: string }
+                      text: { type: object, additionalProperties: { type: string }, description: "Kept in the description" }
+                csv: { type: string }
+                columns:
+                  type: object
+                  additionalProperties: { type: string, enum: [external_id, title, description, owner, category, text, rating] }
+                fingerprint: { type: string, description: "The dry run's; required to import" }
+      responses:
+        "200": { description: The dry run, content: { application/json: { schema: { type: object } } } }
+        "201": { description: Imported, content: { application/json: { schema: { type: object } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
   /api/v1/loss-events:
     get:
       operationId: listLossEvents
