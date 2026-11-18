@@ -138,3 +138,4 @@ Checked mechanically when this draft was generated:
 - 2026-11-16: Catalog version 5 (F-010 T-01, approved task; OQ4 amended by Robert Former): the built-in Report Publisher role (`report.view`, `report.export`), granted beside other roles to those who produce report files; Auditor gains `report.export`. Executive Viewer and Risk Analyst stay unprivileged. Needs re-signing.
 - 2026-11-16: Catalog version 5 re-signed by Robert Former.
 - 2026-11-17: Catalog version 6 (F-011 T-01, approved task; F-011 OQ5, D-OQ1): `integration.view` (read; Platform Admin and Auditor gain it) and `integration.push` (write, risk data, not privileged; no built-in role, granted as a service-account scope). Needs re-signing.
+- 2026-11-17: Catalog version 6 re-signed by Robert Former.

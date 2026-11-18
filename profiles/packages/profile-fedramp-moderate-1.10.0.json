@@ -4,7 +4,7 @@
     "id": "fedramp-moderate",
     "title": "FedRAMP Moderate",
     "family": "fedramp",
-    "version": "1.9.0",
+    "version": "1.10.0",
     "base": "third_party/oscal/fedramp/rev5/FedRAMP_rev5_MODERATE-baseline_profile.json",
     "sources": [
       {
@@ -165,6 +165,14 @@
       {
         "path": "bindings/fips.enabled.yaml",
         "sha256": "8dc620784e3f75de717416d4b4db83365346c47a69bd777bf654d86373bf1ac2"
+      },
+      {
+        "path": "bindings/integration.allowed_hosts.yaml",
+        "sha256": "5035c70977c23119c11f6890cfd36016ed59b8727b3060d486b36928f812b016"
+      },
+      {
+        "path": "bindings/integration.records_retention_days.yaml",
+        "sha256": "9b1597cff156bea83a3ad34264f05f7723f665acb2748ff0f64d57383236abf8"
       },
       {
         "path": "bindings/notification.allowed_hosts.yaml",
@@ -639,6 +647,28 @@
       "origin": {
         "source_param": "sc-13_odp.02",
         "source_constraint": "FIPS-validated or NSA-approved cryptography"
+      }
+    },
+    "integration.allowed_hosts": {
+      "type": "set",
+      "direction": "subset_is_stricter",
+      "bu_scopable": false,
+      "default": [],
+      "bound": [
+        "*"
+      ],
+      "origin": {
+        "platform_choice": "None until the customer approves one (F-011 AC-04); every host added needs dual approval"
+      }
+    },
+    "integration.records_retention_days": {
+      "type": "int",
+      "direction": "lower_is_stricter",
+      "bu_scopable": false,
+      "default": 30,
+      "bound": 365,
+      "origin": {
+        "platform_choice": "Received records are kept 30 days, at most a year; runs, proposals and provenance remain (F-011 design §3.2)"
       }
     },
     "notification.allowed_hosts": {

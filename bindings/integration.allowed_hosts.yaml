@@ -1,0 +1,19 @@
+# F-011 T-02: binding for integration.allowed_hosts: AC-4, SC-7; hosts connectors may fetch from (F-011 design §4).
+setting: integration.allowed_hosts
+type: set
+direction: subset_is_stricter
+bu_scopable: false
+loosening_needs_approval: true
+profiles:
+  fedramp-moderate:
+    default: []
+    bound: { max: ["*"] }
+    platform_choice: "None until the customer approves one (F-011 AC-04); every host added needs dual approval"
+  cmmc-l2-r2:
+    default: []
+    bound: { max: ["*"] }
+    platform_choice: "None until the customer approves one; every host added needs dual approval"
+  enterprise-baseline:
+    default: []
+    bound: { max: ["*"] }
+    platform_choice: "None until the customer approves one; every host added needs dual approval"

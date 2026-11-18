@@ -1,15 +1,20 @@
 {
   "format": "fair-profile-package/v1",
   "profile": {
-    "id": "cmmc-l2-r2",
-    "title": "CMMC Level 2 (NIST SP 800-171 Rev 2)",
-    "family": "cmmc",
-    "version": "1.9.0",
-    "base": "profiles/cmmc-l2-r2/profile.json",
+    "id": "enterprise-baseline",
+    "title": "Enterprise Baseline",
+    "family": "enterprise",
+    "version": "1.10.0",
+    "base": "profiles/enterprise-baseline/profile.json",
     "sources": [
       {
-        "path": "profiles/cmmc-l2-r2/profile.json",
-        "sha256": "d0e3a074e0f30bdd1605dbc9616f05bf34c2e73bc28f1af0caf070172eb45483"
+        "path": "profiles/enterprise-baseline/profile.json",
+        "sha256": "92923ea88bbe67b987df7eb4c095a62f29cde448b0a5ffad3b18b7b498158e9e"
+      },
+      {
+        "path": "third_party/oscal/nist/sp800-53r5/NIST_SP-800-53_rev5_MODERATE-baseline_profile.json",
+        "url": "https://raw.githubusercontent.com/usnistgov/oscal-content/v1.6.0/nist.gov/SP800-53/rev5/json/NIST_SP-800-53_rev5_MODERATE-baseline_profile.json",
+        "sha256": "e3a0f11237cfaac24dfcf1586e07683f17423757fd84208deb33196b12e8f590"
       },
       {
         "path": "third_party/oscal/nist/sp800-53r5/NIST_SP-800-53_rev5_catalog.json",
@@ -161,6 +166,14 @@
         "sha256": "8dc620784e3f75de717416d4b4db83365346c47a69bd777bf654d86373bf1ac2"
       },
       {
+        "path": "bindings/integration.allowed_hosts.yaml",
+        "sha256": "5035c70977c23119c11f6890cfd36016ed59b8727b3060d486b36928f812b016"
+      },
+      {
+        "path": "bindings/integration.records_retention_days.yaml",
+        "sha256": "9b1597cff156bea83a3ad34264f05f7723f665acb2748ff0f64d57383236abf8"
+      },
+      {
         "path": "bindings/notification.allowed_hosts.yaml",
         "sha256": "b0b60e506ac670bbfeb4daa3090cb7a8d4dc1fef4a60173ee9d81a98fe8e9979"
       },
@@ -255,7 +268,7 @@
       "default": 365,
       "bound": 730,
       "origin": {
-        "platform_choice": "Not a security parameter of 800-171; matches FedRAMP Moderate"
+        "platform_choice": "Matches FedRAMP Moderate"
       }
     },
     "acceptance.tier1_approvals": {
@@ -265,7 +278,7 @@
       "default": 1,
       "bound": 1,
       "origin": {
-        "platform_choice": "Not a security parameter of 800-171; matches FedRAMP Moderate"
+        "platform_choice": "Matches FedRAMP Moderate"
       }
     },
     "acceptance.tier1_levels_up": {
@@ -275,7 +288,7 @@
       "default": 0,
       "bound": 0,
       "origin": {
-        "platform_choice": "Not a security parameter of 800-171; matches FedRAMP Moderate"
+        "platform_choice": "Matches FedRAMP Moderate"
       }
     },
     "acceptance.tier1_max": {
@@ -285,7 +298,7 @@
       "default": 100000,
       "bound": 10000000,
       "origin": {
-        "platform_choice": "Not a security parameter of 800-171; matches FedRAMP Moderate"
+        "platform_choice": "Matches FedRAMP Moderate"
       }
     },
     "acceptance.tier2_approvals": {
@@ -295,7 +308,7 @@
       "default": 1,
       "bound": 1,
       "origin": {
-        "platform_choice": "Not a security parameter of 800-171; matches FedRAMP Moderate"
+        "platform_choice": "Matches FedRAMP Moderate"
       }
     },
     "acceptance.tier2_levels_up": {
@@ -305,7 +318,7 @@
       "default": 1,
       "bound": 0,
       "origin": {
-        "platform_choice": "Not a security parameter of 800-171; matches FedRAMP Moderate"
+        "platform_choice": "Matches FedRAMP Moderate"
       }
     },
     "acceptance.tier2_max": {
@@ -315,7 +328,7 @@
       "default": 1000000,
       "bound": 100000000,
       "origin": {
-        "platform_choice": "Not a security parameter of 800-171; matches FedRAMP Moderate"
+        "platform_choice": "Matches FedRAMP Moderate"
       }
     },
     "acceptance.tier3_approvals": {
@@ -325,7 +338,7 @@
       "default": 2,
       "bound": 1,
       "origin": {
-        "platform_choice": "Not a security parameter of 800-171; matches FedRAMP Moderate"
+        "platform_choice": "Matches FedRAMP Moderate"
       }
     },
     "audit.enabled": {
@@ -335,7 +348,7 @@
       "default": true,
       "bound": true,
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.3.1 (AU-2, AU-12); hard floor"
+        "platform_choice": "Hard floor: audit is never off"
       }
     },
     "audit.forward_backlog_age": {
@@ -343,9 +356,9 @@
       "direction": "lower_is_stricter",
       "bu_scopable": false,
       "default": "15m0s",
-      "bound": "15m0s",
+      "bound": "1h0m0s",
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.3.4 (AU-5); matches FedRAMP Moderate"
+        "platform_choice": "Enterprise Baseline relaxation: up to one hour"
       }
     },
     "audit.forward_backlog_records": {
@@ -353,9 +366,9 @@
       "direction": "lower_is_stricter",
       "bu_scopable": false,
       "default": 10000,
-      "bound": 10000,
+      "bound": 100000,
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.3.4 (AU-5); matches FedRAMP Moderate"
+        "platform_choice": "Enterprise Baseline relaxation: up to 100,000 records"
       }
     },
     "audit.max_clock_skew": {
@@ -363,9 +376,9 @@
       "direction": "lower_is_stricter",
       "bu_scopable": false,
       "default": "5m0s",
-      "bound": "5m0s",
+      "bound": "15m0s",
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.3.7 (AU-8); matches FedRAMP Moderate"
+        "platform_choice": "Enterprise Baseline relaxation: up to 15 minutes"
       }
     },
     "audit.otlp_destination": {
@@ -383,12 +396,12 @@
       "direction": "higher_is_stricter",
       "bu_scopable": false,
       "default": "8760h0m0s",
-      "bound": "8760h0m0s",
+      "bound": "2160h0m0s",
       "params": [
         "au-11_odp"
       ],
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.3.1 (AU-11) leaves the period open; matches FedRAMP Moderate (OMB M-21-31: 12 months in active storage)"
+        "platform_choice": "Enterprise Baseline relaxation: down to the 90-day hard floor"
       }
     },
     "audit.retention_total": {
@@ -396,12 +409,12 @@
       "direction": "higher_is_stricter",
       "bu_scopable": false,
       "default": "61368h0m0s",
-      "bound": "21912h0m0s",
+      "bound": "8760h0m0s",
       "params": [
         "au-11_odp"
       ],
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.3.1 (AU-11) leaves the period open; matches FedRAMP Moderate"
+        "platform_choice": "Enterprise Baseline relaxation: at least one year in all"
       }
     },
     "audit.syslog_destination": {
@@ -419,12 +432,12 @@
       "direction": "lower_is_stricter",
       "bu_scopable": false,
       "default": "2160h0m0s",
-      "bound": "2160h0m0s",
+      "bound": "4320h0m0s",
       "params": [
         "ac-02.03_odp.02"
       ],
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.5.6 (IA-4, via Appendix D) leaves the period open; matches FedRAMP Moderate"
+        "platform_choice": "Enterprise Baseline relaxation: inactive accounts disabled after up to 180 days"
       }
     },
     "auth.jit_provisioning": {
@@ -432,22 +445,22 @@
       "direction": "false_is_stricter",
       "bu_scopable": false,
       "default": false,
-      "bound": false,
+      "bound": true,
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.1.1 (AC-2); F-001 AC-09: JIT off by default"
+        "platform_choice": "Enterprise Baseline relaxation: JIT may be enabled by an admin (F-001 AC-09)"
       }
     },
     "auth.lockout_threshold": {
       "type": "int",
       "direction": "lower_is_stricter",
       "bu_scopable": false,
-      "default": 3,
-      "bound": 3,
+      "default": 5,
+      "bound": 10,
       "params": [
         "ac-07_odp.01"
       ],
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.1.8 (AC-7); F-001 AC-47 default"
+        "platform_choice": "Enterprise Baseline relaxation: 5 attempts by default, up to 10"
       }
     },
     "auth.lockout_window": {
@@ -460,7 +473,7 @@
         "ac-07_odp.02"
       ],
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.1.8 (AC-7); F-001 AC-47 default"
+        "platform_choice": "F-001 AC-47 default; not relaxed"
       }
     },
     "auth.mfa_required_all": {
@@ -470,7 +483,7 @@
       "default": true,
       "bound": true,
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.5.3 (IA-2(2))"
+        "platform_choice": "F-001 secure default: MFA for all users"
       }
     },
     "auth.mfa_required_privileged": {
@@ -480,7 +493,7 @@
       "default": true,
       "bound": true,
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.5.3 (IA-2(1))"
+        "platform_choice": "Hard floor: privileged MFA is never optional"
       }
     },
     "auth.totp_enabled": {
@@ -488,12 +501,12 @@
       "direction": "false_is_stricter",
       "bu_scopable": false,
       "default": false,
-      "bound": false,
+      "bound": true,
       "params": [
         "ia-02.08_odp"
       ],
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.5.4 (IA-2(8)); F-001 AC-06"
+        "platform_choice": "Enterprise Baseline relaxation: a Platform Admin may enable TOTP for non-privileged users (F-001 AC-06)"
       }
     },
     "banner.enabled": {
@@ -506,7 +519,7 @@
         "ac-08_odp.01"
       ],
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.1.9 (AC-8)"
+        "platform_choice": "F-001 AC-34: banner on by default"
       }
     },
     "breakglass.enabled": {
@@ -524,9 +537,9 @@
       "direction": "true_is_stricter",
       "bu_scopable": false,
       "default": true,
-      "bound": true,
+      "bound": false,
       "origin": {
-        "platform_choice": "F-001 AC-61: new BUs restricted by default"
+        "platform_choice": "F-001 AC-61: a Platform Admin may change the default"
       }
     },
     "bu.reauth_max_age": {
@@ -534,9 +547,9 @@
       "direction": "lower_is_stricter",
       "bu_scopable": true,
       "default": "12h0m0s",
-      "bound": "12h0m0s",
+      "bound": "24h0m0s",
       "origin": {
-        "platform_choice": "No 800-171 Rev 2 requirement; matches FedRAMP Moderate and the session absolute timeout"
+        "platform_choice": "Enterprise Baseline: the session absolute timeout and its 24-hour relaxation"
       }
     },
     "calibration.exercise_size": {
@@ -546,7 +559,7 @@
       "default": 20,
       "bound": 10,
       "origin": {
-        "platform_choice": "Not a security parameter of 800-171; matches FedRAMP Moderate"
+        "platform_choice": "Matches FedRAMP Moderate"
       }
     },
     "calibration.min_answers": {
@@ -556,7 +569,7 @@
       "default": 20,
       "bound": 10,
       "origin": {
-        "platform_choice": "Not a security parameter of 800-171; matches FedRAMP Moderate"
+        "platform_choice": "Matches FedRAMP Moderate"
       }
     },
     "calibration.retention": {
@@ -566,7 +579,7 @@
       "default": "26280h0m0s",
       "bound": "61368h0m0s",
       "origin": {
-        "platform_choice": "Not a security parameter of 800-171; matches FedRAMP Moderate"
+        "platform_choice": "Matches FedRAMP Moderate"
       }
     },
     "calibration.reuse_period": {
@@ -576,7 +589,7 @@
       "default": "4320h0m0s",
       "bound": "720h0m0s",
       "origin": {
-        "platform_choice": "Not a security parameter of 800-171; matches FedRAMP Moderate"
+        "platform_choice": "Matches FedRAMP Moderate"
       }
     },
     "calibration.window": {
@@ -586,7 +599,7 @@
       "default": "8760h0m0s",
       "bound": "720h0m0s",
       "origin": {
-        "platform_choice": "Not a security parameter of 800-171; matches FedRAMP Moderate"
+        "platform_choice": "Matches FedRAMP Moderate"
       }
     },
     "estimate.reminder_lead": {
@@ -596,7 +609,7 @@
       "default": "48h0m0s",
       "bound": "1h0m0s",
       "origin": {
-        "platform_choice": "Not a security parameter of 800-171; matches FedRAMP Moderate"
+        "platform_choice": "Matches FedRAMP Moderate"
       }
     },
     "exception.max_duration": {
@@ -606,7 +619,7 @@
       "default": "2160h0m0s",
       "bound": "2160h0m0s",
       "origin": {
-        "platform_choice": "F-015 secure default"
+        "platform_choice": "F-015 secure default; not relaxed"
       }
     },
     "export.reason_required": {
@@ -624,12 +637,34 @@
       "direction": "true_is_stricter",
       "bu_scopable": false,
       "default": true,
-      "bound": true,
+      "bound": false,
       "params": [
         "sc-13_odp.02"
       ],
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.13.11 (SC-13): FIPS-validated cryptography"
+        "platform_choice": "Enterprise Baseline relaxation: FIPS may be disabled outside FedRAMP and CMMC (the hard floor applies only to those families)"
+      }
+    },
+    "integration.allowed_hosts": {
+      "type": "set",
+      "direction": "subset_is_stricter",
+      "bu_scopable": false,
+      "default": [],
+      "bound": [
+        "*"
+      ],
+      "origin": {
+        "platform_choice": "None until the customer approves one; every host added needs dual approval"
+      }
+    },
+    "integration.records_retention_days": {
+      "type": "int",
+      "direction": "lower_is_stricter",
+      "bu_scopable": false,
+      "default": 30,
+      "bound": 365,
+      "origin": {
+        "platform_choice": "Matches FedRAMP Moderate"
       }
     },
     "notification.allowed_hosts": {
@@ -685,7 +720,7 @@
       "default": 365,
       "bound": 730,
       "origin": {
-        "platform_choice": "Not a security parameter of 800-171; matches FedRAMP Moderate"
+        "platform_choice": "Matches FedRAMP Moderate"
       }
     },
     "register.iterations": {
@@ -695,7 +730,7 @@
       "default": 100000,
       "bound": 10000,
       "origin": {
-        "platform_choice": "Not a security parameter of 800-171; matches FedRAMP Moderate"
+        "platform_choice": "Matches FedRAMP Moderate"
       }
     },
     "report.marking": {
@@ -705,7 +740,7 @@
       "default": "Confidential",
       "bound": "Confidential",
       "origin": {
-        "platform_choice": "Matches FedRAMP Moderate; set the organization's CUI marking where reports hold CUI"
+        "platform_choice": "Matches FedRAMP Moderate"
       }
     },
     "report.retention_days": {
@@ -745,7 +780,7 @@
       "default": true,
       "bound": true,
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.1.1 (AC-3); hard floor"
+        "platform_choice": "Hard floor: row-level security is never off"
       }
     },
     "session.absolute_timeout": {
@@ -753,12 +788,12 @@
       "direction": "lower_is_stricter",
       "bu_scopable": false,
       "default": "12h0m0s",
-      "bound": "12h0m0s",
+      "bound": "24h0m0s",
       "params": [
         "ac-12_odp"
       ],
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.1.11 (AC-12) leaves the condition open; matches FedRAMP Moderate"
+        "platform_choice": "Enterprise Baseline relaxation: absolute sessions up to 24 hours"
       }
     },
     "session.idle_timeout": {
@@ -766,12 +801,12 @@
       "direction": "lower_is_stricter",
       "bu_scopable": false,
       "default": "15m0s",
-      "bound": "15m0s",
+      "bound": "30m0s",
       "params": [
         "ac-11_odp.02"
       ],
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.1.10 (AC-11) leaves the period open; matches FedRAMP Moderate"
+        "platform_choice": "Enterprise Baseline relaxation: up to 30 minutes for organizations without federal session-lock requirements"
       }
     },
     "session.network_binding": {
@@ -783,10 +818,10 @@
         "reauthenticate"
       ],
       "bu_scopable": true,
-      "default": "reauthenticate",
-      "bound": "reauthenticate",
+      "default": "off",
+      "bound": "off",
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.13.15 (SC-23); F-001 design D-OQ2: reauthenticate in CMMC L2"
+        "platform_choice": "F-001 design D-OQ2: off in Enterprise Baseline"
       }
     },
     "simulation.convergence_threshold_bp": {
@@ -796,7 +831,7 @@
       "default": 100,
       "bound": 500,
       "origin": {
-        "platform_choice": "Not a security parameter of 800-171; matches FedRAMP Moderate"
+        "platform_choice": "Matches FedRAMP Moderate"
       }
     },
     "simulation.iterations_default": {
@@ -806,7 +841,7 @@
       "default": 100000,
       "bound": 10000,
       "origin": {
-        "platform_choice": "Not a security parameter of 800-171; matches FedRAMP Moderate"
+        "platform_choice": "Matches FedRAMP Moderate"
       }
     },
     "simulation.iterations_max": {
@@ -816,7 +851,7 @@
       "default": 1000000,
       "bound": 2000000,
       "origin": {
-        "platform_choice": "Not a security parameter of 800-171; matches FedRAMP Moderate"
+        "platform_choice": "Matches FedRAMP Moderate"
       }
     },
     "simulation.iterations_min": {
@@ -826,7 +861,7 @@
       "default": 10000,
       "bound": 1000,
       "origin": {
-        "platform_choice": "Not a security parameter of 800-171; matches FedRAMP Moderate"
+        "platform_choice": "Matches FedRAMP Moderate"
       }
     },
     "simulation.max_active_runs": {
@@ -836,7 +871,7 @@
       "default": 5,
       "bound": 50,
       "origin": {
-        "platform_choice": "Not a security parameter of 800-171; matches FedRAMP Moderate"
+        "platform_choice": "Matches FedRAMP Moderate"
       }
     },
     "tls.min_version": {
@@ -852,7 +887,7 @@
       "default": "1.2",
       "bound": "1.2",
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.13.8 (SC-8); hard floor TLS 1.2"
+        "platform_choice": "Hard floor TLS 1.2 (ADR-006)"
       }
     },
     "token.max_lifetime": {
@@ -865,7 +900,7 @@
         "ia-05_odp.01"
       ],
       "origin": {
-        "platform_choice": "800-171 Rev 2 3.5.10 (IA-5); F-001 AC-37 default"
+        "platform_choice": "F-001 AC-37 default; not relaxed"
       }
     }
   },

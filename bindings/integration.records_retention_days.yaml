@@ -1,0 +1,18 @@
+# F-011 T-02: binding for integration.records_retention_days: SI-12; days received records are kept for diagnosis (F-011 design §4).
+setting: integration.records_retention_days
+type: int
+direction: lower_is_stricter
+bu_scopable: false
+profiles:
+  fedramp-moderate:
+    default: 30
+    bound: { max: 365 }
+    platform_choice: "Received records are kept 30 days, at most a year; runs, proposals and provenance remain (F-011 design §3.2)"
+  cmmc-l2-r2:
+    default: 30
+    bound: { max: 365 }
+    platform_choice: "Matches FedRAMP Moderate"
+  enterprise-baseline:
+    default: 30
+    bound: { max: 365 }
+    platform_choice: "Matches FedRAMP Moderate"

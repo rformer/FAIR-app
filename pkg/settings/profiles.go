@@ -142,6 +142,27 @@ func F010Defs() []Def {
 	}
 }
 
+// F-011 setting keys (design §4).
+const (
+	KeyIntegrationAllowedHosts    = "integration.allowed_hosts"
+	KeyIntegrationRecordRetention = "integration.records_retention_days"
+)
+
+// F011Defs returns the F-011 (integrations) setting definitions, registered
+// by the risk service (and, from T-15, the integrate service).
+// integration.allowed_hosts is a set of host names and "*." suffixes that
+// connectors may fetch from; every host added is a loosening, which needs
+// dual approval (design §4), as notification.allowed_hosts. The service
+// keeps the other limits (at most 100 hosts; records kept 1 to 365 days).
+func F011Defs() []Def {
+	return []Def{
+		{Key: KeyIntegrationAllowedHosts, Kind: KindSet, Direction: SubsetIsStricter, LooseningNeedsApproval: true, Controls: []string{"AC-4", "SC-7"},
+			Description: "Hosts (names or *. suffixes) that integration connectors may fetch from; none until set"},
+		{Key: KeyIntegrationRecordRetention, Kind: KindInt, Direction: LowerIsStricter, Controls: []string{"SI-12"},
+			Description: "Days the records an integration received are kept for diagnosis before they are purged (1 to 365)"},
+	}
+}
+
 // F-009 setting keys (design §4).
 const (
 	KeyNotificationDetail       = "notification.detail"
@@ -276,7 +297,7 @@ func F002Defs() []Def {
 // (internal/profilegen).
 func ReleaseDefs() []Def {
 	defs := F001Defs()
-	for _, more := range [][]Def{F002Defs(), F004Defs(), F005Defs(), F007Defs(), F008Defs(), F009Defs(), F010Defs()} {
+	for _, more := range [][]Def{F002Defs(), F004Defs(), F005Defs(), F007Defs(), F008Defs(), F009Defs(), F010Defs(), F011Defs()} {
 		defs = append(defs, more...)
 	}
 	return defs
@@ -385,6 +406,9 @@ func BuiltinProfiles() []Profile {
 			KeyReportSnapshotInterval:  {Default: 7, Weakest: 31},
 			KeyReportSnapshotRetention: {Default: 1095, Weakest: 365},
 			KeyExportReasonRequired:    {Default: false, Weakest: false},
+			// F-011 (design §4): the same in every family; no host until one is approved.
+			KeyIntegrationAllowedHosts:    {Default: []string{}, Weakest: []string{SetAll}},
+			KeyIntegrationRecordRetention: {Default: 30, Weakest: 365},
 		}
 	}
 
