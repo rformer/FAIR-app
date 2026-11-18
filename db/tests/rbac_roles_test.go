@@ -90,8 +90,8 @@ func TestReleaseSyncSeedsCatalogAndBuiltinRoles(t *testing.T) {
 	if r := e.install.Sync; r.Version != c.Version || r.PreviousVersion != 0 || len(r.AddedPermissions) != len(c.Permissions) || len(r.CreatedRoles) != len(br.Roles) {
 		t.Fatalf("install sync = %+v", r)
 	}
-	if out := e.mustOwner("SELECT count(*) FILTER (WHERE risk_data) || '/' || count(*) FILTER (WHERE privileged) || '/' || count(*) FROM iam.permission"); out != "21/33/63" { // catalog version 4 (F-009 T-01)
-		t.Fatalf("risk/privileged/total = %s, want 21/33/63", out)
+	if out := e.mustOwner("SELECT count(*) FILTER (WHERE risk_data) || '/' || count(*) FILTER (WHERE privileged) || '/' || count(*) FROM iam.permission"); out != "22/33/65" { // catalog version 6 (F-011 T-01)
+		t.Fatalf("risk/privileged/total = %s, want 22/33/65", out)
 	}
 	for _, role := range br.Roles {
 		ver, perms := e.rolePerms(role.Name)

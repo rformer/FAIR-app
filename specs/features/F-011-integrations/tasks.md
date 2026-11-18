@@ -1,5 +1,5 @@
 # F-011 Integrations and automation inputs — Tasks
-Status: **In Review** | Design: Approved 2026-11-17
+Status: **Approved** (Robert Former, 2026-11-17) | Design: Approved 2026-11-17
 
 Sizing: S ≤ 1 day · M = 2–3 days · L = up to 1 week (split when picked up).
 Prerequisites, all done:
@@ -17,7 +17,7 @@ Rules for every task:
 ## Phase A — Foundations
 | # | Task | Traces to | Verification | Size | Status |
 |---|---|---|---|---|---|
-| T-01 | Permission catalog version 6 (`integration.view` for Platform Admin and Auditor; `integration.push`, not privileged, no built-in role); re-sign | OQ5, D-OQ1; §10 | `TestCatalogVersion6Upgrade` | S | Not started |
+| T-01 | Permission catalog version 6 (`integration.view` for Platform Admin and Auditor; `integration.push`, not privileged, no built-in role); re-sign | OQ5, D-OQ1; §10 | `TestCatalogVersion6Upgrade` | S | Done (2026-11-17) |
 | T-02 | `settings.F011Defs()` (`integration.allowed_hosts` set with dual approval on additions, `integration.records_retention_days`), bindings, packages 1.10.0; the risk and integrate services register them | AC-04; §4 | `TestIntegrationSettings` | S | Not started |
 | T-03 | Bootstrap roles `integration_definer`, `app_integrate`; schema `integration` (§5) with PF031, PF032; `integration.loss_event` under RLS (type `library`, `shared_down`, definer insert and update) with its fixture; `integration.notice_outbox` | AC-02, AC-19; §5 | DB tests: access by role, state rules; `TestRLSHarnessEveryBUOwnedTable` | M | Not started |
 | T-04 | `internal/egress`: F-009's guard moved out of `internal/notify` (notify unchanged in behaviour) | AC-04; §3.1 | `internal/egress` and `internal/notify` tests pass unchanged | S | Not started |
@@ -57,3 +57,5 @@ Rules for every task:
 
 ## Change Log
 - 2026-11-17: Initial draft, In Review.
+- 2026-11-17: Approved by Robert Former.
+- 2026-11-17: T-01: catalog version 6: `integration.view` (read, not risk data; Platform Admin, Auditor) and `integration.push` (write, risk data, not privileged; no built-in role, so a service account may hold it as a scope while `integration.manage` stays refused); `TestCatalogVersion6Upgrade`; the catalog awaits re-signing.

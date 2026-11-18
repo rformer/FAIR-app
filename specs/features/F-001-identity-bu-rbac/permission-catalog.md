@@ -10,7 +10,7 @@ This is the first shipped permission catalog. T-06 commits it as the catalog JSO
 - **Privileged** (AC-54): every `approve`, `admin` and `export` permission is privileged, and the loader enforces this. `audit.view` (audit-log access) and `entitlement.view` are also marked privileged.
 - **Admin permissions** (AC-22, AC-30) are the ones with action `admin`.
 - **Risk data** (AC-30, AC-44): each permission carries a required `risk_data` flag (PC-1). It is true exactly for the "Risk data" table below. An `admin` permission can never be risk data, and the loader enforces this.
-- **Version:** keys are `introduced_in: 1` unless their row names a later catalog version. The catalog was at version 1 until the first addition. Every change follows the T-03 upgrade rules: the version is bumped, and new keys are never added to existing custom roles (AC-57). Version 2 adds `audit.hold` (F-002 T-19). Version 3 adds the estimate and calibration keys and the Estimator role (F-004 T-01). Version 4 adds `notification.view` (F-009 T-01). Version 5 adds the Report Publisher role and gives Auditor `report.export` (F-010 T-01).
+- **Version:** keys are `introduced_in: 1` unless their row names a later catalog version. The catalog was at version 1 until the first addition. Every change follows the T-03 upgrade rules: the version is bumped, and new keys are never added to existing custom roles (AC-57). Version 2 adds `audit.hold` (F-002 T-19). Version 3 adds the estimate and calibration keys and the Estimator role (F-004 T-01). Version 4 adds `notification.view` (F-009 T-01). Version 5 adds the Report Publisher role and gives Auditor `report.export` (F-010 T-01). Version 6 adds `integration.view` and `integration.push` (F-011 T-01).
 - **Scope:** permissions are checked at a BU (`authz.Check(principal, permission, buID)`). Instance-wide administration is checked at the Enterprise root.
 - **Restricted BUs:** AC-22's "explicitly granted that right there" needs no extra permission. `access.assign` held at an ancestor does not inherit into a restricted BU (AC-60), so assigning roles there requires an assignment at or below that BU.
 
@@ -64,6 +64,7 @@ This is the first shipped permission catalog. T-06 commits it as the catalog JSO
 | `notification.manage` | admin | **yes** | F-009 | Configure the SMTP relay and webhooks, rotate webhook secrets, send test messages |
 | `notification.view` | read | no | F-009 | See channel status and the delivery log (kinds, links, recipients, outcomes; never notice content) (catalog version 4) |
 | `integration.manage` | admin | **yes** | F-011 | Configure automation inputs and their credentials |
+| `integration.view` | read | no | F-011 | See integrations, their runs and refusals, and whether credentials are set (never the credentials) (catalog version 6) |
 | `framework.manage` | admin | **yes** | F-013 | Import OSCAL catalogs and manage crosswalks |
 
 ### Calibration (F-004; not risk data: the records are about people)
@@ -97,17 +98,18 @@ This is the first shipped permission catalog. T-06 commits it as the catalog JSO
 | `acceptance.approve` | approve | **yes** | F-008 | Approve or reject a risk acceptance (authority limits in F-008) |
 | `report.view` | read | no | F-010 | View reports and dashboards |
 | `report.export` | export | **yes** | F-010 | Export reports |
+| `integration.push` | write | no | F-011 | Push batches of records to an integration (assets, loss events, risks, control status) as proposals; held as a service-account scope, in no built-in role (catalog version 6) |
 
 ## Built-in role templates (input to T-06)
 | Role | Permissions |
 |---|---|
-| Platform Admin | `idp.view`, `idp.manage`, `scim.manage`, `user.view`, `user.manage`, `bu.view`, `bu.manage`, `bu.restrict`, `role.view`, `role.manage`, `access.view`, `access.assign`, `access.map_groups`, `access.approve`, `sod.manage`, `session.view`, `session.revoke`, `banner.manage`, `service_account.manage`, `breakglass.manage`, `access_review.manage`, `entitlement.view`, `entitlement.export`, `posture.view`, `posture.export`, `settings.change`, `settings.approve`, `profile.manage`, `profile.approve`, `exception.renew`, `drift.acknowledge`, `notification.manage`, `notification.view`, `integration.manage`, `framework.manage`, `audit.hold`, `calibration.take`, `calibration.manage` |
+| Platform Admin | `idp.view`, `idp.manage`, `scim.manage`, `user.view`, `user.manage`, `bu.view`, `bu.manage`, `bu.restrict`, `role.view`, `role.manage`, `access.view`, `access.assign`, `access.map_groups`, `access.approve`, `sod.manage`, `session.view`, `session.revoke`, `banner.manage`, `service_account.manage`, `breakglass.manage`, `access_review.manage`, `entitlement.view`, `entitlement.export`, `posture.view`, `posture.export`, `settings.change`, `settings.approve`, `profile.manage`, `profile.approve`, `exception.renew`, `drift.acknowledge`, `notification.manage`, `notification.view`, `integration.manage`, `integration.view`, `framework.manage`, `audit.hold`, `calibration.take`, `calibration.manage` |
 | BU Admin | `bu.view`, `user.view`, `role.view`, `access.view`, `access.assign`, `calibration.take` |
 | Risk Analyst | `scenario.view`, `library.view`, `analysis.view`, `control.view`, `register.view`, `treatment.view`, `acceptance.view`, `report.view`, `library.edit`, `scenario.edit`, `analysis.edit`, `analysis.run`, `control.edit`, `estimate.request`, `calibration.take` |
 | Risk Owner | `scenario.view`, `library.view`, `analysis.view`, `control.view`, `register.view`, `treatment.view`, `acceptance.view`, `report.view`, `register.edit`, `treatment.edit`, `acceptance.request`, `calibration.take` |
 | Approver | `scenario.view`, `library.view`, `analysis.view`, `control.view`, `register.view`, `treatment.view`, `acceptance.view`, `report.view`, `acceptance.approve`, `calibration.take` |
 | Executive Viewer | `scenario.view`, `library.view`, `analysis.view`, `control.view`, `register.view`, `treatment.view`, `acceptance.view`, `report.view`, `calibration.take` |
-| Auditor | `scenario.view`, `library.view`, `analysis.view`, `control.view`, `register.view`, `treatment.view`, `acceptance.view`, `report.view`, `bu.view`, `user.view`, `role.view`, `access.view`, `entitlement.view`, `entitlement.export`, `audit.view`, `audit.export`, `posture.view`, `calibration.take`, `calibration.audit`, `notification.view`, `report.export` |
+| Auditor | `scenario.view`, `library.view`, `analysis.view`, `control.view`, `register.view`, `treatment.view`, `acceptance.view`, `report.view`, `bu.view`, `user.view`, `role.view`, `access.view`, `entitlement.view`, `entitlement.export`, `audit.view`, `audit.export`, `posture.view`, `calibration.take`, `calibration.audit`, `notification.view`, `report.export`, `integration.view` |
 | Estimator | `estimate.submit`, `calibration.take` |
 | Report Publisher | `report.view`, `report.export` (catalog version 5) |
 | Service Account | _None. API scopes only (AC-36)._ |
@@ -135,3 +137,4 @@ Checked mechanically when this draft was generated:
 - 2026-11-16: Catalog version 4 re-signed by Robert Former.
 - 2026-11-16: Catalog version 5 (F-010 T-01, approved task; OQ4 amended by Robert Former): the built-in Report Publisher role (`report.view`, `report.export`), granted beside other roles to those who produce report files; Auditor gains `report.export`. Executive Viewer and Risk Analyst stay unprivileged. Needs re-signing.
 - 2026-11-16: Catalog version 5 re-signed by Robert Former.
+- 2026-11-17: Catalog version 6 (F-011 T-01, approved task; F-011 OQ5, D-OQ1): `integration.view` (read; Platform Admin and Auditor gain it) and `integration.push` (write, risk data, not privileged; no built-in role, granted as a service-account scope). Needs re-signing.

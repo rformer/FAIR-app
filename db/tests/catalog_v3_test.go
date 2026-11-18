@@ -80,14 +80,26 @@ func TestCatalogVersion3Upgrade(t *testing.T) {
 	}
 }
 
+// catalogVersion5 is the shipped catalog as it was at version 5: without
+// version 6's integration.view and integration.push (F-011 T-01).
+func catalogVersion5(t *testing.T) (*catalog.Catalog, *catalog.BuiltinRoles) {
+	t.Helper()
+	c, br := release(t)
+	if c.Version != 6 {
+		t.Fatalf("the shipped catalog is version %d", c.Version)
+	}
+	c5, br5 := cloneRelease(c, br)
+	c5.Version, br5.CatalogVersion = 5, 5
+	dropPermission(c5, br5, "integration.view")
+	dropPermission(c5, br5, "integration.push")
+	return c5, br5
+}
+
 // catalogVersion4 is the shipped catalog as it was at version 4: without
 // version 5's Report Publisher role and Auditor's report.export (F-010 T-01).
 func catalogVersion4(t *testing.T) (*catalog.Catalog, *catalog.BuiltinRoles) {
 	t.Helper()
-	c, br := release(t)
-	if c.Version != 5 {
-		t.Fatalf("the shipped catalog is version %d", c.Version)
-	}
+	c, br := catalogVersion5(t)
 	c4, br4 := cloneRelease(c, br)
 	c4.Version, br4.CatalogVersion = 4, 4
 	br4.Roles = slices.DeleteFunc(br4.Roles, func(r catalog.BuiltinRole) bool { return r.Name == "Report Publisher" })
@@ -158,7 +170,7 @@ func TestCatalogVersion4Upgrade(t *testing.T) {
 // report.export; Executive Viewer and Risk Analyst stay unprivileged, and
 // custom roles are untouched.
 func TestCatalogVersion5Upgrade(t *testing.T) {
-	c5, br5 := release(t)
+	c5, br5 := catalogVersion5(t)
 	c4, br4 := catalogVersion4(t)
 	e := setupWith(t, func() (*catalog.Catalog, *catalog.BuiltinRoles, error) { return c4, br4, nil })
 	for _, u := range []string{"platform", "aud", "exec", "rita"} {
@@ -198,6 +210,65 @@ func TestCatalogVersion5Upgrade(t *testing.T) {
 		}
 	}
 	if again := e.sync(t, c5, br5); len(again.AddedPermissions)+len(again.CreatedRoles)+len(again.VersionedRoles) != 0 {
+		t.Fatalf("second sync %+v", again)
+	}
+}
+
+// F-011 T-01 (F-011 OQ5, design §10, D-OQ1): permission catalog version 6
+// on an installation at version 5: integration.view (read; Platform Admin
+// and Auditor gain it) and integration.push (write, risk data, not
+// privileged, in no built-in role) arrive with notices; custom roles are
+// untouched; a service account may hold integration.push as a scope.
+func TestCatalogVersion6Upgrade(t *testing.T) {
+	c6, br6 := release(t)
+	c5, br5 := catalogVersion5(t)
+	e := setupWith(t, func() (*catalog.Catalog, *catalog.BuiltinRoles, error) { return c5, br5, nil })
+	for _, u := range []string{"platform", "aud", "rita"} {
+		e.mustOwner("INSERT INTO iam.app_user (email, display_name) VALUES ('" + u + "@example.test', '" + u + "')")
+	}
+	e.mustOwner("SELECT iam.bootstrap_platform_admin(" + uid("platform") + ")")
+	e.mustOwner(`WITH r AS (INSERT INTO iam.role (name) VALUES ('Library Keeper') RETURNING id)
+		INSERT INTO iam.role_version (role_id, version, permissions, change_reason) SELECT id, 1, ARRAY['library.edit', 'library.view'], 'test' FROM r`)
+	e.mustOwner(grant("platform", "user:rita", "Library Keeper", "ENTERPRISE"))
+	e.mustOwner(grant("platform", "user:aud", "Auditor", "ENTERPRISE"))
+
+	r := e.sync(t, c6, br6)
+	slices.Sort(r.AddedPermissions)
+	slices.Sort(r.VersionedRoles)
+	if r.PreviousVersion != 5 || r.Version != 6 || strings.Join(r.AddedPermissions, ",") != "integration.push,integration.view" || len(r.CreatedRoles) != 0 ||
+		strings.Join(r.VersionedRoles, ",") != "Auditor,Platform Admin" || len(r.CustomRolesChanged) != 0 {
+		t.Fatalf("sync result %+v", r)
+	}
+	if got := e.mustOwner("SELECT string_agg(subject, ',' ORDER BY subject) FROM iam.catalog_notice WHERE catalog_version = 6 AND kind = 'added'"); got != "integration.push,integration.view" {
+		t.Fatalf("added notices %s", got)
+	}
+	for key, want := range map[string]string{"integration.view": "read:false:false", "integration.push": "write:false:true"} {
+		if got := e.mustOwner("SELECT action || ':' || privileged || ':' || risk_data FROM iam.permission WHERE key = '" + key + "'"); got != want {
+			t.Errorf("%s %s, want %s", key, got, want)
+		}
+	}
+	for _, role := range br6.Roles {
+		if slices.Contains(role.Permissions, "integration.push") {
+			t.Errorf("built-in role %s holds integration.push", role.Name)
+		}
+	}
+	if v, perms := e.rolePerms("Library Keeper"); v != 1 || strings.Join(perms, ",") != "library.edit,library.view" {
+		t.Fatalf("custom role v%d %v", v, perms)
+	}
+	e.drain()
+	for _, c := range []struct{ user, want string }{{"platform", "t"}, {"aud", "t"}, {"rita", "f"}} {
+		if got := e.adminQuery("SELECT iam.user_has_permission(" + uid(c.user) + ", 'integration.view', " + buID("ENTERPRISE") + ")"); got != c.want {
+			t.Errorf("%s holds integration.view: %s", c.user, got)
+		}
+	}
+	// A service account may hold integration.push: it is not privileged.
+	if got := e.mustOwner("SELECT array_to_string(iam.sa_check_scopes(ARRAY['integration.push', 'library.view']), ',')"); got != "integration.push,library.view" {
+		t.Errorf("service-account scopes: %s", got)
+	}
+	if got := e.adminState("SET ROLE fair_owner; PERFORM iam.sa_check_scopes(ARRAY['integration.manage'])"); got != "PF004" {
+		t.Errorf("integration.manage as a service-account scope: %s", got)
+	}
+	if again := e.sync(t, c6, br6); len(again.AddedPermissions)+len(again.CreatedRoles)+len(again.VersionedRoles) != 0 {
 		t.Fatalf("second sync %+v", again)
 	}
 }

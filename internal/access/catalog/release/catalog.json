@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "permissions": [
     {"key": "acceptance.approve", "resource_type": "acceptance", "action": "approve", "privileged": true, "risk_data": true, "introduced_in": 1},
     {"key": "acceptance.request", "resource_type": "acceptance", "action": "write", "privileged": false, "risk_data": true, "introduced_in": 1},
@@ -37,6 +37,8 @@
     {"key": "idp.manage", "resource_type": "idp", "action": "admin", "privileged": true, "risk_data": false, "introduced_in": 1},
     {"key": "idp.view", "resource_type": "idp", "action": "read", "privileged": false, "risk_data": false, "introduced_in": 1},
     {"key": "integration.manage", "resource_type": "integration", "action": "admin", "privileged": true, "risk_data": false, "introduced_in": 1},
+    {"key": "integration.push", "resource_type": "integration", "action": "write", "privileged": false, "risk_data": true, "introduced_in": 6},
+    {"key": "integration.view", "resource_type": "integration", "action": "read", "privileged": false, "risk_data": false, "introduced_in": 6},
     {"key": "library.edit", "resource_type": "library", "action": "write", "privileged": false, "risk_data": true, "introduced_in": 1},
     {"key": "library.view", "resource_type": "library", "action": "read", "privileged": false, "risk_data": true, "introduced_in": 1},
     {"key": "notification.manage", "resource_type": "notification", "action": "admin", "privileged": true, "risk_data": false, "introduced_in": 1},
