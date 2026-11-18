@@ -103,3 +103,24 @@ func TestIntegrationSchema(t *testing.T) {
 		t.Errorf("a 51st integration: %s", got)
 	}
 }
+
+// F-011 T-15 (design §2): app_integrate, the integrate service's role,
+// records its own events, registers and reads settings, and loads grants
+// for the integrations API; it reads no table.
+func TestIntegrateServiceRole(t *testing.T) {
+	e := setup(t)
+	got := e.adminQuery(`SELECT string_agg(f || ':' || has_function_privilege('app_integrate', f, 'EXECUTE'), ',' ORDER BY f) FROM unnest(ARRAY[
+		'audit.submit(jsonb)', 'posture.effective_settings()', 'posture.settings_version()', 'posture.register_settings(text, text, jsonb)',
+		'authz.grant_snapshot()', 'notify.sync_kinds(jsonb)', 'posture.audit_finding(boolean, jsonb)']) f`)
+	want := "audit.submit(jsonb):true,authz.grant_snapshot():true,notify.sync_kinds(jsonb):false,posture.audit_finding(boolean, jsonb):false," +
+		"posture.effective_settings():true,posture.register_settings(text, text, jsonb):true,posture.settings_version():true"
+	if got != want {
+		t.Errorf("functions:\n got %s\nwant %s", got, want)
+	}
+	if got := e.adminQuery(`SELECT count(*) FROM information_schema.role_table_grants WHERE grantee = 'app_integrate'`); got != "0" {
+		t.Errorf("app_integrate holds %s table grants", got)
+	}
+	if got := e.adminQuery(`SELECT rolcanlogin || ':' || rolbypassrls || ':' || coalesce(array_to_string(rolconfig, ','), '') FROM pg_roles WHERE rolname = 'app_integrate'`); got != "true:false:row_security=on" {
+		t.Errorf("app_integrate: %s", got)
+	}
+}

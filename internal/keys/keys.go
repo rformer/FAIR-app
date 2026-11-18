@@ -24,6 +24,8 @@
 //	risk/secrets/report-context.id       its key id (authz.ctx_key, purpose report) FAIR_REPORT_CONTEXT_KEY_ID_FILE
 //	notify/jwt/<kid>.pem                 the gateway's JWT keys (public)            FAIR_JWT_KEYS_DIR
 //	notify/webhook-secrets/<kid>.key     webhook secrets' AES-256 keys (F-009)      FAIR_NOTIFY_SECRETS_DIR
+//	integrate/jwt/<kid>.pem              the gateway's JWT keys (public)            FAIR_JWT_KEYS_DIR
+//	integrate/secrets/<kid>.key          connector credentials' AES-256 keys (F-011) FAIR_INTEGRATE_SECRETS_DIR
 //	engine-gate/tls/...                  the engine channel's server side (engine.go)
 //
 // Secrets are base64url text (32 random bytes), so every store carries them
@@ -61,6 +63,8 @@ const (
 	Audit   = "audit"  // F-002 T-05
 	Risk    = "risk"   // F-003 T-04
 	Notify  = "notify" // F-009 T-03
+	// Integrate is the integrate service (F-011 T-15): connectors.
+	Integrate = "integrate"
 )
 
 // Files and directories in a service's key directory.
@@ -118,6 +122,8 @@ var Mounts = []Mount{
 	}},
 	{Notify, JWTDir, map[string]string{"FAIR_JWT_KEYS_DIR": MountRoot + "/jwt"}}, // F-009 T-03
 	{Notify, WebhookSecretsDir, map[string]string{"FAIR_NOTIFY_SECRETS_DIR": MountRoot + "/" + WebhookSecretsDir}},
+	{Integrate, JWTDir, map[string]string{"FAIR_JWT_KEYS_DIR": MountRoot + "/jwt"}}, // F-011 T-15
+	{Integrate, SecretsDir, map[string]string{"FAIR_INTEGRATE_SECRETS_DIR": MountRoot + "/" + SecretsDir}},
 	{EngineGate, TLSDir, map[string]string{"FAIR_ENGINE_GATE_TLS_DIR": MountRoot + "/" + TLSDir}},
 }
 
@@ -130,13 +136,14 @@ const (
 	KindTicket     = "login-ticket"
 	KindDBContext  = "db-context"
 	KindCheckpoint = "checkpoint"
-	KindNotify     = "notify-secrets" // a new webhook-secrets key (F-009 T-03)
-	KindReportCtx  = "report-context" // a new delegated report DB context key (F-010 T-04)
+	KindNotify     = "notify-secrets"    // a new webhook-secrets key (F-009 T-03)
+	KindReportCtx  = "report-context"    // a new delegated report DB context key (F-010 T-04)
+	KindIntegrate  = "integrate-secrets" // a new connector-credentials key (F-011 T-15)
 	// KindEngine (engine.go) rotates the engine channel's certificates.
 )
 
 // jwtVerifiers hold the gateway's internal-JWT public keys.
-var jwtVerifiers = []string{IAM, Posture, Audit, Risk, Notify}
+var jwtVerifiers = []string{IAM, Posture, Audit, Risk, Notify, Integrate}
 
 var kidRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
@@ -148,7 +155,7 @@ type Set struct {
 // Init creates every key into dir (one subdirectory per service). It never
 // overwrites: an existing file is an error and nothing is written over it.
 func Init(dir string, now time.Time) (Set, error) {
-	for _, p := range []string{Gateway, IAM, Posture, Audit, Risk, Notify, EngineGate} {
+	for _, p := range []string{Gateway, IAM, Posture, Audit, Risk, Notify, Integrate, EngineGate} {
 		if _, err := os.Stat(filepath.Join(dir, p)); err == nil {
 			return Set{}, fmt.Errorf("keys: %s already exists; keys are never overwritten (use rotate, or upgrade to add a new service's keys)", filepath.Join(dir, p))
 		}
@@ -174,6 +181,7 @@ func Init(dir string, now time.Time) (Set, error) {
 	}
 	w.private(filepath.Join(dir, Audit, CheckpointDir, s.Checkpoint+".pem"), checkpoint)
 	w.file(filepath.Join(dir, Notify, WebhookSecretsDir, kid("whk", now)+".key"), secret())
+	w.file(filepath.Join(dir, Integrate, SecretsDir, kid("isk", now)+".key"), secret())
 	w.private(filepath.Join(dir, IAM, TicketDir, s.Ticket+".pem"), ticket)
 	w.public(filepath.Join(dir, Gateway, TicketDir, s.Ticket+".pem"), &ticket.PublicKey)
 	w.file(filepath.Join(dir, Gateway, SecretsDir, SessionPepper), secret())
@@ -191,8 +199,9 @@ func Init(dir string, now time.Time) (Set, error) {
 // audit/ (F-002 T-05: the gateway's internal-JWT public keys and a new
 // checkpoint signing key), risk/ (F-003 T-04: the internal-JWT public
 // keys), the engine channel (F-005 T-10: risk/engine-client/ and
-// engine-gate/) and notify/ (F-009 T-03: the internal-JWT public keys and
-// a webhook-secrets key). It returns what it added; nothing when the directory is
+// engine-gate/), notify/ (F-009 T-03: the internal-JWT public keys and
+// a webhook-secrets key) and integrate/ (F-011 T-15: the internal-JWT public
+// keys and a connector-credentials key). It returns what it added; nothing when the directory is
 // complete. It never overwrites.
 func Upgrade(dir string, now time.Time) ([]string, error) {
 	for _, p := range []string{Gateway, IAM, Posture} {
@@ -201,7 +210,7 @@ func Upgrade(dir string, now time.Time) ([]string, error) {
 		}
 	}
 	var missing []string
-	for _, p := range []string{Audit, Risk, Notify} {
+	for _, p := range []string{Audit, Risk, Notify, Integrate} {
 		if _, err := os.Stat(filepath.Join(dir, p)); err != nil {
 			missing = append(missing, p)
 		}
@@ -268,6 +277,9 @@ func Upgrade(dir string, now time.Time) ([]string, error) {
 		if svc == Notify {
 			w.file(filepath.Join(dir, Notify, WebhookSecretsDir, kid("whk", now)+".key"), secret())
 		}
+		if svc == Integrate {
+			w.file(filepath.Join(dir, Integrate, SecretsDir, kid("isk", now)+".key"), secret())
+		}
 	}
 	if engine {
 		writeEngine(w, dir, now, nil, nil)
@@ -313,6 +325,13 @@ func WebhookSecretKeys(dir string) (map[string][]byte, error) {
 		out[id] = b
 	}
 	return out, nil
+}
+
+// IntegrateSecretKeys reads the integrate service's connector-credentials
+// keys in dir (FAIR_INTEGRATE_SECRETS_DIR; F-011 T-15), as
+// WebhookSecretKeys: <kid>.key files, the newest id sorting last.
+func IntegrateSecretKeys(dir string) (map[string][]byte, error) {
+	return WebhookSecretKeys(dir)
 }
 
 // CheckpointKey reads the audit trail's checkpoint signing key: the one
@@ -411,6 +430,14 @@ func Rotate(dir, kind string, now time.Time) (string, error) {
 		}
 		w.file(p, secret())
 		return id, w.err
+	case KindIntegrate:
+		id := kid("isk", now)
+		p := filepath.Join(dir, Integrate, SecretsDir, id+".key")
+		if _, err := os.Stat(p); err == nil {
+			return "", fmt.Errorf("keys: %s already exists", id)
+		}
+		w.file(p, secret())
+		return id, w.err
 	case KindReportCtx:
 		id := kid("rctx", now)
 		w.file(filepath.Join(dir, Risk, SecretsDir, ReportContextKey), secret())
@@ -422,7 +449,7 @@ func Rotate(dir, kind string, now time.Time) (string, error) {
 		w.file(filepath.Join(dir, Gateway, SecretsDir, DBContextID), []byte(id+"\n"))
 		return id, w.err
 	}
-	return "", fmt.Errorf("keys: unknown kind %q (jwt, login-ticket, db-context, checkpoint, engine, notify-secrets or report-context)", kind)
+	return "", fmt.Errorf("keys: unknown kind %q (jwt, login-ticket, db-context, checkpoint, engine, notify-secrets, report-context or integrate-secrets)", kind)
 }
 
 // Check verifies a key directory as a whole: every file each service needs
@@ -452,6 +479,9 @@ func Check(dir string) error {
 	pair(Audit, CheckpointDir)
 	if ks, err := WebhookSecretKeys(filepath.Join(dir, Notify, WebhookSecretsDir)); err != nil || len(ks) == 0 {
 		bad("%s/%s: want at least one key (%v)", Notify, WebhookSecretsDir, err)
+	}
+	if ks, err := IntegrateSecretKeys(filepath.Join(dir, Integrate, SecretsDir)); err != nil || len(ks) == 0 {
+		bad("%s/%s: want at least one key (%v)", Integrate, SecretsDir, err)
 	}
 	for _, f := range []string{filepath.Join(Gateway, SecretsDir, SessionPepper), filepath.Join(Gateway, SecretsDir, TokenPepper), filepath.Join(IAM, SecretsDir, TokenPepper),
 		filepath.Join(Gateway, SecretsDir, DBContextKey), filepath.Join(Risk, SecretsDir, ReportContextKey)} {

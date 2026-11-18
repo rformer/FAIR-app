@@ -519,6 +519,64 @@ func TestNotifyKeys(t *testing.T) {
 	}
 }
 
+// F-011 T-15: the integrate service's keys: the gateway's JWT public keys and
+// the connector-credentials keys; init and upgrade make one, rotation adds one and
+// keeps the others (secrets kept under them still decrypt).
+func TestIntegrateKeys(t *testing.T) {
+	t0 := time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC)
+	d := t.TempDir()
+	s, err := Init(d, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := publicKey(filepath.Join(d, Integrate, JWTDir, s.JWT+".pem")); err != nil {
+		t.Fatalf("integrate/ lacks the gateway's key: %v", err)
+	}
+	ks, err := IntegrateSecretKeys(filepath.Join(d, Integrate, SecretsDir))
+	if err != nil || len(ks) != 1 {
+		t.Fatalf("connector-credentials keys: %v %v", len(ks), err)
+	}
+	id, err := Rotate(d, KindIntegrate, t0.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ks, _ = IntegrateSecretKeys(filepath.Join(d, Integrate, SecretsDir))
+	if _, ok := ks[id]; !ok || len(ks) != 2 {
+		t.Fatalf("after rotating: %d keys, %s present %v", len(ks), id, ok)
+	}
+	if _, err := Rotate(d, KindIntegrate, t0.Add(time.Hour)); err == nil {
+		t.Error("the same key id twice")
+	}
+	if err := Check(d); err != nil {
+		t.Fatal(err)
+	}
+	// Without its keys the directory fails the check.
+	if err := os.RemoveAll(filepath.Join(d, Integrate, SecretsDir)); err != nil {
+		t.Fatal(err)
+	}
+	if err := Check(d); err == nil {
+		t.Fatal("a directory without connector-credentials keys passed")
+	}
+	// A directory from before F-011 gets integrate/ from upgrade.
+	if err := os.RemoveAll(filepath.Join(d, Integrate)); err != nil {
+		t.Fatal(err)
+	}
+	added, err := Upgrade(d, t0.Add(2*time.Hour))
+	if err != nil || !slices.Equal(added, []string{Integrate}) {
+		t.Fatalf("upgrade: %v %v", added, err)
+	}
+	if err := Check(d); err != nil {
+		t.Fatal(err)
+	}
+	// A key file whose name is not a key id is refused.
+	if err := os.WriteFile(filepath.Join(d, Integrate, SecretsDir, "bad id.key"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := IntegrateSecretKeys(filepath.Join(d, Integrate, SecretsDir)); err == nil {
+		t.Error("a key file named otherwise")
+	}
+}
+
 // F-010 T-04 (design §3.3): the risk service's report context key.
 func TestReportContextKeys(t *testing.T) {
 	t0 := time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC)

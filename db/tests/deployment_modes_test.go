@@ -20,6 +20,7 @@ import (
 	auditsvc "github.com/rformer/fair-app/internal/audit"
 	"github.com/rformer/fair-app/internal/config"
 	"github.com/rformer/fair-app/internal/enginegate"
+	"github.com/rformer/fair-app/internal/integration"
 	"github.com/rformer/fair-app/internal/keys"
 	"github.com/rformer/fair-app/internal/migrate"
 	"github.com/rformer/fair-app/internal/notify"
@@ -154,6 +155,30 @@ func deploymentMode(t *testing.T, mode string) {
 		if err := notifyCheck(v); err == nil {
 			t.Errorf("notify without %s in %s mode", k, mode)
 		}
+	}
+
+	// F-011 T-15 (design §11): the integrate service needs the JWT keys, its
+	// connector-credentials keys, the gateway's URL and the cluster's ranges,
+	// in every mode.
+	integrateVars := map[string]string{"FAIR_JWT_KEYS_DIR": "/keys/jwt", "FAIR_INTEGRATE_SECRETS_DIR": "/keys/secrets",
+		"FAIR_INTEGRATE_GATEWAY_URL": "https://gateway.fair-platform.svc", "FAIR_INTEGRATE_CLUSTER_CIDRS": "10.96.0.0/12"}
+	integrateCheck := func(v map[string]string) error {
+		return integration.CheckInstall(integration.InstallCheck{Env: "production", Mode: mode, Getenv: func(k string) string { return v[k] }})
+	}
+	if err := integrateCheck(integrateVars); err != nil {
+		t.Errorf("a complete %s integrate install refused: %v", mode, err)
+	}
+	for k := range integrateVars {
+		v := maps.Clone(integrateVars)
+		delete(v, k)
+		if err := integrateCheck(v); err == nil {
+			t.Errorf("integrate without %s in %s mode", k, mode)
+		}
+	}
+	plain := maps.Clone(integrateVars)
+	plain["FAIR_INTEGRATE_GATEWAY_URL"] = "http://gateway.fair-platform.svc"
+	if err := integrateCheck(plain); err == nil {
+		t.Errorf("integrate with a plaintext gateway URL in %s mode", mode)
 	}
 
 	// F-005 T-10: engine-gate needs its TLS directory (from the key store)

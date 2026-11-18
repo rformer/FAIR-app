@@ -422,6 +422,7 @@ jobs:
           - { component: audit, smoke: "" }
           - { component: risk, smoke: "" }
           - { component: notify, smoke: "" } # F-009 T-03
+          - { component: integrate, smoke: "" } # F-011 T-15
           - { component: engine-gate, smoke: "" } # F-005 T-10
     permissions:
       contents: read

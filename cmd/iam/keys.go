@@ -20,8 +20,8 @@ import (
 
 const keysUsage = `usage:
   iam keys init -dir DIR                      create every key (never overwrites)
-  iam keys upgrade -dir DIR                   add the keys of services newer than DIR (F-002: audit/; F-003: risk/; F-005: the engine channel; F-009: notify/; F-010: risk/secrets/)
-  iam keys rotate -dir DIR -kind KIND         add a key: jwt, login-ticket, db-context, checkpoint, engine, notify-secrets or report-context
+  iam keys upgrade -dir DIR                   add the keys of services newer than DIR (F-002: audit/; F-003: risk/; F-005: the engine channel; F-009: notify/; F-010: risk/secrets/; F-011: integrate/)
+  iam keys rotate -dir DIR -kind KIND         add a key: jwt, login-ticket, db-context, checkpoint, engine, notify-secrets, report-context or integrate-secrets
   iam keys check -dir DIR                     check a key directory as a whole
   iam keys register -dir DIR                  add the gateway's DB-context key and the risk service's report context key to the database
   iam keys retire-db-context -id ID           retire a DB-context or report context key no longer used`
