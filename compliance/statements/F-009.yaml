@@ -105,8 +105,8 @@ controls:
     customer: >-
       Add only the relay and webhook destinations the organization needs.
     evidence:
-      code: [bindings/notification.allowed_hosts.yaml, internal/notify/guard.go, internal/notify/install.go]
-      tests: ["db/tests:TestNotifySettings", "internal/notify:TestCheckAddr", "internal/notify:TestCheckInstall"]
+      code: [bindings/notification.allowed_hosts.yaml, internal/egress/guard.go, internal/notify/install.go]
+      tests: ["db/tests:TestNotifySettings", "internal/egress:TestCheckAddr", "internal/notify:TestCheckInstall"]
 
   - id: ia-5
     responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
@@ -156,9 +156,9 @@ controls:
       Keep the allow-list to the destinations in use and set the cluster's
       ranges (FAIR_NOTIFY_CLUSTER_CIDRS).
     evidence:
-      code: [internal/notify/guard.go, deploy/k8s/notify.yaml]
-      tests: ["db/tests:TestSTRIDEF009Destinations", "internal/notify:TestCheckAddr", "internal/notify:TestResolve", "internal/notify:TestDialChecksAndPins",
-              "internal/notify:TestHTTPClient"]
+      code: [internal/egress/guard.go, deploy/k8s/notify.yaml]
+      tests: ["db/tests:TestSTRIDEF009Destinations", "internal/egress:TestCheckAddr", "internal/egress:TestResolve", "internal/egress:TestDialChecksAndPins",
+              "internal/egress:TestHTTPClient"]
 
   - id: sc-8
     responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
@@ -171,8 +171,8 @@ controls:
       Operate relays and receivers with certificates the platform can
       verify.
     evidence:
-      code: [internal/notify/send.go, internal/notify/guard.go]
-      tests: ["internal/notify:TestSTRIDEF009TLSFloor", "internal/notify:TestSMTPSender", "internal/notify:TestHTTPClient"]
+      code: [internal/notify/send.go, internal/egress/guard.go]
+      tests: ["internal/notify:TestSTRIDEF009TLSFloor", "internal/notify:TestSMTPSender", "internal/egress:TestHTTPClient"]
 
   - id: sc-13
     responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }

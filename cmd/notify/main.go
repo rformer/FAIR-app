@@ -164,7 +164,7 @@ func run() error {
 
 	// Delivery (T-10): every replica claims, sends and settles; destinations
 	// pass the guard (T-08), as notification.allowed_hosts has them now.
-	guard := notify.Guard{Cluster: cluster, AirGapped: cfg.DeploymentMode == config.ModeAirGapped, Allowed: func() []string {
+	guard := notify.Guard{Setting: settings.KeyNotificationAllowedHosts, Cluster: cluster, AirGapped: cfg.DeploymentMode == config.ModeAirGapped, Allowed: func() []string {
 		hosts, err := sc.Set(settings.KeyNotificationAllowedHosts, "")
 		if err != nil {
 			return nil // nothing is allowed until the setting is read

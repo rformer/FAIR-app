@@ -170,7 +170,7 @@ func (s *smtpServer) serve(c net.Conn) {
 }
 
 func loopbackGuard() Guard {
-	return Guard{Allowed: func() []string { return []string{"127.0.0.1"} }, allowForTest: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}}
+	return Guard{Allowed: func() []string { return []string{"127.0.0.1"} }}.AllowingForTest(netip.MustParsePrefix("127.0.0.1/32"))
 }
 
 func TestSMTPSender(t *testing.T) {

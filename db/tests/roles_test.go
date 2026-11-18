@@ -69,7 +69,7 @@ func setupWith(t *testing.T, rel func() (*catalog.Catalog, *catalog.BuiltinRoles
 
 	e := &env{t: t, root: root, db: "fairtest_" + randHex(6), secrets: map[string]string{}, adminEnv: os.Environ(), release: rel}
 	dir := t.TempDir()
-	for _, r := range []string{"app_migrator", "app_rw", "app_engine", "app_posture", "app_gateway", "app_audit", "app_notify"} {
+	for _, r := range []string{"app_migrator", "app_rw", "app_engine", "app_posture", "app_gateway", "app_audit", "app_notify", "app_integrate"} {
 		p := filepath.Join(dir, r)
 		if err := os.WriteFile(p, []byte(randHex(24)+"\n"), 0o600); err != nil {
 			t.Fatal(err)
@@ -91,6 +91,7 @@ func setupWith(t *testing.T, rel func() (*catalog.Catalog, *catalog.BuiltinRoles
 		"FAIR_GATEWAY_PASSWORD_FILE":  e.secrets["app_gateway"],
 		"FAIR_AUDIT_PASSWORD_FILE":    e.secrets["app_audit"],
 		"FAIR_NOTIFY_PASSWORD_FILE":   e.secrets["app_notify"],
+		"FAIR_INTEGRATE_PASSWORD_FILE": e.secrets["app_integrate"],
 	})
 	res, err := e.migrate("")
 	if err != nil {
@@ -324,6 +325,7 @@ func TestBootstrapRepairsRoleDrift(t *testing.T) {
 		"FAIR_GATEWAY_PASSWORD_FILE":  e.secrets["app_gateway"],
 		"FAIR_AUDIT_PASSWORD_FILE":    e.secrets["app_audit"],
 		"FAIR_NOTIFY_PASSWORD_FILE":   e.secrets["app_notify"],
+		"FAIR_INTEGRATE_PASSWORD_FILE": e.secrets["app_integrate"],
 	})
 	out, err := e.as("app_rw", "SELECT rolbypassrls FROM pg_roles WHERE rolname = 'app_rw'")
 	if err != nil || out != "f" {

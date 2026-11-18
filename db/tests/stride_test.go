@@ -338,7 +338,7 @@ var strideF009 = map[string][]string{
 		"db/tests:TestSTRIDEF009Recheck", "db/tests:TestNotifyFanOut",
 	},
 	"I, E: a channel used to reach internal systems (SSRF) | Allow-listed hosts; resolved addresses checked, internal ranges always refused, private only when air-gapped; the checked address dialled; no redirects or proxies": {
-		"db/tests:TestSTRIDEF009Destinations", "internal/notify:TestCheckAddr", "internal/notify:TestResolve", "internal/notify:TestDialChecksAndPins", "internal/notify:TestHTTPClient",
+		"db/tests:TestSTRIDEF009Destinations", "internal/egress:TestCheckAddr", "internal/egress:TestResolve", "internal/egress:TestDialChecksAndPins", "internal/egress:TestHTTPClient",
 	},
 	"S, T: a forged or replayed webhook delivery | HMAC-SHA-256 over id, timestamp and body with a per-webhook secret; delivery ids stable across retries": {
 		"db/tests:TestSTRIDEF009Signing", "internal/notify:TestSTRIDEF009Signing", "internal/notify:TestSignStandardWebhooks", "internal/notify:TestWebhookSender",

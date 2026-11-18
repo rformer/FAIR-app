@@ -1,4 +1,4 @@
-package notify
+package egress
 
 import (
 	"context"
@@ -195,3 +195,25 @@ func listener(t *testing.T) net.Listener {
 }
 
 func itoa(n int) string { return strconv.Itoa(n) }
+
+// F-011 T-04: a refusal names the allow-list setting the guard checks, and
+// AllowingForTest permits only the ranges given (in a test binary).
+func TestRefusalNamesTheSetting(t *testing.T) {
+	ctx := context.Background()
+	for _, c := range []struct{ setting, want string }{
+		{"integration.allowed_hosts", "not in integration.allowed_hosts"},
+		{"", "not in the allow-list"},
+	} {
+		_, err := Guard{Setting: c.setting}.Resolve(ctx, "cmdb.example.com")
+		if !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("setting %q: %v", c.setting, err)
+		}
+	}
+	g := Guard{Allowed: func() []string { return []string{"127.0.0.1", "127.0.0.2"} }}.AllowingForTest(netip.MustParsePrefix("127.0.0.1/32"))
+	if _, err := g.Resolve(ctx, "127.0.0.1"); err != nil {
+		t.Errorf("the permitted range: %v", err)
+	}
+	if _, err := g.Resolve(ctx, "127.0.0.2"); !errors.Is(err, ErrRefused) {
+		t.Errorf("another loopback address: %v", err)
+	}
+}
