@@ -43,14 +43,44 @@ function blank(owner: string): ScenarioDoc {
   };
 }
 
-export function ScenarioEditor({ id }: { id?: string }) {
+type Proposed = { document: ScenarioDoc; set: string; copied_from: string; base_version: number; control: { name: string } };
+
+export function ScenarioEditor({ id, search = window.location.search }: { id?: string; search?: string }) {
   const existing = useApi<ScenarioView>(id ? `/api/v1/scenarios/${id}` : "/api/v1/me");
   const me = useApi<{ user_id: string }>("/api/v1/me");
+  // F-013 T-10 (AC-17): a proposed control set from a framework requirement,
+  // reviewed here and saved (or not) by the analyst.
+  const q = new URLSearchParams(search);
+  const add = q.get("add_control");
+  const proposed = useApi<Proposed>(
+    id && add ? `/api/v1/scenarios/${id}/proposed?${new URLSearchParams({ add_control: add, ...(q.get("set") ? { set: q.get("set") ?? "" } : {}) }).toString()}` : null,
+  );
   useEffect(() => {
     document.title = `${id ? "Edit scenario" : "New scenario"} · FAIR Risk Platform`;
   }, [id]);
   if (!id) {
     return <Status loaded={me}>{(m) => <Form initial={blank(m.user_id)} />}</Status>;
+  }
+  if (add) {
+    return (
+      <Status loaded={existing}>
+        {(v) => (
+          <Status loaded={proposed}>
+            {(p) => (
+              <>
+                <div className="banner" role="status">
+                  <p>
+                    Proposed: a new control set "{p.set}", a copy of "{p.copied_from}" with {p.control.name} added as proposed. Nothing is saved
+                    until you save, and nothing runs until you run it.
+                  </p>
+                </div>
+                <Form initial={p.document} view={v as ScenarioView} />
+              </>
+            )}
+          </Status>
+        )}
+      </Status>
+    );
   }
   return <Status loaded={existing}>{(v) => <Form initial={(v as ScenarioView).version.document!} view={v as ScenarioView} />}</Status>;
 }

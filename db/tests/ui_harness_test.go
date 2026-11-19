@@ -159,10 +159,14 @@ func TestPostureUIHarness(t *testing.T) {
 	// F-010 T-17: the reports API and its worker.
 	stopReports := mountHarnessReports(t, e, riskMux, rp, ae.keys, rule)
 	defer stopReports()
+	// F-013 T-10: the framework API and its import worker.
+	stopFrameworks := mountHarnessFrameworks(t, riskMux, rp, ae.keys, rule)
+	defer stopFrameworks()
 	riskSrv := httptest.NewServer(riskMux)
 	defer riskSrv.Close()
 	riskUp, _ := url.Parse(riskSrv.URL)
 	seedEstimateRequest(t, e, ae.keys, riskSrv.URL, scenario, second)
+	seedFrameworks(t, e, ae.keys, riskSrv.URL)
 	if engineSocket != "" {
 		seedAnalysisRun(t, e, ae.keys, riskSrv.URL, scenario)
 		seedRegister(t, e, ae.keys, riskSrv.URL)

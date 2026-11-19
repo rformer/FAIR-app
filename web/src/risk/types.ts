@@ -1,3 +1,4 @@
+import type { Mapping } from "../frameworks/types";
 import type { Lapse, ProvenanceT } from "../integrations/Provenance";
 // F-003 T-12: the risk API's shapes (api/openapi/risk.yaml) and the scenario
 // document (internal/risk/model; JSON Schema urn:fair:risk:scenario:1).
@@ -273,6 +274,10 @@ export interface ControlDoc {
   description?: string;
   references?: { framework: string; identifier: string }[];
   effects: Effect[];
+  /** F-013: the requirements it addresses. */
+  mappings?: Mapping[];
+  /** F-011: whether it is in place (kept as saved). */
+  implementation?: { status: string; assessed_on?: string; source?: string };
 }
 
 // F-004 T-03, T-13: reference classes, the customer's own data (AC-13).

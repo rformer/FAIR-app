@@ -80,6 +80,25 @@ export async function send<T>(method: "POST" | "PATCH" | "PUT" | "DELETE", path:
   return handle<T>(resp);
 }
 
+/** Uploads a file as the request body (F-013 framework imports), with the CSRF token and an Idempotency-Key. */
+export async function upload<T>(path: string, body: Blob | string, contentType: string): Promise<T> {
+  if (csrfToken === undefined) {
+    await getMe();
+  }
+  const resp = await fetch(path, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": contentType,
+      "Idempotency-Key": crypto.randomUUID(),
+      "X-CSRF-Token": csrfToken ?? "",
+    },
+    body,
+  });
+  return handle<T>(resp);
+}
+
 /**
  * The header carrying an export's or a download's reason (F-010 T-12,
  * design §3.6): percent-encoded UTF-8, as browsers send only Latin-1 in

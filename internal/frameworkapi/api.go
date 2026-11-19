@@ -205,12 +205,20 @@ func (a *API) listFrameworks(w http.ResponseWriter, r *http.Request, p authz.Pri
 	if !ok {
 		return
 	}
-	raw, err := a.one(r, p, "SELECT framework.families($1)", retired)
+	var raw json.RawMessage
+	var manage bool
+	err := authz.WithDBContext(r.Context(), a.DB, p.DBToken, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(r.Context(), "SELECT framework.families($1)", retired).Scan(&raw); err != nil {
+			return err
+		}
+		return tx.QueryRow(r.Context(), "SELECT framework.may_manage()").Scan(&manage)
+	})
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"frameworks": raw})
+	// may_manage (T-10): whether the pages offer imports and retirements.
+	writeJSON(w, http.StatusOK, map[string]any{"frameworks": raw, "may_manage": manage})
 }
 
 func (a *API) getVersion(w http.ResponseWriter, r *http.Request, p authz.Principal) {

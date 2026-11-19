@@ -228,7 +228,14 @@ paths:
       responses:
         "200":
           description: The frameworks
-          content: { application/json: { schema: { type: object, required: [frameworks], properties: { frameworks: { type: array, items: { type: object } } } } } }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [frameworks, may_manage]
+                properties:
+                  frameworks: { type: array, items: { type: object } }
+                  may_manage: { type: boolean, description: "Whether the caller holds framework.manage at the top business unit (imports, retirements)" }
         "400": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
   /api/v1/frameworks/versions/{id}:

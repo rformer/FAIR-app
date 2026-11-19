@@ -7,6 +7,7 @@ import { ArchiveAction } from "./Actions";
 import { EstimateFields, fieldId, newEstimate } from "./EstimateFields";
 import { History } from "./History";
 import { DerivationSection } from "../integrations/LossEvents";
+import { MappingFields, MappingsSummary } from "../frameworks/Mappings";
 import {
   FACTORS,
   FORMS,
@@ -311,6 +312,8 @@ export function EntryPage({ section, id }: { section: EntrySection; id: string }
                 Last change: {v.version.change_note} ({date(v.version.created_at)})
               </p>
             </Section>
+            {/* F-013 T-10: a control's framework mappings (AC-07). */}
+            {d.kind === "control" ? <MappingsSummary mappings={d.mappings ?? []} /> : null}
             {/* F-011 T-18: a reference class may be derived from loss events (AC-18). */}
             {d.kind === "reference_class" ? (
               <DerivationSection id={id} buId={h.bu_id} canEdit={mayEdit && !h.inherited && !h.archived_at} />
@@ -502,7 +505,7 @@ function EditorForm({ section, initial, view }: { section: EntrySection; initial
           ) : doc.kind === "loss_profile" ? (
             <LossFields doc={doc} currency={currency} set={set} />
           ) : doc.kind === "control" ? (
-            <ControlFields doc={doc} currency={currency} set={set} />
+            <ControlFields doc={doc} currency={currency} set={set} id={h?.id} />
           ) : (
             <ReferenceFields doc={doc} currency={currency} set={set} />
           )}
@@ -728,7 +731,7 @@ function ReferenceFields({ doc, currency, set }: { doc: ReferenceClassDoc; curre
   );
 }
 
-function ControlFields({ doc, currency, set }: { doc: ControlDoc; currency: string | null; set: (p: Partial<EntryDoc>) => void }) {
+function ControlFields({ doc, currency, set, id }: { doc: ControlDoc; currency: string | null; set: (p: Partial<EntryDoc>) => void; id?: string }) {
   const effects = doc.effects;
   const refs = doc.references ?? [];
   return (
@@ -798,6 +801,7 @@ function ControlFields({ doc, currency, set }: { doc: ControlDoc; currency: stri
       <button type="button" className="btn" onClick={() => set({ references: [...refs, { framework: "", identifier: "" }] } as Partial<ControlDoc>)}>
         Add a framework reference
       </button>
+      <MappingFields id={id} mappings={doc.mappings ?? []} onChange={(m) => set({ mappings: m.length > 0 ? m : undefined } as Partial<ControlDoc>)} />
     </>
   );
 }

@@ -6,6 +6,9 @@ import { AcceptancePage } from "./acceptance/AcceptancePage";
 import { ChannelsPage, DeliveriesPage } from "./notify/Channels";
 import { IntegrationForm, IntegrationPage, IntegrationsPage } from "./integrations/Integrations";
 import { LossEventsPage } from "./integrations/LossEvents";
+import { CoveragePage } from "./frameworks/Coverage";
+import { BaselinePage, CrosswalkPage, FrameworksPage, RequirementPage, VersionPage } from "./frameworks/Frameworks";
+import { ImportsPage as FrameworkImportsPage } from "./frameworks/Imports";
 import { RegisterImportPage } from "./integrations/RegisterImport";
 import { ProposalPage, ProposalsPage } from "./integrations/Review";
 import { RunPage as IntegrationRunPage } from "./integrations/Runs";
@@ -90,6 +93,8 @@ function App() {
   const path = window.location.pathname;
   const section = path.startsWith("/notifications")
     ? "notifications"
+    : path.startsWith("/frameworks")
+    ? "frameworks"
     : path.startsWith("/integrations")
     ? "integrations"
     : path.startsWith("/reports")
@@ -169,6 +174,11 @@ function App() {
               </a>
             </li>
             <li>
+              <a href="/frameworks" aria-current={current("frameworks")}>
+                Frameworks
+              </a>
+            </li>
+            <li>
               <a href="/integrations" aria-current={current("integrations")}>
                 Integrations
               </a>
@@ -192,6 +202,8 @@ function App() {
       <main id="main" tabIndex={-1}>
         {section === "notifications" ? (
           <NotificationRoutes path={path} />
+        ) : section === "frameworks" ? (
+          <FrameworkRoutes path={path} />
         ) : section === "integrations" ? (
           <IntegrationRoutes path={path} />
         ) : section === "reports" ? (
@@ -234,6 +246,20 @@ function ReportRoutes({ path }: { path: string }) {
   if (s?.[1]) return <SchedulePage id={s[1]} />;
   const m = /^\/reports\/([0-9a-f-]{36})$/.exec(path);
   return m?.[1] ? <ReportPage id={m[1]} /> : <p role="alert">Not found.</p>;
+}
+
+// F-013 T-10: /frameworks, /frameworks/imports, /frameworks/versions/{id}
+// [/coverage], /frameworks/requirements/{id}, /frameworks/baselines/{id},
+// /frameworks/crosswalks/{id}.
+function FrameworkRoutes({ path }: { path: string }) {
+  if (path === "/frameworks" || path === "/frameworks/") return <FrameworksPage />;
+  if (path === "/frameworks/imports") return <FrameworkImportsPage />;
+  const v = /^\/frameworks\/versions\/([0-9a-f-]{36})(\/coverage)?$/.exec(path);
+  if (v) return v[2] ? <CoveragePage id={v[1] ?? ""} /> : <VersionPage id={v[1] ?? ""} />;
+  const m = /^\/frameworks\/(requirements|baselines|crosswalks)\/([0-9a-f-]{36})$/.exec(path);
+  if (!m) return <p role="alert">Not found.</p>;
+  const id = m[2] ?? "";
+  return m[1] === "requirements" ? <RequirementPage id={id} /> : m[1] === "baselines" ? <BaselinePage id={id} /> : <CrosswalkPage id={id} />;
 }
 
 // F-011 T-18: /integrations, /integrations/new, /integrations/{id}[/edit],

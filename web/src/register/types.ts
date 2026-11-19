@@ -1,3 +1,4 @@
+import type { Addressed } from "../frameworks/types";
 // F-007 T-08: the register API's shapes (api/openapi/register.yaml) and the
 // risk document (internal/register, schema_version 1).
 
@@ -38,6 +39,8 @@ export interface ExposureStatus {
 export interface RiskHead {
   /** F-011 AC-24: controls its scenarios rely on that are no longer in place. */
   control_lapsed?: Lapse[];
+  /** F-013 AC-18: the framework requirements its scenarios' current controls address. */
+  requirements?: Addressed[];
   id: string;
   bu_id: string;
   state: "open" | "closed";

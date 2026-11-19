@@ -12,6 +12,7 @@ import { auditHref, date, show } from "../links";
 import type { BU } from "../risk/types";
 import { AcceptanceSection } from "../acceptance/RiskAcceptance";
 import { LapsedBanner, ProvenanceText, type ProvenanceT } from "../integrations/Provenance";
+import { RiskRequirements } from "../frameworks/Mappings";
 import { TreatmentSection } from "./Treatment";
 import { REASON_LABEL, STATUS_LABEL, type LinkView, type RiskView } from "./types";
 
@@ -117,6 +118,7 @@ export function RiskPage({ id }: { id: string }) {
             <Summary v={v} />
             <Scenarios v={v} id={id} canAdopt={mayEdit && open} onAdopted={view.reload} />
             <ExposureView v={v} currency={currency} />
+            <RiskRequirements requirements={r.requirements} />
             <TreatmentSection v={v} />
             <AcceptanceSection v={v} />
             <RiskHistory key={r.current_version} id={id} current={r.current_version} />
