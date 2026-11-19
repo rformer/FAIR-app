@@ -1,0 +1,27 @@
+{
+  "profile": {
+    "uuid": "8d1f0c2b-4a6e-4f3d-b5c7-9e2a1d0f3b44",
+    "metadata": {
+      "title": "Test Moderate Baseline",
+      "last-modified": "2026-01-15T00:00:00Z",
+      "version": "1.0",
+      "oscal-version": "1.2.3"
+    },
+    "imports": [
+      {
+        "href": "#5e7a9c3d-1b2f-4d6e-8a0c-7f9b1e3d5a22",
+        "include-controls": [ { "with-ids": ["ac-1", "ac-2"], "with-child-controls": "yes" } ],
+        "exclude-controls": [ { "with-ids": ["ac-2.1"] } ]
+      }
+    ],
+    "modify": {
+      "set-parameters": [ { "param-id": "ac-01_odp.01", "values": ["the CISO"] } ],
+      "alters": [ { "control-id": "ac-2", "adds": [ { "position": "ending", "props": [ { "name": "note", "value": "x" } ] } ] } ]
+    },
+    "back-matter": {
+      "resources": [
+        { "uuid": "5e7a9c3d-1b2f-4d6e-8a0c-7f9b1e3d5a22", "title": "Test Catalog", "rlinks": [ { "href": "https://example.invalid/catalog.json", "media-type": "application/oscal.catalog+json" } ] }
+      ]
+    }
+  }
+}

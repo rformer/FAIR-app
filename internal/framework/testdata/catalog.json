@@ -1,0 +1,72 @@
+{
+  "catalog": {
+    "uuid": "3a2c5d1e-7b9f-4c8a-9e10-2f4b6d8a0c11",
+    "metadata": {
+      "title": "Test Catalog",
+      "published": "2026-01-15T00:00:00Z",
+      "last-modified": "2026-01-15T00:00:00Z",
+      "version": "1.0",
+      "oscal-version": "1.2.3"
+    },
+    "groups": [
+      {
+        "id": "ac",
+        "class": "family",
+        "title": "Access Control",
+        "controls": [
+          {
+            "id": "ac-1",
+            "class": "SP800-53",
+            "title": "Policy and Procedures",
+            "params": [
+              { "id": "ac-01_odp.01", "label": "organization-defined personnel or roles" },
+              { "id": "ac-01_odp.02", "select": { "how-many": "one-or-more", "choice": ["organization-level", "system-level"] } }
+            ],
+            "props": [ { "name": "label", "value": "AC-1" }, { "name": "sort-id", "value": "ac-01" } ],
+            "parts": [
+              {
+                "id": "ac-1_smt",
+                "name": "statement",
+                "parts": [
+                  {
+                    "id": "ac-1_smt.a",
+                    "name": "item",
+                    "props": [ { "name": "label", "value": "a." } ],
+                    "prose": "Develop, document, and disseminate to {{ insert: param, ac-01_odp.01 }}:",
+                    "parts": [
+                      { "id": "ac-1_smt.a.1", "name": "item", "props": [ { "name": "label", "value": "1." } ], "prose": "{{ insert: param, ac-01_odp.02 }} access control policy; and" }
+                    ]
+                  }
+                ]
+              },
+              { "id": "ac-1_gdn", "name": "guidance", "prose": "Guidance is not part of the statement." }
+            ]
+          },
+          {
+            "id": "ac-2",
+            "class": "SP800-53",
+            "title": "Account Management",
+            "props": [ { "name": "label", "value": "AC-2" } ],
+            "parts": [ { "id": "ac-2_smt", "name": "statement", "prose": "Manage system accounts." } ],
+            "controls": [
+              {
+                "id": "ac-2.1",
+                "class": "SP800-53-enhancement",
+                "title": "Automated System Account Management",
+                "props": [ { "name": "label", "value": "AC-2(1)" } ],
+                "parts": [ { "id": "ac-2.1_smt", "name": "statement", "prose": "Support account management with automated mechanisms." } ]
+              }
+            ]
+          },
+          {
+            "id": "ac-3",
+            "class": "SP800-53",
+            "title": "Withdrawn Control",
+            "props": [ { "name": "label", "value": "AC-3" }, { "name": "status", "value": "withdrawn" } ],
+            "links": [ { "href": "#ac-2", "rel": "incorporated-into" } ]
+          }
+        ]
+      }
+    ]
+  }
+}
