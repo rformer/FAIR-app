@@ -536,7 +536,7 @@ func run() error {
 			srv.Mux().Handle(prefix+"/", reph)
 		}
 		// The framework API (F-013 design §6).
-		fwh := server.SecurityHeaders((&frameworkapi.API{DB: pool, Enqueue: enqueueImport}).Handler(jwtKeys, nil))
+		fwh := server.SecurityHeaders((&frameworkapi.API{DB: pool, Enqueue: enqueueImport, Audit: emitter, Reasons: sc}).Handler(jwtKeys, nil))
 		for _, prefix := range frameworkapi.Prefixes {
 			srv.Mux().Handle(prefix, fwh)
 			srv.Mux().Handle(prefix+"/", fwh)

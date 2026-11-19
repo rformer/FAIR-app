@@ -22,12 +22,22 @@ tags:
   - { name: frameworks, description: "Frameworks, versions and requirements (F-013 R-01)" }
   - { name: baselines, description: "Baselines resolved from OSCAL profiles (F-013-AC-02)" }
   - { name: imports, description: "Importing catalogs, profiles and simple frameworks (F-013-AC-01 to AC-03)" }
+  - { name: coverage, description: "Coverage of a framework for a business unit (F-013-AC-12 to AC-15)" }
   - { name: crosswalks, description: "Relationships between requirements of two framework versions (F-013-AC-10, AC-11)" }
 components:
   securitySchemes:
     internalJWT: { type: http, scheme: bearer, bearerFormat: JWT }
     dbContext: { type: apiKey, in: header, name: X-Fair-DB-Context }
   parameters:
+    Reason:
+      name: X-Fair-Reason
+      in: header
+      required: false
+      description: >-
+        Why the data leaves the platform, as percent-encoded UTF-8 (at most 500 characters). Required where
+        export.reason_required is in force in the business unit's subtree (F-010 T-12, OQ7; 400 reason_required
+        without it); recorded as the event's reason.
+      schema: { type: string, maxLength: 1500 }
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -57,6 +67,57 @@ components:
       description: The import
       content: { application/json: { schema: { $ref: "#/components/schemas/Import" } } }
   schemas:
+    CoveredBy:
+      type: object
+      properties:
+        control_id: { type: string, format: uuid }
+        version: { type: integer }
+        name: { type: string }
+        bu_id: { type: string, format: uuid }
+        strength: { type: string, enum: [full, partial, supports] }
+        implementation: { type: [string, "null"], enum: [in_place, partial, planned, not_in_place, null] }
+        via: { type: string, description: "Derived only: the related requirement, as family, version and identifier" }
+        via_requirement_id: { type: string, format: uuid }
+        crosswalk_id: { type: string, format: uuid }
+        crosswalk: { type: string }
+        relationship: { type: string, enum: [equal, subset_of, superset_of, intersects], description: "The related requirement's relationship to this one" }
+        reach: { type: string, enum: [equivalent, partial] }
+    StateCounts:
+      type: object
+      properties:
+        in_place: { type: integer }
+        not_in_place: { type: integer }
+        partial: { type: integer }
+        not_covered: { type: integer }
+    Coverage:
+      type: object
+      properties:
+        version: { type: object }
+        baseline: { type: [object, "null"] }
+        bu_id: { type: string, format: uuid }
+        as_of: { type: [string, "null"], format: date-time }
+        requirements:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string, format: uuid }
+              identifier: { type: string }
+              label: { type: [string, "null"] }
+              title: { type: string }
+              parent: { type: [string, "null"] }
+              state: { type: string, enum: [in_place, not_in_place, partial, not_covered] }
+              direct: { type: array, items: { $ref: "#/components/schemas/CoveredBy" } }
+              derived: { type: array, items: { $ref: "#/components/schemas/CoveredBy" } }
+        counts: { $ref: "#/components/schemas/StateCounts" }
+        restricted:
+          type: [object, "null"]
+          description: Restricted units the caller's roll-up mode makes aggregate-only, as counts only
+          properties:
+            units: { type: integer }
+            label: { type: string }
+            counts: { $ref: "#/components/schemas/StateCounts" }
+        left_out: { type: integer, description: Business units of the subtree left out (neither readable nor aggregate) }
     Crosswalk:
       type: object
       properties:
@@ -243,6 +304,81 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
+  /api/v1/frameworks/versions/{id}/coverage:
+    get:
+      operationId: getCoverage
+      tags: [coverage]
+      summary: Coverage of the version, or a baseline, for a business unit's subtree; states and counts, never a score (AC-12 to AC-14, AC-20)
+      description: >-
+        Each requirement with the controls the caller may read in the subtree that map to it (direct), those
+        mapping to a requirement a crosswalk relates to it (derived, apart), and a state: in_place, not_in_place,
+        partial or not_covered. Restricted units below appear only as their roll-up mode allows: as counts
+        (restricted), or not at all (left_out counts the units left out).
+      x-permission: control.view at the business unit
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { name: bu, in: query, required: true, schema: { type: string, format: uuid }, description: The business unit whose subtree is read }
+        - { name: baseline, in: query, schema: { type: string, format: uuid }, description: "A baseline of the version: its selection only" }
+        - { name: as_of, in: query, schema: { type: string }, description: "A date (the end of that day, UTC) or an RFC 3339 time: controls' versions and crosswalks as they were then" }
+      responses:
+        "200":
+          description: The coverage
+          content: { application/json: { schema: { $ref: "#/components/schemas/Coverage" } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/frameworks/versions/{id}/coverage.csv:
+    get:
+      operationId: exportCoverageCSV
+      tags: [coverage]
+      summary: Coverage as CSV, recorded in the audit trail (AC-15)
+      description: A reason (X-Fair-Reason) is required where export.reason_required is in force in the subtree; no record, no file (503).
+      x-permission: control.view at the business unit
+      x-audit-events: [framework.coverage_exported]
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { name: bu, in: query, required: true, schema: { type: string, format: uuid }, description: The business unit whose subtree is read }
+        - { name: baseline, in: query, schema: { type: string, format: uuid }, description: "A baseline of the version: its selection only" }
+        - { name: as_of, in: query, schema: { type: string }, description: "A date (the end of that day, UTC) or an RFC 3339 time: controls' versions and crosswalks as they were then" }
+        - { $ref: "#/components/parameters/Reason" }
+      responses:
+        "200":
+          description: The file
+          content: { text/csv: { schema: { type: string } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /api/v1/frameworks/versions/{id}/coverage.json:
+    get:
+      operationId: exportCoverageJSON
+      tags: [coverage]
+      summary: Coverage as JSON (fair.coverage.v1), recorded in the audit trail (AC-15)
+      description: A reason (X-Fair-Reason) is required where export.reason_required is in force in the subtree; no record, no file (503).
+      x-permission: control.view at the business unit
+      x-audit-events: [framework.coverage_exported]
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { name: bu, in: query, required: true, schema: { type: string, format: uuid }, description: The business unit whose subtree is read }
+        - { name: baseline, in: query, schema: { type: string, format: uuid }, description: "A baseline of the version: its selection only" }
+        - { name: as_of, in: query, schema: { type: string }, description: "A date (the end of that day, UTC) or an RFC 3339 time: controls' versions and crosswalks as they were then" }
+        - { $ref: "#/components/parameters/Reason" }
+      responses:
+        "200":
+          description: The file
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Coverage" }
+                  - { type: object, properties: { format: { type: string, enum: [fair.coverage.v1] }, exported_at: { type: string, format: date-time } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
   /api/v1/frameworks/requirements/{id}:
     get:
       operationId: getRequirement

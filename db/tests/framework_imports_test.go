@@ -18,7 +18,9 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/rformer/fair-app/internal/frameworkapi"
+	"github.com/rformer/fair-app/internal/reason"
 	"github.com/rformer/fair-app/internal/server"
+	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
 )
 
@@ -28,6 +30,7 @@ import (
 type frameworkEnv struct {
 	*riskAPIEnv
 	risk   *riskAPIEnv // the risk API itself (controls, scenarios)
+	api    *frameworkapi.API
 	worker *frameworkapi.Worker
 	mu     sync.Mutex
 	queued []string
@@ -38,7 +41,7 @@ func frameworkAPI(t *testing.T) *frameworkEnv {
 	ra := newRiskAPI(t)
 	pool := ra.appPool()
 	fe := &frameworkEnv{worker: &frameworkapi.Worker{DB: pool}}
-	api := &frameworkapi.API{DB: pool, Enqueue: func(_ context.Context, _ pgx.Tx, a frameworkapi.ImportArgs) error {
+	api := &frameworkapi.API{DB: pool, Reasons: reason.Static{}, Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: pool}), Enqueue: func(_ context.Context, _ pgx.Tx, a frameworkapi.ImportArgs) error {
 		fe.mu.Lock()
 		fe.queued = append(fe.queued, a.ImportID)
 		fe.mu.Unlock()
@@ -50,6 +53,7 @@ func frameworkAPI(t *testing.T) *frameworkEnv {
 	fa.url = srv.URL
 	fe.riskAPIEnv = &fa
 	fe.risk = ra
+	fe.api = api
 	return fe
 }
 

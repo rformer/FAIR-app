@@ -639,6 +639,13 @@ events:
     bu: required
     attributes: [baseline, family, import, requirements, sha256, version]
     description: "A baseline (an OSCAL profile) was imported by a holder of framework.manage, resolved to the requirements it selects from a framework version, with its file's digest (F-013 T-05, AC-02, AC-19)"
+  - type: framework.coverage_exported
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [as_of, baseline, format, framework, requirements, version]
+    description: "A framework version's coverage for a business unit's subtree was exported as CSV or JSON, with the reason export.reason_required asks for, in the transaction that read it (F-013 T-08, AC-15)"
   - type: framework.crosswalk_imported
     category: configuration
     severities: [high]

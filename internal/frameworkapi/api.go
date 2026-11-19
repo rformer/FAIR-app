@@ -13,6 +13,7 @@
 //	POST /api/v1/frameworks/baselines/{id}/retire         retire one (a reason)
 //	POST /api/v1/frameworks/imports                       upload a catalog, profile or simple framework (?dry_run=true)
 //	GET  /api/v1/frameworks/imports/{id}                  an import's outcome
+//	GET  /api/v1/frameworks/versions/{id}/coverage[.csv|.json] coverage for ?bu= (T-08)
 //	GET  /api/v1/controls/{id}/suggested-mappings         its references that match requirements (T-06)
 //	GET  /api/v1/controls/{id}/mapping-updates            equivalents of its mappings in newer versions (T-06)
 //
@@ -41,8 +42,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/rformer/fair-app/internal/framework"
+	"github.com/rformer/fair-app/internal/reason"
 	"github.com/rformer/fair-app/internal/riskapi"
 	"github.com/rformer/fair-app/internal/server"
+	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
 )
 
@@ -52,6 +55,12 @@ type API struct {
 	// Enqueue queues an import's job in the request's transaction; nil
 	// answers imports 503.
 	Enqueue func(context.Context, pgx.Tx, ImportArgs) error
+	// Audit records coverage exports (framework.coverage_exported) in their
+	// transaction; nil answers every export 503.
+	Audit audit.Emitter
+	// Reasons gives export.reason_required (F-010 T-12) for exports; nil
+	// fails closed (503).
+	Reasons reason.Settings
 }
 
 type route struct {
@@ -64,6 +73,9 @@ var routes = []route{
 	{"GET", "/api/v1/frameworks/versions/{id}", (*API).getVersion},
 	{"GET", "/api/v1/frameworks/versions/{id}/requirements", (*API).listRequirements},
 	{"GET", "/api/v1/frameworks/versions/{id}/diff", (*API).getVersionDiff},
+	{"GET", "/api/v1/frameworks/versions/{id}/coverage", (*API).getCoverage},
+	{"GET", "/api/v1/frameworks/versions/{id}/coverage.csv", (*API).exportCoverageCSV},
+	{"GET", "/api/v1/frameworks/versions/{id}/coverage.json", (*API).exportCoverageJSON},
 	{"POST", "/api/v1/frameworks/versions/{id}/retire", (*API).retireVersion},
 	{"GET", "/api/v1/frameworks/requirements/{id}", (*API).getRequirement},
 	{"GET", "/api/v1/frameworks/baselines", (*API).listBaselines},
@@ -149,6 +161,10 @@ func fail(w http.ResponseWriter, err error) {
 		problem(w, http.StatusBadRequest, pg.Hint, pg.Message)
 	case pg.Code == "PF033" && pg.Hint == "retired":
 		problem(w, http.StatusConflict, "retired", pg.Message)
+	case pg.Code == "PF033" && pg.Hint == "forbidden":
+		problem(w, http.StatusForbidden, "forbidden", pg.Message)
+	case pg.Code == "PF033" && pg.Hint == "not_active_then":
+		problem(w, http.StatusConflict, "not_active_then", pg.Message)
 	default:
 		problem(w, http.StatusServiceUnavailable, "unavailable", "")
 	}
