@@ -32,11 +32,13 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/rformer/fair-app/internal/integration"
 	"github.com/rformer/fair-app/internal/registerapi"
 	"github.com/rformer/fair-app/internal/riskapi"
 	"github.com/rformer/fair-app/internal/server"
@@ -105,7 +107,36 @@ func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {
 			h(a, w, r, p)
 		})
 	}
-	return server.Authenticate(kp, "risk", now)(server.Idempotent(riskapi.IdempotencyStore{DB: a.DB})(mux))
+	store := riskapi.IdempotencyStore{DB: a.DB}
+	small, large := server.Idempotent(store)(mux), server.IdempotentLimit(store, UploadLimit)(mux)
+	return server.Authenticate(kp, "risk", now)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isUpload(r) {
+			large.ServeHTTP(w, r)
+			return
+		}
+		small.ServeHTTP(w, r)
+	}))
+}
+
+// UploadLimit is the body limit of the routes that take a batch or a file
+// (design §3.2: 20 MiB a body), with room for the request around it; every
+// other route keeps the 4 MiB limit.
+const UploadLimit = integration.MaxBody + 64<<10
+
+// isUpload says whether r pushes a batch or uploads a register file.
+func isUpload(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+	if r.URL.Path == "/api/v1/register/imports" {
+		return true
+	}
+	rest, ok := strings.CutPrefix(r.URL.Path, "/api/v1/imports/")
+	if !ok {
+		return false
+	}
+	integ, tail, _ := strings.Cut(rest, "/")
+	return integ != "" && tail == "batches"
 }
 
 var uuidRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)

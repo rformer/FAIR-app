@@ -40,6 +40,12 @@ func TestRegisterImport(t *testing.T) {
 	if got := im.call(t, "POST", "rowner", path+"?dry_run=true", body(first, partial, "")); got.code != 422 || !strings.Contains(got.raw, "/columns/Likelihood") {
 		t.Errorf("unmapped columns: %d %s", got.code, got.raw)
 	}
+	// Over the platform's 4 MiB, within F-011's 20 MiB: the file reaches the
+	// import's checks rather than a 413.
+	big := csvFile(`R-1,Ransomware,,,,High,` + strings.Repeat("x", 6<<20))
+	if got := im.call(t, "POST", "rowner", path+"?dry_run=true", body(big, partial, "")); got.code != 422 {
+		t.Errorf("a 6 MiB file: %d %.300s", got.code, got.raw)
+	}
 	bad := csvFile(`R-1,Ransomware,,nobody@example.test,Cyber,High,`, `R-2,Outage,,,Weather,Low,`, `,No id,,,,,`)
 	got := im.call(t, "POST", "rowner", path+"?dry_run=true", body(bad, columns, ""))
 	for _, want := range []string{"/rows/1/owner", "/rows/2/category", "/rows/3/external_id"} {

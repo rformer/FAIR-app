@@ -183,6 +183,9 @@ func TestImportBatches(t *testing.T) {
 		"not JSON":           {"application/json", `{`, 422},
 		"another media type": {"application/xml", `<x/>`, 415},
 		"too large":          {"application/json", strings.Repeat(" ", 20<<20+1), 413},
+		// Over the platform's 4 MiB, within the batch's 20 MiB: the body
+		// reaches the batch's checks (design §3.2).
+		"6 MiB": {"application/json", `{"format": "fair.risk.v1", "records": []}` + strings.Repeat(" ", 6<<20), 422},
 	} {
 		if got := im.send(t, "pusher", path, c.ct, c.body); got.code != c.code {
 			t.Errorf("%s: %d %s", name, got.code, got.raw[:min(len(got.raw), 200)])
