@@ -21,13 +21,13 @@ func TestShippedFrameworks(t *testing.T) {
 		t.Fatalf("install synced %+v", got)
 	}
 	for q, want := range map[string]string{
-		"SELECT count(*) FROM framework.version WHERE source = 'shipped' AND state = 'active'":                                                        "3",
-		"SELECT count(*) FROM framework.requirement r JOIN framework.version v ON v.id = r.version_id WHERE v.label = '5.2.0'":                        "1196",
+		"SELECT count(*) FROM framework.version WHERE source = 'shipped' AND state = 'active'":                                                          "3",
+		"SELECT count(*) FROM framework.requirement r JOIN framework.version v ON v.id = r.version_id WHERE v.label = '5.2.0'":                          "1196",
 		"SELECT r.label FROM framework.requirement r JOIN framework.version v ON v.id = r.version_id WHERE v.label = '5.2.0' AND identifier = 'ac-2.1'": "AC-2(1)",
-		"SELECT count(*) FROM framework.baseline WHERE source = 'shipped'":                                                                            "8",
-		"SELECT count(*) FROM framework.relationship":                                                                                                 "157",
-		"SELECT count(DISTINCT relationship) FROM framework.relationship":                                                                             "1",
-		`SELECT b.key FROM framework.baseline b JOIN framework.version v ON v.id = b.version_id WHERE v.label = '5.1.1+u4' ORDER BY b.key LIMIT 1`:    "fedramp-high",
+		"SELECT count(*) FROM framework.baseline WHERE source = 'shipped'":                                                                              "8",
+		"SELECT count(*) FROM framework.relationship":                                                                                                   "157",
+		"SELECT count(DISTINCT relationship) FROM framework.relationship":                                                                               "1",
+		`SELECT b.key FROM framework.baseline b JOIN framework.version v ON v.id = b.version_id WHERE v.label = '5.1.1+u4' ORDER BY b.key LIMIT 1`:      "fedramp-high",
 	} {
 		if v := e.adminQuery(q); v != want {
 			t.Errorf("%s: %s, want %s", q, v, want)

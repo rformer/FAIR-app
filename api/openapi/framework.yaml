@@ -1,0 +1,333 @@
+openapi: 3.1.0
+info:
+  title: FAIR Framework API
+  version: "1"
+  contact: { name: FAIR Risk Platform, url: "https://github.com/rformer/FAIR-app" }
+  description: |
+    F-013 design §6. Control frameworks (NIST SP 800-53, its baselines, SP 800-171, FedRAMP, and the
+    frameworks an organization imports), served by the risk service behind the gateway, which
+    authenticates the session and forwards an internal JWT (ES256, audience `risk`, at most 5 minutes)
+    and the DB context token it was minted with (F-001 design §4, §5.2).
+
+    Frameworks are installation-wide reference data: holders of `framework.view`, `control.view` or
+    `control.edit` at any business unit read them; anyone else finds no route (404). Imports and
+    retirements need `framework.manage` at the top business unit (privileged). Imports are processed by
+    a job, whole or not at all; nothing in a file is fetched (no `href` is followed).
+servers:
+  - url: /
+security:
+  - internalJWT: []
+    dbContext: []
+tags:
+  - { name: frameworks, description: "Frameworks, versions and requirements (F-013 R-01)" }
+  - { name: baselines, description: "Baselines resolved from OSCAL profiles (F-013-AC-02)" }
+  - { name: imports, description: "Importing catalogs, profiles and simple frameworks (F-013-AC-01 to AC-03)" }
+components:
+  securitySchemes:
+    internalJWT: { type: http, scheme: bearer, bearerFormat: JWT }
+    dbContext: { type: apiKey, in: header, name: X-Fair-DB-Context }
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 8, maxLength: 128 }
+    ID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Retired:
+      name: retired
+      in: query
+      schema: { type: boolean }
+      description: Include retired items
+  responses:
+    Error:
+      description: An error
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Version:
+      description: The framework version
+      content: { application/json: { schema: { $ref: "#/components/schemas/Version" } } }
+    Baseline:
+      description: The baseline
+      content: { application/json: { schema: { $ref: "#/components/schemas/Baseline" } } }
+    Import:
+      description: The import
+      content: { application/json: { schema: { $ref: "#/components/schemas/Import" } } }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: >-
+            not_found, forbidden, invalid_request, invalid_value, reason_required, retired, limit_exceeded,
+            unsupported_media_type, too_large, unavailable, unauthenticated
+        detail: { type: string }
+    Version:
+      type: object
+      required: [id, family, label, title, source, state, requirements]
+      properties:
+        id: { type: string, format: uuid }
+        family: { type: string }
+        family_title: { type: string }
+        publisher: { type: [string, "null"] }
+        label: { type: string }
+        title: { type: string }
+        published: { type: [string, "null"], format: date }
+        source: { type: string, enum: [shipped, upload] }
+        format: { type: string, enum: [oscal, simple] }
+        sha256: { type: string, description: The imported file's digest }
+        state: { type: string, enum: [active, retired] }
+        imported_at: { type: string, format: date-time }
+        imported_by_name: { type: [string, "null"] }
+        retired_at: { type: [string, "null"], format: date-time }
+        requirements: { type: integer }
+        withdrawn: { type: integer }
+        baselines: { type: array, items: { type: object } }
+        changes: { type: [object, "null"], description: "Counts of added, changed and withdrawn requirements since the family's previous version" }
+    Requirement:
+      type: object
+      required: [id, version_id, identifier, title]
+      properties:
+        id: { type: string, format: uuid }
+        version_id: { type: string, format: uuid }
+        identifier: { type: string }
+        label: { type: [string, "null"] }
+        title: { type: string }
+        statement: { type: [string, "null"], description: "Parameters appear as [Assignment: ...] or [Selection: ...]; absent where the text is not licensed" }
+        parent: { type: [string, "null"] }
+        withdrawn: { type: boolean }
+        incorporated_into: { type: array, items: { type: string } }
+        ord: { type: integer }
+    Baseline:
+      type: object
+      required: [id, version_id, key, title, state, requirements]
+      properties:
+        id: { type: string, format: uuid }
+        version_id: { type: string, format: uuid }
+        family: { type: string }
+        version_label: { type: string }
+        key: { type: string }
+        title: { type: string }
+        source: { type: string, enum: [shipped, upload] }
+        sha256: { type: string }
+        state: { type: string, enum: [active, retired] }
+        requirements: { type: integer }
+        parameters: { type: object, additionalProperties: { type: string } }
+        notes: { type: array, items: { type: string }, description: "What resolution did not apply (alterations)" }
+        selected: { type: array, items: { type: string }, description: "The selected requirements' identifiers (single baseline only)" }
+    Import:
+      type: object
+      required: [id, kind, state, dry_run]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [catalog, profile, simple, crosswalk] }
+        dry_run: { type: boolean }
+        sha256: { type: string }
+        state: { type: string, enum: [queued, running, succeeded, refused, failed] }
+        meta: { type: object }
+        problems: { type: array, maxItems: 1000, items: { type: object, properties: { pointer: { type: string }, message: { type: string } } } }
+        result: { type: [object, "null"], description: "summary (counts; for a new version, what changed since the previous one), diff, and the version_id or baseline_id applied" }
+        requested_at: { type: string, format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
+    ReasonBody:
+      type: object
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 500 }
+paths:
+  /api/v1/frameworks:
+    get:
+      operationId: listFrameworks
+      tags: [frameworks]
+      summary: Framework families and their versions, newest first (AC-01, AC-05)
+      x-permission: framework.view, control.view or control.edit at any business unit
+      parameters: [{ $ref: "#/components/parameters/Retired" }]
+      responses:
+        "200":
+          description: The frameworks
+          content: { application/json: { schema: { type: object, required: [frameworks], properties: { frameworks: { type: array, items: { type: object } } } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/frameworks/versions/{id}:
+    get:
+      operationId: getVersion
+      tags: [frameworks]
+      summary: A framework version with its baselines and what changed since the previous one (AC-05)
+      x-permission: framework.view, control.view or control.edit at any business unit
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { $ref: "#/components/responses/Version" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/frameworks/versions/{id}/requirements:
+    get:
+      operationId: listRequirements
+      tags: [frameworks]
+      summary: A version's requirements in published order, searched by identifier, label, title or statement (AC-01)
+      x-permission: framework.view, control.view or control.edit at any business unit
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { name: q, in: query, schema: { type: string, maxLength: 200 } }
+        - { name: parent, in: query, schema: { type: string }, description: "A requirement's identifier; empty for the top-level ones" }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 100 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+      responses:
+        "200":
+          description: Requirements (without their statements)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [requirements, more]
+                properties:
+                  requirements: { type: array, items: { $ref: "#/components/schemas/Requirement" } }
+                  more: { type: boolean }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/frameworks/versions/{id}/diff:
+    get:
+      operationId: getVersionDiff
+      tags: [frameworks]
+      summary: What changed since the family's previous version, by requirement identifier (AC-05)
+      x-permission: framework.view, control.view or control.edit at any business unit
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: The changes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  since: { type: [string, "null"] }
+                  added: { type: array, items: { type: string } }
+                  changed: { type: array, items: { type: string } }
+                  withdrawn: { type: array, items: { type: string } }
+                  renumbered: { type: object, additionalProperties: { type: string } }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/frameworks/versions/{id}/retire:
+    post:
+      operationId: retireVersion
+      tags: [frameworks]
+      summary: Retire a framework version, hidden from new mappings and coverage choices and kept readable (AC-06)
+      x-permission: framework.manage at the top business unit
+      x-audit-events: [framework.retired]
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }, { $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ReasonBody" } } }
+      responses:
+        "200": { $ref: "#/components/responses/Version" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/frameworks/requirements/{id}:
+    get:
+      operationId: getRequirement
+      tags: [frameworks]
+      summary: A requirement with its statement, version, children and the baselines that select it
+      x-permission: framework.view, control.view or control.edit at any business unit
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: The requirement
+          content: { application/json: { schema: { $ref: "#/components/schemas/Requirement" } } }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/frameworks/baselines:
+    get:
+      operationId: listBaselines
+      tags: [baselines]
+      summary: Baselines, of one version or all (AC-02)
+      x-permission: framework.view, control.view or control.edit at any business unit
+      parameters:
+        - { name: version, in: query, schema: { type: string, format: uuid } }
+        - { $ref: "#/components/parameters/Retired" }
+      responses:
+        "200":
+          description: The baselines
+          content: { application/json: { schema: { type: object, required: [baselines], properties: { baselines: { type: array, items: { $ref: "#/components/schemas/Baseline" } } } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/frameworks/baselines/{id}:
+    get:
+      operationId: getBaseline
+      tags: [baselines]
+      summary: A baseline with the requirements it selects (AC-02)
+      x-permission: framework.view, control.view or control.edit at any business unit
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { $ref: "#/components/responses/Baseline" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/frameworks/baselines/{id}/retire:
+    post:
+      operationId: retireBaseline
+      tags: [baselines]
+      summary: Retire a baseline (AC-06)
+      x-permission: framework.manage at the top business unit
+      x-audit-events: [framework.baseline_retired]
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }, { $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ReasonBody" } } }
+      responses:
+        "200": { $ref: "#/components/responses/Baseline" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/frameworks/imports:
+    post:
+      operationId: requestImport
+      tags: [imports]
+      summary: Import an OSCAL catalog or profile, or a fair.framework.v1 file, processed by a job, whole or not at all (AC-01 to AC-03)
+      description: >-
+        The body is the file. A catalog names its family (family, family_title, publisher); a CSV simple
+        file names its family and version (also label, title, published); a profile names the catalog
+        version it selects from (catalog_family, catalog_version) and the baseline's key. A dry run
+        records what would be imported, and what changed since the family's previous version, without
+        applying it. Nothing is fetched from the file's links.
+      x-permission: framework.manage at the top business unit
+      x-audit-events: [framework.imported, framework.baseline_imported, framework.import_refused]
+      x-reason-exempt: an import records its file's digest, and the version or baseline it brought
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { name: kind, in: query, required: true, schema: { type: string, enum: [catalog, profile, simple] } }
+        - { name: dry_run, in: query, schema: { type: boolean } }
+        - { name: family, in: query, schema: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,62}$" } }
+        - { name: family_title, in: query, schema: { type: string, maxLength: 300 } }
+        - { name: publisher, in: query, schema: { type: string, maxLength: 300 } }
+        - { name: label, in: query, schema: { type: string, maxLength: 100 } }
+        - { name: title, in: query, schema: { type: string, maxLength: 300 } }
+        - { name: published, in: query, schema: { type: string, format: date } }
+        - { name: catalog_family, in: query, schema: { type: string } }
+        - { name: catalog_version, in: query, schema: { type: string } }
+        - { name: key, in: query, schema: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,62}$" } }
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { type: object } }
+          text/csv: { schema: { type: string } }
+      responses:
+        "202": { $ref: "#/components/responses/Import" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+        "415": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /api/v1/frameworks/imports/{id}:
+    get:
+      operationId: getImport
+      tags: [imports]
+      summary: An import's outcome, its problems by pointer, or what a dry run would do
+      x-permission: the import's requester, or framework.manage at the top business unit
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { $ref: "#/components/responses/Import" }
+        "404": { $ref: "#/components/responses/Error" }

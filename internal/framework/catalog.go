@@ -36,8 +36,11 @@ func ParseCatalog(raw []byte, family Family) (*Version, error) {
 	}
 	cat := doc.Catalog
 	v := &Version{Family: family, Label: cat.Metadata.Version, Title: cat.Metadata.Title, Format: "oscal"}
-	if cat.Metadata.Published != nil {
+	switch {
+	case cat.Metadata.Published != nil:
 		v.Published = cat.Metadata.Published.Format("2006-01-02")
+	case !cat.Metadata.LastModified.IsZero():
+		v.Published = cat.Metadata.LastModified.Format("2006-01-02") // its date, for ordering versions
 	}
 	params := map[string]oscaltypes.Parameter{}
 	collectParams(cat.Params, params)

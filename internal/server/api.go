@@ -137,6 +137,13 @@ func (r *recorder) Write(b []byte) (int, error) {
 // replays the stored response of a repeated identical request instead of
 // running it again. It needs the principal (Authenticate before it).
 func Idempotent(store IdempotencyStore) func(http.Handler) http.Handler {
+	return IdempotentLimit(store, maxMutationBody)
+}
+
+// IdempotentLimit is Idempotent with a body limit of its own, for the few
+// routes that take files (F-013 framework imports); every other route
+// keeps the 4 MiB limit.
+func IdempotentLimit(store IdempotencyStore, limit int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.Method {
@@ -156,8 +163,8 @@ func Idempotent(store IdempotencyStore) func(http.Handler) http.Handler {
 					"detail": "mutations need an Idempotency-Key header of 8-128 printable characters"})
 				return
 			}
-			body, err := io.ReadAll(io.LimitReader(r.Body, maxMutationBody+1))
-			if err != nil || len(body) > maxMutationBody {
+			body, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
+			if err != nil || int64(len(body)) > limit {
 				writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request_too_large"})
 				return
 			}

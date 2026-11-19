@@ -625,6 +625,41 @@ events:
     bu: required
     attributes: [confidence, due_at, estimators, factors, references, scenario, scenario_version]
     description: "An estimate request was sent for factors of a scenario to estimators, with a due date (F-004 T-06, AC-01)"
+  - type: framework.baseline_imported
+    category: configuration
+    severities: [high]
+    requires: [target]
+    bu: required
+    attributes: [baseline, family, import, requirements, sha256, version]
+    description: "A baseline (an OSCAL profile) was imported by a holder of framework.manage, resolved to the requirements it selects from a framework version, with its file's digest (F-013 T-05, AC-02, AC-19)"
+  - type: framework.baseline_retired
+    category: configuration
+    severities: [high]
+    requires: [target]
+    bu: required
+    attributes: [baseline, reason]
+    description: "A baseline was retired with a reason: hidden from coverage choices, kept readable (F-013 T-05, AC-06, AC-19)"
+  - type: framework.import_refused
+    category: configuration
+    severities: [high]
+    requires: [target]
+    bu: required
+    attributes: [import, kind, outcome, problems, sha256]
+    description: "A framework, baseline or crosswalk file was refused whole (outcome refused, with the number of problems) or could not be imported (failed); nothing was applied (F-013 T-05, AC-01, AC-19)"
+  - type: framework.imported
+    category: configuration
+    severities: [high]
+    requires: [target]
+    bu: required
+    attributes: [family, format, import, requirements, sha256, version]
+    description: "A framework version (an OSCAL catalog or a fair.framework.v1 file) was imported by a holder of framework.manage, with its file's digest and its requirements (F-013 T-05, AC-01, AC-03, AC-19)"
+  - type: framework.retired
+    category: configuration
+    severities: [high]
+    requires: [target]
+    bu: required
+    attributes: [family, reason, version]
+    description: "A framework version was retired with a reason: hidden from new mappings and coverage choices, kept readable with its mappings (F-013 T-05, AC-06, AC-19)"
   - type: group_mapping.created
     category: access
     severities: [high]

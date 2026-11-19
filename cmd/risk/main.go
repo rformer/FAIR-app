@@ -76,6 +76,7 @@ import (
 	"github.com/rformer/fair-app/internal/enginetls"
 	"github.com/rformer/fair-app/internal/estimate"
 	"github.com/rformer/fair-app/internal/estimateapi"
+	"github.com/rformer/fair-app/internal/frameworkapi"
 	"github.com/rformer/fair-app/internal/importapi"
 	"github.com/rformer/fair-app/internal/keys"
 	"github.com/rformer/fair-app/internal/migrate"
@@ -322,6 +323,23 @@ func run() error {
 		logger.Warn("reports are off: they need the report store (FAIR_REPORT_STORE_*) and the report context key (FAIR_REPORT_CONTEXT_KEY_FILE)")
 	}
 
+	// F-013 T-05: framework imports are River jobs (queue framework), one at
+	// a time per replica.
+	fw := &frameworkapi.Worker{DB: pool, Logger: logger}
+	frc, err := frameworkapi.NewClient(pool, fw, logger)
+	if err != nil {
+		return fmt.Errorf("river: %w", err)
+	}
+	if err := frc.Start(ctx); err != nil {
+		return fmt.Errorf("river: %w", err)
+	}
+	defer func() {
+		sctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_ = frc.Stop(sctx)
+	}()
+	enqueueImport := frameworkapi.Enqueuer(frc)
+
 	// One replica leads and runs the estimate jobs (F-004 design §6.7):
 	// requests close at their due date, reminders go out before it.
 	jobs := estimate.Jobs{DB: pool, ReminderLead: func() time.Duration {
@@ -516,6 +534,12 @@ func run() error {
 		for _, prefix := range reportapi.Prefixes {
 			srv.Mux().Handle(prefix, reph)
 			srv.Mux().Handle(prefix+"/", reph)
+		}
+		// The framework API (F-013 design §6).
+		fwh := server.SecurityHeaders((&frameworkapi.API{DB: pool, Enqueue: enqueueImport}).Handler(jwtKeys, nil))
+		for _, prefix := range frameworkapi.Prefixes {
+			srv.Mux().Handle(prefix, fwh)
+			srv.Mux().Handle(prefix+"/", fwh)
 		}
 		// The imports API (F-011 design §6.2).
 		imph := server.SecurityHeaders((&importapi.API{DB: pool, Authz: grants, Risk: api, Register: regAPI}).Handler(jwtKeys, nil))
