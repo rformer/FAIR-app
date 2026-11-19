@@ -8,6 +8,8 @@ import (
 	"io"
 	"slices"
 	"strings"
+
+	"github.com/rformer/fair-app/internal/oscal"
 )
 
 // F-013 T-03 (F-013-AC-03, AC-10; design §3.3): frameworks without an OSCAL
@@ -299,4 +301,93 @@ func Compare(prev, next *Version) Diff {
 		}
 	}
 	return d
+}
+
+// The OSCAL 1.2 mapping relationships and their NIST IR 8278 equivalents;
+// no-relationship maps are skipped.
+var oscalRelationships = map[string]string{
+	"equal-to": Equal, "equivalent-to": Equal, "subset-of": SubsetOf, "superset-of": SupersetOf, "intersects-with": Intersects,
+}
+
+// mappingCollection is what a crosswalk import reads of an OSCAL mapping
+// collection (validated against the pinned schema first).
+type mappingCollection struct {
+	MappingCollection struct {
+		Metadata struct {
+			Title   string `json:"title"`
+			Version string `json:"version"`
+		} `json:"metadata"`
+		Mappings []struct {
+			Maps []struct {
+				Relationship string `json:"relationship"`
+				Sources      []struct {
+					Type  string `json:"type"`
+					IDRef string `json:"id-ref"`
+				} `json:"sources"`
+				Targets []struct {
+					Type  string `json:"type"`
+					IDRef string `json:"id-ref"`
+				} `json:"targets"`
+			} `json:"maps"`
+		} `json:"mappings"`
+	} `json:"mapping-collection"`
+}
+
+// ParseMappingCollection reads an OSCAL 1.2.3 mapping collection as a
+// crosswalk between head's source and target versions (an OSCAL mapping
+// names its resources by href, not by the platform's versions). Each map
+// relates every source to every target; maps of statements rather than
+// controls are refused; no-relationship maps are left out.
+func ParseMappingCollection(raw []byte, head Crosswalk) (*Crosswalk, error) {
+	if len(raw) > MaxFile {
+		return nil, Problems{{Pointer: "", Message: fmt.Sprintf("the file is larger than %d bytes", MaxFile)}}
+	}
+	kind, err := oscal.Validate(raw)
+	if err != nil {
+		return nil, Problems{{Pointer: "", Message: "not a valid OSCAL " + oscal.Version + " document: " + clip(err.Error(), 500)}}
+	}
+	if kind != oscal.MappingCollection {
+		return nil, Problems{{Pointer: "", Message: fmt.Sprintf("an OSCAL %s, not a mapping collection", kind)}}
+	}
+	var mc mappingCollection
+	if err := json.Unmarshal(raw, &mc); err != nil {
+		return nil, Problems{{Pointer: "", Message: "the mapping collection could not be read"}}
+	}
+	x := head
+	x.Format = CrosswalkFormat
+	x.Relationships = nil
+	if x.Title == "" {
+		x.Title = mc.MappingCollection.Metadata.Title
+	}
+	if x.Label == "" {
+		x.Label = mc.MappingCollection.Metadata.Version
+	}
+	c := &checker{}
+	for i, m := range mc.MappingCollection.Mappings {
+		for j, mp := range m.Maps {
+			ptr := fmt.Sprintf("/mapping-collection/mappings/%d/maps/%d", i, j)
+			if mp.Relationship == "no-relationship" {
+				continue
+			}
+			rel, ok := oscalRelationships[mp.Relationship]
+			if !ok {
+				c.add(ptr+"/relationship", "%q is not a relationship the platform knows (equal-to, equivalent-to, subset-of, superset-of, intersects-with)", mp.Relationship)
+				continue
+			}
+			for _, s := range mp.Sources {
+				for _, t := range mp.Targets {
+					if s.Type != "control" || t.Type != "control" {
+						c.add(ptr, "maps a %s to a %s; crosswalks relate controls", s.Type, t.Type)
+						continue
+					}
+					x.Relationships = append(x.Relationships, Link{Source: s.IDRef, Target: t.IDRef, Relationship: rel})
+				}
+			}
+		}
+	}
+	checkCrosswalk(&x, c)
+	if err := c.err(); err != nil {
+		return nil, err
+	}
+	return &x, nil
 }

@@ -27,6 +27,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"regexp"
@@ -68,6 +69,9 @@ var routes = []route{
 	{"GET", "/api/v1/frameworks/baselines", (*API).listBaselines},
 	{"GET", "/api/v1/frameworks/baselines/{id}", (*API).getBaseline},
 	{"POST", "/api/v1/frameworks/baselines/{id}/retire", (*API).retireBaseline},
+	{"GET", "/api/v1/frameworks/crosswalks", (*API).listCrosswalks},
+	{"GET", "/api/v1/frameworks/crosswalks/{id}", (*API).getCrosswalk},
+	{"POST", "/api/v1/frameworks/crosswalks/{id}/retire", (*API).retireCrosswalk},
 	{"POST", "/api/v1/frameworks/imports", (*API).requestImport},
 	{"GET", "/api/v1/frameworks/imports/{id}", (*API).getImport},
 	{"GET", "/api/v1/controls/{id}/suggested-mappings", (*API).suggestedMappings},
@@ -240,22 +244,9 @@ func (a *API) listRequirements(w http.ResponseWriter, r *http.Request, p authz.P
 		return
 	}
 	q := r.URL.Query()
-	limit, offset := 100, 0
-	if s := q.Get("limit"); s != "" {
-		n, err := strconv.Atoi(s)
-		if err != nil || n < 1 || n > 500 {
-			problem(w, http.StatusBadRequest, "invalid_value", "limit is 1 to 500")
-			return
-		}
-		limit = n
-	}
-	if s := q.Get("offset"); s != "" {
-		n, err := strconv.Atoi(s)
-		if err != nil || n < 0 {
-			problem(w, http.StatusBadRequest, "invalid_value", "offset is 0 or more")
-			return
-		}
-		offset = n
+	limit, offset, ok := page(w, r, 100, 500)
+	if !ok {
+		return
 	}
 	var parent any
 	if q.Has("parent") {
@@ -286,18 +277,50 @@ func (a *API) listRequirements(w http.ResponseWriter, r *http.Request, p authz.P
 	writeJSON(w, http.StatusOK, map[string]any{"requirements": items, "more": more})
 }
 
-func (a *API) listBaselines(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+// page reads ?limit= (1 to max, def when absent) and ?offset= (0 or more).
+func page(w http.ResponseWriter, r *http.Request, def, max int) (int, int, bool) {
+	q := r.URL.Query()
+	limit, offset := def, 0
+	if s := q.Get("limit"); s != "" {
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 1 || n > max {
+			problem(w, http.StatusBadRequest, "invalid_value", fmt.Sprintf("limit is 1 to %d", max))
+			return 0, 0, false
+		}
+		limit = n
+	}
+	if s := q.Get("offset"); s != "" {
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 0 {
+			problem(w, http.StatusBadRequest, "invalid_value", "offset is 0 or more")
+			return 0, 0, false
+		}
+		offset = n
+	}
+	return limit, offset, true
+}
+
+// versionFilter reads ?version= (a framework version's id) and ?retired=.
+func versionFilter(w http.ResponseWriter, r *http.Request) (any, bool, bool) {
 	retired, ok := boolParam(w, r, "retired")
 	if !ok {
-		return
+		return nil, false, false
 	}
 	var version any
 	if v := r.URL.Query().Get("version"); v != "" {
 		if !uuidRE.MatchString(v) {
 			problem(w, http.StatusBadRequest, "invalid_value", "version is a framework version's id")
-			return
+			return nil, false, false
 		}
 		version = v
+	}
+	return version, retired, true
+}
+
+func (a *API) listBaselines(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	version, retired, ok := versionFilter(w, r)
+	if !ok {
+		return
 	}
 	raw, err := a.one(r, p, "SELECT framework.baselines($1::uuid, $2)", version, retired)
 	if err != nil {
@@ -305,6 +328,44 @@ func (a *API) listBaselines(w http.ResponseWriter, r *http.Request, p authz.Prin
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"baselines": raw})
+}
+
+// listCrosswalks answers the crosswalks from or to ?version= (or all),
+// active ones unless ?retired=true (F-013 AC-10).
+func (a *API) listCrosswalks(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	version, retired, ok := versionFilter(w, r)
+	if !ok {
+		return
+	}
+	raw, err := a.one(r, p, "SELECT framework.crosswalks($1::uuid, $2)", version, retired)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"crosswalks": raw})
+}
+
+// getCrosswalk answers a crosswalk with a page of its relationships
+// (?limit= 1 to 5,000, 500; ?offset=).
+func (a *API) getCrosswalk(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	v, ok := id(w, r)
+	if !ok {
+		return
+	}
+	limit, offset, ok := page(w, r, 500, 5000)
+	if ok {
+		a.answer(w, r, p, "SELECT framework.crosswalk_get($1, $2, $3)", v, limit, offset)
+	}
+}
+
+func (a *API) retireCrosswalk(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	v, ok := id(w, r)
+	if !ok {
+		return
+	}
+	if reason, ok := decodeReason(w, r); ok {
+		a.answer(w, r, p, "SELECT framework.retire_crosswalk($1, $2)", v, reason)
+	}
 }
 
 type reasonBody struct {
@@ -398,8 +459,22 @@ func (a *API) requestImport(w http.ResponseWriter, r *http.Request, p authz.Prin
 			problem(w, http.StatusBadRequest, "invalid_value", "catalog_family, catalog_version and key (lower-case letters, digits and hyphens) are required")
 			return
 		}
+	case "crosswalk":
+		// fair.crosswalk.v1 JSON carries its own header; CSV and an OSCAL
+		// mapping collection take it from the query (an OSCAL mapping names
+		// its resources by href, not by the platform's versions).
+		head := framework.Crosswalk{Title: q.Get("title"), Publisher: q.Get("publisher"), Label: q.Get("label"),
+			Source: framework.Ref{Family: q.Get("source_family"), Version: q.Get("source_version")},
+			Target: framework.Ref{Family: q.Get("target_family"), Version: q.Get("target_version")}}
+		if head.Source.Family != "" || head.Target.Family != "" || meta.Format == "csv" {
+			if !keyRE.MatchString(head.Source.Family) || head.Source.Version == "" || !keyRE.MatchString(head.Target.Family) || head.Target.Version == "" {
+				problem(w, http.StatusBadRequest, "invalid_value", "source_family, source_version, target_family and target_version name the versions the crosswalk relates")
+				return
+			}
+			meta.Crosswalk = &head
+		}
 	default:
-		problem(w, http.StatusBadRequest, "invalid_value", "kind is catalog, profile or simple (crosswalks: kind crosswalk)")
+		problem(w, http.StatusBadRequest, "invalid_value", "kind is catalog, profile, simple or crosswalk")
 		return
 	}
 	file, err := io.ReadAll(io.LimitReader(r.Body, framework.MaxFile+1))

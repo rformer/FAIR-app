@@ -40,9 +40,11 @@ const (
 	ComponentDefinition Kind = "component-definition"
 	AssessmentResults   Kind = "assessment-results"
 	POAM                Kind = "plan-of-action-and-milestones"
+	// MappingCollection is read by F-013's crosswalk imports (T-07).
+	MappingCollection Kind = "mapping-collection"
 )
 
-var kinds = []Kind{Catalog, Profile, ComponentDefinition, AssessmentResults, POAM}
+var kinds = []Kind{Catalog, Profile, ComponentDefinition, AssessmentResults, POAM, MappingCollection}
 
 // ErrInvalid wraps every schema or structure failure.
 var ErrInvalid = errors.New("oscal: invalid document")

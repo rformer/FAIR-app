@@ -1,0 +1,34 @@
+{
+  "mapping-collection": {
+    "uuid": "6f1d2c0e-4b8a-4c1e-9a55-0d3f8f7b2a11",
+    "metadata": {
+      "title": "SP 800-171r3 to SP 800-53r5 (test)",
+      "last-modified": "2026-11-19T00:00:00Z",
+      "version": "test-1",
+      "oscal-version": "1.2.3"
+    },
+    "provenance": {
+      "method": "human",
+      "matching-rationale": "semantic",
+      "status": "draft",
+      "mapping-description": "A test mapping collection for F-013 T-07."
+    },
+    "mappings": [
+      {
+        "uuid": "1b9a6c3e-2f4d-4a8b-8c7e-5d6f7a8b9c01",
+        "source-resource": { "type": "catalog", "href": "https://example.invalid/sp800-171r3.json" },
+        "target-resource": { "type": "catalog", "href": "https://example.invalid/sp800-53r5.json" },
+        "maps": [
+          { "uuid": "2c0b7d4f-3a5e-4b9c-9d8f-6e7a8b9c0d02", "relationship": "equal-to",
+            "sources": [{ "type": "control", "id-ref": "SP_800_171_03.01.01" }], "targets": [{ "type": "control", "id-ref": "ac-2" }] },
+          { "uuid": "3d1c8e5a-4b6f-4c0d-8e9a-7f8b9c0d1e03", "relationship": "superset-of",
+            "sources": [{ "type": "control", "id-ref": "SP_800_171_03.01.02" }], "targets": [{ "type": "control", "id-ref": "ac-3" }, { "type": "control", "id-ref": "ac-14" }] },
+          { "uuid": "4e2d9f6b-5c7a-4d1e-9f0b-8a9c0d1e2f04", "relationship": "intersects-with",
+            "sources": [{ "type": "control", "id-ref": "SP_800_171_03.01.03" }], "targets": [{ "type": "control", "id-ref": "ac-4" }] },
+          { "uuid": "5f3e0a7c-6d8b-4e2f-8a1c-9b0d1e2f3a05", "relationship": "no-relationship",
+            "sources": [{ "type": "control", "id-ref": "SP_800_171_03.01.04" }], "targets": [{ "type": "control", "id-ref": "ac-5" }] }
+        ]
+      }
+    ]
+  }
+}

@@ -57,6 +57,9 @@ type Meta struct {
 	Published string            `json:"published,omitempty"`
 	Catalog   *framework.Ref    `json:"catalog,omitempty"` // a profile's catalog version
 	Key       string            `json:"key,omitempty"`     // a profile's baseline key
+	// A crosswalk's header, for CSV and OSCAL mapping collections (F-013
+	// T-07); fair.crosswalk.v1 JSON carries its own.
+	Crosswalk *framework.Crosswalk `json:"crosswalk,omitempty"`
 }
 
 // Worker works import jobs.
@@ -86,10 +89,11 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[ImportArgs]) error {
 // Result is what a parsed import records: a version (with its diff) or a
 // baseline, and a summary.
 type Result struct {
-	Version  *framework.Version `json:"version,omitempty"`
-	Diff     *Diff              `json:"diff,omitempty"`
-	Baseline *Baseline          `json:"baseline,omitempty"`
-	Summary  map[string]any     `json:"summary"`
+	Version   *framework.Version   `json:"version,omitempty"`
+	Diff      *Diff                `json:"diff,omitempty"`
+	Baseline  *Baseline            `json:"baseline,omitempty"`
+	Crosswalk *framework.Crosswalk `json:"crosswalk,omitempty"`
+	Summary   map[string]any       `json:"summary"`
 }
 
 // Diff is framework.Diff with the version it is against.
@@ -225,8 +229,42 @@ func (w *Worker) parse(ctx context.Context, kind string, file []byte, meta Meta)
 		}
 		return &Result{Baseline: &Baseline{Baseline: *b, Version: *meta.Catalog},
 			Summary: map[string]any{"baseline": b.Key, "family": meta.Catalog.Family, "version": meta.Catalog.Version, "requirements": len(b.Selected), "notes": b.Notes}}, nil
+	case "crosswalk":
+		x, err := parseCrosswalk(file, meta)
+		if err != nil {
+			return nil, err
+		}
+		by := map[string]int{}
+		for _, l := range x.Relationships {
+			by[l.Relationship]++
+		}
+		return &Result{Crosswalk: x, Summary: map[string]any{"crosswalk": x.Title, "label": x.Label,
+			"source": x.Source.Family + " " + x.Source.Version, "target": x.Target.Family + " " + x.Target.Version,
+			"relationships": len(x.Relationships), "by_relationship": by}}, nil
 	}
 	return nil, framework.Problems{{Pointer: "", Message: "unknown import kind " + kind}}
+}
+
+// parseCrosswalk reads a crosswalk as CSV, an OSCAL mapping collection or
+// fair.crosswalk.v1 JSON. That its versions and requirements exist is
+// checked by framework.finish_import (AC-10).
+func parseCrosswalk(file []byte, meta Meta) (*framework.Crosswalk, error) {
+	if meta.Format == "csv" {
+		if meta.Crosswalk == nil {
+			return nil, framework.Problems{{Pointer: "/source", Message: "a CSV crosswalk names the versions it relates"}}
+		}
+		return framework.ParseCrosswalkCSV(file, *meta.Crosswalk)
+	}
+	var root map[string]json.RawMessage
+	if json.Unmarshal(file, &root) == nil {
+		if _, ok := root["mapping-collection"]; ok {
+			if meta.Crosswalk == nil {
+				return nil, framework.Problems{{Pointer: "/source", Message: "an OSCAL mapping collection's import names the versions it relates"}}
+			}
+			return framework.ParseMappingCollection(file, *meta.Crosswalk)
+		}
+	}
+	return framework.ParseCrosswalk(file)
 }
 
 // NewClient is the risk service's River client for framework imports.

@@ -190,6 +190,14 @@ func TestFrameworkImports(t *testing.T) {
 	if imp["state"] != "succeeded" || imp["result"].(map[string]any)["baseline_id"] == nil {
 		t.Fatalf("profile: %v", imp)
 	}
+	// Retiring a baseline (fixed in migration 0165): a reason; twice is 409.
+	bid := imp["result"].(map[string]any)["baseline_id"].(string)
+	if got := fe.call(t, "POST", "platform", "/api/v1/frameworks/baselines/"+bid+"/retire", map[string]any{"reason": "Test copy"}); got.code != 200 || got.body["state"] != "retired" {
+		t.Errorf("retire a baseline: %d %s", got.code, got.raw)
+	}
+	if got := fe.call(t, "POST", "platform", "/api/v1/frameworks/baselines/"+bid+"/retire", map[string]any{"reason": "Again"}); got.code != 409 {
+		t.Errorf("retire a baseline twice: %d", got.code)
+	}
 	_, imp = fe.upload(t, "platform", "kind=profile&catalog_family=nist-800-53&catalog_version=9.9&key=x", "application/json", prof)
 	if imp["state"] != "refused" || !strings.Contains(fmt.Sprint(imp["problems"]), "not imported") {
 		t.Errorf("a profile of a missing catalog: %v", imp)

@@ -33,3 +33,12 @@ The schema is `fair-crosswalk-v1.schema.json`; `internal/framework` is the autho
 
 ## CSV
 A header row `source,target,relationship` (any order); the title, label and the source and target versions are given with the upload.
+
+## OSCAL mapping collections
+An OSCAL 1.2.3 `mapping-collection` (JSON) is validated against the pinned schema and read as a crosswalk. Its resources are named by `href`, so the upload names the versions it relates (`source_family`, `source_version`, `target_family`, `target_version`); `title` and `label` default to the collection's metadata title and version. Each map relates every source to every target: `equal-to` and `equivalent-to` are `equal`, `subset-of` is `subset_of`, `superset-of` is `superset_of`, `intersects-with` is `intersects`; `no-relationship` maps are left out. Maps of statements, and other relationships, are refused by pointer. Nothing a collection links to is fetched.
+
+## How relationships derive coverage
+A relationship reads "source *relationship* target". A requirement R is reached from R' (in the other version) as "R' *relationship* R", inverting `subset_of` and `superset_of` when R is the crosswalk's source. Satisfying R' reaches R fully only when R' `equal` R or R' `superset_of` R; `subset_of` and `intersects` reach it partly. Coverage reports what a crosswalk reaches apart from direct mappings, and never as in place (F-013-AC-11).
+
+## Checks at import
+Both versions must be imported and every relationship must name a requirement of its version; otherwise the whole file is refused, each problem by pointer (`/relationships/<i>/source` or `/target`; at most 100 listed). A crosswalk between the same versions with the same label is refused as a repeat. A retired crosswalk stays readable and no longer derives coverage.

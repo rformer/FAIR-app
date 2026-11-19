@@ -1,6 +1,7 @@
 package oscal
 
 import (
+	"encoding/json"
 	"time"
 
 	oscaltypes "github.com/defenseunicorns/go-oscal/src/types/oscal-1-2-3"
@@ -15,6 +16,10 @@ type Document struct {
 	ComponentDefinition       *oscaltypes.ComponentDefinition       `json:"component-definition,omitempty"`
 	AssessmentResults         *AssessmentResultsModel               `json:"assessment-results,omitempty"`
 	PlanOfActionAndMilestones *oscaltypes.PlanOfActionAndMilestones `json:"plan-of-action-and-milestones,omitempty"`
+	// MappingCollection stays raw: go-oscal's type disagrees with the pinned
+	// schema (mappings is an array there); internal/framework reads it
+	// (F-013 T-07).
+	MappingCollection json.RawMessage `json:"mapping-collection,omitempty"`
 }
 
 type (

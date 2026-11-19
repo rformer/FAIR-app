@@ -22,6 +22,7 @@ tags:
   - { name: frameworks, description: "Frameworks, versions and requirements (F-013 R-01)" }
   - { name: baselines, description: "Baselines resolved from OSCAL profiles (F-013-AC-02)" }
   - { name: imports, description: "Importing catalogs, profiles and simple frameworks (F-013-AC-01 to AC-03)" }
+  - { name: crosswalks, description: "Relationships between requirements of two framework versions (F-013-AC-10, AC-11)" }
 components:
   securitySchemes:
     internalJWT: { type: http, scheme: bearer, bearerFormat: JWT }
@@ -56,6 +57,22 @@ components:
       description: The import
       content: { application/json: { schema: { $ref: "#/components/schemas/Import" } } }
   schemas:
+    Crosswalk:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        publisher: { type: [string, "null"] }
+        label: { type: string }
+        source: { type: string, enum: [shipped, upload] }
+        sha256: { type: string }
+        state: { type: string, enum: [active, retired] }
+        imported_at: { type: string, format: date-time }
+        retired_at: { type: [string, "null"], format: date-time }
+        source_version: { type: object, properties: { id: { type: string, format: uuid }, family: { type: string }, label: { type: string } } }
+        target_version: { type: object, properties: { id: { type: string, format: uuid }, family: { type: string }, label: { type: string } } }
+        relationships: { type: integer, description: The number of relationships }
+        by_relationship: { type: object, additionalProperties: { type: integer } }
     Error:
       type: object
       required: [error]
@@ -280,6 +297,75 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
+  /api/v1/frameworks/crosswalks:
+    get:
+      operationId: listCrosswalks
+      tags: [crosswalks]
+      summary: Crosswalks from or to one version, or all (AC-10)
+      x-permission: framework.view, control.view or control.edit at any business unit
+      parameters:
+        - { name: version, in: query, schema: { type: string, format: uuid } }
+        - { $ref: "#/components/parameters/Retired" }
+      responses:
+        "200":
+          description: The crosswalks
+          content: { application/json: { schema: { type: object, required: [crosswalks], properties: { crosswalks: { type: array, items: { $ref: "#/components/schemas/Crosswalk" } } } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/frameworks/crosswalks/{id}:
+    get:
+      operationId: getCrosswalk
+      tags: [crosswalks]
+      summary: A crosswalk with a page of its relationships (AC-10)
+      x-permission: framework.view, control.view or control.edit at any business unit
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 5000, default: 500 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+      responses:
+        "200":
+          description: The crosswalk
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Crosswalk" }
+                  - type: object
+                    properties:
+                      more: { type: boolean }
+                      relationship_list:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            source: { type: string }
+                            source_id: { type: string, format: uuid }
+                            source_title: { type: string }
+                            target: { type: string }
+                            target_id: { type: string, format: uuid }
+                            target_title: { type: string }
+                            relationship: { type: string, enum: [equal, subset_of, superset_of, intersects] }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/frameworks/crosswalks/{id}/retire:
+    post:
+      operationId: retireCrosswalk
+      tags: [crosswalks]
+      summary: Retire a crosswalk; kept readable, it no longer derives coverage (AC-11)
+      x-permission: framework.manage at the top business unit
+      x-audit-events: [framework.crosswalk_retired]
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }, { $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ReasonBody" } } }
+      responses:
+        "200":
+          description: The crosswalk
+          content: { application/json: { schema: { $ref: "#/components/schemas/Crosswalk" } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /api/v1/frameworks/imports:
     post:
       operationId: requestImport
@@ -292,7 +378,7 @@ paths:
         records what would be imported, and what changed since the family's previous version, without
         applying it. Nothing is fetched from the file's links.
       x-permission: framework.manage at the top business unit
-      x-audit-events: [framework.imported, framework.baseline_imported, framework.import_refused]
+      x-audit-events: [framework.imported, framework.baseline_imported, framework.crosswalk_imported, framework.import_refused]
       x-reason-exempt: an import records its file's digest, and the version or baseline it brought
       parameters:
         - { $ref: "#/components/parameters/IdempotencyKey" }

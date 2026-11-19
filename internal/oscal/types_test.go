@@ -87,7 +87,7 @@ func TestTypesMatchSchema(t *testing.T) {
 		}
 		node, ok := defs["oscal-complete-oscal-"+map[Kind]string{
 			Catalog: "catalog:catalog", Profile: "profile:profile", ComponentDefinition: "component-definition:component-definition",
-			AssessmentResults: "ar:assessment-results", POAM: "poam:plan-of-action-and-milestones",
+			AssessmentResults: "ar:assessment-results", POAM: "poam:plan-of-action-and-milestones", MappingCollection: "mapping:mapping-collection",
 		}[k]].(map[string]any)
 		if field.Type == nil || !ok {
 			t.Fatalf("%s: no Document field or schema definition", k)

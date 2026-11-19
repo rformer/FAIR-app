@@ -639,6 +639,20 @@ events:
     bu: required
     attributes: [baseline, family, import, requirements, sha256, version]
     description: "A baseline (an OSCAL profile) was imported by a holder of framework.manage, resolved to the requirements it selects from a framework version, with its file's digest (F-013 T-05, AC-02, AC-19)"
+  - type: framework.crosswalk_imported
+    category: configuration
+    severities: [high]
+    requires: [target]
+    bu: required
+    attributes: [crosswalk, import, label, relationships, sha256, source, target]
+    description: "A crosswalk between two framework versions was imported by a holder of framework.manage, each relationship equal, subset_of, superset_of or intersects, with its file's digest (F-013 T-07, AC-10, AC-19)"
+  - type: framework.crosswalk_retired
+    category: configuration
+    severities: [high]
+    requires: [target]
+    bu: required
+    attributes: [crosswalk, label, reason]
+    description: "A crosswalk was retired with a reason: kept readable, it no longer derives coverage (F-013 T-07, AC-11, AC-19)"
   - type: framework.baseline_retired
     category: configuration
     severities: [high]
