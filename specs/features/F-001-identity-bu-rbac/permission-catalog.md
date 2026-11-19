@@ -141,3 +141,4 @@ Checked mechanically when this draft was generated:
 - 2026-11-17: Catalog version 6 (F-011 T-01, approved task; F-011 OQ5, D-OQ1): `integration.view` (read; Platform Admin and Auditor gain it) and `integration.push` (write, risk data, not privileged; no built-in role, granted as a service-account scope). Needs re-signing.
 - 2026-11-17: Catalog version 6 re-signed by Robert Former.
 - 2026-11-18: Catalog version 7 (F-013 T-01, approved task; F-013 OQ3): `framework.view` (read, not privileged, not risk data; Platform Admin, Auditor and Risk Analyst gain it). Needs re-signing.
+- 2026-11-19: Catalog version 7 re-signed by Robert Former.

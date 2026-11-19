@@ -19,7 +19,7 @@ Rules for every task:
 | # | Task | Traces to | Verification | Size | Status |
 |---|---|---|---|---|---|
 | T-01 | Permission catalog version 7 (`framework.view`: not privileged; Platform Admin, Auditor, Risk Analyst); re-sign | OQ3; §10 | `TestCatalogVersion7Upgrade` | S | Done (2026-11-18) |
-| T-02 | Bootstrap role `framework_definer`; schema `framework` (§5) with PF033 state rules and PF034 limits; the mapping projection under RLS (type `control`, written only by the definer) and its RLS fixture | §2, §5 | `TestFrameworkSchema`; RLS harness | M | Not started |
+| T-02 | Bootstrap role `framework_definer`; schema `framework` (§5) with PF033 state rules and PF034 limits; the mapping projection under RLS (type `control`, written only by the definer) and its RLS fixture | §2, §5 | `TestFrameworkSchema`; RLS harness | M | Done |
 | T-03 | `internal/framework`: OSCAL catalogs (requirements, statements flattened, withdrawn and incorporated-into), profiles resolved (§3.2), `fair.framework.v1` and `fair.crosswalk.v1` (JSON and CSV), limits, version diffs; `docs/formats/fair-framework-v1.md`, `fair-crosswalk-v1.md` and schemas | AC-01 to AC-03, AC-05, AC-10; §3.1 to §3.3 | Unit tests over small fixtures and the shipped catalog; refusals by pointer | L | Not started |
 | T-04 | Shipped content (`internal/framework/content`, vendored at a pinned commit, D-OQ2): 800-53r5 and its baselines, 800-171r3, FedRAMP Rev 5 baselines, the 800-171r3 to 800-53r5 crosswalk; `migrate.Release.Frameworks` and `framework.sync_shipped` at `iam migrate`; digests in the release manifest | AC-04; §2, §11 | DB test: a fresh install has them, a re-run changes nothing; release-check sees the digests | M | Not started |
 
@@ -48,3 +48,5 @@ Rules for every task:
 - 2026-11-18: Initial draft, In Review.
 - 2026-11-18: Approved by Robert Former.
 - 2026-11-18: T-01 done: permission catalog version 7 (`framework.view`: read, not privileged, not risk data; Platform Admin, Auditor and Risk Analyst gain it; custom roles untouched); `TestCatalogVersion7Upgrade` (`catalogVersion6` builds the previous release for the earlier upgrade tests). Needs re-signing.
+- 2026-11-19: Catalog version 7 re-signed by Robert Former.
+- 2026-11-19: T-02 done (migration 0161; bootstrap role `framework_definer`: re-run `scripts/db-bootstrap.sh`): schema `framework` (families, versions, requirements, baselines, crosswalks and relationships, imports: definer-only; versions, baselines and crosswalks change only their state, retired once; requirements and relationships immutable; PF033), limits checked per statement (PF034: 100 versions, 20,000 requirements a version, 200,000 relationships, 500 mappings a control version), and `framework.control_mapping` (the mapping projection: BU-owned, type control, shared down, inserted and updated only by `framework_definer`, never deleted; RLS fixture `rlsfx.control_mapping`). `TestFrameworkSchema`; RLS harness.
