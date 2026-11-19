@@ -288,6 +288,10 @@ paths:
                             type: array
                             description: "Controls its scenarios rely on that are no longer in place, by scenario (F-011 AC-24)"
                             items: { type: object }
+                          requirements:
+                            type: array
+                            description: "The framework requirements the controls of its scenarios' current control sets map to, by framework version, as the caller may read them (F-013 AC-18)"
+                            items: { type: object, properties: { version: { type: object }, requirements: { type: array, items: { type: object } } } }
                   version:
                     type: object
                     properties:

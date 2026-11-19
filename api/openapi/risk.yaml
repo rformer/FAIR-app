@@ -511,6 +511,39 @@ paths:
         "200": { description: The difference, content: { application/json: { schema: { $ref: "#/components/schemas/Diff" } } } }
         "400": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+  /api/v1/scenarios/{id}/proposed:
+    get:
+      operationId: proposeScenario
+      tags: [scenarios]
+      summary: A proposed next version adding a control in a new control set, not saved (F-013-AC-17)
+      description: >-
+        The new set copies the named set (or the first current one), adds the control at its latest version as
+        proposed, is not current, and is named "With <control>". Nothing is saved, no pin changes and nothing
+        runs: the analyst reviews the document in the editor and saves it (PUT) and runs it as usual.
+      x-permission: scenario.edit at the scenario's business unit; the control readable
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { name: add_control, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: set, in: query, schema: { type: string }, description: The control set to copy }
+      responses:
+        "200":
+          description: The proposed document
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scenario_id: { type: string, format: uuid }
+                  base_version: { type: integer }
+                  document: { type: object }
+                  set: { type: string }
+                  copied_from: { type: string }
+                  control: { type: object, properties: { id: { type: string, format: uuid }, version: { type: integer }, name: { type: string } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
   /api/v1/scenarios/{id}/adopt:
     post:
       operationId: adoptScenarioPins

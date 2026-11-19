@@ -391,6 +391,46 @@ paths:
           description: The requirement
           content: { application/json: { schema: { $ref: "#/components/schemas/Requirement" } } }
         "404": { $ref: "#/components/responses/Error" }
+  /api/v1/frameworks/requirements/{id}/scenarios:
+    get:
+      operationId: getRequirementScenarios
+      tags: [frameworks]
+      summary: The controls mapped to a requirement, their FAIR effects, and the scenarios that use them or could (AC-16)
+      description: >-
+        Controls the caller may read that map to the requirement now; scenarios the caller may read whose latest
+        version pins one of them in a current control set (uses), and those in the controls' business-unit
+        subtrees that do not (could_use), at most limit each.
+      x-permission: scenario.view and control.view
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 200 } }
+      responses:
+        "200":
+          description: The requirement's analysis
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requirement: { type: object }
+                  controls:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        version: { type: integer }
+                        bu_id: { type: string, format: uuid }
+                        name: { type: string }
+                        strength: { type: string, enum: [full, partial, supports] }
+                        implementation: { type: [string, "null"] }
+                        effects: { type: array, items: { type: object } }
+                  uses: { type: array, items: { type: object } }
+                  uses_more: { type: boolean }
+                  could_use: { type: array, items: { type: object } }
+                  could_use_more: { type: boolean }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /api/v1/frameworks/baselines:
     get:
       operationId: listBaselines

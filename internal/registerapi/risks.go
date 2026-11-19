@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/rformer/fair-app/internal/frameworkapi"
 	"github.com/rformer/fair-app/internal/integration"
 	"github.com/rformer/fair-app/internal/register"
 	"github.com/rformer/fair-app/internal/risk/model"
@@ -631,6 +632,13 @@ func (a *API) getRisk(w http.ResponseWriter, r *http.Request, p authz.Principal)
 			all = append(all, mine...)
 		}
 		risk["control_lapsed"] = all
+		// F-013 AC-18: the requirements its scenarios' current controls
+		// address, as the caller may read them.
+		reqs, err := frameworkapi.Addressed(ctx, tx, sids)
+		if err != nil {
+			return err
+		}
+		risk["requirements"] = reqs
 		agg, _ := risk["exposure_aggregate_id"].(*string)
 		exp, err := exposure(ctx, tx, agg, ls)
 		if err != nil {

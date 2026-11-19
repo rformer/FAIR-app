@@ -103,6 +103,7 @@ var routes = []route{
 	{"GET", "/api/v1/scenarios/{id}/versions", (*API).listScenarioVersions},
 	{"GET", "/api/v1/scenarios/{id}/versions/{version}", (*API).getScenarioVersion},
 	{"GET", "/api/v1/scenarios/{id}/diff", (*API).diffScenario},
+	{"GET", "/api/v1/scenarios/{id}/proposed", (*API).proposeScenario},
 	{"GET", "/api/v1/scenarios/{id}/versions/{version}/bundle", (*API).getScenarioBundle},
 	{"POST", "/api/v1/scenarios/{id}/adopt", (*API).adoptScenarioPins},
 	{"POST", "/api/v1/scenarios/{id}/move", (*API).moveScenario},

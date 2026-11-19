@@ -78,6 +78,7 @@ var routes = []route{
 	{"GET", "/api/v1/frameworks/versions/{id}/coverage.json", (*API).exportCoverageJSON},
 	{"POST", "/api/v1/frameworks/versions/{id}/retire", (*API).retireVersion},
 	{"GET", "/api/v1/frameworks/requirements/{id}", (*API).getRequirement},
+	{"GET", "/api/v1/frameworks/requirements/{id}/scenarios", (*API).getRequirementScenarios},
 	{"GET", "/api/v1/frameworks/baselines", (*API).listBaselines},
 	{"GET", "/api/v1/frameworks/baselines/{id}", (*API).getBaseline},
 	{"POST", "/api/v1/frameworks/baselines/{id}/retire", (*API).retireBaseline},
