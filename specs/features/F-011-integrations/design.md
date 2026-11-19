@@ -55,7 +55,7 @@ Requirements: `requirements.md` (Approved 2026-11-17) · ADR-003, ADR-005, ADR-0
 
 ### 3.3 Connectors and the integration's service account (AC-01, AC-08; OQ2)
 - **The service account:** a connector integration names an F-001 service account at its BU (created by an administrator as today), and stores its client secret (§3.1). The service account holds `integration.push` and, if `auto_accept` is on, the edit permission of the kind's records at the BU (`library.edit` or `control.edit`).
-- **A connector run:** the runner obtains a 10-minute token (`/api/v1/oauth/token`, mTLS where the service account requires it) and pushes the batch through the gateway like any other client. Scope, limits, RLS and audit are therefore the platform's own, and the integrate service never writes risk data itself.
+- **A connector run:** the runner obtains a 10-minute token (`/api/v1/oauth/token`, client_credentials with the service account's client secret) and pushes the batch through the gateway like any other client. A connector's service account authenticates with a client secret: the runner holds no client certificate, so a service account that requires mTLS is refused when the integration is saved (amended 2026-11-18). Scope, limits, RLS and audit are therefore the platform's own, and the integrate service never writes risk data itself.
 - **Scheduling:** the integrate service's leader claims due integrations (`integration.claim_due`, `FOR UPDATE SKIP LOCKED`; at most 12 runs per hour, after back-off). A worker:
   1. fetches every page (each bounded in bytes and time; at most 10,000 records in all);
   2. maps them to `fair.integration.v1` with `complete: true`;
@@ -223,3 +223,4 @@ Conventions as before: operationId = handler; mutating routes declare `x-permiss
 - 2026-11-17: Approved by Robert Former, with D-OQ1 (`integration.push`).
 - 2026-11-18: §3.4 amended by Robert Former (T-09): proposals hold the source record's values and digest; the merged document and its diff are computed at review and accept, under the reviewer's RLS, since the pusher may not read the target; unchanged means the link's last applied or rejected digest; update proposals carry no base_version.
 - 2026-11-18: §3.5 and §5 amended by Robert Former (T-12): derivation proposals have the derivation as their origin instead of an integration and run; analysts' derivation changes and runs both propose.
+- 2026-11-18: §3.3 amended by Robert Former (T-17c): connectors use service accounts that authenticate with a client secret; one that requires mTLS is refused at save.
