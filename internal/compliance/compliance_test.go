@@ -82,13 +82,15 @@ func TestF009Statements(t *testing.T) { checkFeature(t, "F-009", "F-009-notifica
 // F-010 T-20: F-010's statements.
 func TestF010Statements(t *testing.T) { checkFeature(t, "F-010", "F-010-reporting-export") }
 
+func TestF011Statements(t *testing.T) { checkFeature(t, "F-011", "F-011-integrations") }
+
 // The features build one valid component definition: one control
 // implementation per feature, so a control both state (CM-6, CM-7) appears
 // once in each.
 func TestComponentDefinitionAllFeatures(t *testing.T) {
-	f001, f002, f003, f004, f005, f006, f007, f008, f009, f010, f015 := load(t, "F-001"), load(t, "F-002"), load(t, "F-003"), load(t, "F-004"), load(t, "F-005"), load(t, "F-006"),
-		load(t, "F-007"), load(t, "F-008"), load(t, "F-009"), load(t, "F-010"), load(t, "F-015")
-	b, err := ComponentDefinition(platformComponent, "0.1.0", time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC), f001, f002, f003, f004, f005, f006, f007, f008, f009, f010, f015)
+	f001, f002, f003, f004, f005, f006, f007, f008, f009, f010, f011, f015 := load(t, "F-001"), load(t, "F-002"), load(t, "F-003"), load(t, "F-004"), load(t, "F-005"), load(t, "F-006"),
+		load(t, "F-007"), load(t, "F-008"), load(t, "F-009"), load(t, "F-010"), load(t, "F-011"), load(t, "F-015")
+	b, err := ComponentDefinition(platformComponent, "0.1.0", time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC), f001, f002, f003, f004, f005, f006, f007, f008, f009, f010, f011, f015)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,14 +99,14 @@ func TestComponentDefinitionAllFeatures(t *testing.T) {
 		t.Fatalf("%v %v", kind, err)
 	}
 	impls := *(*doc.ComponentDefinition.Components)[0].ControlImplementations
-	if len(impls) != 11 {
+	if len(impls) != 12 {
 		t.Fatalf("%d control implementations", len(impls))
 	}
 	n := 0
 	for _, im := range impls {
 		n += len(im.ImplementedRequirements)
 	}
-	if want := len(f001.Controls) + len(f002.Controls) + len(f003.Controls) + len(f004.Controls) + len(f005.Controls) + len(f006.Controls) + len(f007.Controls) + len(f008.Controls) + len(f009.Controls) + len(f010.Controls) + len(f015.Controls); n != want {
+	if want := len(f001.Controls) + len(f002.Controls) + len(f003.Controls) + len(f004.Controls) + len(f005.Controls) + len(f006.Controls) + len(f007.Controls) + len(f008.Controls) + len(f009.Controls) + len(f010.Controls) + len(f011.Controls) + len(f015.Controls); n != want {
 		t.Fatalf("%d implemented requirements, want %d", n, want)
 	}
 }

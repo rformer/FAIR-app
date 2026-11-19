@@ -95,7 +95,7 @@ F-011 brings data the customer already holds into the platform, so that analyses
 | Credentials | Sealed under a key file | Same | Same |
 
 ## Control mapping (NIST SP 800-53r5)
-To be proposed with the tasks.
+AC-3, AC-4, AC-6, AU-2, AU-3, AU-12, CA-3, CM-6, IA-5, SC-5, SC-7, SC-8, SC-13, SC-28, SI-10, SI-12 (T-21; statements in `compliance/statements/F-011.yaml`, signed off by Robert Former 2026-11-18).
 
 ## Out of scope
 - Sending data out of the platform to other systems (reports are F-010; notices F-009; SIEM forwarding F-002).
@@ -125,3 +125,4 @@ To be proposed with the tasks.
 - 2026-11-17: Initial draft, In Review.
 - 2026-11-17: Approved by Robert Former; OQ1 to OQ8 resolved as proposed.
 - 2026-11-17: Design approval adds `integration.push` (not privileged) to catalog version 6 beside `integration.view` (OQ5): the permission a service account holds to push batches (design §10, D-OQ1).
+- 2026-11-18: Control mapping (T-21): AC-3, AC-4, AC-6, AU-2, AU-3, AU-12, CA-3, CM-6, IA-5, SC-5, SC-7, SC-8, SC-13, SC-28, SI-10, SI-12; statements signed off by Robert Former.

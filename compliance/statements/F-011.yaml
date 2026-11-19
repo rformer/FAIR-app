@@ -1,0 +1,259 @@
+# NIST SP 800-53 Rev 5 control implementation statements for F-011
+# (integrations and automation inputs), task T-21. Source for the
+# platform's OSCAL component definition (F-014 assembles the features'
+# files); checked by internal/compliance tests: the controls are exactly
+# F-011's control mapping, every evidence path and test exists, and the
+# OSCAL output validates against the pinned schema.
+#
+# responsibility, per deployment mode (ADR-005):
+#   provider  the platform (and, in SaaS, the vendor operating it) meets it
+#   shared    the platform provides the mechanism; the customer operates it
+#   customer  the customer meets it
+# customer: what the customer does wherever the responsibility is shared
+# or customer. Evidence tests are "<package dir>:<test name>".
+feature: F-011
+title: Integrations and automation inputs
+status: approved # signed off by Robert Former, 2026-11-18
+controls:
+  - id: ac-3
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Integrations are created, changed, paused, resumed and deleted only
+      by holders of integration.manage at the integration's business unit,
+      and read by holders of integration.view there; grants above a
+      restricted business unit do not reach integrations inside it. A
+      batch is accepted only from a principal holding integration.push or
+      integration.manage at the integration's business unit, and each
+      record is refused unless it names a business unit inside the
+      integration's subtree and a record kind of its input kind. Nothing a
+      batch brings changes an analysis input by itself: each change is a
+      proposal, and accepting one writes the record through its own save
+      code in the reviewer's transaction, under the reviewer's row-level
+      security and edit permission.
+    evidence:
+      code: [db/migrations/0147_integration_admin.sql, db/migrations/0148_integration_batches.sql, db/migrations/0150_integration_review.sql,
+             internal/importapi/review.go, internal/integrateapi/integrations.go]
+      tests: ["db/tests:TestSTRIDEF011Scope", "db/tests:TestSTRIDEF011Proposals", "db/tests:TestIntegrations", "db/tests:TestImportBatches",
+              "db/tests:TestIntegrationsAPI"]
+
+  - id: ac-4
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Connectors reach only the hosts that integration.allowed_hosts names:
+      each source is checked against the allow-list and resolved when it is
+      saved, tested and run, the cluster's ranges, loopback, link-local and
+      metadata addresses are always refused, only private addresses are
+      allowed when air-gapped, the checked address is the one dialled, and
+      redirects, proxies and next pages on other hosts are refused and
+      recorded. Only the integrate service has egress to sources; the risk
+      service, which holds the data, has none. Loss events are business-
+      unit-owned records under row-level security, so a restricted unit's
+      losses stay inside it, and proposals are listed only to those who may
+      view their record's kind at its business unit.
+    customer: >-
+      Keep integration.allowed_hosts to the sources the organization
+      intends; every added host needs a second administrator's approval.
+      Narrow the integrate service's egress network policy to the sources'
+      addresses where the cluster's network plugin allows it.
+    evidence:
+      code: [internal/egress/guard.go, internal/integration/connectors.go, deploy/k8s/integrate.yaml, db/migrations/0152_integration_loss_events.sql]
+      tests: ["db/tests:TestSTRIDEF011Destinations", "db/tests:TestSTRIDEF011Visibility", "db/tests:TestConnectorRunner",
+              "internal/integration:TestConnectorRefusals", "internal/integration:TestManifest", "internal/egress:TestCheckAddr"]
+
+  - id: ac-6
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Pushing batches needs integration.push, a permission that is not
+      privileged and that no built-in role holds: it is granted to the
+      service accounts of automation, which therefore never need
+      integration.manage. A connector pushes as its integration's own
+      service account, through the gateway, so its scope and the
+      platform's checks are those of any client; the integrate service
+      never writes risk data. The service's database role reaches only the
+      integration functions it needs and no table directly.
+    customer: >-
+      Grant integration.push only to service accounts of automation, at the
+      business units they feed, and review those grants in access reviews
+      (F-001).
+    evidence:
+      code: [internal/access/catalog/release/catalog.json, db/migrations/0155_integrate_service_role.sql, internal/integration/runner.go]
+      tests: ["db/tests:TestCatalogVersion6Upgrade", "db/tests:TestIntegrateServiceRole", "db/tests:TestConnectorRunner"]
+
+  - id: au-2
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      The security event catalog defines the integration events: an
+      integration created, changed (including a run requested), paused,
+      resumed or deleted; a credential set or removed; a run received or
+      failed; a destination refused; a proposal accepted or rejected; a
+      derivation changed; a register imported; staged records purged.
+    evidence:
+      code: [pkg/audit/catalog.yaml]
+      tests: ["db/tests:TestIntegrationAuditEvents", "pkg/audit:TestCatalogMatchesCode"]
+
+  - id: au-3
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Each integration event records its actor (a person, a service
+      account, or the integrate service), the business unit, the
+      integration, and what happened: a run's trigger and counts, a
+      refused host and when it was refused, a decision's proposal and
+      reason; every version accepted from an integration keeps its
+      provenance (the integration, run, external ID and who accepted it
+      when), shown on version histories. A credential's value is never
+      recorded.
+    evidence:
+      code: [pkg/audit/catalog.yaml, db/migrations/0151_integration_review_more.sql, internal/integration/provenance.go]
+      tests: ["db/tests:TestIntegrationAuditEvents", "db/tests:TestProposalReviewMore", "db/tests:TestSTRIDEF011Secrets"]
+
+  - id: au-12
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Integration events are recorded to the audit trail in the transaction
+      that makes the change they report; a refused destination is recorded
+      in its own transaction, and only for a caller who may manage the
+      integration, so that a refusal cannot be forged by others.
+    evidence:
+      code: [db/migrations/0147_integration_admin.sql, db/migrations/0156_integrations_api.sql, db/migrations/0157_integration_runner.sql]
+      tests: ["db/tests:TestIntegrationAuditEvents", "db/tests:TestIntegrationsAPI"]
+
+  - id: ca-3
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Each connection to an external system is an integration with a
+      recorded owner business unit, input kind, delivery, source, schedule
+      and service account; it is read-only (connectors only GET and never
+      write to the source), can be paused or deleted at once, and its runs
+      are kept with their outcomes. A connector that fails three runs in a
+      row notifies the integration's managers.
+    customer: >-
+      Record the agreements with the systems the platform pulls from, and
+      delete the integration when a connection ends.
+    evidence:
+      code: [db/migrations/0147_integration_admin.sql, db/migrations/0157_integration_runner.sql, internal/integration/connectors.go]
+      tests: ["db/tests:TestIntegrationsAPI", "db/tests:TestConnectorRunner", "internal/integration:TestHTTPJSONNextPaging"]
+
+  - id: cm-6
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      The integration settings are F-015 settings with secure defaults and
+      bounds: integration.allowed_hosts, empty by default, at most 100
+      hosts, where every added host needs dual approval; and
+      integration.records_retention_days, 30 days by default, at most 365.
+      Weakening either follows the posture workflow.
+    customer: >-
+      Add only the sources the organization intends, and set the retention
+      of staged records to its diagnosis needs.
+    evidence:
+      code: [bindings/integration.allowed_hosts.yaml, bindings/integration.records_retention_days.yaml, pkg/settings/profiles.go]
+      tests: ["db/tests:TestIntegrationSettings"]
+
+  - id: ia-5
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      A connector's credentials (the source's token, or user and password,
+      and the service account's client secret) are accepted once and never
+      returned through the API or the interface, not even on a replayed
+      request; they can be replaced or removed, and deleting the
+      integration removes them. The integrate service's runner alone opens
+      them to run the connector.
+    customer: >-
+      Use a credential for the platform alone at each source, with read
+      access only, and replace it in the integration when it is rotated.
+    evidence:
+      code: [internal/integration/secrets.go, internal/integrateapi/integrations.go, db/migrations/0147_integration_admin.sql]
+      tests: ["db/tests:TestSTRIDEF011Secrets", "db/tests:TestIntegrationsAPI", "internal/integration:TestCredentialCheck"]
+
+  - id: sc-5
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Inputs are bounded before any work: at most 20 MiB a body, 10,000
+      records a batch or run, one run at a time and 12 runs an hour per
+      integration, and 50 integrations; a connector's pages are at most
+      5 MiB and its run at most 5 minutes, and failing connectors back off
+      exponentially up to a day.
+    evidence:
+      code: [internal/integration/format.go, internal/integration/connectors.go, db/migrations/0148_integration_batches.sql, db/migrations/0157_integration_runner.sql]
+      tests: ["db/tests:TestSTRIDEF011Limits", "db/tests:TestBenchmarkGateImports", "db/tests:TestConnectorRunner"]
+
+  - id: sc-7
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      The integrate service runs in its own pod, which accepts traffic only
+      from the gateway and may reach only the database, DNS, the gateway
+      and HTTPS outside the cluster; within that, its destination guard
+      reaches only allow-listed sources (AC-4). It holds no risk data: what
+      it fetches goes to the platform's API through the gateway.
+    customer: >-
+      Keep the network policies of deploy/k8s/integrate.yaml in place; in
+      air-gapped installations, keep the service scaled to zero when no
+      connector is configured.
+    evidence:
+      code: [deploy/k8s/integrate.yaml, cmd/integrate/main.go]
+      tests: ["internal/integration:TestManifest", "internal/integration:TestCheckInstall"]
+
+  - id: sc-8
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Sources are fetched over TLS 1.2 or later with verified certificates
+      (the system's roots and the customer's CA bundle,
+      FAIR_INTEGRATE_CA_FILE); plain HTTP sources are refused. Batches are
+      submitted to the gateway over TLS with the gateway's CA.
+    customer: >-
+      Provide the CA bundle of internal sources' certificates.
+    evidence:
+      code: [internal/egress/guard.go, cmd/integrate/main.go, internal/integration/connector.go]
+      tests: ["internal/egress:TestHTTPClient", "internal/integration:TestParseConnector", "db/tests:TestSTRIDEF011Destinations"]
+
+  - id: sc-13
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Credentials are sealed with AES-256-GCM under the keys of
+      integrate/secrets, with random nonces, the FIPS 140-3 approved form,
+      in the FIPS 140 module the services require; the sealed form names
+      its key and is bound to its integration and purpose.
+    evidence:
+      code: [internal/integration/secrets.go, cmd/integrate/main.go]
+      tests: ["internal/integration:TestKeyring"]
+
+  - id: sc-28
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Credentials are stored only as ciphertext, under keys kept as files
+      by the mode's key store; the newest key seals and every key opens, so
+      a rotation (iam keys rotate -kind integrate-secrets) strands nothing.
+    customer: >-
+      Protect and rotate the integrate/secrets keys in the key store
+      (docs/install/keys.md), and never delete a key while a credential may
+      still be sealed under it.
+    evidence:
+      code: [internal/integration/secrets.go, internal/keys/keys.go, docs/install/keys.md]
+      tests: ["db/tests:TestSTRIDEF011Secrets", "internal/keys:TestIntegrateKeys"]
+
+  - id: si-10
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Every record is checked against its kind's typed definition and the
+      integration's mapping, with unknown members refused and text kept as
+      text; each refused record is reported by position, pointer and
+      reason without refusing the valid ones. Mappings are declarative,
+      with no expressions, and register imports never take ratings or
+      scores as exposure.
+    evidence:
+      code: [internal/integration/format.go, internal/integration/csv.go, internal/importapi/register.go]
+      tests: ["db/tests:TestSTRIDEF011Injection", "internal/integration:TestValidateKinds", "internal/integration:TestParseJSONRefusesBatches",
+              "db/tests:TestRegisterImport"]
+
+  - id: si-12
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Staged records are kept for diagnosis for
+      integration.records_retention_days and then purged by the integrate
+      service, each purge recorded; runs, their counts and refusals,
+      proposals, links and the provenance of accepted versions are kept,
+      including after their integration is deleted.
+    customer: >-
+      Set the retention to the organization's needs for diagnosing imports.
+    evidence:
+      code: [db/migrations/0159_integration_purge.sql, internal/integration/purge.go]
+      tests: ["db/tests:TestIntegrationRecordsPurged", "db/tests:TestIntegrationsAPI"]
