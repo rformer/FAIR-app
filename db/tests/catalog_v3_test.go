@@ -80,14 +80,25 @@ func TestCatalogVersion3Upgrade(t *testing.T) {
 	}
 }
 
+// catalogVersion6 is the shipped catalog as it was at version 6: without
+// version 7's framework.view (F-013 T-01).
+func catalogVersion6(t *testing.T) (*catalog.Catalog, *catalog.BuiltinRoles) {
+	t.Helper()
+	c, br := release(t)
+	if c.Version != 7 {
+		t.Fatalf("the shipped catalog is version %d", c.Version)
+	}
+	c6, br6 := cloneRelease(c, br)
+	c6.Version, br6.CatalogVersion = 6, 6
+	dropPermission(c6, br6, "framework.view")
+	return c6, br6
+}
+
 // catalogVersion5 is the shipped catalog as it was at version 5: without
 // version 6's integration.view and integration.push (F-011 T-01).
 func catalogVersion5(t *testing.T) (*catalog.Catalog, *catalog.BuiltinRoles) {
 	t.Helper()
-	c, br := release(t)
-	if c.Version != 6 {
-		t.Fatalf("the shipped catalog is version %d", c.Version)
-	}
+	c, br := catalogVersion6(t)
 	c5, br5 := cloneRelease(c, br)
 	c5.Version, br5.CatalogVersion = 5, 5
 	dropPermission(c5, br5, "integration.view")
@@ -220,7 +231,7 @@ func TestCatalogVersion5Upgrade(t *testing.T) {
 // privileged, in no built-in role) arrive with notices; custom roles are
 // untouched; a service account may hold integration.push as a scope.
 func TestCatalogVersion6Upgrade(t *testing.T) {
-	c6, br6 := release(t)
+	c6, br6 := catalogVersion6(t)
 	c5, br5 := catalogVersion5(t)
 	e := setupWith(t, func() (*catalog.Catalog, *catalog.BuiltinRoles, error) { return c5, br5, nil })
 	for _, u := range []string{"platform", "aud", "rita"} {
@@ -269,6 +280,51 @@ func TestCatalogVersion6Upgrade(t *testing.T) {
 		t.Errorf("integration.manage as a service-account scope: %s", got)
 	}
 	if again := e.sync(t, c6, br6); len(again.AddedPermissions)+len(again.CreatedRoles)+len(again.VersionedRoles) != 0 {
+		t.Fatalf("second sync %+v", again)
+	}
+}
+
+// F-013 T-01 (F-013 OQ3, design §10): permission catalog version 7 on an
+// installation at version 6: framework.view (read, not privileged, not risk
+// data; Platform Admin, Auditor and Risk Analyst gain it) arrives with a
+// notice; custom roles are untouched.
+func TestCatalogVersion7Upgrade(t *testing.T) {
+	c7, br7 := release(t)
+	c6, br6 := catalogVersion6(t)
+	e := setupWith(t, func() (*catalog.Catalog, *catalog.BuiltinRoles, error) { return c6, br6, nil })
+	for _, u := range []string{"platform", "aud", "ana", "rita", "owen"} {
+		e.mustOwner("INSERT INTO iam.app_user (email, display_name) VALUES ('" + u + "@example.test', '" + u + "')")
+	}
+	e.mustOwner("SELECT iam.bootstrap_platform_admin(" + uid("platform") + ")")
+	e.mustOwner(`WITH r AS (INSERT INTO iam.role (name) VALUES ('Control Keeper') RETURNING id)
+		INSERT INTO iam.role_version (role_id, version, permissions, change_reason) SELECT id, 1, ARRAY['control.edit', 'control.view'], 'test' FROM r`)
+	e.mustOwner(grant("platform", "user:rita", "Control Keeper", "ENTERPRISE"))
+	e.mustOwner(grant("platform", "user:aud", "Auditor", "ENTERPRISE"))
+	e.mustOwner(grant("platform", "user:ana", "Risk Analyst", "ENTERPRISE"))
+	e.mustOwner(grant("platform", "user:owen", "Risk Owner", "ENTERPRISE"))
+
+	r := e.sync(t, c7, br7)
+	slices.Sort(r.VersionedRoles)
+	if r.PreviousVersion != 6 || r.Version != 7 || strings.Join(r.AddedPermissions, ",") != "framework.view" || len(r.CreatedRoles) != 0 ||
+		strings.Join(r.VersionedRoles, ",") != "Auditor,Platform Admin,Risk Analyst" || len(r.CustomRolesChanged) != 0 {
+		t.Fatalf("sync result %+v", r)
+	}
+	if got := e.mustOwner("SELECT string_agg(subject, ',') FROM iam.catalog_notice WHERE catalog_version = 7 AND kind = 'added'"); got != "framework.view" {
+		t.Fatalf("added notices %s", got)
+	}
+	if got := e.mustOwner("SELECT action || ':' || privileged || ':' || risk_data FROM iam.permission WHERE key = 'framework.view'"); got != "read:false:false" {
+		t.Errorf("framework.view %s", got)
+	}
+	if v, perms := e.rolePerms("Control Keeper"); v != 1 || strings.Join(perms, ",") != "control.edit,control.view" {
+		t.Fatalf("custom role v%d %v", v, perms)
+	}
+	e.drain()
+	for _, c := range []struct{ user, want string }{{"platform", "t"}, {"aud", "t"}, {"ana", "t"}, {"rita", "f"}, {"owen", "f"}} {
+		if got := e.adminQuery("SELECT iam.user_has_permission(" + uid(c.user) + ", 'framework.view', " + buID("ENTERPRISE") + ")"); got != c.want {
+			t.Errorf("%s holds framework.view: %s", c.user, got)
+		}
+	}
+	if again := e.sync(t, c7, br7); again.PreviousVersion != 7 || len(again.AddedPermissions) != 0 || len(again.VersionedRoles) != 0 {
 		t.Fatalf("second sync %+v", again)
 	}
 }
