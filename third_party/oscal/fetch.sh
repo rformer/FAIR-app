@@ -50,6 +50,13 @@ files=(
   "nist/sp800-171r3/NIST_SP800-171_rev3_catalog.json|$content/nist.gov/SP800-171/rev3/json/NIST_SP800-171_rev3_catalog.json"
   "nist/sp800-171r2/sp800-171r2-to-r3-analysis.xlsx|https://csrc.nist.gov/files/pubs/sp/800/171/r3/final/docs/sp800-171r2-to-r3-analysis.xlsx"
   "nist/sp800-171r2/NIST.SP.800-171r2.pdf|https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-171r2.pdf"
+  # F-013 T-04: the shipped frameworks' other baselines (NIST low, high, privacy; FedRAMP low, high, LI-SaaS)
+  "nist/sp800-53r5/NIST_SP-800-53_rev5_LOW-baseline_profile.json|$content/nist.gov/SP800-53/rev5/json/NIST_SP-800-53_rev5_LOW-baseline_profile.json"
+  "nist/sp800-53r5/NIST_SP-800-53_rev5_HIGH-baseline_profile.json|$content/nist.gov/SP800-53/rev5/json/NIST_SP-800-53_rev5_HIGH-baseline_profile.json"
+  "nist/sp800-53r5/NIST_SP-800-53_rev5_PRIVACY-baseline_profile.json|$content/nist.gov/SP800-53/rev5/json/NIST_SP-800-53_rev5_PRIVACY-baseline_profile.json"
+  "fedramp/rev5/FedRAMP_rev5_LOW-baseline_profile.json|$fedramp/FedRAMP_rev5_LOW-baseline_profile.json"
+  "fedramp/rev5/FedRAMP_rev5_HIGH-baseline_profile.json|$fedramp/FedRAMP_rev5_HIGH-baseline_profile.json"
+  "fedramp/rev5/FedRAMP_rev5_LI-SaaS-baseline_profile.json|$fedramp/FedRAMP_rev5_LI-SaaS-baseline_profile.json"
 )
 
 {

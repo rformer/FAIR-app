@@ -15,7 +15,7 @@ Requirements: `requirements.md` (Approved 2026-11-18) · ADR-004, ADR-005, ADR-0
 | `db/bootstrap` | NOLOGIN role `framework_definer`; re-run `scripts/db-bootstrap.sh` |
 | `db/migrations` | Schema `framework` (§5); `risk.check_document` checks a control's `mappings` against it; the mapping projection and its RLS; events |
 | `internal/framework` | Parsing and validation: OSCAL catalogs and profiles (through `internal/oscal`, OSCAL 1.2.3), the simple format, crosswalks; profile resolution (§3.2); version diffs; limits |
-| `internal/framework/content` | Shipped frameworks (OQ1): NIST SP 800-53r5 catalog and its low, moderate, high and privacy baselines; NIST SP 800-171r3; FedRAMP Rev 5 baselines; the NIST 800-171r3 to 800-53r5 crosswalk (OQ2); embedded, digests in the release manifest |
+| `internal/framework/content` | Shipped frameworks (OQ1): NIST SP 800-53r5 at 5.2.0 and 5.1.1 (FedRAMP's and 800-171r3's version) and its low, moderate, high and privacy baselines; NIST SP 800-171r3; FedRAMP Rev 5 baselines; the 800-171r3 to 800-53r5 crosswalk from the 800-171r3 catalog's references, as `intersects` (OQ2); built from `third_party/oscal`, embedded in the `iam` binary (covered by its image digest in the signed release manifest), each item's source digest stored |
 | `internal/migrate` | `migrate.Release.Frameworks`: `iam migrate` syncs shipped content (`framework.sync_shipped`) |
 | `internal/risk/model` | Control `mappings` (framework, version, requirement, strength, rationale), validated in Go and SQL (parity) |
 | `internal/frameworkapi` | The API (§6), the import job (`framework.Worker`) |
@@ -143,3 +143,4 @@ Conventions as before: operationId = handler; mutating routes declare `x-permiss
 ## Change Log
 - 2026-11-18: Initial draft, In Review.
 - 2026-11-18: Approved by Robert Former.
+- 2026-11-19: §2 and §13 amended (T-03, T-04): D-OQ1 resolved (OSCAL 1.2.3 defines mapping collections; T-07 reads them); D-OQ2 resolved (800-53 5.2.0 from oscal-content v1.6.0 and 5.1.1+u4 from v1.3.0, 800-171r3 1.1.0, FedRAMP Rev 5 baselines at the fedramp-resources commit pinned by F-015); the shipped crosswalk is derived from the 800-171r3 catalog's references and typed `intersects`, since NIST gives no relationship type; shipped content is covered by the iam image digest rather than a separate manifest entry.

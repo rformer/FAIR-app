@@ -96,6 +96,14 @@ type KindSync struct {
 	Retired []string `json:"retired"`
 }
 
+// FrameworkSync is what framework.sync_shipped reports: shipped framework
+// versions, baselines and crosswalks added (F-013 T-04).
+type FrameworkSync struct {
+	Versions   []string `json:"versions"`
+	Baselines  []string `json:"baselines"`
+	Crosswalks []string `json:"crosswalks"`
+}
+
 // Release is what a build ships besides its migrations.
 type Release struct {
 	Catalog         []byte   // catalog.SyncPayload, for iam.sync_release
@@ -104,17 +112,19 @@ type Release struct {
 	Starter         []byte   // starter.SyncPayload, for risk.sync_starter (F-003 T-10)
 	Bank            []byte   // bank.SyncPayload, for estimate.sync_bank (F-004 T-11)
 	NoticeKinds     []byte   // notify.SyncPayload, for notify.sync_kinds (F-009 T-02)
+	Frameworks      []byte   // content.SyncPayload, for framework.sync_shipped (F-013 T-04)
 }
 
 // Result summarizes a run.
 type Result struct {
-	Applied  []string // versions applied by this run, in order
-	Sync     SyncResult
-	Packages PackageSync
-	Events   EventSync
-	Starter  StarterSync
-	Bank     BankSync
-	Kinds    KindSync
+	Applied    []string // versions applied by this run, in order
+	Sync       SyncResult
+	Packages   PackageSync
+	Events     EventSync
+	Starter    StarterSync
+	Bank       BankSync
+	Kinds      KindSync
+	Frameworks FrameworkSync
 }
 
 // ConnConfig builds the migrator's connection (see dbconn.Config). The user
@@ -150,6 +160,9 @@ func Run(ctx context.Context, conn *pgx.Conn, migrations fs.FS, rel Release) (Re
 	}
 	if len(rel.NoticeKinds) == 0 {
 		return res, errors.New("migrate: the release has no notice kinds")
+	}
+	if len(rel.Frameworks) == 0 {
+		return res, errors.New("migrate: the release has no shipped frameworks")
 	}
 	types, err := resourceTypes(rel.Catalog)
 	if err != nil {
@@ -261,7 +274,13 @@ REVOKE ALL ON fair_meta.schema_migrations FROM PUBLIC;`).ReadAll()
 		if err := tx.QueryRow(ctx, "SELECT notify.sync_kinds($1::jsonb)", string(rel.NoticeKinds)).Scan(&out); err != nil {
 			return fmt.Errorf("notice kinds: %w", err)
 		}
-		return json.Unmarshal(out, &res.Kinds)
+		if err := json.Unmarshal(out, &res.Kinds); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx, "SELECT framework.sync_shipped($1::jsonb)", string(rel.Frameworks)).Scan(&out); err != nil {
+			return fmt.Errorf("shipped frameworks: %w", err)
+		}
+		return json.Unmarshal(out, &res.Frameworks)
 	})
 	if err != nil {
 		return res, fmt.Errorf("migrate: %w", err)

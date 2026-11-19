@@ -79,7 +79,7 @@ func resolve(raw []byte, lookup Lookup, depth int) (*Baseline, *Version, error) 
 		return nil, nil, Problems{{Pointer: "", Message: fmt.Sprintf("an OSCAL %s, not a profile", kind)}}
 	}
 	p := doc.Profile
-	out := &Baseline{Title: p.Metadata.Title, Parameters: map[string]string{}}
+	out := &Baseline{Title: p.Metadata.Title, Parameters: map[string]string{}, Notes: []string{}}
 	var catalog *Version
 	selected := map[string]bool{}
 	c := &checker{}

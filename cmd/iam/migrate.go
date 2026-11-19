@@ -19,6 +19,7 @@ import (
 	"github.com/rformer/fair-app/db"
 	"github.com/rformer/fair-app/internal/access/catalog"
 	"github.com/rformer/fair-app/internal/estimate/bank"
+	"github.com/rformer/fair-app/internal/framework/content"
 	"github.com/rformer/fair-app/internal/migrate"
 	"github.com/rformer/fair-app/internal/notify"
 	"github.com/rformer/fair-app/internal/profilepkg"
@@ -157,8 +158,12 @@ func migrateOnce(ctx context.Context, env string) (migrate.Result, error) {
 	if err != nil {
 		return migrate.Result{}, err
 	}
+	frameworks, err := content.SyncPayload() // F-013 T-04
+	if err != nil {
+		return migrate.Result{}, err
+	}
 	return migrate.Run(ctx, conn, migrations, migrate.Release{Catalog: payload, ProfilePackages: pkgs, Events: events, Starter: starterLib, Bank: questions,
-		NoticeKinds: kinds})
+		NoticeKinds: kinds, Frameworks: frameworks})
 }
 
 // releasePackages returns the embedded profile packages, each checked
