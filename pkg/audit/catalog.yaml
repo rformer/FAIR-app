@@ -565,6 +565,13 @@ events:
     bu: required
     attributes: [reason]
     description: "An archived control was restored (F-003 T-09, AC-22)"
+  - type: control.mappings_changed
+    category: risk_data
+    severities: [low]
+    requires: [target]
+    bu: required
+    attributes: [added, control, removed, version]
+    description: "A control version was saved whose framework mappings differ from the previous version's: the mappings added and removed, by framework, version, requirement and strength (F-013 T-06, AC-07, AC-19)"
   - type: db.migrated
     category: system
     severities: [info, high]

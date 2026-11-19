@@ -13,6 +13,8 @@
 //	POST /api/v1/frameworks/baselines/{id}/retire         retire one (a reason)
 //	POST /api/v1/frameworks/imports                       upload a catalog, profile or simple framework (?dry_run=true)
 //	GET  /api/v1/frameworks/imports/{id}                  an import's outcome
+//	GET  /api/v1/controls/{id}/suggested-mappings         its references that match requirements (T-06)
+//	GET  /api/v1/controls/{id}/mapping-updates            equivalents of its mappings in newer versions (T-06)
 //
 // The database decides who may: readers hold framework.view, control.view
 // or control.edit somewhere (404 otherwise); imports and retirements need
@@ -68,6 +70,8 @@ var routes = []route{
 	{"POST", "/api/v1/frameworks/baselines/{id}/retire", (*API).retireBaseline},
 	{"POST", "/api/v1/frameworks/imports", (*API).requestImport},
 	{"GET", "/api/v1/frameworks/imports/{id}", (*API).getImport},
+	{"GET", "/api/v1/controls/{id}/suggested-mappings", (*API).suggestedMappings},
+	{"GET", "/api/v1/controls/{id}/mapping-updates", (*API).mappingUpdates},
 }
 
 // Routes lists "METHOD /path" of every route (for the OpenAPI document).
@@ -82,6 +86,10 @@ func Routes() []string {
 
 // Prefixes are the path prefixes the API owns (for the service's mux).
 var Prefixes = []string{"/api/v1/frameworks"}
+
+// Patterns are routes the API serves inside the risk API's /api/v1/controls
+// (mounted as they are: more specific, they take precedence in the mux).
+var Patterns = []string{"GET /api/v1/controls/{id}/suggested-mappings", "GET /api/v1/controls/{id}/mapping-updates"}
 
 // Handler returns the API with authentication and idempotency.
 func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {
@@ -426,4 +434,92 @@ func (a *API) requestImport(w http.ResponseWriter, r *http.Request, p authz.Prin
 		return
 	}
 	writeJSON(w, http.StatusAccepted, raw)
+}
+
+// controlDocument reads a control's latest document under the caller's
+// row-level security: 404 when it is not visible, 403 when the caller may
+// not edit it (suggestions are for those who would save them).
+func (a *API) controlDocument(w http.ResponseWriter, r *http.Request, p authz.Principal) (map[string]json.RawMessage, bool) {
+	cid, ok := id(w, r)
+	if !ok {
+		return nil, false
+	}
+	var doc []byte
+	var editable bool
+	err := authz.WithDBContext(r.Context(), a.DB, p.DBToken, func(tx pgx.Tx) error {
+		return tx.QueryRow(r.Context(), `SELECT v.document, c.bu_id = ANY (authz.visible_bus('control', 'write'))
+			FROM risk.control c JOIN risk.control_version v ON v.control_id = c.id AND v.version = c.current_version WHERE c.id = $1`, cid).Scan(&doc, &editable)
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		problem(w, http.StatusNotFound, "not_found", "")
+		return nil, false
+	}
+	if err != nil {
+		fail(w, err)
+		return nil, false
+	}
+	if !editable {
+		problem(w, http.StatusForbidden, "forbidden", "control.edit at the control's business unit is needed")
+		return nil, false
+	}
+	var d map[string]json.RawMessage
+	if err := json.Unmarshal(doc, &d); err != nil {
+		fail(w, err)
+		return nil, false
+	}
+	return d, true
+}
+
+// suggestedMappings answers the control's plain references that match a
+// requirement of an active framework version, and are not mapped yet
+// (F-013 AC-08).
+func (a *API) suggestedMappings(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	d, ok := a.controlDocument(w, r, p)
+	if !ok {
+		return
+	}
+	refs := d["references"]
+	if len(refs) == 0 {
+		refs = json.RawMessage("[]")
+	}
+	var matches []map[string]any
+	if err := a.DB.QueryRow(r.Context(), "SELECT framework.match_references($1::jsonb)", string(refs)).Scan(&matches); err != nil {
+		fail(w, err)
+		return
+	}
+	var mapped []struct{ Framework, Version, Requirement string }
+	_ = json.Unmarshal(d["mappings"], &mapped)
+	out := []map[string]any{}
+	for _, m := range matches {
+		dup := false
+		for _, x := range mapped {
+			if x.Framework == m["framework"] && x.Version == m["version"] && x.Requirement == m["requirement"] {
+				dup = true
+			}
+		}
+		if !dup {
+			out = append(out, m)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"suggestions": out})
+}
+
+// mappingUpdates answers, for mappings to a version with a newer active
+// version of its framework, the equivalent requirements there (F-013
+// AC-09).
+func (a *API) mappingUpdates(w http.ResponseWriter, r *http.Request, p authz.Principal) {
+	d, ok := a.controlDocument(w, r, p)
+	if !ok {
+		return
+	}
+	ms := d["mappings"]
+	if len(ms) == 0 {
+		ms = json.RawMessage("[]")
+	}
+	var raw json.RawMessage
+	if err := a.DB.QueryRow(r.Context(), "SELECT framework.mapping_updates($1::jsonb)", string(ms)).Scan(&raw); err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"updates": raw})
 }

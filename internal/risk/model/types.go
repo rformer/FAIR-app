@@ -294,7 +294,25 @@ type Control struct {
 	References     []Reference     `json:"references,omitempty"`
 	Effects        []Effect        `json:"effects"`
 	Implementation *Implementation `json:"implementation,omitempty"`
+	// Mappings are the framework requirements the control satisfies (F-013
+	// T-06, design §3.4); the database checks that each exists.
+	Mappings []Mapping `json:"mappings,omitempty"`
 }
+
+// Mapping is a control's mapping to a framework requirement: the
+// framework family's key, the version's label, the requirement's
+// identifier, how fully the control satisfies it, and why (F-013 AC-07).
+type Mapping struct {
+	Framework   string `json:"framework"`
+	Version     string `json:"version"`
+	Requirement string `json:"requirement"`
+	Strength    string `json:"strength"`
+	Rationale   string `json:"rationale,omitempty"`
+}
+
+// MappingStrengths are how fully a control satisfies a requirement (F-013
+// OQ5): fully, partially, or supports it (relevant, not sufficient).
+var MappingStrengths = []string{"full", "partial", "supports"}
 
 // Implementation is whether a control is in place, as last assessed (F-011
 // T-05, design §3.7): its status, the date of the assessment and, where it

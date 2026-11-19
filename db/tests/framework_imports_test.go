@@ -22,10 +22,12 @@ import (
 	"github.com/rformer/fair-app/pkg/authz"
 )
 
-// frameworkEnv serves the framework API as app_rw on the risk env's keys;
+// frameworkEnv serves the framework API as app_rw on the risk env's keys
+// (risk serves the risk API);
 // imports are queued to a list and worked by the test (worker.Run).
 type frameworkEnv struct {
 	*riskAPIEnv
+	risk   *riskAPIEnv // the risk API itself (controls, scenarios)
 	worker *frameworkapi.Worker
 	mu     sync.Mutex
 	queued []string
@@ -47,6 +49,7 @@ func frameworkAPI(t *testing.T) *frameworkEnv {
 	fa := *ra
 	fa.url = srv.URL
 	fe.riskAPIEnv = &fa
+	fe.risk = ra
 	return fe
 }
 

@@ -22,6 +22,8 @@ const (
 	MaxDocumentBytes = 1 << 20 // one document
 	MaxName          = 200     // names
 	MaxLine          = 1000    // other single-line text
+	MaxMappings      = 500     // framework mappings of a control (F-013)
+	MaxVersionLabel  = 100     // a framework version's label (F-013)
 	MaxText          = 10000   // descriptions, scope, loss event, rationale
 	MaxSources       = 20
 	MaxControlSets   = 20
@@ -836,6 +838,43 @@ func (v *validator) control(c *Control) {
 	v.effects("/effects", c.Effects)
 	if c.Implementation != nil {
 		v.implementation("/implementation", c.Implementation)
+	}
+	v.mappings("/mappings", c.Mappings)
+}
+
+var (
+	frameworkKeyRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
+	requirementRE  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:()-]{0,99}$`)
+)
+
+// mappings checks a control's framework mappings' shape (F-013 design
+// §3.4): at most MaxMappings, each to a framework family key, a version
+// label and a requirement identifier once, with a strength. That the
+// requirement exists is the database's to check.
+func (v *validator) mappings(ptr string, ms []Mapping) {
+	if len(ms) > MaxMappings {
+		v.add(ptr, "at most %d mappings", MaxMappings)
+		return
+	}
+	seen := map[[3]string]int{}
+	for i, m := range ms {
+		mp := fmt.Sprintf("%s/%d", ptr, i)
+		if !frameworkKeyRE.MatchString(m.Framework) {
+			v.add(mp+"/framework", "is a framework family's key (lower-case letters, digits and hyphens)")
+		}
+		v.text(mp+"/version", m.Version, MaxVersionLabel, true, false)
+		if !requirementRE.MatchString(m.Requirement) {
+			v.add(mp+"/requirement", "is a requirement identifier")
+		}
+		if !oneOf(m.Strength, MappingStrengths) {
+			v.add(mp+"/strength", "is %q, want one of %s", m.Strength, strings.Join(MappingStrengths, ", "))
+		}
+		v.text(mp+"/rationale", m.Rationale, MaxLine, false, true)
+		k := [3]string{m.Framework, m.Version, m.Requirement}
+		if j, dup := seen[k]; dup {
+			v.add(mp, "repeats mapping %d", j)
+		}
+		seen[k] = i
 	}
 }
 

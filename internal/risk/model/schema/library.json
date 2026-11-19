@@ -83,6 +83,23 @@
           }
         },
         "effects": { "$ref": "urn:fair:risk:common:1#/$defs/effects" },
+        "mappings": {
+          "description": "F-013 design §3.4: the framework requirements the control satisfies; the database checks that each exists and is not withdrawn.",
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "required": ["framework", "version", "requirement", "strength"],
+            "additionalProperties": false,
+            "properties": {
+              "framework": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" },
+              "version": { "type": "string", "minLength": 1, "maxLength": 100 },
+              "requirement": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:()-]{0,99}$" },
+              "strength": { "enum": ["full", "partial", "supports"] },
+              "rationale": { "type": "string", "maxLength": 1000 }
+            }
+          }
+        },
         "implementation": {
           "description": "F-011 design §3.7: whether the control is in place, as last assessed.",
           "type": "object",

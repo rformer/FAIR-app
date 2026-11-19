@@ -541,6 +541,9 @@ func run() error {
 			srv.Mux().Handle(prefix, fwh)
 			srv.Mux().Handle(prefix+"/", fwh)
 		}
+		for _, pattern := range frameworkapi.Patterns {
+			srv.Mux().Handle(pattern, fwh)
+		}
 		// The imports API (F-011 design §6.2).
 		imph := server.SecurityHeaders((&importapi.API{DB: pool, Authz: grants, Risk: api, Register: regAPI}).Handler(jwtKeys, nil))
 		for _, prefix := range importapi.Prefixes {

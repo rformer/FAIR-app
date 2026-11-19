@@ -258,6 +258,9 @@ func Corpus() []Case {
 		{"group valued by members", "asset_group", "/value", nil},
 		{"implementation status (F-011)", "control", "/implementation", map[string]any{"status": "not_in_place", "assessed_on": "2026-11-01", "source": map[string]any{"type": "integration", "ref": "GRC tool", "note": "Quarterly control test"}}},
 		{"implementation without a source", "control", "/implementation", map[string]any{"status": "in_place", "assessed_on": "2026-11-01"}},
+		{"framework mappings (F-013)", "control", "/mappings", []any{
+			map[string]any{"framework": "nist-800-53", "version": "5.2.0", "requirement": "ac-2", "strength": "full", "rationale": "Accounts are provisioned through the IdP"},
+			map[string]any{"framework": "nist-800-53", "version": "5.2.0", "requirement": "ac-2.1", "strength": "supports"}}},
 		{"all six forms", "loss_profile", "/magnitudes", map[string]any{
 			"productivity": est("0", "1", "2", "currency"), "response": est("0", "1", "2", "currency"),
 			"replacement": est("0", "1", "2", "currency"), "fines_judgments": est("0", "1", "2", "currency"),
@@ -386,6 +389,14 @@ func Corpus() []Case {
 				map[string]any{"framework": "ISO 27001", "identifier": "A.8.7"}}, "/references/1", false},
 			{"reference without identifier", "/references/0/identifier", "", "", false},
 		},
+		"control_mappings": {
+			{"a framework that is not a key", "/mappings/0/framework", "NIST 800-53", "", false},
+			{"no version", "/mappings/0/version", "", "", false},
+			{"a requirement that is not an identifier", "/mappings/0/requirement", "AC 2", "", false},
+			{"an unknown strength", "/mappings/0/strength", "most", "", false},
+			{"an unknown field", "/mappings/0/score", 3, "", true},
+			{"a repeated mapping", "/mappings/1/requirement", "ac-2", "/mappings/1", false},
+		},
 		"control_implementation": {
 			{"unknown status", "/implementation/status", "retired", "", false},
 			{"assessed on no date", "/implementation/assessed_on", "last week", "", false},
@@ -413,6 +424,18 @@ func Corpus() []Case {
 	for _, m := range invalid["control_implementation"] {
 		d := Set(Set(Control(), "/implementation", map[string]any{"status": "in_place", "assessed_on": "2026-11-01",
 			"source": map[string]any{"type": "integration", "ref": "GRC tool"}}), m.pointer, m.value)
+		p := m.problem
+		if p == "" {
+			p = m.pointer
+		}
+		out = append(out, Case{Name: "control: " + m.name, Kind: "control", Doc: mustJSON(d), Pointer: p, Structural: m.structural})
+	}
+	// A control's framework mappings (F-013 T-06): mutations of a control
+	// mapped to two 800-53 requirements (shipped, so the database finds them).
+	for _, m := range invalid["control_mappings"] {
+		d := Set(Set(Control(), "/mappings", []any{
+			map[string]any{"framework": "nist-800-53", "version": "5.2.0", "requirement": "ac-2", "strength": "full"},
+			map[string]any{"framework": "nist-800-53", "version": "5.2.0", "requirement": "ac-3", "strength": "partial"}}), m.pointer, m.value)
 		p := m.problem
 		if p == "" {
 			p = m.pointer

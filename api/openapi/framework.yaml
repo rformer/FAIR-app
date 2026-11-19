@@ -321,6 +321,61 @@ paths:
         "413": { $ref: "#/components/responses/Error" }
         "415": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+  /api/v1/controls/{id}/suggested-mappings:
+    get:
+      operationId: suggestedMappings
+      tags: [frameworks]
+      summary: The control's plain framework references that match requirements of active versions, not mapped yet (AC-08)
+      x-permission: control.edit at the control's business unit
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: Suggested mappings; saving the control with them records them
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  suggestions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        reference: { type: integer, description: The reference's index in the control's document }
+                        framework: { type: string }
+                        version: { type: string }
+                        requirement: { type: string }
+                        requirement_id: { type: string, format: uuid }
+                        label: { type: [string, "null"] }
+                        title: { type: string }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/controls/{id}/mapping-updates:
+    get:
+      operationId: mappingUpdates
+      tags: [frameworks]
+      summary: For mappings to a version with a newer active version of its framework, the equivalent requirements there (AC-09)
+      x-permission: control.edit at the control's business unit
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: Proposed updates; saving the control with them records them
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updates:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        mapping: { type: integer }
+                        from: { type: object }
+                        to_version: { type: string }
+                        to: { type: array, items: { type: object } }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /api/v1/frameworks/imports/{id}:
     get:
       operationId: getImport
