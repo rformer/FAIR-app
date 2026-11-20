@@ -419,6 +419,34 @@ var strideF011 = map[string][]string{
 	},
 }
 
+// strideF013 maps F-013's design §7 rows (T-12).
+var strideF013 = map[string][]string{
+	"T: a malicious catalog or profile (XXE-like expansion, huge files, deep nesting, links) | JSON only, validated against the pinned OSCAL schema; size, count and depth limits; nothing fetched (no `href` followed, no back-matter resources read); whole-file refusal": {
+		"db/tests:TestSTRIDEF013Imports", "internal/framework:TestParseCatalog", "internal/framework:TestParseProfile", "internal/framework:TestParseMappingCollection",
+	},
+	"T, E: frameworks changed by someone without `framework.manage`, or shipped content altered | Imports and retirements need `framework.manage` at the root (privileged); framework tables definer-only and immutable (PF033); shipped content embedded and digested in the signed release manifest": {
+		"db/tests:TestSTRIDEF013Frameworks", "db/tests:TestFrameworkSchema", "db/tests:TestShippedFrameworks", "db/tests:TestFrameworkImports",
+	},
+	"I: coverage leaks controls of business units the viewer cannot see | The projection under RLS; restricted units only by roll-up mode, as counts; derived coverage only from visible controls": {
+		"db/tests:TestSTRIDEF013Coverage", "db/tests:TestFrameworkCoverage", "db/tests:TestRLSHarnessEveryBUOwnedTable",
+	},
+	"T: coverage overstates compliance | Only full, direct mappings to controls in place count as in place; derived and partial shown apart; no score": {
+		"db/tests:TestFrameworkCoverage",
+	},
+	"E: a mapping or proposal changes an analysis | Mappings live in control versions (scenarios keep their pins); proposed scenarios are not saved; nothing runs by itself": {
+		"db/tests:TestSTRIDEF013Proposals", "db/tests:TestRequirementScenarios",
+	},
+	"T: injection through framework text | Text stored and shown as data; CSV exports neutralized (F-010); statements rendered as text, never HTML": {
+		"db/tests:TestSTRIDEF013Injection", "internal/analysis:TestAnalysisCSVNeutralized",
+	},
+	"R: changes not attributable | Imports with file digests, retirements, mapping changes and exports recorded in their transactions": {
+		"db/tests:TestFrameworkAuditEvents", "db/tests:TestControlMappings",
+	},
+	"D: large imports or coverage reads exhaust the service | Limits before work; imports as bounded jobs; coverage set-based with the scope read once (F-010 T-18)": {
+		"db/tests:TestSTRIDEF013Limits", "db/tests:TestBenchmarkGateFrameworks",
+	},
+}
+
 // The threat tables and the suites agree: every row has tests, every test
 // exists and is run by make test-stride, and no mapping names a row the
 // design no longer has. Runs without a database.
@@ -452,6 +480,7 @@ func TestSTRIDECatalog(t *testing.T) {
 		{"F-009-notifications", "## 7.", 9, strideF009},
 		{"F-010-reporting-export", "## 7.", 8, strideF010},
 		{"F-011-integrations", "## 7.", 9, strideF011},
+		{"F-013-control-frameworks", "## 7.", 8, strideF013},
 	} {
 		rows := threatRows(t, filepath.Join(root, "specs", "features", c.feature, "design.md"), c.section)
 		if len(rows) < c.min {
