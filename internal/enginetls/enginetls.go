@@ -34,7 +34,7 @@ func ServerConfig(dir string, now func() time.Time) (*tls.Config, error) {
 	c.GetCertificate = func(*tls.ClientHelloInfo) (*tls.Certificate, error) { return load(dir) }
 	// The client's chain is not built to a CA: the pin is the trust.
 	c.ClientAuth = tls.RequireAnyClientCert
-	c.VerifyPeerCertificate = pinned(filepath.Join(dir, keys.ClientPins), x509.ExtKeyUsageClientAuth, now)
+	c.VerifyConnection = connection(pinned(filepath.Join(dir, keys.ClientPins), x509.ExtKeyUsageClientAuth, now))
 	return c, nil
 }
 
@@ -50,9 +50,9 @@ func ClientConfig(dir string, now func() time.Time) (*tls.Config, error) {
 	c.ServerName = keys.EngineHost
 	c.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) { return load(dir) }
 	// The gate's certificate is self-signed and pinned: chain verification
-	// is replaced by the pin check below, which runs on every handshake.
-	c.InsecureSkipVerify = true // #nosec G402 -- verified by VerifyPeerCertificate (SHA-256 pin, validity, usage)
-	c.VerifyPeerCertificate = pinned(filepath.Join(dir, keys.GatePins), x509.ExtKeyUsageServerAuth, now)
+	// is replaced by the pin check below, which runs on every connection.
+	c.InsecureSkipVerify = true // #nosec G402 -- verified by VerifyConnection (SHA-256 pin, validity, usage)
+	c.VerifyConnection = connection(pinned(filepath.Join(dir, keys.GatePins), x509.ExtKeyUsageServerAuth, now))
 	return c, nil
 }
 
@@ -62,6 +62,18 @@ func load(dir string) (*tls.Certificate, error) {
 		return nil, fmt.Errorf("enginetls: %s: %w", dir, err)
 	}
 	return &cert, nil
+}
+
+// connection applies check to the peer's certificates on every connection,
+// resumed sessions included (VerifyPeerCertificate is skipped on resumption).
+func connection(check func([][]byte, [][]*x509.Certificate) error) func(tls.ConnectionState) error {
+	return func(cs tls.ConnectionState) error {
+		raw := make([][]byte, len(cs.PeerCertificates))
+		for i, c := range cs.PeerCertificates {
+			raw[i] = c.Raw
+		}
+		return check(raw, nil)
+	}
 }
 
 // pinned checks the peer's leaf certificate: its SHA-256 is in the pin

@@ -80,7 +80,7 @@ func kindColumn(res resource) string {
 
 // mayEdit is the edit permission at bu, as the handlers check it.
 func (a *API) mayEdit(ctx context.Context, p authz.Principal, res resource, bu string) error {
-	if err := a.Authz.Check(ctx, p, authz.Permission(res.edit), bu); err != nil {
+	if err := a.Authz.Check(ctx, p, res.edit, bu); err != nil {
 		var su *authz.StepUpError
 		if errors.As(err, &su) || errors.Is(err, authz.ErrStepUpRequired) {
 			return err

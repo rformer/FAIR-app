@@ -410,12 +410,12 @@ func (a *API) testIntegration(w http.ResponseWriter, r *http.Request, p authz.Pr
 		return
 	}
 	req := integration.TestRequest{IntegrationID: iid, BUID: cur.BUID, Kind: cur.Kind, Mapping: cur.Mapping, Connector: cur.Connector}
-	if cred, err := a.source(r.Context(), iid); err != nil {
+	cred, err := a.source(r.Context(), iid)
+	if err != nil {
 		problem(w, http.StatusServiceUnavailable, "unavailable", err.Error())
 		return
-	} else {
-		req.Source = cred
 	}
+	req.Source = cred
 	res, err := a.Tester.Test(r.Context(), req)
 	if errors.Is(err, egress.ErrRefused) {
 		if rerr := a.recordRefusal(r.Context(), p, cur.BUID, iid, cur.Connector.Host(), err.Error(), "test"); rerr != nil {

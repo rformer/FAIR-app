@@ -100,7 +100,7 @@ func run() error {
 	if dir := os.Getenv("FAIR_INTEGRATE_SECRETS_DIR"); dir != "" {
 		ks, err := keys.IntegrateSecretKeys(dir)
 		if err != nil || len(ks) == 0 {
-			return fmt.Errorf("FAIR_INTEGRATE_SECRETS_DIR: no connector-credentials key (%v)", err)
+			return fmt.Errorf("FAIR_INTEGRATE_SECRETS_DIR: no connector-credentials key (%w)", err)
 		}
 		if keyring, err = integration.NewKeyring(ks); err != nil {
 			return fmt.Errorf("FAIR_INTEGRATE_SECRETS_DIR: %w", err)
@@ -195,7 +195,9 @@ func run() error {
 		return sc.Int(settings.KeyIntegrationRecordRetention, "")
 	}}
 	go leader.Run(ctx, func(ctx context.Context) error {
-		go func() { _ = purger.Run(ctx, func(err error) { logger.Error("purging staged records", "error", err.Error()) }) }()
+		go func() {
+			_ = purger.Run(ctx, func(err error) { logger.Error("purging staged records", "error", err.Error()) })
+		}()
 		if runner == nil {
 			<-ctx.Done()
 			return ctx.Err()
@@ -243,7 +245,7 @@ func tlsWithCA(file string, withSystem bool) (*tls.Config, error) {
 	if file == "" {
 		return c, nil
 	}
-	pem, err := os.ReadFile(file)
+	pem, err := os.ReadFile(file) // #nosec G304 G703 -- the key file the operator configured
 	if err != nil {
 		return nil, err
 	}

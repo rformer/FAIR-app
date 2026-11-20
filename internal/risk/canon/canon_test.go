@@ -111,7 +111,7 @@ func TestDecimal(t *testing.T) {
 // Property: canonicalisation is idempotent, independent of member order and
 // whitespace, and the digest changes with any value.
 func TestCanonicalProperties(t *testing.T) {
-	r := rand.New(rand.NewPCG(1, 2))
+	r := rand.New(rand.NewPCG(1, 2)) // #nosec G404 -- deterministic property-test input, not security
 	for i := 0; i < 500; i++ {
 		v := randomValue(r, 0)
 		a, err := Marshal(v)

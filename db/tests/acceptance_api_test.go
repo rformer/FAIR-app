@@ -86,13 +86,13 @@ func TestAcceptanceAPI(t *testing.T) {
 		code       int
 		err        string
 	}{
-		"a viewer":           {"analyst", a.risk, nil, 403, "forbidden"},
-		"not a date":         {"owen", a.risk, map[string]any{"expires_on": "soon"}, 422, "invalid_expiry"},
-		"too far":            {"owen", a.risk, map[string]any{"expires_on": days(400).Format("2006-01-02")}, 422, "invalid_expiry"},
-		"no justification":   {"owen", a.risk, map[string]any{"justification": ""}, 422, "invalid_request"},
-		"an unknown field":   {"owen", a.risk, map[string]any{"colour": "red"}, 400, "invalid_request"},
-		"not current":        {"owen", unquantified, nil, 409, "exposure_not_current"},
-		"another BU's risk":  {"mallory", a.risk, nil, 404, "not_found"},
+		"a viewer":          {"analyst", a.risk, nil, 403, "forbidden"},
+		"not a date":        {"owen", a.risk, map[string]any{"expires_on": "soon"}, 422, "invalid_expiry"},
+		"too far":           {"owen", a.risk, map[string]any{"expires_on": days(400).Format("2006-01-02")}, 422, "invalid_expiry"},
+		"no justification":  {"owen", a.risk, map[string]any{"justification": ""}, 422, "invalid_request"},
+		"an unknown field":  {"owen", a.risk, map[string]any{"colour": "red"}, 400, "invalid_request"},
+		"not current":       {"owen", unquantified, nil, 409, "exposure_not_current"},
+		"another BU's risk": {"mallory", a.risk, nil, 404, "not_found"},
 	} {
 		if got := request(c.user, c.risk, c.body); got.code != c.code || got.body["error"] != c.err {
 			t.Errorf("%s: %d %s", name, got.code, got.raw)

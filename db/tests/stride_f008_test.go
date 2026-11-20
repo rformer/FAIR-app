@@ -221,7 +221,9 @@ func TestSTRIDEF008Attribution(t *testing.T) {
 		return ra.adminQuery(`SELECT string_agg((body ->> 'type') || '|' || (body ->> 'actor') || '|' || (body ->> 'bu_id') || '|' || coalesce(body #>> '{attributes,reason}', '-'), ',' ORDER BY id)
 			FROM audit.intake WHERE body ->> 'target' = 'acceptance:` + id + `'`)
 	}
-	steps := func() string { return ra.adminQuery("SELECT count(*) FROM acceptance.step WHERE acceptance_id = '" + id + "'") }
+	steps := func() string {
+		return ra.adminQuery("SELECT count(*) FROM acceptance.step WHERE acceptance_id = '" + id + "'")
+	}
 	before, n := events(), steps()
 	// A refused decision leaves neither a step nor an event.
 	if _, code := a.decide(t, "owen", id, "approve"); code == "" {

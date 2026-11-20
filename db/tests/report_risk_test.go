@@ -179,7 +179,7 @@ func golden(t *testing.T, name, got string) {
 	t.Helper()
 	p := filepath.Join("testdata", name)
 	if os.Getenv("FAIR_UPDATE_GOLDEN") == "1" {
-		if err := os.MkdirAll("testdata", 0o755); err != nil {
+		if err := os.MkdirAll("testdata", 0o750); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(p, []byte(got), 0o600); err != nil {

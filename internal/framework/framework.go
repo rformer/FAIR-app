@@ -109,17 +109,17 @@ func (c *checker) err() error {
 	return c.problems
 }
 
-func (c *checker) text(ptr, s string, min, max int) {
+func (c *checker) text(ptr, s string, lo, hi int) {
 	n := utf8.RuneCountInString(s)
 	switch {
 	case !utf8.ValidString(s):
 		c.add(ptr, "is not UTF-8")
 	case strings.ContainsRune(s, 0):
 		c.add(ptr, "holds a NUL character")
-	case n < min:
+	case n < lo:
 		c.add(ptr, "is required")
-	case n > max:
-		c.add(ptr, "is longer than %d characters", max)
+	case n > hi:
+		c.add(ptr, "is longer than %d characters", hi)
 	}
 }
 

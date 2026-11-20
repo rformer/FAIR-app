@@ -87,8 +87,8 @@ func TestConnectorRunner(t *testing.T) {
 
 	// The source: a local HTTPS server whose answer the test sets.
 	var mu sync.Mutex
-	answer := func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{"items": [{"id": "app-1", "unit": "A", "name": "Claims"}, {"id": "app-2", "unit": "A1", "name": "Billing"}]}`)
+	answer := func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprint(w, `{"items": [{"id": "app-1", "unit": "A", "name": "Claims"}, {"id": "app-2", "unit": "A1", "name": "Billing"}]}`)
 	}
 	var auths []string
 	src := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -141,7 +141,7 @@ func TestConnectorRunner(t *testing.T) {
 		return id
 	}
 	id := add("CMDB connector")
-	for purpose, body := range map[string]map[string]any{"source": {"token": "src-token-1"}, "client": {"client_secret": "sa-conn-secret"}} {
+	for purpose, body := range map[string]map[string]any{"source": {"token": "src-token-1"}, "client": {"client_secret": "sa-conn-secret"}} { // #nosec G101 -- a test value, not a credential
 		if got := ia.call(t, "PUT", "platform", "/api/v1/integrations/"+id+"/credentials/"+purpose, body); got.code != 200 {
 			t.Fatalf("set %s: %d %s", purpose, got.code, got.raw)
 		}
@@ -197,7 +197,7 @@ func TestConnectorRunner(t *testing.T) {
 
 	// Failures: recorded as failed runs, backed off, the third notifying
 	// the integration's managers once.
-	setAnswer(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "down", http.StatusServiceUnavailable) })
+	setAnswer(func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "down", http.StatusServiceUnavailable) })
 	for i, want := range []string{"60", "120", "240", "480"} {
 		due(id)
 		out = step()
@@ -229,8 +229,8 @@ func TestConnectorRunner(t *testing.T) {
 		t.Errorf("run_failed delivered to %s", got)
 	}
 	// A success resets the count.
-	setAnswer(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{"items": [{"id": "app-1", "unit": "A", "name": "Claims"}]}`)
+	setAnswer(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprint(w, `{"items": [{"id": "app-1", "unit": "A", "name": "Claims"}]}`)
 	})
 	due(id)
 	if out = step(); len(out) != 1 || !out[0].Succeeded {
@@ -241,8 +241,8 @@ func TestConnectorRunner(t *testing.T) {
 	}
 
 	// AC-04: a next page on another host is refused and recorded.
-	setAnswer(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{"items": [], "next": "https://198.51.100.7/more"}`)
+	setAnswer(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprint(w, `{"items": [], "next": "https://198.51.100.7/more"}`)
 	})
 	ia.mustOwner(`UPDATE integration.integration SET connector = jsonb_set(connector, '{settings}', '{"list": "/items", "paging": {"next": "/next"}}') WHERE id = '` + id + "'")
 	due(id)

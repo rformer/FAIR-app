@@ -13,7 +13,7 @@ var testFamily = Family{Key: "test-fw", Title: "Test framework", Publisher: "Tes
 
 func readFile(t *testing.T, name string) []byte {
 	t.Helper()
-	b, err := os.ReadFile("testdata/" + name)
+	b, err := os.ReadFile("testdata/" + name) // #nosec G304 -- test fixtures
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,10 +104,9 @@ func TestParseProfile(t *testing.T) {
 		t.Errorf("an unknown id: %v", err)
 	}
 	// Profiles nested deeper than the limit are refused.
-	var loop Lookup
-	loop = func(string, *oscaltypes.Resource) (*Import, error) {
+	loop := Lookup(func(string, *oscaltypes.Resource) (*Import, error) {
 		return &Import{Profile: readFile(t, "profile.json")}, nil
-	}
+	})
 	if _, _, err := ParseProfile(readFile(t, "profile.json"), "deep", loop); err == nil || !strings.Contains(err.Error(), "deep") {
 		t.Errorf("a profile loop: %v", err)
 	}

@@ -54,7 +54,7 @@ func (s Static) BUValues(string) (map[string]any, error) {
 	return out, nil
 }
 
-// ErrNotConfigured: no settings to decide with (fail closed).
+// ErrNotConfigured means there are no settings to decide with (fail closed).
 var ErrNotConfigured = errors.New("reason: the export settings are not configured")
 
 // RowQuerier is a pgx.Tx or a pool.
@@ -77,9 +77,9 @@ func InSubtree(ctx context.Context, q RowQuerier, s Settings, bu string) (bool, 
 	if err != nil || len(on) == 0 {
 		return false, err
 	}
-	var any bool
-	err = q.QueryRow(ctx, "SELECT report.any_in_subtree($1, $2::uuid[])", bu, on).Scan(&any)
-	return any, err
+	var found bool
+	err = q.QueryRow(ctx, "SELECT report.any_in_subtree($1, $2::uuid[])", bu, on).Scan(&found)
+	return found, err
 }
 
 // AtBUs reports whether a reason is required for an export of data owned by
@@ -115,7 +115,7 @@ func onBUs(s Settings) ([]string, error) {
 	return on, nil
 }
 
-// ErrTooLong: a reason over MaxLen characters, or not text.
+// ErrTooLong is a reason over MaxLen characters, or not text.
 var ErrTooLong = errors.New("reason: at most 500 characters of text")
 
 // FromRequest is the request's reason (the X-Fair-Reason header, decoded

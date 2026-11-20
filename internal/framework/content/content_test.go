@@ -72,11 +72,11 @@ func TestShippedContent(t *testing.T) {
 			t.Errorf("baseline %s: %+v", key, b.Version)
 		}
 	}
-	if l, m, h := len(byKey["nist-low"].Selected), len(byKey["nist-moderate"].Selected), len(byKey["nist-high"].Selected); !(l < m && m < h) {
+	if l, m, h := len(byKey["nist-low"].Selected), len(byKey["nist-moderate"].Selected), len(byKey["nist-high"].Selected); l >= m || m >= h {
 		t.Errorf("low %d, moderate %d, high %d", l, m, h)
 	}
 	// FedRAMP moderate equals FedRAMP's own resolved catalog.
-	raw, err := os.ReadFile(filepath.Join(pinDir, "fedramp", "rev5", "FedRAMP_rev5_MODERATE-baseline-resolved-profile_catalog.json"))
+	raw, err := os.ReadFile(filepath.Join(pinDir, "fedramp", "rev5", "FedRAMP_rev5_MODERATE-baseline-resolved-profile_catalog.json")) // #nosec G304 -- the repository's pinned content
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -77,7 +77,7 @@ func (c *checker) unknown(o map[string]any, ptr string, allowed ...string) {
 }
 
 // text checks a text field as register.text does.
-func (c *checker) text(v any, present bool, ptr string, max int, required bool) {
+func (c *checker) text(v any, present bool, ptr string, limit int, required bool) {
 	if !present || v == nil {
 		if required {
 			c.add(ptr, "is required")
@@ -89,8 +89,8 @@ func (c *checker) text(v any, present bool, ptr string, max int, required bool) 
 		c.add(ptr, "is not text")
 		return
 	}
-	if strings.TrimSpace(s) == "" || utf8.RuneCountInString(s) > max {
-		c.add(ptr, fmt.Sprintf("is 1 to %d characters", max))
+	if strings.TrimSpace(s) == "" || utf8.RuneCountInString(s) > limit {
+		c.add(ptr, fmt.Sprintf("is 1 to %d characters", limit))
 	}
 }
 

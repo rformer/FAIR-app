@@ -125,7 +125,7 @@ func (w Worker) send(ctx context.Context, c claimed) (Sent, error) {
 		}
 		secret, err := w.open(c.Secret)
 		if err != nil || secret == "" {
-			return Sent{}, Permanent{fmt.Errorf("notify: the webhook's secret: %v", err)}
+			return Sent{}, Permanent{fmt.Errorf("notify: the webhook's secret: %w", err)}
 		}
 		previous, _ := w.open(c.Previous)
 		body, err := w.composer().WebhookBody(c.Envelope, c.ID)

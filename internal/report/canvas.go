@@ -15,8 +15,10 @@ type Canvas struct {
 	X, Y, W, H float64
 }
 
-// Save and Restore the graphics state.
-func (c *Canvas) Save()    { c.ops.WriteString("q\n") }
+// Save saves the graphics state.
+func (c *Canvas) Save() { c.ops.WriteString("q\n") }
+
+// Restore restores the graphics state Save saved.
 func (c *Canvas) Restore() { c.ops.WriteString("Q\n") }
 
 // Stroke sets the stroke colour, the line width and a dash pattern (none

@@ -127,7 +127,7 @@ func ParseCSV(raw []byte, input string, m Mapping) (*Batch, error) {
 	allowed := []string{kind}
 	for n := 1; ; n++ {
 		row, err := r.Read()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {

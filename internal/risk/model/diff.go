@@ -207,9 +207,6 @@ func SetPinVersion(doc []byte, pointer string, version int64) ([]byte, error) {
 	return canon.Marshal(v)
 }
 
-// RemapPins returns a valid document with every pin moved to the id and
-// version f gives for it (F-003 T-11: an import re-points pins to the
-// entries it creates). The result is canonical.
 // MarkProvenanceImported marks every accepted estimate's provenance in a
 // scenario document as imported (F-004 AC-31): an import cannot bring the
 // requests and answers it names, so this installation cannot verify it.
@@ -246,6 +243,9 @@ func MarkProvenanceImported(doc []byte) (*Document, error) {
 	return nd, nil
 }
 
+// RemapPins returns a valid document with every pin moved to the id and
+// version f gives for it (F-003 T-11: an import re-points pins to the
+// entries it creates). The result is canonical.
 func RemapPins(kind string, doc []byte, f func(PinRef) (string, int64, error)) (*Document, error) {
 	d, problems := Validate(kind, doc)
 	if problems != nil {

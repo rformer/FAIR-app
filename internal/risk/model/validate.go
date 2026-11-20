@@ -244,13 +244,13 @@ func (v *validator) header(schema int) {
 // text checks a text field: required, length in characters, single line,
 // no control characters but newline and tab in multi-line text, nothing
 // that looks like a secret (AC-23).
-func (v *validator) text(ptr, s string, max int, required, multiline bool) {
+func (v *validator) text(ptr, s string, limit int, required, multiline bool) {
 	switch {
 	case required && strings.TrimSpace(s) == "":
 		v.add(ptr, "is required")
 		return
-	case utf8.RuneCountInString(s) > max:
-		v.add(ptr, "is longer than %d characters", max)
+	case utf8.RuneCountInString(s) > limit:
+		v.add(ptr, "is longer than %d characters", limit)
 		return
 	}
 	for _, r := range s {
@@ -331,8 +331,8 @@ func (v *validator) estimate(ptr string, e *Estimate, unit string) {
 
 // triple checks a minimum, most likely and maximum for a unit: decimals,
 // ordered, within the unit's range.
-func (v *validator) triple(ptr string, min, ml, max *Decimal, unit string) {
-	lo, m, hi := v.decimal(ptr+"/min", min), v.decimal(ptr+"/ml", ml), v.decimal(ptr+"/max", max)
+func (v *validator) triple(ptr string, low, ml, high *Decimal, unit string) {
+	lo, m, hi := v.decimal(ptr+"/min", low), v.decimal(ptr+"/ml", ml), v.decimal(ptr+"/max", high)
 	if lo != nil && m != nil && hi != nil && (lo.Cmp(m) > 0 || m.Cmp(hi) > 0) {
 		v.add(ptr, "must be ordered: min ≤ ml ≤ max")
 	}

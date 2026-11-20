@@ -132,11 +132,11 @@ func (k *Keyring) Seal(integrationID, purpose string, c Credential) (Sealed, err
 	if err := c.Check(purpose); err != nil {
 		return Sealed{}, err
 	}
-	pt, err := json.Marshal(c)
+	pt, err := json.Marshal(c) // #nosec G117 -- marshalled only to be sealed at once (AES-256-GCM)
 	if err != nil {
 		return Sealed{}, err
 	}
-	out := k.keys[k.newest].Seal(nil, nil, pt, additional(k.newest, integrationID, purpose))
+	out := k.keys[k.newest].Seal(nil, nil, pt, additional(k.newest, integrationID, purpose)) // #nosec G407 -- NewGCMWithRandomNonce draws the nonce; Seal takes nil
 	return Sealed{KeyID: k.newest, Nonce: out[:nonceSize], Ciphertext: out[nonceSize:]}, nil
 }
 

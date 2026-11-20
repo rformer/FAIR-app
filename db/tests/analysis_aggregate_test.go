@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/rformer/fair-app/internal/analysis"
@@ -88,7 +89,7 @@ func TestAnalysisReproduce(t *testing.T) {
 		outcomes = append(outcomes, c.want)
 	}
 	if got := ra.adminQuery(`SELECT string_agg(body -> 'attributes' ->> 'outcome', ',' ORDER BY id) FROM audit.intake
-		WHERE body ->> 'type' = 'analysis.run_reproduced' AND body ->> 'target' = 'analysis_run:` + orig + `'`); got != "match,mismatch,other_version,other_architecture" {
+		WHERE body ->> 'type' = 'analysis.run_reproduced' AND body ->> 'target' = 'analysis_run:` + orig + `'`); got != strings.Join(outcomes, ",") || got != "match,mismatch,other_version,other_architecture" {
 		t.Errorf("run_reproduced events: %s", got)
 	}
 

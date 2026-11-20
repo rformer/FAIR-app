@@ -414,14 +414,14 @@ func (v *checker) externalID(ptr string, s *string) {
 }
 
 // text trims s and checks it as model.Validate checks document text.
-func (v *checker) text(ptr string, s *string, max int, required, multiline bool) {
+func (v *checker) text(ptr string, s *string, limit int, required, multiline bool) {
 	*s = strings.TrimSpace(*s)
 	switch {
 	case required && *s == "":
 		v.add(ptr, "is required")
 		return
-	case utf8.RuneCountInString(*s) > max:
-		v.add(ptr, "is longer than %d characters", max)
+	case utf8.RuneCountInString(*s) > limit:
+		v.add(ptr, "is longer than %d characters", limit)
 		return
 	}
 	for _, r := range *s {

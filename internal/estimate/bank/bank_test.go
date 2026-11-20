@@ -35,7 +35,7 @@ func TestShippedBank(t *testing.T) {
 		t.Fatalf("binary answers %v", answers)
 	}
 	uuid := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
-	if !uuid.MatchString(bank.SetID) || bank.QuestionID("r01") != bank.QuestionID("r01") || bank.QuestionID("r01") == bank.QuestionID("r02") || !uuid.MatchString(bank.QuestionID("r01")) {
+	if !uuid.MatchString(bank.SetID) || bank.QuestionID("r01") != bank.QuestionID("r"+"01") || bank.QuestionID("r01") == bank.QuestionID("r02") || !uuid.MatchString(bank.QuestionID("r01")) {
 		t.Fatalf("ids %s %s", bank.SetID, bank.QuestionID("r01"))
 	}
 	p, err := bank.SyncPayload()

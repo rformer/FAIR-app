@@ -30,7 +30,7 @@ func strictParams(raw json.RawMessage, v any) (json.RawMessage, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
-		return nil, fmt.Errorf("parameters: %v", err)
+		return nil, fmt.Errorf("parameters: %w", err)
 	}
 	if dec.More() {
 		return nil, errors.New("parameters: one JSON object")

@@ -60,10 +60,10 @@ func Parse(b []byte) (Bank, error) {
 		return bk, errors.New("bank: a release, a name and questions are required")
 	}
 	keys, texts := map[string]bool{}, map[string]bool{}
-	text := func(q Question, field, s string, max int) error {
+	text := func(q Question, field, s string, limit int) error {
 		switch {
-		case strings.TrimSpace(s) == "" || utf8.RuneCountInString(s) > max:
-			return fmt.Errorf("bank: %s: %s is required, at most %d characters", q.Key, field, max)
+		case strings.TrimSpace(s) == "" || utf8.RuneCountInString(s) > limit:
+			return fmt.Errorf("bank: %s: %s is required, at most %d characters", q.Key, field, limit)
 		case strings.ContainsAny(s, "\r\n"):
 			return fmt.Errorf("bank: %s: %s is a single line", q.Key, field)
 		case audit.LooksSecret(s):

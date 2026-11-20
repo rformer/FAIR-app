@@ -184,7 +184,7 @@ func (a *API) exportCoverage(w http.ResponseWriter, r *http.Request, p authz.Pri
 		}
 		need, err := reason.InSubtree(r.Context(), tx, a.Reasons, c.bu)
 		if err != nil {
-			return fmt.Errorf("%w: %v", errAudit, err)
+			return fmt.Errorf("%w: %w", errAudit, err)
 		}
 		if need && why == "" {
 			return errReasonRequired
@@ -197,7 +197,7 @@ func (a *API) exportCoverage(w http.ResponseWriter, r *http.Request, p authz.Pri
 			Target: "framework_version:" + c.version, BUID: c.bu, Reason: why, Attributes: map[string]string{
 				"format": format, "framework": cov.Version.Family, "version": cov.Version.Label, "baseline": baseline, "as_of": c.asOfText,
 				"requirements": fmt.Sprint(len(cov.Requirements))}}); err != nil {
-			return fmt.Errorf("%w: %v", errAudit, err)
+			return fmt.Errorf("%w: %w", errAudit, err)
 		}
 		return nil
 	})

@@ -129,7 +129,6 @@ func TestCSV(t *testing.T) {
 	}
 	rows, err := csv.NewReader(strings.NewReader(strings.TrimPrefix(risks, "\uFEFF"))).ReadAll()
 	if err != nil {
-		rows = nil
 		r := csv.NewReader(strings.NewReader(strings.TrimPrefix(risks, "\uFEFF")))
 		r.FieldsPerRecord = -1
 		if rows, err = r.ReadAll(); err != nil {

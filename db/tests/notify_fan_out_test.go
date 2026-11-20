@@ -145,4 +145,3 @@ func TestNotifyFanOut(t *testing.T) {
 		t.Errorf("app_rw fans out: %s", got)
 	}
 }
-

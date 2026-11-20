@@ -128,7 +128,7 @@ func newTestSMTP(t *testing.T, ip netip.Addr) *testSMTP {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lis, err := net.Listen("tcp", net.JoinHostPort(ip.String(), "0"))
+	lis, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", net.JoinHostPort(ip.String(), "0"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func (s *testSMTP) serve(c net.Conn) {
 		case cmd == "STARTTLS" && !secure:
 			say("220 ready")
 			tc := tls.Server(c, &tls.Config{Certificates: []tls.Certificate{s.cert}, MinVersion: tls.VersionTLS12})
-			if tc.Handshake() != nil {
+			if tc.HandshakeContext(context.Background()) != nil {
 				return
 			}
 			c, r, w, secure = tc, bufio.NewReader(tc), tc, true

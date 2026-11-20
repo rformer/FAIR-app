@@ -1,6 +1,7 @@
 package importapi
 
 import (
+	"context"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -27,7 +28,7 @@ func TestUploadLimit(t *testing.T) {
 		"POST /api/v1/library/7c1e/derivation":           false,
 	} {
 		method, path, _ := strings.Cut(target, " ")
-		if got := isUpload(httptest.NewRequest(method, path, nil)); got != want {
+		if got := isUpload(httptest.NewRequestWithContext(context.Background(), method, path, nil)); got != want {
 			t.Errorf("%s: %v, want %v", target, got, want)
 		}
 	}

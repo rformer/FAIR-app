@@ -82,10 +82,10 @@ func TestHTTPJSONNextPaging(t *testing.T) {
 	src = newSource(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Query().Get("page") {
 		case "":
-			fmt.Fprintf(w, `{"data": {"items": [{"id": "a-1", "unit": "A", "title": "Claims", "kind": "app", "value": {"low": 1000, "likely": 2000, "high": 5000, "confidence": 0.8, "basis": "replacement cost"}},
+			_, _ = fmt.Fprintf(w, `{"data": {"items": [{"id": "a-1", "unit": "A", "title": "Claims", "kind": "app", "value": {"low": 1000, "likely": 2000, "high": 5000, "confidence": 0.8, "basis": "replacement cost"}},
 				{"id": "a-2", "unit": "A", "title": "", "kind": "app"}]}, "next": %q}`, src.url("/apps?page=2"))
 		case "2":
-			fmt.Fprint(w, `{"data": {"items": [{"id": "a-3", "unit": "A1", "title": "Billing", "kind": "app"}]}, "next": null}`)
+			_, _ = fmt.Fprint(w, `{"data": {"items": [{"id": "a-3", "unit": "A1", "title": "Billing", "kind": "app"}]}, "next": null}`)
 		}
 	})
 	c := Connector{Type: ConnectorHTTPJSON, Source: src.url("/apps"), ScheduleMinutes: 60,
@@ -127,7 +127,7 @@ func TestHTTPJSONOffsetPaging(t *testing.T) {
 		for i := off; i < len(all) && i < off+n; i++ {
 			items = append(items, fmt.Sprintf(`{"id": %q, "unit": "A", "title": "Asset %d", "kind": "app"}`, all[i], i))
 		}
-		fmt.Fprintf(w, "[%s]", strings.Join(items, ","))
+		_, _ = fmt.Fprintf(w, "[%s]", strings.Join(items, ","))
 	})
 	c := Connector{Type: ConnectorHTTPJSON, Source: src.url("/assets?filter=active"), ScheduleMinutes: 60,
 		Settings: json.RawMessage(`{"paging": {"offset_param": "start", "limit_param": "count", "page_size": 2}}`)}
@@ -154,13 +154,13 @@ func TestConnectorRefusals(t *testing.T) {
 	src := newSource(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/elsewhere":
-			fmt.Fprint(w, `{"items": [], "next": "https://198.51.100.7/steal"}`)
+			_, _ = fmt.Fprint(w, `{"items": [], "next": "https://198.51.100.7/steal"}`)
 		case "/redirect":
 			http.Redirect(w, r, "https://198.51.100.7/", http.StatusFound)
 		case "/broken":
 			http.Error(w, "no", http.StatusInternalServerError)
 		case "/big":
-			fmt.Fprintf(w, `{"items": [], "pad": %q}`, big)
+			_, _ = fmt.Fprintf(w, `{"items": [], "pad": %q}`, big)
 		case "/many":
 			var b strings.Builder
 			b.WriteString("[")
@@ -171,11 +171,11 @@ func TestConnectorRefusals(t *testing.T) {
 				fmt.Fprintf(&b, `{"id": "a-%d"}`, i)
 			}
 			b.WriteString("]")
-			fmt.Fprint(w, b.String())
+			_, _ = fmt.Fprint(w, b.String())
 		case "/text":
-			fmt.Fprint(w, "<html>")
+			_, _ = fmt.Fprint(w, "<html>")
 		default:
-			fmt.Fprint(w, `[]`)
+			_, _ = fmt.Fprint(w, `[]`)
 		}
 	})
 	conn := func(path, settings string) Connector {
@@ -256,7 +256,7 @@ func TestServiceNowFixture(t *testing.T) {
 		}
 		off, _ := strconv.Atoi(q.Get("sysparm_offset"))
 		if off/2 >= len(pages) {
-			fmt.Fprint(w, `{"result": []}`)
+			_, _ = fmt.Fprint(w, `{"result": []}`)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")

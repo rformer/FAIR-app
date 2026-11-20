@@ -47,7 +47,7 @@ func TestSTRIDEF005EngineChannel(t *testing.T) {
 		t.Error("plaintext gRPC reached the engine")
 	}
 	impostor := clientConf(t, filepath.Join(other, keys.Risk, keys.EngineClientDir))
-	impostor.VerifyPeerCertificate = clientConf(t, c.clientDir()).VerifyPeerCertificate // it trusts this gate
+	impostor.VerifyConnection = clientConf(t, c.clientDir()).VerifyConnection // it trusts this gate
 	if err := call(grpc.WithTransportCredentials(credentials.NewTLS(impostor))); err == nil {
 		t.Error("another installation's client reached the engine")
 	}

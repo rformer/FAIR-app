@@ -38,7 +38,7 @@ func TestSTRIDEF013Imports(t *testing.T) {
 	fe := strideFrameworks(t)
 	// Links and back-matter resources are never followed.
 	var hits atomic.Int32
-	trap := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { hits.Add(1) }))
+	trap := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { hits.Add(1) }))
 	defer trap.Close()
 	raw, err := os.ReadFile(filepath.Join("..", "..", "internal", "framework", "testdata", "catalog.json"))
 	if err != nil {

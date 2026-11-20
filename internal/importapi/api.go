@@ -180,14 +180,14 @@ func notFound(w http.ResponseWriter) { problem(w, http.StatusNotFound, "not_foun
 
 // readBody reads at most max bytes; false (after answering 413) when the
 // body is larger.
-func readBody(w http.ResponseWriter, r *http.Request, max int64) ([]byte, bool) {
-	b, err := io.ReadAll(io.LimitReader(r.Body, max+1))
+func readBody(w http.ResponseWriter, r *http.Request, limit int64) ([]byte, bool) {
+	b, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
 	if err != nil {
 		problem(w, http.StatusBadRequest, "invalid_request", "the body could not be read", nil)
 		return nil, false
 	}
-	if int64(len(b)) > max {
-		problem(w, http.StatusRequestEntityTooLarge, "limit_exceeded", "the body is larger than the limit", map[string]any{"limit": max})
+	if int64(len(b)) > limit {
+		problem(w, http.StatusRequestEntityTooLarge, "limit_exceeded", "the body is larger than the limit", map[string]any{"limit": limit})
 		return nil, false
 	}
 	return b, true

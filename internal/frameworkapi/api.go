@@ -303,13 +303,13 @@ func (a *API) listRequirements(w http.ResponseWriter, r *http.Request, p authz.P
 }
 
 // page reads ?limit= (1 to max, def when absent) and ?offset= (0 or more).
-func page(w http.ResponseWriter, r *http.Request, def, max int) (int, int, bool) {
+func page(w http.ResponseWriter, r *http.Request, def, most int) (int, int, bool) {
 	q := r.URL.Query()
 	limit, offset := def, 0
 	if s := q.Get("limit"); s != "" {
 		n, err := strconv.Atoi(s)
-		if err != nil || n < 1 || n > max {
-			problem(w, http.StatusBadRequest, "invalid_value", fmt.Sprintf("limit is 1 to %d", max))
+		if err != nil || n < 1 || n > most {
+			problem(w, http.StatusBadRequest, "invalid_value", fmt.Sprintf("limit is 1 to %d", most))
 			return 0, 0, false
 		}
 		limit = n

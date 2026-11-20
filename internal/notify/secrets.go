@@ -63,7 +63,7 @@ func NewKeyring(raw map[string][]byte) (*Keyring, error) {
 func (k *Keyring) Seal(secret string) []byte {
 	aead := k.keys[k.newest]
 	out := append([]byte(k.newest), 0)
-	return aead.Seal(out, nil, []byte(secret), []byte(k.newest))
+	return aead.Seal(out, nil, []byte(secret), []byte(k.newest)) // #nosec G407 -- NewGCMWithRandomNonce draws the nonce; Seal takes nil
 }
 
 // Open decrypts a sealed webhook secret.

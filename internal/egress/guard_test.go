@@ -160,7 +160,8 @@ func TestHTTPClient(t *testing.T) {
 	if tr := c.Transport.(*http.Transport); tr.Proxy != nil || tr.TLSClientConfig.MinVersion < 0x0303 {
 		t.Fatalf("transport: proxy %v, TLS %x", tr.Proxy != nil, tr.TLSClientConfig.MinVersion)
 	}
-	resp, err := c.Get("https://" + u.Host + "/hook")
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://"+u.Host+"/hook", nil)
+	resp, err := c.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,14 +171,18 @@ func TestHTTPClient(t *testing.T) {
 	}
 	// A host the list does not name never gets a connection.
 	g.Allowed = func() []string { return nil }
-	if _, err := g.HTTPClient(nil).Get("https://" + u.Host + "/hook"); err == nil || !strings.Contains(err.Error(), "refused") {
+	req, _ = http.NewRequestWithContext(context.Background(), http.MethodGet, "https://"+u.Host+"/hook", nil)
+	if resp, err := g.HTTPClient(nil).Do(req); err == nil || !strings.Contains(err.Error(), "refused") {
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
 		t.Errorf("an unlisted host: %v", err)
 	}
 }
 
 func listener(t *testing.T) net.Listener {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}

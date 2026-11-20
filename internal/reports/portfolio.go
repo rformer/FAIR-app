@@ -19,7 +19,7 @@ import (
 // child BU's open risks and summed means; coverage; acceptances; treatment.
 // The trend over the period comes from the snapshots (T-15).
 
-// PortfolioParams: the period, in days, the trend covers (1 to 3,650; 365).
+// PortfolioParams is the period, in days, the trend covers (1 to 3,650; 365).
 type PortfolioParams struct {
 	PeriodDays *int `json:"period_days,omitempty"`
 }

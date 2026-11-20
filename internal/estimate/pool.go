@@ -109,7 +109,7 @@ func Pool(method string, answers []Answer, confidence string) (Pooled, error) {
 	}
 	want, err := rat(confidence)
 	if err != nil {
-		return Pooled{}, fmt.Errorf("%w: confidence: %v", ErrPool, err)
+		return Pooled{}, fmt.Errorf("%w: confidence: %w", ErrPool, err)
 	}
 	sum := new(big.Rat)
 	totals := [3]*big.Rat{new(big.Rat), new(big.Rat), new(big.Rat)}
@@ -130,7 +130,7 @@ func Pool(method string, answers []Answer, confidence string) (Pooled, error) {
 		for i, s := range []string{a.Min, a.ML, a.Max} {
 			v, err := rat(s)
 			if err != nil {
-				return Pooled{}, fmt.Errorf("%w: %v", ErrPool, err)
+				return Pooled{}, fmt.Errorf("%w: %w", ErrPool, err)
 			}
 			totals[i].Add(totals[i], new(big.Rat).Mul(w, v))
 		}

@@ -50,7 +50,7 @@ var RiskKind = Kind{Name: "risk", Title: "Risk",
 // fails at once with code).
 func Refuse(code, detail string) error { return errFinal{code, detail} }
 
-// FailNotFound: the report's subject is not visible to the requester in
+// FailNotFound means the report's subject is not visible to the requester in
 // the report's scope.
 const FailNotFound = "not_found"
 

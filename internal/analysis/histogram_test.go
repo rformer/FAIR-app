@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"encoding/binary"
+	"errors"
 	"math"
 	"slices"
 	"testing"
@@ -102,7 +103,7 @@ func TestFloats(t *testing.T) {
 	if err != nil || !slices.Equal(got, []float64{1.25, -3}) {
 		t.Fatalf("%v %v", got, err)
 	}
-	if _, err := Floats(b, 3); err != ErrSeries {
+	if _, err := Floats(b, 3); !errors.Is(err, ErrSeries) {
 		t.Fatalf("wrong length: %v", err)
 	}
 }

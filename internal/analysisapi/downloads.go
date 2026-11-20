@@ -75,7 +75,7 @@ func (a *API) downloaded(ctx context.Context, tx pgx.Tx, p authz.Principal, id, 
 	// is in force at any BU of the results.
 	need, err := reason.AtBUs(a.Reasons, bus)
 	if err != nil {
-		return fmt.Errorf("%w: %v", errAudit, err)
+		return fmt.Errorf("%w: %w", errAudit, err)
 	}
 	if need && why == "" {
 		return errReasonRequired
@@ -91,7 +91,7 @@ func (a *API) downloaded(ctx context.Context, tx pgx.Tx, p authz.Principal, id, 
 		if err := a.Audit.Emit(audit.WithTx(ctx, tx), audit.Event{Type: "analysis.downloaded", Severity: audit.SeverityLow, Actor: p.UserID,
 			Target: target, BUID: bu, Reason: why, Attributes: map[string]string{"download_id": id, "subject": subject, "ids": strings.Join(ids, " "),
 				"view": view, "format": format}}); err != nil {
-			return fmt.Errorf("%w: %v", errAudit, err)
+			return fmt.Errorf("%w: %w", errAudit, err)
 		}
 	}
 	return nil

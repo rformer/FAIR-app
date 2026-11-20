@@ -59,6 +59,8 @@ type GatewaySubmitter struct {
 	Client *http.Client // TLS 1.2+, the gateway's CA (FAIR_INTEGRATE_GATEWAY_CA_FILE)
 }
 
+// Submit sends a batch through the gateway as the integration's service
+// account: a client-credentials token first, then the batch.
 func (g GatewaySubmitter) Submit(ctx context.Context, s Submission) (int, []byte, error) {
 	form := url.Values{"grant_type": {"client_credentials"}}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.URL.JoinPath("/api/v1/oauth/token").String(), strings.NewReader(form.Encode()))

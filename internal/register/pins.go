@@ -44,7 +44,7 @@ func PinChanges(from, to []byte) ([]PinChange, error) {
 		case l.Pin == nil:
 			out = append(out, PinChange{ScenarioID: l.ScenarioID})
 		case old == nil || *old != *l.Pin:
-			out = append(out, PinChange{ScenarioID: l.ScenarioID, Pin: l.Pin})
+			out = append(out, PinChange(l))
 		}
 	}
 	return out, nil

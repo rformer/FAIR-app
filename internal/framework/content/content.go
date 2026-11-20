@@ -80,7 +80,7 @@ func SyncPayload() ([]byte, error) {
 	}
 	var s Shipped
 	if err := json.Unmarshal(b, &s); err != nil || s.Format != Format {
-		return nil, fmt.Errorf("content: not the shipped frameworks (%v)", err)
+		return nil, fmt.Errorf("content: not the shipped frameworks (%w)", err)
 	}
 	return b, nil
 }

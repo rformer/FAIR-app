@@ -12,7 +12,7 @@ import (
 
 func compile(t *testing.T, name string) *jsonschema.Schema {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "..", "docs", "formats", name))
+	b, err := os.ReadFile(filepath.Join("..", "..", "docs", "formats", name)) // #nosec G304 -- the repository's own schemas
 	if err != nil {
 		t.Fatal(err)
 	}

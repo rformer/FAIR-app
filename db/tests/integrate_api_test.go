@@ -245,7 +245,7 @@ func TestIntegrationsAPI(t *testing.T) {
 		t.Helper()
 		return ia.call(t, method, user, "/api/v1/integrations/"+id+"/credentials/"+purpose, body)
 	}
-	got := cred("PUT", "platform", connID, "source", map[string]any{"token": "src-token-8c1f"})
+	got := cred("PUT", "platform", connID, "source", map[string]any{"token": "src-token-8c1f"}) // #nosec G101 -- a test value, not a credential
 	if got.code != 200 || strings.Contains(got.raw, "src-token-8c1f") || !strings.Contains(got.raw, `"purpose":"source"`) {
 		t.Errorf("set source: %d %s", got.code, got.raw)
 	}

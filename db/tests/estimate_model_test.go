@@ -88,10 +88,10 @@ func TestEstimateModel(t *testing.T) {
 	var newScenario, newRC string
 	for _, c := range imp.body["created"].([]any) {
 		m := c.(map[string]any)
-		switch {
-		case m["source_id"] == sid:
+		switch m["source_id"] {
+		case sid:
 			newScenario = m["id"].(string)
-		case m["source_id"] == local:
+		case local:
 			newRC = m["id"].(string)
 		}
 	}

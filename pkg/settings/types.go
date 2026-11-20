@@ -196,7 +196,7 @@ func ValidSet(s []string) bool {
 		return false
 	}
 	for i, e := range s {
-		if e == "" || len(e) > MaxStringLen || strings.ContainsFunc(e, unicode.IsControl) || (i > 0 && s[i-1] >= e) || (e == SetAll && len(s) > 1) {
+		if e == "" || len(e) > MaxStringLen || strings.ContainsFunc(e, unicode.IsControl) || (i > 0 && s[i-1] >= e) || (e == SetAll && len(s) > 1) { // #nosec G602 -- s[i-1] is read only when i > 0
 			return false
 		}
 	}

@@ -1,3 +1,6 @@
+// Package egress guards outbound connections to customer-named hosts
+// (F-009 T-08, F-011 T-04): allow-list match, refused ranges, the checked
+// address dialled, no proxies or redirects.
 package egress
 
 import (
@@ -104,7 +107,7 @@ func CheckHostPattern(p string) error {
 			return fmt.Errorf("egress: %q is not a host name, *.suffix or *", p)
 		}
 		for _, r := range label {
-			if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-') {
+			if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '-' {
 				return fmt.Errorf("egress: %q is not a host name, *.suffix or *", p)
 			}
 		}

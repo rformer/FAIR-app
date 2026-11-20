@@ -91,13 +91,13 @@ func (a *API) mayRequest(w http.ResponseWriter, r *http.Request, p authz.Princip
 
 // checkText refuses empty, long, multi-line (unless allowed) or secret-
 // looking text.
-func checkText(w http.ResponseWriter, name, s string, max int, required, multiline bool) bool {
+func checkText(w http.ResponseWriter, name, s string, limit int, required, multiline bool) bool {
 	t := strings.TrimSpace(s)
 	switch {
 	case required && t == "":
 		problem(w, http.StatusBadRequest, "invalid_value", name+" is required", nil)
-	case utf8.RuneCountInString(s) > max:
-		problem(w, http.StatusBadRequest, "invalid_value", fmt.Sprintf("%s is at most %d characters", name, max), nil)
+	case utf8.RuneCountInString(s) > limit:
+		problem(w, http.StatusBadRequest, "invalid_value", fmt.Sprintf("%s is at most %d characters", name, limit), nil)
 	case !multiline && strings.ContainsAny(s, "\r\n"):
 		problem(w, http.StatusBadRequest, "invalid_value", name+" is a single line", nil)
 	case audit.LooksSecret(s):

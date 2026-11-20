@@ -196,15 +196,21 @@ func TestNotifyDelivery(t *testing.T) {
 	ra.admin(ra.db, `INSERT INTO posture.notice_outbox (kind, recipients, payload) VALUES
 		('setting.revert_failed', '{"users": []}', '{"key": "k", "exception_id": "x4"}')`)
 	pump()
-	w.Step(ctx)
+	if _, err := w.Step(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if got := ra.adminQuery("SELECT state || ':' || reason || ':' || attempts FROM notify.delivery d JOIN notify.notice n ON n.id = d.notice_id WHERE n.item_id = 'x4'"); got != "failed:permanent:1" {
 		t.Errorf("permanent: %s", got)
 	}
-	post.fail = func(string) error { return fmt.Errorf("%w: hooks.example.com is not in notification.allowed_hosts", notify.ErrRefused) }
+	post.fail = func(string) error {
+		return fmt.Errorf("%w: hooks.example.com is not in notification.allowed_hosts", notify.ErrRefused)
+	}
 	ra.admin(ra.db, `INSERT INTO posture.notice_outbox (kind, recipients, payload) VALUES
 		('setting.revert_failed', '{"users": []}', '{"key": "k", "exception_id": "x5"}')`)
 	pump()
-	w.Step(ctx)
+	if _, err := w.Step(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if got := ra.adminQuery(`SELECT count(*) FROM audit.intake WHERE body ->> 'type' = 'notification.destination_refused' AND body ->> 'severity' = 'high'`); got != "1" {
 		t.Errorf("refused events: %s", got)
 	}
@@ -223,7 +229,9 @@ func TestNotifyDelivery(t *testing.T) {
 	if n, _ := w.Reclaim(ctx); n != 1 {
 		t.Errorf("reclaimed %d", n)
 	}
-	w.Step(ctx)
+	if _, err := w.Step(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if got := ra.adminQuery("SELECT state || ':' || attempts FROM notify.delivery WHERE id = '" + id6 + "'"); got != "sent:2" {
 		t.Errorf("after reclaiming: %s", got)
 	}
@@ -237,7 +245,9 @@ func TestNotifyDelivery(t *testing.T) {
 	pump()
 	victim := ra.adminQuery("SELECT d.user_id FROM notify.delivery d JOIN notify.notice n ON n.id = d.notice_id WHERE n.item_id = 'x7' AND d.user_id IS NOT NULL LIMIT 1")
 	ra.mustOwner("UPDATE iam.app_user SET status = 'disabled' WHERE id = '" + victim + "'")
-	w.Step(ctx)
+	if _, err := w.Step(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if got := ra.adminQuery("SELECT state || ':' || reason FROM notify.delivery d JOIN notify.notice n ON n.id = d.notice_id WHERE n.item_id = 'x7' AND d.user_id = '" + victim + "'"); got != "dropped:inactive" {
 		t.Errorf("a deactivated recipient: %s", got)
 	}
@@ -258,7 +268,7 @@ func TestNotifyDelivery(t *testing.T) {
 	if held != "2" {
 		t.Fatalf("held for the digest: %s", held)
 	}
-	w.Step(ctx) // digest deliveries are not claimed one by one
+	_, _ = w.Step(ctx) // digest deliveries are not claimed one by one
 	if pending("digest AND user_id = '"+owen+"'") != "2" {
 		t.Fatal("a held delivery sent alone")
 	}

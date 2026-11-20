@@ -29,15 +29,15 @@ func TestGatewaySubmitter(t *testing.T) {
 			if !ok || id != "sa-1" || secret != "s3cret+/=" || r.PostForm.Get("grant_type") != "client_credentials" || r.URL.RawQuery != "" ||
 				r.PostForm.Has("client_secret") {
 				w.WriteHeader(http.StatusUnauthorized)
-				fmt.Fprint(w, `{"error": "invalid_client"}`)
+				_, _ = fmt.Fprint(w, `{"error": "invalid_client"}`)
 				return
 			}
-			fmt.Fprint(w, `{"access_token": "at-1", "token_type": "Bearer", "expires_in": 600}`)
+			_, _ = fmt.Fprint(w, `{"access_token": "at-1", "token_type": "Bearer", "expires_in": 600}`)
 		case "/api/v1/imports/i-1/batches":
 			batchReq = r.Clone(context.Background())
 			batchBody, _ = io.ReadAll(r.Body)
 			w.WriteHeader(http.StatusCreated)
-			fmt.Fprint(w, `{"run": {"id": "r-1"}}`)
+			_, _ = fmt.Fprint(w, `{"run": {"id": "r-1"}}`)
 		default:
 			http.NotFound(w, r)
 		}

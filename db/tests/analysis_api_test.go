@@ -138,8 +138,8 @@ func (f *fakeEngine) Simulate(req *enginev1.SimulateRequest, stream enginev1.Eng
 		return simulateBench(req, stream) // F-006 T-07: results of the engine's size
 	}
 	n := int(req.GetIterations())
-	for _, p := range []uint64{uint64(n / 2), uint64(n)} {
-		if err := send(&enginev1.SimulateEvent{Event: &enginev1.SimulateEvent_Progress{Progress: &enginev1.Progress{Done: p, Total: uint64(n)}}}); err != nil {
+	for _, p := range []uint64{uint64(n / 2), uint64(n)} { // #nosec G115 -- a fake engine's small iteration counts
+		if err := send(&enginev1.SimulateEvent{Event: &enginev1.SimulateEvent_Progress{Progress: &enginev1.Progress{Done: p, Total: uint64(n)}}}); err != nil { // #nosec G115 -- a fake engine's small iteration counts
 			return err
 		}
 	}
@@ -192,7 +192,7 @@ func (f *fakeEngine) Aggregate(stream enginev1.Engine_AggregateServer) error {
 		}
 		c := in.GetSeries()
 		for i := 0; i < len(c.GetValues())/8; i++ {
-			sum[int(c.GetOffset())+i] += math.Float64frombits(binary.LittleEndian.Uint64(c.GetValues()[8*i:]))
+			sum[int(c.GetOffset())+i] += math.Float64frombits(binary.LittleEndian.Uint64(c.GetValues()[8*i:])) // #nosec G115 -- offsets the fake engine itself wrote
 		}
 	}
 	out := make([]byte, 8*n)
@@ -229,7 +229,7 @@ func analysisAPI(t *testing.T, ra *riskAPIEnv, lim analysis.Limits, engine bool)
 	pool := ra.appPool()
 	fe := &fakeEngine{}
 	fe.set("ok", true)
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}

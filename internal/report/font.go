@@ -99,9 +99,9 @@ func parseFont(name string, b []byte) (*font, error) {
 		return nil, errFont
 	}
 	for i := range 4 {
-		f.bbox[i] = int(int16(be.Uint16(head[36+2*i:])))
+		f.bbox[i] = int(int16(be.Uint16(head[36+2*i:]))) // #nosec G115 -- TrueType FWORD: a signed 16-bit value read as two's complement
 	}
-	f.ascent, f.descent = int(int16(be.Uint16(hhea[4:]))), int(int16(be.Uint16(hhea[6:])))
+	f.ascent, f.descent = int(int16(be.Uint16(hhea[4:]))), int(int16(be.Uint16(hhea[6:]))) // #nosec G115 -- TrueType FWORD: a signed 16-bit value read as two's complement
 	metrics := int(be.Uint16(hhea[34:]))
 	hmtx, err := need("hmtx", 4*metrics)
 	if err != nil {
@@ -117,10 +117,10 @@ func parseFont(name string, b []byte) (*font, error) {
 	}
 	f.capHeight = f.ascent * 7 / 10
 	if os2, ok := tables["OS/2"]; ok && len(os2) >= 90 && be.Uint16(os2) >= 2 {
-		f.capHeight = int(int16(be.Uint16(os2[88:])))
+		f.capHeight = int(int16(be.Uint16(os2[88:]))) // #nosec G115 -- TrueType FWORD: a signed 16-bit value read as two's complement
 	}
 	if post, ok := tables["post"]; ok && len(post) >= 8 {
-		f.italicAngle = float64(int32(be.Uint32(post[4:]))) / 65536
+		f.italicAngle = float64(int32(be.Uint32(post[4:]))) / 65536 // #nosec G115 -- TrueType signed 32-bit value read as two's complement
 	}
 	cm, err := need("cmap", 4)
 	if err != nil {
@@ -167,8 +167,8 @@ func parseCmap(cm []byte, numGlyphs int) (map[rune]uint16, error) {
 			g := f12[16+12*i:]
 			start, end, gid := be.Uint32(g), be.Uint32(g[4:]), be.Uint32(g[8:])
 			for c := start; c <= end && c <= unicode.MaxRune; c++ {
-				if id := gid + (c - start); id < uint32(numGlyphs) {
-					out[rune(c)] = uint16(id)
+				if id := gid + (c - start); id < uint32(numGlyphs) { // #nosec G115 -- numGlyphs is a 16-bit count
+					out[rune(c)] = uint16(id) // #nosec G115 -- id < numGlyphs, a 16-bit count
 				}
 			}
 		}
@@ -185,7 +185,7 @@ func parseCmap(cm []byte, numGlyphs int) (map[rune]uint16, error) {
 			for c := uint32(start); c <= uint32(end) && c != 0xFFFF; c++ {
 				var gid uint16
 				if ro == 0 {
-					gid = uint16(c) + delta
+					gid = uint16(c) + delta // #nosec G115 -- TrueType cmap format 4 arithmetic is modulo 65536
 				} else {
 					p := 16 + 6*segs + 2*s + ro + 2*int(c-uint32(start))
 					if p+2 > len(f4) {
@@ -196,7 +196,7 @@ func parseCmap(cm []byte, numGlyphs int) (map[rune]uint16, error) {
 					}
 				}
 				if gid != 0 && int(gid) < numGlyphs {
-					out[rune(c)] = gid
+					out[rune(c)] = gid // #nosec G115 -- c <= unicode.MaxRune
 				}
 			}
 		}

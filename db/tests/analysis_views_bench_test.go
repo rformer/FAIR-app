@@ -43,7 +43,7 @@ var benchPercentiles = []float64{1, 5, 10, 25, 50, 75, 90, 95, 99}
 // log-normal amount (median about $60,000) otherwise. Set j keeps the same
 // years scaled by 1 − 0.2j (common random numbers, as the engine draws).
 func benchBase(n int) []float64 {
-	r := rand.New(rand.NewPCG(2026, 11))
+	r := rand.New(rand.NewPCG(2026, 11)) // #nosec G404 -- deterministic benchmark data, not security
 	out := make([]float64, n)
 	for i := range out {
 		if r.Float64() >= 0.55 {
@@ -207,7 +207,7 @@ func TestBenchmarkGateResultViews(t *testing.T) {
 	t.Logf("two runs of %d iterations with %d control sets stored in %v", viewsBenchIterations, len(sets), time.Since(seed).Round(time.Second))
 	run := runs[0]
 
-	timed := func(name string, f func()) []time.Duration {
+	timed := func(_ string, f func()) []time.Duration {
 		t.Helper()
 		f() // warm-up
 		ds := make([]time.Duration, 0, viewsBenchSamples)

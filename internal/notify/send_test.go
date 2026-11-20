@@ -67,7 +67,7 @@ func (s *smtpServer) minTLS() uint16 {
 
 func (s *smtpServer) start(t *testing.T) {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func (s *smtpServer) serve(c net.Conn) {
 	secure := false
 	if s.implicit {
 		tc := tls.Server(c, &tls.Config{Certificates: []tls.Certificate{s.cert}, MinVersion: s.minTLS(), MaxVersion: s.maxTLS})
-		if tc.Handshake() != nil {
+		if tc.HandshakeContext(context.Background()) != nil {
 			return
 		}
 		c, secure = tc, true
@@ -118,7 +118,7 @@ func (s *smtpServer) serve(c net.Conn) {
 		case cmd == "STARTTLS":
 			say("220 go ahead")
 			tc := tls.Server(c, &tls.Config{Certificates: []tls.Certificate{s.cert}, MinVersion: s.minTLS(), MaxVersion: s.maxTLS})
-			if tc.Handshake() != nil {
+			if tc.HandshakeContext(context.Background()) != nil {
 				return
 			}
 			c, secure = tc, true
@@ -245,7 +245,7 @@ func TestSMTPSender(t *testing.T) {
 	// Configurations refused.
 	for name, c := range map[string]SMTPConfig{
 		"plaintext":      {Host: "relay", Port: 25, TLSMode: "none", From: "a@b.c"},
-		"a path":         {Host: "relay", Port: 25, TLSMode: "starttls", From: "a@b.c", Username: "u", PasswordFile: "../etc/passwd"},
+		"a path":         {Host: "relay", Port: 25, TLSMode: "starttls", From: "a@b.c", Username: "u", PasswordFile: "../etc/passwd"}, // #nosec G101 -- a test value, not a credential
 		"a user alone":   {Host: "relay", Port: 25, TLSMode: "starttls", From: "a@b.c", Username: "u"},
 		"no from":        {Host: "relay", Port: 25, TLSMode: "starttls"},
 		"bad port":       {Host: "relay", Port: 0, TLSMode: "starttls", From: "a@b.c"},

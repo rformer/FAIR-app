@@ -62,7 +62,7 @@ func TestControlStatus(t *testing.T) {
 		p := im.adminQuery("SELECT id FROM integration.proposal WHERE external_id = 'c-1' AND state = 'pending'")
 		v := im.adminQuery("SELECT current_version FROM risk.control WHERE id = '" + ctl + "'")
 		var expected int
-		fmt.Sscan(v, &expected)
+		_, _ = fmt.Sscan(v, &expected)
 		if got := im.call(t, "POST", "analyst", "/api/v1/proposals/"+p+"/accept", map[string]any{"expected_version": expected}); got.code != 200 {
 			t.Fatalf("accept %s: %d %s", s, got.code, got.raw)
 		}

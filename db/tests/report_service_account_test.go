@@ -31,7 +31,7 @@ import (
 // visibleKind is a report of how many BUs the requester reads in the
 // register (its delegated context's scope).
 var visibleKind = reports.Kind{Name: "register", Title: "Visible units",
-	Read: func(ctx context.Context, tx pgx.Tx, r reports.Run) (reports.Built, error) {
+	Read: func(ctx context.Context, tx pgx.Tx, _ reports.Run) (reports.Built, error) {
 		var n int
 		if err := tx.QueryRow(ctx, "SELECT cardinality(authz.visible_bus('register', 'read'))").Scan(&n); err != nil {
 			return reports.Built{}, err

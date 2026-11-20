@@ -456,7 +456,7 @@ func TestNotifyAuditEvents(t *testing.T) {
 		t.Errorf("reason %q", got)
 	}
 	// Fail closed: with the trail full, a change is refused whole.
-	ap := ra.env.auditPool()
+	ap := ra.auditPool()
 	emitter := audit.WithTrail(audit.NewMemory(), audit.Trail{DB: ap})
 	used, err := auditsvc.CapacityMonitor{DB: ap, Audit: emitter, Quota: 1 << 50}.Step(context.Background())
 	if err != nil {

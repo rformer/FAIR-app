@@ -82,7 +82,7 @@ func ParseItems(values []string) ([]Item, error) {
 // compared is an item as read.
 type compared struct {
 	item                                      Item
-	bu, state, seed, label                    string
+	bu, state, seed                           string
 	scenario, scenarioName, aggregateName     *string
 	version                                   *int64
 	iterations                                int64

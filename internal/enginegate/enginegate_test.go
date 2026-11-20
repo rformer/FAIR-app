@@ -58,7 +58,7 @@ func start(t *testing.T, now func() time.Time) *channel {
 	if _, err := keys.Init(c.dir, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	ul, err := net.Listen("unix", c.socket)
+	ul, err := (&net.ListenConfig{}).Listen(context.Background(), "unix", c.socket)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func start(t *testing.T, now func() time.Time) *channel {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestRefusals(t *testing.T) {
 	// A client certificate the gate has not pinned (that client pins this
 	// gate, so only the gate's check refuses it).
 	unpinned := clientConf(t, otherClient)
-	unpinned.VerifyPeerCertificate = clientConf(t, c.clientDir()).VerifyPeerCertificate
+	unpinned.VerifyConnection = clientConf(t, c.clientDir()).VerifyConnection
 	if err := info(t, c.addr, unpinned); err == nil {
 		t.Error("an unpinned client certificate was accepted")
 	}
@@ -159,7 +159,7 @@ func TestRefusals(t *testing.T) {
 
 	// The client pins another gate.
 	wrongGate := clientConf(t, c.clientDir())
-	wrongGate.VerifyPeerCertificate = clientConf(t, otherClient).VerifyPeerCertificate
+	wrongGate.VerifyConnection = clientConf(t, otherClient).VerifyConnection
 	if err := info(t, c.addr, wrongGate); err == nil {
 		t.Error("the client accepted a gate it does not pin")
 	}
@@ -202,7 +202,7 @@ func TestRotation(t *testing.T) {
 		t.Errorf("the new client: %v", err)
 	}
 	old := clientConf(t, oldClient)
-	old.VerifyPeerCertificate = clientConf(t, c.clientDir()).VerifyPeerCertificate // it holds both gate pins after rollout
+	old.VerifyConnection = clientConf(t, c.clientDir()).VerifyConnection // it holds both gate pins after rollout
 	if err := info(t, c.addr, old); err != nil {
 		t.Errorf("the previous client during the rollout: %v", err)
 	}
@@ -223,7 +223,7 @@ func copyDir(t *testing.T, from, to string) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(to, e.Name()), b, 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(to, e.Name()), b, 0o600); err != nil { // #nosec G703 -- a test's own temporary directory
 			t.Fatal(err)
 		}
 	}
@@ -237,13 +237,13 @@ func TestHealth(t *testing.T) {
 	h := Health(sock)
 	get := func(path string) int {
 		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, nil))
 		return rec.Code
 	}
 	if get("/healthz") != http.StatusNoContent || get("/readyz") != http.StatusServiceUnavailable {
 		t.Error("before the engine listens")
 	}
-	ln, err := net.Listen("unix", sock)
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "unix", sock)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -174,11 +174,11 @@ func TestRegisterSchema(t *testing.T) {
 	}
 
 	// One open risk per scenario (AC-02).
-	other, err := newRisk(t, ra, "erin", ra.bu["A1"], with(base, "title", "Claims fraud", "scenarios", []any{link(s1, nil)}))
+	_, err = newRisk(t, ra, "erin", ra.bu["A1"], with(base, "title", "Claims fraud", "scenarios", []any{link(s1, nil)}))
 	if !strings.HasPrefix(pgCode(err), "PF026 ") || !strings.Contains(pgCode(err), "linked to another open risk") {
 		t.Fatalf("a scenario linked twice: %v", pgCode(err))
 	}
-	other, err = newRisk(t, ra, "erin", ra.bu["A1"], with(base, "title", "Claims outage", "scenarios", []any{link(s3, nil)}))
+	other, err := newRisk(t, ra, "erin", ra.bu["A1"], with(base, "title", "Claims outage", "scenarios", []any{link(s3, nil)}))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// ErrNoVersion: the scenario version does not exist for the caller.
+// ErrNoVersion means the scenario version does not exist for the caller.
 var ErrNoVersion = errors.New("risk: no such scenario version")
 
 // LoadScenarioBundle builds a scenario version's input bundle inside tx,

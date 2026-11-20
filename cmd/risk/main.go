@@ -416,7 +416,9 @@ func run() error {
 		}()
 		err := jobs.Run(ctx)
 		for range 5 {
-			<-done
+			if e := <-done; e != nil && !errors.Is(e, context.Canceled) {
+				logger.Error("leader job", "error", e.Error()) // the estimate jobs' error decides the leader's
+			}
 		}
 		return err
 	}, func(err error) { logger.Error("leader", "error", err.Error()) })

@@ -129,7 +129,7 @@ func TestSTRIDEF011Destinations(t *testing.T) {
 	ia := integrateAPI(t)
 	sa := ia.adminQuery("SELECT id FROM iam.service_account WHERE name = 'sa-root'")
 	mapping := map[string]any{"columns": map[string]any{"/id": "external_id", "/name": "name"}}
-	for name, source := range map[string]string{
+	for name, source := range map[string]string{ // #nosec G101 -- a test URL, not a credential
 		"cloud metadata":         "https://169.254.169.254/latest/meta-data",
 		"loopback":               "https://127.0.0.1/admin",
 		"the cluster's ranges":   "https://inside.example.test/",
@@ -302,7 +302,7 @@ func TestSTRIDEF011Batches(t *testing.T) {
 		"a context, no JWT": func(r *http.Request) { r.Header.Set("X-Fair-DB-Context", im.principal("pusher").DBToken) },
 		"a forged JWT":      func(r *http.Request) { r.Header.Set("Authorization", "Bearer eyJhbGciOiJub25lIn0.eyJzdWIiOiJ4In0.") },
 	} {
-		req, _ := http.NewRequest("POST", path, strings.NewReader(body))
+		req, _ := http.NewRequestWithContext(context.Background(), "POST", path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Idempotency-Key", "stride-forged-"+strings.ReplaceAll(name, " ", "-"))
 		set(req)

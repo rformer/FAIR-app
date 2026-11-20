@@ -64,7 +64,7 @@ func TestAcceptanceSchema(t *testing.T) {
 			sql = "SET ROLE " + c.role + "; " + sql
 		}
 		// PF027 from the triggers; the definer has no DELETE privilege at all (42501).
-		if got := ra.adminState(sql); got != "PF027" && !(got == "42501" && strings.Contains(name, "definer deletes")) {
+		if got := ra.adminState(sql); got != "PF027" && (got != "42501" || !strings.Contains(name, "definer deletes")) {
 			t.Errorf("%s: %s", name, got)
 		}
 	}

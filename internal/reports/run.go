@@ -126,7 +126,7 @@ func CheckFormats(formats []string) ([]string, error) {
 	return out, nil
 }
 
-// Params checks a request's parameters with its kind.
+// CheckParams checks a request's parameters with its kind.
 func (k Kind) CheckParams(raw json.RawMessage) (json.RawMessage, error) {
 	if len(strings.TrimSpace(string(raw))) == 0 || string(raw) == "null" {
 		raw = json.RawMessage(`{}`)
@@ -140,7 +140,7 @@ func (k Kind) CheckParams(raw json.RawMessage) (json.RawMessage, error) {
 	}
 	out, err := k.Params(raw)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrParams, err)
+		return nil, fmt.Errorf("%w: %w", ErrParams, err)
 	}
 	return out, nil
 }

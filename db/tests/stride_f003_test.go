@@ -555,7 +555,7 @@ func rawDoc(t *testing.T, doc map[string]any) ([]byte, string) {
 // looks like a secret, naming where.
 func TestRiskSecretsRefused(t *testing.T) {
 	ra := strideF003Fixture(t)
-	const pem = "-----BEGIN RSA PRIVATE KEY----- MIIEow"
+	const pem = "-----BEGIN RSA PRIVATE KEY----- MIIEow" // #nosec G101 -- a planted test secret the validator must refuse
 	const bearer = "Bearer abcdefghijklmnopqrstuvwxyz0123456789"
 	for _, c := range []struct {
 		kind, pointer, value string

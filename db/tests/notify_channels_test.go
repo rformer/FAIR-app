@@ -83,7 +83,7 @@ func TestNotifyChannels(t *testing.T) {
 		code int
 	}{
 		"http":          {map[string]any{"name": "x", "url": "http://203.0.113.10/x", "bu_id": root, "kinds": []any{"risk.stale"}, "reason": "x"}, 422},
-		"credentials":   {map[string]any{"name": "x", "url": "https://u:p@203.0.113.10/x", "bu_id": root, "kinds": []any{"risk.stale"}, "reason": "x"}, 422},
+		"credentials":   {map[string]any{"name": "x", "url": "https://u:p@203.0.113.10/x", "bu_id": root, "kinds": []any{"risk.stale"}, "reason": "x"}, 422}, // #nosec G101 -- a test URL, not a credential
 		"unlisted":      {map[string]any{"name": "x", "url": "https://198.51.100.7/x", "bu_id": root, "kinds": []any{"risk.stale"}, "reason": "x"}, 422},
 		"unknown kind":  {map[string]any{"name": "x", "url": "https://203.0.113.10/x", "bu_id": root, "kinds": []any{"mail.spam"}, "reason": "x"}, 400},
 		"no kinds":      {map[string]any{"name": "x", "url": "https://203.0.113.10/x", "bu_id": root, "kinds": []any{}, "reason": "x"}, 400},

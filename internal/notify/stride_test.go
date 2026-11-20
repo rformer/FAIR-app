@@ -62,9 +62,9 @@ func TestSTRIDEF009TLSFloor(t *testing.T) {
 
 	// Webhooks: a receiver at TLS 1.1, or with a certificate nobody vouches for.
 	var received atomic.Int32
-	h := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { received.Add(1) })
+	h := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { received.Add(1) })
 	old := httptest.NewUnstartedServer(h)
-	old.TLS = &tls.Config{MinVersion: tls.VersionTLS10, MaxVersion: tls.VersionTLS11}
+	old.TLS = &tls.Config{MinVersion: tls.VersionTLS10, MaxVersion: tls.VersionTLS11} // #nosec G402 -- an old-TLS server the sender must refuse
 	old.StartTLS()
 	defer old.Close()
 	secret, _ := NewWebhookSecret()

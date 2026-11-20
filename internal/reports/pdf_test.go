@@ -79,7 +79,7 @@ func TestWriteSampleReport(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, name), pdf, 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, name), pdf, 0o600); err != nil { // #nosec G703 -- a test output directory
 			t.Fatal(err)
 		}
 	}

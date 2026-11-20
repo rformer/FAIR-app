@@ -239,7 +239,7 @@ func TestWriteSamples(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, name), b, 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, name), b, 0o600); err != nil { // #nosec G703 -- a test output directory
 			t.Fatal(err)
 		}
 	}
@@ -273,7 +273,7 @@ func TestFontDigests(t *testing.T) {
 		"NotoSans-Bold.ttf":    "01a869026d170ee232c7ed2f5254e482de1dcc7de91ad1310e6c6ca6b008a947",
 		"OFL.txt":              "cee9892f9f0cc8fe882c9e9537ee6a89621d86ee7ceaf70b02e2b2b1c25c061a",
 	} {
-		b, err := os.ReadFile(filepath.Join("fonts", name))
+		b, err := os.ReadFile(filepath.Join("fonts", name)) // #nosec G304 -- a test output directory
 		if err != nil {
 			t.Fatal(err)
 		}

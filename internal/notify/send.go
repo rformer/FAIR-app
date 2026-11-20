@@ -278,7 +278,7 @@ func Sign(secret, id string, ts int64, body []byte) (string, error) {
 		return "", err
 	}
 	mac := hmac.New(sha256.New, k)
-	fmt.Fprintf(mac, "%s.%d.", id, ts)
+	_, _ = fmt.Fprintf(mac, "%s.%d.", id, ts)
 	mac.Write(body)
 	return "v1," + base64.StdEncoding.EncodeToString(mac.Sum(nil)), nil
 }

@@ -601,8 +601,8 @@ func TestReportContextKeys(t *testing.T) {
 		t.Error("rotation kept the secret")
 	}
 	// The same secret as the gateway's DB-context key is refused.
-	gw, _ := os.ReadFile(filepath.Join(d, Gateway, SecretsDir, DBContextKey))
-	if err := os.WriteFile(filepath.Join(sdir, ReportContextKey), gw, 0o600); err != nil {
+	gw, _ := os.ReadFile(filepath.Join(d, Gateway, SecretsDir, DBContextKey))              // #nosec G304 -- a test's own temporary directory
+	if err := os.WriteFile(filepath.Join(sdir, ReportContextKey), gw, 0o600); err != nil { // #nosec G703 -- a test's own temporary directory
 		t.Fatal(err)
 	}
 	if err := Check(d); err == nil {

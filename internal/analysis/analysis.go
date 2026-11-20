@@ -86,7 +86,7 @@ type Requested struct {
 	ControlSets  []string
 }
 
-// ErrControlSet: a control set the version does not have, or not the
+// ErrControlSet means a control set the version does not have, or not the
 // current one first.
 var ErrControlSet = errors.New("analysis: control sets")
 
@@ -144,7 +144,7 @@ func controlSets(ctx context.Context, tx pgx.Tx, id string, version int64, want 
 	}
 	d, problems := model.Validate(model.KindScenario, doc)
 	if len(problems) > 0 {
-		return nil, fmt.Errorf("analysis: the stored version does not validate: %v", problems)
+		return nil, fmt.Errorf("analysis: the stored version does not validate: %w", problems)
 	}
 	sc := d.Value.(*model.Scenario)
 	var current string
