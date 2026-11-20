@@ -1,0 +1,94 @@
+# F-012 T-06 (F-012-AC-08, AC-09; design §3.3): the release key's signatures,
+# called by the release pipeline (T-07) on v* tags. For each image it first
+# verifies the keyless signature, SPDX SBOM and SLSA provenance against the
+# release workflow's identity, then signs the image and attests that same
+# SBOM and provenance with the release key in AWS KMS, so the release
+# verifies offline with cosign.pub alone (scripts/verify-release.sh
+# -offline). The release manifest and SHA256SUMS are signed through
+# releasegen sign -kms (internal/kmssign), and cosign.pub is written from the
+# KMS key.
+#
+# Credentials: the job's GitHub OIDC token, written to a file and exchanged
+# by STS for the sign-only role (repository variables FAIR_RELEASE_ROLE_ARN,
+# FAIR_RELEASE_KMS_KEY, FAIR_RELEASE_REGION; the role's trust policy admits
+# only this repository's release workflow on a v* tag, T-12). No credential
+# is stored in GitHub.
+# F-012 T-01: every action is pinned to a full commit (cmd/pincheck); Dependabot updates them.
+name: kms-sign
+
+on:
+  workflow_call:
+    inputs:
+      artifact:
+        description: Artifact holding images.json (component -> repository@sha256:digest), release-manifest.json and SHA256SUMS
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  sign:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    env:
+      AWS_REGION: ${{ vars.FAIR_RELEASE_REGION }}
+      AWS_ROLE_ARN: ${{ vars.FAIR_RELEASE_ROLE_ARN }}
+      AWS_USE_FIPS_ENDPOINT: "true"
+      KMS_KEY: ${{ vars.FAIR_RELEASE_KMS_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        env:
+          GOFIPS140: ""
+        with:
+          go-version-file: go.mod
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ inputs.artifact }}
+          path: release
+      - name: OIDC token file for STS
+        run: |
+          install -d -m 0700 "$RUNNER_TEMP/oidc"
+          curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value > "$RUNNER_TEMP/oidc/token"
+          chmod 0600 "$RUNNER_TEMP/oidc/token"
+          echo "AWS_WEB_IDENTITY_TOKEN_FILE=$RUNNER_TEMP/oidc/token" >> "$GITHUB_ENV"
+      - name: Sign and attest every image with the release key
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GOFIPS140: v1.0.0
+        run: |
+          echo "$GH_TOKEN" | cosign login ghcr.io -u "${{ github.actor }}" --password-stdin
+          id='^https://github\.com/${{ github.repository }}/\.github/workflows/release\.yml@refs/tags/v'
+          issuer=https://token.actions.githubusercontent.com
+          for ref in $(jq -r '.[]' release/images.json); do
+            cosign verify --certificate-identity-regexp "$id" --certificate-oidc-issuer "$issuer" "$ref" >/dev/null
+            for type in spdxjson slsaprovenance; do
+              cosign verify-attestation --type "$type" --certificate-identity-regexp "$id" --certificate-oidc-issuer "$issuer" "$ref" \
+                | head -1 | jq -r .payload | base64 -d | jq .predicate > "predicate-$type.json"
+            done
+            cosign sign --yes --key "awskms:///$KMS_KEY" "$ref"
+            cosign attest --yes --key "awskms:///$KMS_KEY" --type spdxjson --predicate predicate-spdxjson.json "$ref"
+            cosign attest --yes --key "awskms:///$KMS_KEY" --type slsaprovenance --predicate predicate-slsaprovenance.json "$ref"
+            echo "signed $ref"
+          done
+      - name: Sign the release manifest and SHA256SUMS; cosign.pub
+        env:
+          GOFIPS140: v1.0.0
+        run: |
+          go run ./cmd/releasegen public -kms "$KMS_KEY" -region "$AWS_REGION" -out release/cosign.pub
+          go run ./cmd/releasegen sign -kms "$KMS_KEY" -region "$AWS_REGION" -in release/release-manifest.json
+          go run ./cmd/releasegen sign -any -kms "$KMS_KEY" -region "$AWS_REGION" -in release/SHA256SUMS
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ inputs.artifact }}-signed
+          path: |
+            release/cosign.pub
+            release/release-manifest.json.sig
+            release/SHA256SUMS.sig

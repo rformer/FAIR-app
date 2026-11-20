@@ -22,6 +22,7 @@ variable "required_checks" {
     "k8s-e2e",
     "engine",
     "proto",
+    "release-verify",
     "openapi",
     "images (iam)",
     "images (gateway)",

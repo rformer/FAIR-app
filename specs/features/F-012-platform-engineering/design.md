@@ -20,7 +20,7 @@ F-012 completes the build side the earlier features started and adds the SaaS op
 | Pin check | `cmd/pincheck` | Fails on unpinned actions, base images, or dependencies without hashes (AC-03) |
 | Image checks | `scripts/image-check.sh` | Hardening, FIPS, no-shell, plaintext refusal per image (AC-05, AC-06) |
 | Vulnerability exceptions | `security/vuln-exceptions.yaml`, `internal/vulnex` | Expiring, justified exceptions read by the scan step (AC-07) |
-| KMS signer | `internal/kmssign` | ECDSA P-256 signing through AWS KMS (`releasegen sign -kms`), same signature format as file keys |
+| KMS signer | `internal/kmssign` | ECDSA P-256 signing through AWS KMS (`releasegen sign -kms`; the AWS SDK for Go v2, ADR-018), same signature format as file keys |
 | Release notes | `cmd/releasegen notes` | Notes from migrations, packages, catalog and settings diffs (AC-12) |
 | Upgrade test | `db/tests/upgrade_test.go` | Migrates from the two previous minor releases' schemas and data (AC-13, AC-21) |
 | Verification | `scripts/verify-release.sh`, `docs/security/verify.md` | Online and offline verification of signatures, SBOMs and provenance (AC-09) |

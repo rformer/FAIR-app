@@ -472,6 +472,25 @@ jobs:
           ref="ghcr.io/${{ github.repository_owner }}/fair-${{ matrix.component }}@${{ needs.images.outputs[format('digest-{0}', matrix.component)] }}"
           "$(go env GOPATH)/bin/slsa-verifier" verify-image "$ref" --source-uri "github.com/${{ github.repository }}" --source-branch main
 
+  # F-012 T-06 (F-012-AC-09; design §3.3): offline release verification
+  # passes a fixture release signed with a test key and refuses tampered
+  # copies (another key, an edited manifest, an image signed by another
+  # key, a missing signature).
+  release-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        env:
+          GOFIPS140: ""
+        with:
+          go-version-file: go.mod
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+      - name: releasegen
+        run: go build -o "$RUNNER_TEMP/bin/releasegen" ./cmd/releasegen && echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: verify-release.sh -offline on a fixture release
+        run: bash scripts/verify-release-test.sh
+
   # F-015 T-32: the web UI (ADR-003: React + TypeScript, Vite).
   web:
     runs-on: ubuntu-latest
