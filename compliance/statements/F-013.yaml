@@ -1,0 +1,166 @@
+# NIST SP 800-53 Rev 5 control implementation statements for F-013
+# (control framework library), task T-13. Source for the platform's OSCAL
+# component definition (F-014 assembles the features' files); checked by
+# internal/compliance tests: the controls are exactly F-013's control
+# mapping, every evidence path and test exists, and the OSCAL output
+# validates against the pinned schema.
+#
+# responsibility, per deployment mode (ADR-005):
+#   provider  the platform (and, in SaaS, the vendor operating it) meets it
+#   shared    the platform provides the mechanism; the customer operates it
+#   customer  the customer meets it
+# customer: what the customer does wherever the responsibility is shared
+# or customer. Evidence tests are "<package dir>:<test name>".
+feature: F-013
+title: Control framework library
+status: approved # signed off by Robert Former, 2026-11-19
+controls:
+  - id: ac-3
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Frameworks, versions, requirements, baselines and crosswalks are read
+      by holders of framework.view, control.view or control.edit anywhere,
+      and imported or retired only by holders of framework.manage at the
+      top business unit; their tables are reachable only through functions
+      owned by a definer role. A control's framework mappings are part of
+      its versioned document, saved by F-003's save code under the saver's
+      row-level security and edit permission, and projected into a
+      business-unit-owned table under row-level security. Coverage,
+      suggested mappings and a requirement's scenarios read the projection,
+      controls and scenarios under the caller's row-level security, so they
+      list only what the caller may see; restricted units below appear only
+      as their roll-up mode allows, as totals without their controls.
+    evidence:
+      code: [db/migrations/0161_framework_schema.sql, db/migrations/0163_framework_imports.sql, db/migrations/0164_control_mappings.sql,
+             db/migrations/0166_framework_coverage.sql, db/migrations/0167_requirement_analysis.sql, internal/frameworkapi/api.go]
+      tests: ["db/tests:TestSTRIDEF013Frameworks", "db/tests:TestSTRIDEF013Coverage", "db/tests:TestFrameworkCoverage", "db/tests:TestControlMappings",
+              "db/tests:TestFrameworkImports"]
+
+  - id: ac-6
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      framework.manage is a privileged administrative permission held only
+      at the top business unit; it is granted with risk-data permissions
+      only through F-001's dual approval, so whoever changes the frameworks
+      does not also read the analyses by default. The application role has
+      no rights on the framework tables, only on the functions that read
+      and change them; each function runs as a definer role that owns only
+      its schema. Restricted units' coverage is computed by the roll-up
+      definer, which returns totals and never a control.
+    customer: >-
+      Grant framework.manage to the few administrators who maintain the
+      library, and review its holders in F-001's access reviews.
+    evidence:
+      code: [db/bootstrap/0001_roles.sql, db/migrations/0161_framework_schema.sql, db/migrations/0166_framework_coverage.sql,
+             internal/access/catalog/release/catalog.json]
+      tests: ["db/tests:TestSTRIDEF013Frameworks", "db/tests:TestFrameworkSchema", "db/tests:TestCatalogVersion7Upgrade",
+              "db/tests:TestSTRIDEF013Coverage"]
+
+  - id: au-2
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      The audit trail records each framework import with its file's
+      digest, each import refused and its number of problems, each
+      retirement of a version, baseline or crosswalk with its reason, each
+      change of a control's mappings (what was added and removed), and
+      each coverage export with its format and reason. The events are
+      catalogued (F-002) and refused if not.
+    customer: >-
+      Forward the trail to the organization's SIEM (F-002) and review
+      framework retirements and coverage exports there.
+    evidence:
+      code: [pkg/audit/catalog.yaml, db/migrations/0163_framework_imports.sql, db/migrations/0165_crosswalks.sql, internal/frameworkapi/coverage.go]
+      tests: ["db/tests:TestFrameworkAuditEvents", "db/tests:TestControlMappings", "db/tests:TestCrosswalks", "pkg/audit:TestCatalogMatchesCode"]
+
+  - id: au-3
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Each framework event names its actor (from the signed database
+      context), its target (the version, baseline, crosswalk, import or
+      control), the business unit (the top unit for library changes, the
+      control's or export's unit otherwise), its time and, as attributes,
+      the family, version, file digest, number of requirements or
+      relationships, the mappings added and removed, and the reason given.
+    evidence:
+      code: [db/migrations/0163_framework_imports.sql, db/migrations/0164_control_mappings.sql, internal/frameworkapi/coverage.go, pkg/audit/catalog.yaml]
+      tests: ["db/tests:TestFrameworkAuditEvents", "db/tests:TestControlMappings", "pkg/audit:TestCatalogMatchesCode"]
+
+  - id: au-12
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Framework events are written in the transaction that makes the
+      change: an import's outcome, a retirement, a control version's
+      mapping change (by a trigger on the version) and a coverage export,
+      which produces no file unless its event is recorded (503).
+    evidence:
+      code: [db/migrations/0163_framework_imports.sql, db/migrations/0164_control_mappings.sql, internal/frameworkapi/coverage.go]
+      tests: ["db/tests:TestFrameworkAuditEvents", "db/tests:TestFrameworkCoverage", "db/tests:TestControlMappings"]
+
+  - id: pl-10
+    responsibility: { saas: shared, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      The platform ships NIST SP 800-53r5 (5.2.0 and 5.1.1) with its low,
+      moderate, high and privacy baselines, NIST SP 800-171r3, the FedRAMP
+      Rev 5 baselines and the 800-171r3 to 800-53r5 crosswalk, and imports
+      further OSCAL catalogs and profiles. Profiles are resolved to the
+      requirements they select, and coverage can be read for a baseline,
+      so the organization sees which requirements of its chosen baseline
+      its controls address.
+    customer: >-
+      Select the baselines that apply to the organization's systems and
+      read coverage against them; tailoring and selection decisions remain
+      the organization's.
+    evidence:
+      code: [internal/framework/content/content.go, internal/framework/profile.go, db/migrations/0162_framework_shipped.sql, db/migrations/0166_framework_coverage.sql]
+      tests: ["db/tests:TestShippedFrameworks", "internal/framework:TestNISTProfiles", "internal/framework:TestParseProfile", "db/tests:TestFrameworkCoverage"]
+
+  - id: sc-5
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Limits apply before work: files up to 50 MiB, 20,000 requirements a
+      version, 100 framework versions, 200,000 crosswalk relationships, 500
+      mappings a control, five imports queued at once, and bounded pages of
+      requirements, relationships and scenarios. Imports run as bounded
+      jobs outside the request; coverage is computed set-based with the
+      caller's scope read once, within 2 s at 10,000 controls and 50,000
+      mappings (the benchmark gate).
+    customer: >-
+      Size the risk service and its database for the organization's
+      controls; the benchmark gate's report gives the reference timings.
+    evidence:
+      code: [db/migrations/0161_framework_schema.sql, db/migrations/0169_framework_coverage_speed.sql, internal/framework/framework.go,
+             internal/frameworkapi/job.go]
+      tests: ["db/tests:TestSTRIDEF013Limits", "db/tests:TestBenchmarkGateFrameworks", "db/tests:TestSTRIDEF013Imports"]
+
+  - id: si-7
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Shipped frameworks are built from pinned NIST and FedRAMP files and
+      embedded in the iam binary, whose image digest the signed release
+      manifest covers; each shipped item keeps its source file's digest, and
+      an installation refuses a shipped version, baseline or crosswalk
+      that differs from the one installed. Imported versions, baselines and
+      crosswalks keep their file's digest; every framework row is append-
+      only, and only its state (active to retired, once) changes.
+    evidence:
+      code: [internal/framework/content/content.go, db/migrations/0162_framework_shipped.sql, db/migrations/0161_framework_schema.sql, third_party/oscal/MANIFEST.json]
+      tests: ["db/tests:TestShippedFrameworks", "internal/framework/content:TestShippedUpToDate", "db/tests:TestSTRIDEF013Frameworks", "db/tests:TestFrameworkSchema"]
+
+  - id: si-10
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Imported files are JSON or CSV only: OSCAL catalogs, profiles and
+      mapping collections are validated against the pinned OSCAL 1.2.3
+      schema, the simple formats against their own rules; identifiers,
+      keys and labels follow fixed patterns, and a file with any problem is
+      refused whole, each problem named by its pointer. Nothing a file
+      links to is fetched. A control's mappings are checked by the same
+      rules in Go and in the database, which alone confirms that each
+      requirement exists and is not withdrawn. Framework text is stored
+      and returned as data, and CSV exports neutralize cells a spreadsheet
+      would read as formulas.
+    evidence:
+      code: [internal/framework/catalog.go, internal/framework/simple.go, internal/risk/model/validate.go, db/migrations/0164_control_mappings.sql,
+             internal/frameworkapi/coverage.go]
+      tests: ["db/tests:TestSTRIDEF013Imports", "db/tests:TestSTRIDEF013Injection", "internal/framework:TestParseCatalog", "internal/framework:TestParseMappingCollection",
+              "db/tests:TestRiskValidationParity", "db/tests:TestCrosswalks"]

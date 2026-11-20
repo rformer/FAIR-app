@@ -77,7 +77,7 @@ F-013 connects the platform's controls (F-003), which carry their effect on FAIR
 | Coverage exports | Yes | Yes | Yes |
 
 ## Control mapping (NIST SP 800-53r5)
-To be proposed with the tasks.
+AC-3, AC-6, AU-2, AU-3, AU-12, PL-10, SC-5, SI-7, SI-10 (T-13; statements in `compliance/statements/F-013.yaml`, signed off by Robert Former 2026-11-19).
 
 ## Out of scope
 - Compliance scores, maturity ratings, heat maps or any ordinal rating (P1).
