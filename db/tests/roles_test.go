@@ -212,7 +212,7 @@ func (e *env) psqlAs(vars map[string]string, db, sql string) error {
 // as runs SQL as an application role and returns (output, error).
 func (e *env) as(role, sql string) (string, error) {
 	pw, _ := os.ReadFile(e.secrets[role])
-	cmd := exec.CommandContext(context.Background(), "psql", "--no-psqlrc", "-X", "-q", "-tA", "-v", "ON_ERROR_STOP=1", "-d", e.db, "-c", sql)
+	cmd := exec.CommandContext(context.Background(), "psql", "--no-psqlrc", "-X", "-q", "-tA", "-v", "ON_ERROR_STOP=1", "-d", e.db, "-c", sql) // #nosec G702 -- the tests' own SQL, as a test role
 	cmd.Env = withVars(e.adminEnv, map[string]string{"PGUSER": role, "PGPASSWORD": strings.TrimSpace(string(pw))})
 	out, err := cmd.CombinedOutput()
 	return strings.TrimSpace(string(out)), err

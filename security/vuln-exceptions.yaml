@@ -1,0 +1,16 @@
+# F-012 T-03 (F-012-AC-07; design §3.2): accepted image vulnerability
+# findings. Every image scan (Trivy) fails on a fixable high or critical
+# finding unless it is listed here, with the images it applies to, a reason
+# and an expiry at most 90 days after its review; an expired or malformed
+# entry fails the scan job itself (internal/vulnex, cmd/vulnex). Remove an
+# entry when its fix lands. Changes to this file are reviewed like code
+# (CODEOWNERS).
+#
+# exceptions:
+#   - id: CVE-2026-00000          # the finding's ID as Trivy reports it
+#     package: libexample          # the affected package
+#     images: [engine]             # components it applies to, or [all]
+#     reason: Not reachable ...    # why it is accepted, and what was checked
+#     expires: 2027-02-01          # YYYY-MM-DD, at most 90 days after review
+#     reviewed: 2026-11-03         # YYYY-MM-DD
+exceptions: []

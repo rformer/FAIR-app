@@ -43,7 +43,7 @@ run "every_gate_is_required" {
   command = plan
 
   assert {
-    condition = alltrue([for c in ["test", "lint", "ui-e2e", "deployment-modes (air-gapped)", "image"] :
+    condition = alltrue([for c in ["test", "lint", "ui-e2e", "deployment-modes (air-gapped)", "images (iam)", "images (engine)"] :
     contains([for r in github_repository_ruleset.main.rules[0].required_status_checks[0].required_check : r.context], c)])
     error_message = "the platform's gates must be required checks"
   }

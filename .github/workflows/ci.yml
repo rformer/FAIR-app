@@ -11,9 +11,11 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request supersedes its run; on main every run
+# completes, so each change gets its full set of results (F-012 T-03).
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   GOFIPS140: v1.0.0
@@ -156,6 +158,8 @@ jobs:
   # F-001 T-11: visible_bus + RLS at target scale. Fails when a request-path
   # p95 exceeds 10 ms or regresses past max(3x, +5 ms) of db/bench/baseline.json.
   bench:
+    # F-012-AC-02: on main and before every release (the release runs it too).
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -277,51 +281,6 @@ jobs:
           docker run --rm -v "$PWD:/src" -w /src python:3.12.16-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df \
             sh -c 'pip install -q --no-cache-dir pip-audit==2.9.0 && pip-audit --strict --disable-pip --require-hashes -r engine/requirements.lock'
 
-  # F-005 T-04 (ADR-013): the engine image is non-root, runs with a read-only
-  # root filesystem, has no shell, pins NumPy's CPU dispatch, and passes the
-  # vulnerability scan; its SBOM lists every locked dependency.
-  engine-image:
-    needs: [engine]
-    runs-on: ubuntu-latest
-    env:
-      IMAGE: fair-engine
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - name: Build
-        run: docker build --load --target engine -t "$IMAGE:ci" .
-      - name: Verify non-root, read-only root, no shell, CPU dispatch pinned
-        run: |
-          test "$(docker inspect -f '{{.Config.User}}' "$IMAGE:ci")" = "65532:65532"
-          docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges "$IMAGE:ci" > info.json
-          python3 -c 'import json,sys; d=json.load(open("info.json")); sys.exit(0 if d["cpu_dispatch"] and not any(d["cpu_dispatch"].values()) else 1)'
-          if docker run --rm --entrypoint /bin/sh "$IMAGE:ci" -c true; then echo "the image has a shell"; exit 1; fi
-          if docker run --rm --entrypoint /usr/local/bin/python3.12 "$IMAGE:ci" -c "import ssl"; then echo "the engine has TLS"; exit 1; fi
-          # F-005 T-09: the build ran the validation suite; the image holds a passed record.
-          docker run --rm --entrypoint /usr/local/bin/python3.12 "$IMAGE:ci" -c 'import json,sys; r=json.load(open("/engine/validation.json")); print(r["engine_version"], r["architecture"], r["passed"]); sys.exit(0 if r["passed"] else 1)'
-      - name: SBOM (SPDX)
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
-        with:
-          image: ${{ env.IMAGE }}:ci
-          format: spdx-json
-          output-file: engine-sbom.spdx.json
-      - name: Every locked dependency is in the SBOM
-        run: |
-          for p in $(grep -oE '^[a-z0-9_.-]+==' engine/requirements.lock | tr -d '='); do
-            grep -qi "\"name\": *\"$p\"" engine-sbom.spdx.json || { echo "missing from the SBOM: $p"; exit 1; }
-          done
-      - name: Vulnerability scan (fail on HIGH/CRITICAL)
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: ${{ env.IMAGE }}:ci
-          severity: HIGH,CRITICAL
-          exit-code: "1"
-          ignore-unfixed: true
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: engine-sbom
-          path: engine-sbom.spdx.json
-
   # F-005 T-03: the generated gRPC code (Go and the engine's Python) is
   # exactly what the protos and the pinned generators produce.
   proto:
@@ -353,85 +312,21 @@ jobs:
       - name: Spectral lint and rule self-test
         run: bash scripts/openapi-lint.sh
 
-  image:
-    needs: [test, lint]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write   # push to GHCR (main only)
-      id-token: write   # keyless cosign signing (main only)
-    env:
-      IMAGE: ghcr.io/${{ github.repository_owner }}/fair-iam
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - name: Set image tag
-        run: echo "TAG=${GITHUB_SHA::12}" >> "$GITHUB_ENV"
-      - name: Build
-        run: docker build --load --build-arg VERSION="$TAG" -t "$IMAGE:$TAG" .
-      - name: Verify non-root, read-only root filesystem, FIPS on
-        run: |
-          docker run -d --name iam --read-only --cap-drop ALL --security-opt no-new-privileges \
-            -e FAIR_ENV=development -e FAIR_ALLOW_PLAINTEXT=true -e FAIR_LISTEN_ADDR=:8080 \
-            -p 8080:8080 "$IMAGE:$TAG"
-          for i in $(seq 1 20); do curl -fsS localhost:8080/healthz && break; sleep 1; done
-          test "$(docker inspect -f '{{.Config.User}}' iam)" = "65532:65532"
-          docker logs iam | grep -q '"fips140":"true"'
-          docker rm -f iam
-      - name: Verify production refuses to start without TLS
-        run: |
-          if docker run --rm "$IMAGE:$TAG"; then echo "started without TLS"; exit 1; fi
-      - name: SBOM (SPDX)
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
-        with:
-          image: ${{ env.IMAGE }}:${{ env.TAG }}
-          format: spdx-json
-          output-file: sbom.spdx.json
-      - name: Vulnerability scan (fail on HIGH/CRITICAL)
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: ${{ env.IMAGE }}:${{ env.TAG }}
-          severity: HIGH,CRITICAL
-          exit-code: "1"
-          ignore-unfixed: true
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: sbom
-          path: sbom.spdx.json
-      - name: Push (main only)
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          docker push "$IMAGE:$TAG"
-      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-      - name: Cosign keyless sign + SBOM attestation (main only)
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: |
-          digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:$TAG")"
-          cosign sign --yes "$digest"
-          cosign attest --yes --type spdxjson --predicate sbom.spdx.json "$digest"
-
-  # F-015 T-27/T-29: the deployment drift scanner's and the FIPS probe's own
-  # images (design §6.8, D-OQ2): non-root, read-only, scanned and signed like
-  # iam. Each must refuse to succeed unconfigured (the probe's "check" fails
-  # without the flag file mounted).
-  scanner-image:
-    needs: [test, lint]
+  # F-012 T-03 (F-012-AC-05 to AC-07; design §3.2): every image the
+  # Dockerfile builds, hardened and checked alike (scripts/image-check.sh:
+  # non-root, no shell or package manager, refuses to start unconfigured on a
+  # read-only root with no capabilities, FIPS 140 module built in and on; the
+  # engine's own checks), with an SBOM, a scan that fails on fixable high or
+  # critical findings unless security/vuln-exceptions.yaml accepts them until
+  # an expiry, and, on main, pushed, signed and attested. The matrix lists
+  # every Dockerfile target (internal/cicheck TestImageMatrixCoversDockerfile).
+  images:
+    needs: [test, lint, engine]
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        include:
-          - { component: posture-scanner, smoke: "" }
-          - { component: fips-probe, smoke: "check" }
-          - { component: gateway, smoke: "" }
-          - { component: audit, smoke: "" }
-          - { component: risk, smoke: "" }
-          - { component: notify, smoke: "" } # F-009 T-03
-          - { component: integrate, smoke: "" } # F-011 T-15
-          - { component: engine-gate, smoke: "" } # F-005 T-10
+        component: [iam, gateway, posture, posture-scanner, fips-probe, audit, risk, notify, integrate, engine-gate, engine]
     permissions:
       contents: read
       packages: write   # push to GHCR (main only)
@@ -440,30 +335,40 @@ jobs:
       IMAGE: ghcr.io/${{ github.repository_owner }}/fair-${{ matrix.component }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        env:
+          GOFIPS140: ""
+        with:
+          go-version-file: go.mod
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Set image tag
         run: echo "TAG=${GITHUB_SHA::12}" >> "$GITHUB_ENV"
       - name: Build
         run: docker build --load --target "${{ matrix.component }}" --build-arg VERSION="$TAG" -t "$IMAGE:$TAG" .
-      - name: Verify non-root and refusal to start unconfigured
-        run: |
-          test "$(docker inspect -f '{{.Config.User}}' "$IMAGE:$TAG")" = "65532:65532"
-          if docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges "$IMAGE:$TAG" ${{ matrix.smoke }}; then
-            echo "started without configuration"; exit 1
-          fi
+      - name: Hardening checks
+        run: bash scripts/image-check.sh "$IMAGE:$TAG" "${{ matrix.component }}"
       - name: SBOM (SPDX)
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
           image: ${{ env.IMAGE }}:${{ env.TAG }}
           format: spdx-json
           output-file: sbom-${{ matrix.component }}.spdx.json
-      - name: Vulnerability scan (fail on HIGH/CRITICAL)
+      - name: Every locked engine dependency is in the SBOM
+        if: matrix.component == 'engine'
+        run: |
+          for p in $(grep -oE '^[a-z0-9_.-]+==' engine/requirements.lock | tr -d '='); do
+            grep -qi "\"name\": *\"$p\"" sbom-engine.spdx.json || { echo "missing from the SBOM: $p"; exit 1; }
+          done
+      - name: Accepted findings (expired or malformed exceptions fail)
+        run: go run ./cmd/vulnex -component "${{ matrix.component }}" -out .trivyignore
+      - name: Vulnerability scan (fail on fixable HIGH/CRITICAL)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.IMAGE }}:${{ env.TAG }}
           severity: HIGH,CRITICAL
           exit-code: "1"
           ignore-unfixed: true
+          trivyignores: .trivyignore
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sbom-${{ matrix.component }}
