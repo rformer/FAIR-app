@@ -107,3 +107,15 @@ def test_the_engine_refuses_to_serve_after_a_failed_self_check(tmp_path: Path, r
     assert p.returncode == 1
     assert "self_check_failed" in p.stderr
     assert not sock.exists()
+
+
+def test_a_reproducible_build_records_the_source_date(monkeypatch: pytest.MonkeyPatch) -> None:
+    """F-012 T-05: with SOURCE_DATE_EPOCH, the record holds no build-time values."""
+    monkeypatch.setattr(validation, "CHECKS", (validation.check_philox,))
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1763596800")
+    a, b = validation.suite(), validation.suite()
+    assert a == b
+    assert a["run_at_unix_ms"] == 1_763_596_800_000
+    assert "seconds" not in a
+    monkeypatch.delenv("SOURCE_DATE_EPOCH")
+    assert "seconds" in validation.suite()

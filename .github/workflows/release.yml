@@ -33,7 +33,7 @@ jobs:
           go-version-file: go.mod
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Build the engine image (runs the validation suite)
-        run: docker build --load --target engine -t fair-engine:release .
+        run: docker build --load --target engine --build-arg SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" -t fair-engine:release .
       - name: Release manifest with the engine's validation record
         run: |
           id="$(docker image inspect -f '{{.Id}}' fair-engine:release)"
@@ -49,8 +49,13 @@ jobs:
             release-manifest.json
             engine-validation.json
 
+  # F-012 T-05 (AC-10): every image builds to the same digests on two
+  # runners; the checklist waits for it.
+  reproducible:
+    uses: ./.github/workflows/reproducible.yml
+
   release-checklist:
-    needs: [engine-validation]
+    needs: [engine-validation, reproducible]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

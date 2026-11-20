@@ -1,0 +1,59 @@
+# F-012 T-05 (F-012-AC-10; design §3.3): the images are reproducible. Every
+# image is built twice from the same commit on two separate runners, with no
+# cache (scripts/repro-build.sh: the commit time as SOURCE_DATE_EPOCH, the
+# version from the tag, timestamps rewritten), and the job fails if any
+# manifest digest differs. Weekly on main and from every release
+# (release.yml calls it before the checklist).
+# F-012 T-01: every action is pinned to a full commit (cmd/pincheck); Dependabot updates them.
+name: reproducible
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [a, b]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the tag, for the version
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        id: buildx
+      - name: Build every image
+        env:
+          FAIR_REPRO_BUILDER: ${{ steps.buildx.outputs.name }}
+        run: bash scripts/repro-build.sh out
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digests-${{ matrix.run }}
+          path: out/digests
+
+  compare:
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: digests-a
+          path: a
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: digests-b
+          path: b
+      - name: Every digest is the same in both builds
+        run: |
+          { echo '| image | build a | build b |'; echo '|---|---|---|'
+            join a/digests b/digests | awk '{ print "| " $1 " | `" $2 "` | `" $3 "` |" }'; } >> "$GITHUB_STEP_SUMMARY"
+          [ "$(wc -l < a/digests)" -eq 11 ] || { echo "expected 11 images, got $(wc -l < a/digests)"; exit 1; }
+          diff a/digests b/digests && echo "all $(wc -l < a/digests) images reproduce"

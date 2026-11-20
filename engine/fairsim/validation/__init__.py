@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -393,7 +394,13 @@ CHECKS: Final[tuple[Callable[[], Check | list[Check]], ...]] = (
 
 
 def suite() -> dict[str, Any]:
-    """Run the suite; the validation record."""
+    """Run the suite; the validation record.
+
+    The record is part of the engine image, so a reproducible build (F-012
+    T-05) must write the same bytes each time: with SOURCE_DATE_EPOCH set, the
+    record's time is that source date and the duration is left out (the
+    command reports it on stderr instead).
+    """
     started = time.time()
     checks: list[Check] = []
     for fn in CHECKS:
@@ -402,7 +409,7 @@ def suite() -> dict[str, Any]:
         except Exception as e:  # a check that cannot run fails
             got = Check(fn.__name__.removeprefix("check_"), passed=False, detail={"error": f"{type(e).__name__}: {e}"})
         checks.extend(got if isinstance(got, list) else [got])
-    return {
+    record: dict[str, Any] = {
         "suite_version": SUITE_VERSION,
         "engine_version": fairsim.__version__,
         "architecture": cpu.architecture(),
@@ -412,6 +419,11 @@ def suite() -> dict[str, Any]:
         "self_check_digest": corpus_digest(SELF_CHECK_ITERATIONS),
         "detail": {c.name: {"passed": c.passed, **c.detail} for c in checks},
     }
+    source_date = os.environ.get("SOURCE_DATE_EPOCH", "").strip()
+    if source_date.isdigit() and int(source_date) > 0:
+        record["run_at_unix_ms"] = int(source_date) * 1000
+        del record["seconds"]
+    return record
 
 
 def self_check(record: dict[str, Any] | None) -> list[str]:

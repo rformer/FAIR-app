@@ -14,13 +14,15 @@
 # - FIPS 140-3: built with GOFIPS140=v1.0.0; go.mod sets fips140=on at runtime.
 # - Static, CGO-free binary on distroless: no shell, no package manager.
 # - Runs as non-root (65532) and works with a read-only root filesystem.
-# TODO(F-012): pin both base images by digest; Dependabot keeps digests current.
+# - Base images pinned by digest (F-012 T-01); Dependabot keeps them current.
+# - Reproducible (F-012 T-05): pass SOURCE_DATE_EPOCH (the commit time) and
+#   VERSION, and export with rewrite-timestamp=true (scripts/repro-build.sh).
 
 ARG PYTHON_IMAGE=python:3.12.16-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df
 
 FROM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS build
 WORKDIR /src
-ENV CGO_ENABLED=0 GOFIPS140=v1.0.0 GOFLAGS=-trimpath
+ENV CGO_ENABLED=0 GOFIPS140=v1.0.0 GOFLAGS="-trimpath -buildvcs=false"
 COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
@@ -103,6 +105,8 @@ ENTRYPOINT ["/gateway"]
 # (engine-gate terminates TLS), so Python's _ssl and _hashlib are removed.
 # NumPy's CPU dispatch is pinned by fairsim.cpu at import.
 FROM ${PYTHON_IMAGE} AS engine-build
+# The validation record takes its time from the source date (F-012 T-05).
+ARG SOURCE_DATE_EPOCH
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_CACHE_DIR=1
 COPY engine/requirements.lock /tmp/requirements.lock
 RUN pip install --require-hashes --no-deps --target /opt/site -r /tmp/requirements.lock \

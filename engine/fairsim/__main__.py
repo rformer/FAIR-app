@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 import fairsim
@@ -69,6 +70,7 @@ def _validate(args: list[str]) -> int | None:
     opts = _options(args, ("--out",))
     if opts is None:
         return None
+    started = time.time()
     record = validation.suite()
     text = json.dumps(record, indent=2, sort_keys=True, allow_nan=False) + "\n"
     if "--out" in opts:
@@ -77,7 +79,8 @@ def _validate(args: list[str]) -> int | None:
     else:
         sys.stdout.write(text)
     failed = [name for name, c in record["detail"].items() if not c["passed"]]
-    print(f"validation {'passed' if record['passed'] else 'FAILED: ' + ', '.join(failed)} in {record['seconds']} s", file=sys.stderr)
+    outcome = "passed" if record["passed"] else "FAILED: " + ", ".join(failed)
+    print(f"validation {outcome} in {time.time() - started:.1f} s", file=sys.stderr)
     return 0 if record["passed"] else 1
 
 

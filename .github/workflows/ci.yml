@@ -358,10 +358,14 @@ jobs:
         with:
           go-version-file: go.mod
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - name: Set image tag
-        run: echo "TAG=${GITHUB_SHA::12}" >> "$GITHUB_ENV"
+      - name: Set image tag and source date
+        run: |
+          echo "TAG=${GITHUB_SHA::12}" >> "$GITHUB_ENV"
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+      # F-012 T-05 (AC-10): built as scripts/repro-build.sh builds it.
       - name: Build
-        run: docker build --load --target "${{ matrix.component }}" --build-arg VERSION="$TAG" -t "$IMAGE:$TAG" .
+        run: |
+          docker buildx build --target "${{ matrix.component }}"             --build-arg VERSION="$TAG" --build-arg SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH"             --output "type=docker,name=$IMAGE:$TAG,rewrite-timestamp=true" .
       - name: Hardening checks
         run: bash scripts/image-check.sh "$IMAGE:$TAG" "${{ matrix.component }}"
       - name: SBOM (SPDX)
