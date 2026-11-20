@@ -18,7 +18,7 @@ Every feature spec includes **Deployment modes** (SaaS, self-hosted, air-gapped)
 | F-009 | Notifications (SMTP/webhook; offline-capable) | F-008 | **Done** (2026-11-16) |
 | F-010 | Reporting & export | F-006, F-007 | **Done** (2026-11-17; control statements signed off) |
 | F-011 | Integrations / automation inputs | F-003 | **Done** (2026-11-18; control statements signed off) |
-| F-012 | Platform engineering: CI/CD, FIPS images, SBOM/signing, SaaS IaC + GitOps, observability | — | Requirements **In Review** (2026-11-19); CI, images, SBOM and signing so far built under F-001 T-00c and F-015/F-001 tasks |
+| F-012 | Platform engineering: CI/CD, FIPS images, SBOM/signing, SaaS IaC + GitOps, observability | — | Requirements **Approved** (2026-11-19); design next; CI, images, SBOM and signing so far built under F-001 T-00c and F-015/F-001 tasks |
 | F-013 | Control framework library (OSCAL import, crosswalks, FAIR control effects) | F-003 | **Done** (2026-11-19; control statements signed off) |
 | F-014 | Distribution, installer & licensing (Helm/Zarf bundles, **preflight checks that refuse insecure installs**, offline licenses, upgrades, backup/restore, OSCAL component definition) | F-012, F-015 | Not started |
 | F-015 | Security posture & configuration profiles (OSCAL-driven profiles generated at build time for v1, custom profiles, gated switching, exception auto-revert, BU overlays, app + deployment drift, posture page, OSCAL AR/POA&M export) | F-001 core (Phases 0–1) | **Done** |

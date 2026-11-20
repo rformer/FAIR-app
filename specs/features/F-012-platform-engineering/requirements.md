@@ -1,5 +1,5 @@
 # F-012 Platform engineering — Requirements
-Status: In Review | Owner: Robert Former | Last updated: 2026-11-19
+Status: Approved | Owner: Robert Former | Last updated: 2026-11-19
 
 ## Summary
 F-012 is how the platform is built, released and run. Every change is built and tested the same way, every service ships as a hardened, FIPS-mode image with an SBOM, a signature and build provenance (constitution S2, S5), and a release is one signed set of artifacts used by both deployment modes (M3, ADR-005). For the vendor-operated SaaS, each customer's dedicated instance (ADR-001) is created and changed only by reviewed infrastructure-as-code and GitOps, so instances are reproducible, upgrades roll safely across the fleet, and every production change carries the approval and build evidence that SOC 1 and SOC 2 reliance needs (S1, S6). Every service reports health, metrics, traces and logs without exposing secrets or risk data. Much of the build side already exists from earlier tasks (F-001 T-00c, F-015, F-005); F-012 makes it complete, uniform and verifiable, and adds the SaaS operations side. Packaging for self-hosted customers (Helm and Zarf bundles, the installer's preflight checks, licences, backup and restore) is F-014's.
@@ -110,15 +110,16 @@ To be proposed with the tasks.
 - F-014 consumes F-012's release artifacts.
 
 ## Open Questions
-- OQ1. Which cloud hosts SaaS v1? Proposed: AWS GovCloud (US), for the FedRAMP Moderate boundary (S1), with managed PostgreSQL, S3 Object Lock and KMS with FIPS endpoints; the infrastructure code keeps cloud specifics in modules so Azure Government can follow.
-- OQ2. Infrastructure-as-code tool? Proposed: OpenTofu (open licence, Terraform-compatible), with state in the cloud's encrypted object store and locking, and policy checks on every plan.
-- OQ3. GitOps tool? Proposed: Flux (CNCF graduated, pull-based, no web console to secure, verifies OCI artifacts' cosign signatures natively).
-- OQ4. Observability stack? Proposed: OpenTelemetry SDKs in the services and an OpenTelemetry Collector; for SaaS, Prometheus-compatible metrics, Grafana, Loki and Tempo in a separate operations account with no customer data; self-hosted gets the Collector configuration and a Prometheus endpoint, nothing else.
-- OQ5. Provenance level? Proposed: SLSA Build Level 3 through GitHub's isolated reusable provenance workflow, with GitHub artifact attestations; provenance checked at admission in SaaS.
-- OQ6. Signing for air-gapped verification? Keyless (Sigstore Fulcio and Rekor) needs the public transparency log. Proposed: sign every artifact twice, keyless for public verification and with a release key held in the cloud's HSM-backed KMS whose public key ships in the bundle and is published, so air-gapped customers verify offline.
-- OQ7. Base images? Proposed: keep `distroless/static` (nonroot) for Go services, which carry their FIPS module in the binary, and the engine's current base; offer hardened images matching DoD Iron Bank requirements later, not in v1.
-- OQ8. SaaS recovery objectives? Proposed: RPO 15 minutes (continuous database backup with point-in-time recovery, object storage versioning and replication), RTO 4 hours per instance, tested quarterly.
-- OQ9. Supported upgrade window? Proposed: upgrades supported from each of the two previous minor releases; every published release's artifacts kept for at least 24 months.
+- OQ1 (resolved 2026-11-19: as proposed). Which cloud hosts SaaS v1? Proposed: AWS GovCloud (US), for the FedRAMP Moderate boundary (S1), with managed PostgreSQL, S3 Object Lock and KMS with FIPS endpoints; the infrastructure code keeps cloud specifics in modules so Azure Government can follow.
+- OQ2 (resolved 2026-11-19: as proposed). Infrastructure-as-code tool? Proposed: OpenTofu (open licence, Terraform-compatible), with state in the cloud's encrypted object store and locking, and policy checks on every plan.
+- OQ3 (resolved 2026-11-19: as proposed). GitOps tool? Proposed: Flux (CNCF graduated, pull-based, no web console to secure, verifies OCI artifacts' cosign signatures natively).
+- OQ4 (resolved 2026-11-19: as proposed). Observability stack? Proposed: OpenTelemetry SDKs in the services and an OpenTelemetry Collector; for SaaS, Prometheus-compatible metrics, Grafana, Loki and Tempo in a separate operations account with no customer data; self-hosted gets the Collector configuration and a Prometheus endpoint, nothing else.
+- OQ5 (resolved 2026-11-19: as proposed). Provenance level? Proposed: SLSA Build Level 3 through GitHub's isolated reusable provenance workflow, with GitHub artifact attestations; provenance checked at admission in SaaS.
+- OQ6 (resolved 2026-11-19: as proposed). Signing for air-gapped verification? Keyless (Sigstore Fulcio and Rekor) needs the public transparency log. Proposed: sign every artifact twice, keyless for public verification and with a release key held in the cloud's HSM-backed KMS whose public key ships in the bundle and is published, so air-gapped customers verify offline.
+- OQ7 (resolved 2026-11-19: as proposed). Base images? Proposed: keep `distroless/static` (nonroot) for Go services, which carry their FIPS module in the binary, and the engine's current base; offer hardened images matching DoD Iron Bank requirements later, not in v1.
+- OQ8 (resolved 2026-11-19: as proposed). SaaS recovery objectives? Proposed: RPO 15 minutes (continuous database backup with point-in-time recovery, object storage versioning and replication), RTO 4 hours per instance, tested quarterly.
+- OQ9 (resolved 2026-11-19: as proposed). Supported upgrade window? Proposed: upgrades supported from each of the two previous minor releases; every published release's artifacts kept for at least 24 months.
 
 ## Change Log
 - 2026-11-19: Initial draft, In Review (F-013 done; F-012 next by the build order).
+- 2026-11-19: Approved by Robert Former; OQ1 to OQ9 resolved as proposed (OQ6: keyless signatures and a KMS-held release key, chosen explicitly).
