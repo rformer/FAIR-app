@@ -18,7 +18,7 @@
 set -euo pipefail
 export MSYS_NO_PATHCONV=1 # Git Bash: do not rewrite container paths
 CLUSTER=${CLUSTER:-fair-scanner-e2e}
-NODE_IMAGE=${NODE_IMAGE:-kindest/node:v1.36.1}
+NODE_IMAGE=${NODE_IMAGE:-kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5}
 NS=fair-platform
 SA=system:serviceaccount:$NS:posture-scanner
 TMP=$(mktemp -d)
@@ -69,10 +69,10 @@ fi
 docker build -q --target posture-scanner -t fair-posture-scanner:e2e . >/dev/null
 docker build -q -f scripts/e2e/Dockerfile.sink -t fair-scanner-sink:e2e . >/dev/null
 docker build -q --target fips-probe -t fair-fips-probe:e2e . >/dev/null
-docker image inspect busybox:1.36 >/dev/null 2>&1 || docker pull -q busybox:1.36 >/dev/null
+docker image inspect busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662 >/dev/null 2>&1 || docker pull -q busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662 >/dev/null
 # Single-platform archives: kind's direct load imports every platform of a
 # multi-platform image, which fails when only one is present locally.
-for img in fair-posture-scanner:e2e fair-scanner-sink:e2e fair-fips-probe:e2e busybox:1.36; do
+for img in fair-posture-scanner:e2e fair-scanner-sink:e2e fair-fips-probe:e2e busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662; do
   docker save --platform linux/amd64 -o "$TMP/image.tar" "$img"
   if [ -n "$CONTEXT" ]; then
     for n in $($K get nodes -o jsonpath='{.items[*].metadata.name}'); do
@@ -229,7 +229,7 @@ if [ -z "$extra" ]; then pass "can-i --list: only get, list, watch"; else bad "c
 echo "== 3. egress from the scanner pod's network namespace"
 printf '%s\n' '{"securityContext": {"runAsNonRoot": true, "runAsUser": 65532, "allowPrivilegeEscalation": false,' \
   '"capabilities": {"drop": ["ALL"]}, "seccompProfile": {"type": "RuntimeDefault"}}}' > "$TMP/probe.json"
-$K -n $NS debug "$POD" --image=busybox:1.36 --container=probe --profile=restricted --custom="$TMP/probe.json" -- sleep 900 >/dev/null
+$K -n $NS debug "$POD" --image=busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662 --container=probe --profile=restricted --custom="$TMP/probe.json" -- sleep 900 >/dev/null
 for _ in $(seq 1 60); do
   running=$($K -n $NS get pod "$POD" -o jsonpath='{.status.ephemeralContainerStatuses[?(@.name=="probe")].state.running}')
   [ -n "$running" ] && break

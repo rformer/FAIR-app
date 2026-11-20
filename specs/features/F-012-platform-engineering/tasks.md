@@ -16,7 +16,7 @@ Rules for every task:
 ## Phase A — Build gates and images
 | # | Task | Traces to | Verification | Size | Status |
 |---|---|---|---|---|---|
-| T-01 | `cmd/pincheck` (actions by commit, images by digest, dependency hashes); pin every action and base image; Dependabot for actions, Go, npm, Docker; `pincheck` a required check | AC-03; §3.1 | `TestPinsEnforced` over fixtures; CI green with the check | M | Not started |
+| T-01 | `cmd/pincheck` (actions by commit, images by digest, dependency hashes); pin every action and base image; Dependabot for actions, Go, npm, Docker; `pincheck` a required check | AC-03; §3.1 | `TestPinsEnforced` over fixtures; CI green with the check | M | Done |
 | T-02 | Required checks: `ui-e2e` in CI (larger runner, D-OQ1), `pip-audit`, `npm audit`; daily re-scan of main and supported releases opening issues; branch protection as code (`infra/github/`, OpenTofu GitHub provider) | AC-01, AC-02, AC-04; §3.1 | CI runs; `tofu test` of the protection rules | M | Not started |
 | T-03 | One image matrix over every Dockerfile target (adds `posture`); `scripts/image-check.sh` (non-root, read-only, no shell, capabilities, FIPS, plaintext refused, engine without OpenSSL); `security/vuln-exceptions.yaml` with expiry read by `internal/vulnex` for the Trivy gate | AC-05 to AC-07; §3.2 | `TestImageMatrixCoversDockerfile`, `internal/vulnex` tests; CI image jobs green | M | Not started |
 
@@ -56,3 +56,4 @@ Rules for every task:
 ## Change Log
 - 2026-11-19: Initial draft, In Review.
 - 2026-11-20: Approved by Robert Former.
+- 2026-11-20: T-01 done: `cmd/pincheck` (`internal/pincheck`: actions by full commit with a version comment, the SLSA generator by release tag; images by digest in workflows, Dockerfiles (ARG defaults resolved, stages and `fair-*` local images exempt) and scripts (docker run, pull, create, `--image=`, `*IMAGE*=` defaults, `image:`); `go.sum` beside `go.mod`, hashes on every engine lock entry, `package-lock.json` beside every `package.json`, no `npm install`); every action and image pinned; `.github/dependabot.yml`; the `lint` job runs it. Before it, the CI gates were made to pass again (no green run in the last 100): gofmt, and 143 golangci-lint findings, among them the engine mTLS pin check moved from `VerifyPeerCertificate` to `VerifyConnection` (resumed sessions are checked too) and a self-comparison in a test. `TestPinsEnforced`, `TestRepositoryPinned`.

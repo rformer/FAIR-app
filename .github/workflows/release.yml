@@ -1,7 +1,7 @@
 # F-015 T-07: release checklist gate. Runs on every release tag. Later
 # release jobs (packaging, signing with the release key per F-015 D-OQ5,
 # publishing; F-012) must declare `needs: [release-checklist]`.
-# TODO(F-012): pin every action to a full commit SHA (Dependabot updates them).
+# F-012 T-01: every action is pinned to a full commit (cmd/pincheck); Dependabot updates them.
 name: release
 
 on:
@@ -25,13 +25,13 @@ jobs:
   engine-validation:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         env:
           GOFIPS140: ""
         with:
           go-version-file: go.mod
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Build the engine image (runs the validation suite)
         run: docker build --load --target engine -t fair-engine:release .
       - name: Release manifest with the engine's validation record
@@ -42,7 +42,7 @@ jobs:
           docker rm "$c"
           printf '{"engine": "fair-engine@%s"}' "$id" > images.json
           go run ./cmd/releasegen manifest -release "${GITHUB_REF_NAME}" -images images.json -engine-validation engine-validation.json -out release-manifest.json
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-manifest
           path: |
@@ -53,8 +53,8 @@ jobs:
     needs: [engine-validation]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         # GOFIPS140 off for this step only: with it set, setup-go's "go env"
         # unpacks the FIPS module into the empty module cache, and the cache
         # restore then fails on those read-only files ("File exists").
@@ -67,12 +67,12 @@ jobs:
       # (32 CFR part 170); any amendment since the recorded confirmation fails.
       # Open external pen-test findings block too (security/pentest-findings.yaml).
       # The engine image passed its validation suite (F-005 T-09).
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: release-manifest
       - name: Release checklist
         run: go run ./cmd/profilegen release-check -online -report release-checklist.md -manifest release-manifest.json
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: release-checklist
@@ -84,8 +84,8 @@ jobs:
   openapi:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           cache: npm
@@ -94,7 +94,7 @@ jobs:
         run: bash scripts/openapi-lint.sh
       - name: Stamp the documents with the release
         run: bash scripts/openapi-bundle.sh "${GITHUB_REF_NAME}" openapi-dist
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: openapi-${{ github.ref_name }}
           path: openapi-dist/
@@ -106,8 +106,8 @@ jobs:
   audit-verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         env:
           GOFIPS140: ""
         with:
@@ -116,7 +116,7 @@ jobs:
         run: go test -count=1 ./internal/audit/evidence/... ./cmd/audit-verify/
       - name: Build
         run: bash scripts/audit-verify-dist.sh "${GITHUB_REF_NAME}" audit-verify-dist
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fair-audit-verify-${{ github.ref_name }}
           path: audit-verify-dist/

@@ -13,7 +13,7 @@
 #   scripts/sso-e2e-keycloak.sh
 set -euo pipefail
 export MSYS_NO_PATHCONV=1 # Git Bash: do not rewrite container paths
-KEYCLOAK_IMAGE=${KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:26.0.7}
+KEYCLOAK_IMAGE=${KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:26.0.7@sha256:4388e2379b7e870a447adbe7b80bd61f5fbf04e925832b19669fda4957f05a81}
 NET=${NET:-fairtest}
 NAME=fair-keycloak-e2e
 PW=$(head -c 18 /dev/urandom | base64 | tr -d '/+=')

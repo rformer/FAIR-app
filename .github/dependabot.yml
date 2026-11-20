@@ -1,11 +1,33 @@
+# F-012 T-01 (F-012-AC-03, AC-04; design §3.1): weekly updates of every
+# pinned input; each update is a pull request through the same gates.
+# cmd/pincheck keeps actions on full commits and images on digests, so
+# Dependabot updates the commit or digest with its version comment.
 version: 2
 updates:
-  - package-ecosystem: gomod
-    directory: /
-    schedule: { interval: weekly }
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
+    groups:
+      actions: { patterns: ["*"], update-types: [minor, patch] }
+  - package-ecosystem: gomod
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      go: { patterns: ["*"], update-types: [minor, patch] }
   - package-ecosystem: docker
     directory: /
+    schedule: { interval: weekly }
+  - package-ecosystem: docker
+    directory: /scripts/e2e
+    schedule: { interval: weekly }
+  - package-ecosystem: pip
+    directory: /engine
+    schedule: { interval: weekly }
+  - package-ecosystem: npm
+    directory: /web
+    schedule: { interval: weekly }
+    groups:
+      web: { patterns: ["*"], update-types: [minor, patch] }
+  - package-ecosystem: npm
+    directory: /tools/spectral
     schedule: { interval: weekly }

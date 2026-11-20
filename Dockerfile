@@ -16,10 +16,9 @@
 # - Runs as non-root (65532) and works with a read-only root filesystem.
 # TODO(F-012): pin both base images by digest; Dependabot keeps digests current.
 
-ARG GO_VERSION=1.26
-ARG PYTHON_IMAGE=python:3.12.16-slim-bookworm
+ARG PYTHON_IMAGE=python:3.12.16-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df
 
-FROM golang:${GO_VERSION}-bookworm AS build
+FROM golang:1.26-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS build
 WORKDIR /src
 ENV CGO_ENABLED=0 GOFIPS140=v1.0.0 GOFLAGS=-trimpath
 COPY go.mod go.sum ./
@@ -41,23 +40,23 @@ RUN for c in iam posture posture-scanner fips-probe gateway audit risk notify in
     done && \
     go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/fair-audit-verify ./cmd/audit-verify
 
-FROM gcr.io/distroless/static-debian12:nonroot AS fips-probe
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab AS fips-probe
 COPY --from=build /out/fips-probe /fips-probe
 USER 65532:65532
 ENTRYPOINT ["/fips-probe"]
 
-FROM gcr.io/distroless/static-debian12:nonroot AS posture-scanner
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab AS posture-scanner
 COPY --from=build /out/posture-scanner /posture-scanner
 USER 65532:65532
 ENTRYPOINT ["/posture-scanner"]
 
-FROM gcr.io/distroless/static-debian12:nonroot AS posture
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab AS posture
 COPY --from=build /out/posture /posture
 USER 65532:65532
 EXPOSE 8443 9443
 ENTRYPOINT ["/posture"]
 
-FROM gcr.io/distroless/static-debian12:nonroot AS audit
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab AS audit
 COPY --from=build /out/audit /audit
 # The offline verifier (F-002 T-10), so air-gapped bundles carry it:
 #   docker run --rm --entrypoint /fair-audit-verify -v "$PWD:/e:ro" <image> verify-export /e/bundle.zip
@@ -66,31 +65,31 @@ USER 65532:65532
 EXPOSE 8443
 ENTRYPOINT ["/audit"]
 
-FROM gcr.io/distroless/static-debian12:nonroot AS risk
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab AS risk
 COPY --from=build /out/risk /risk
 USER 65532:65532
 EXPOSE 8443
 ENTRYPOINT ["/risk"]
 
-FROM gcr.io/distroless/static-debian12:nonroot AS notify
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab AS notify
 COPY --from=build /out/notify /notify
 USER 65532:65532
 EXPOSE 8443
 ENTRYPOINT ["/notify"]
 
-FROM gcr.io/distroless/static-debian12:nonroot AS integrate
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab AS integrate
 COPY --from=build /out/integrate /integrate
 USER 65532:65532
 EXPOSE 8443
 ENTRYPOINT ["/integrate"]
 
-FROM gcr.io/distroless/static-debian12:nonroot AS engine-gate
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab AS engine-gate
 COPY --from=build /out/engine-gate /engine-gate
 USER 65532:65532
 EXPOSE 8444 8081
 ENTRYPOINT ["/engine-gate"]
 
-FROM gcr.io/distroless/static-debian12:nonroot AS gateway
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab AS gateway
 COPY --from=build /out/gateway /gateway
 USER 65532:65532
 EXPOSE 8443
@@ -134,7 +133,7 @@ RUN set -eu; mkdir -p /out/root /out/root/var/lib/dpkg/status.d; \
 RUN mkdir -p /out/root/engine \
  && PYTHONPATH=/opt/fairsim:/opt/site PYTHONDONTWRITEBYTECODE=1 /usr/local/bin/python3.12 -m fairsim validate --out /out/root/engine/validation.json
 
-FROM gcr.io/distroless/static-debian12:nonroot AS engine
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab AS engine
 COPY --from=engine-build /out/root/ /
 COPY --from=engine-build /usr/local/bin/python3.12 /usr/local/bin/python3.12
 COPY --from=engine-build /usr/local/lib/libpython3.12.so.1.0 /usr/local/lib/libpython3.12.so.1.0
@@ -147,7 +146,7 @@ USER 65532:65532
 ENTRYPOINT ["/usr/local/bin/python3.12", "-m", "fairsim"]
 CMD ["info"]
 
-FROM gcr.io/distroless/static-debian12:nonroot AS iam
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab AS iam
 COPY --from=build /out/iam /iam
 USER 65532:65532
 EXPOSE 8443

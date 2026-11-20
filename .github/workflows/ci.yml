@@ -1,6 +1,6 @@
 # F-001 T-00c: minimal CI. Extended by F-012 (full platform pipeline).
 # Least privilege: read-only by default; publishing jobs request only what they need.
-# TODO(F-012): pin every action to a full commit SHA (Dependabot updates them).
+# F-012 T-01: every action is pinned to a full commit (cmd/pincheck); Dependabot updates them.
 name: ci
 
 on:
@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16@sha256:3950ad7c3148ca2175ef1b6c36c9efbf78957ae8fbe8b3a5d7c35af50500382f
         env:
           POSTGRES_PASSWORD: ci-only-admin
         ports: ["5432:5432"]
@@ -32,8 +32,8 @@ jobs:
           --health-cmd "pg_isready -U postgres"
           --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         # GOFIPS140 off for this step only: with it set, setup-go's "go env"
         # unpacks the FIPS module into the empty module cache, and the cache
         # restore then fails on those read-only files ("File exists").
@@ -45,7 +45,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
       # Service containers cannot take arguments, and JetStream needs -js.
       - name: Start NATS JetStream
-        run: docker run -d --name nats -p 4222:4222 nats:2.10 -js
+        run: docker run -d --name nats -p 4222:4222 nats:2.10@sha256:5498ba57b9471840be3d15b033a4eec554d1c02fa6c2cc0ca2d888637f6c6e2f -js
       # F-002 T-08: an S3-compatible server with Object Lock, over TLS, for
       # the object storage contract tests (internal/objstore; ADR-012).
       - name: Start the S3 test server
@@ -72,7 +72,7 @@ jobs:
           PGPASSWORD: ci-only-admin
         run: go test -count=1 -timeout 60m -v ./db/tests/ # as make test-db
       # F-006 T-08: make test-stride also runs the chart modules' unit tests (node --test, type stripping: Node 22.18 or later).
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
       - name: STRIDE suites (F-015 T-36, design §8; F-001 T-40, design §7)
@@ -84,7 +84,7 @@ jobs:
           PGUSER: postgres
           PGPASSWORD: ci-only-admin
         run: make test-stride
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage
           path: coverage.out
@@ -99,7 +99,7 @@ jobs:
         mode: [saas, self-hosted, air-gapped]
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16@sha256:3950ad7c3148ca2175ef1b6c36c9efbf78957ae8fbe8b3a5d7c35af50500382f
         env:
           POSTGRES_PASSWORD: ci-only-admin
         ports: ["5432:5432"]
@@ -107,8 +107,8 @@ jobs:
           --health-cmd "pg_isready -U postgres"
           --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         # GOFIPS140 off for this step only: with it set, setup-go's "go env"
         # unpacks the FIPS module into the empty module cache, and the cache
         # restore then fails on those read-only files ("File exists").
@@ -139,8 +139,8 @@ jobs:
   k8s-e2e:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         # GOFIPS140 off for this step only: with it set, setup-go's "go env"
         # unpacks the FIPS module into the empty module cache, and the cache
         # restore then fails on those read-only files ("File exists").
@@ -159,7 +159,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16@sha256:3950ad7c3148ca2175ef1b6c36c9efbf78957ae8fbe8b3a5d7c35af50500382f
         env:
           POSTGRES_PASSWORD: ci-only-admin
         ports: ["5432:5432"]
@@ -167,8 +167,8 @@ jobs:
           --health-cmd "pg_isready -U postgres"
           --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         # GOFIPS140 off for this step only: with it set, setup-go's "go env"
         # unpacks the FIPS module into the empty module cache, and the cache
         # restore then fails on those read-only files ("File exists").
@@ -182,7 +182,7 @@ jobs:
       # engine-gate (the production path), on this runner's CPUs. The gate
       # runs as FAIR_ENV=development only so that it reads keys this runner
       # created; its TLS and pinning are those of production.
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Simulation engine and engine-gate
         run: |
           docker build --load --target engine -t fair-engine:bench .
@@ -190,7 +190,7 @@ jobs:
           go run ./cmd/iam keys init -dir "$RUNNER_TEMP/engine-keys" > /dev/null
           chmod -R a+rX "$RUNNER_TEMP/engine-keys/engine-gate"
           docker volume create engine-sock
-          docker run --rm -v engine-sock:/v --entrypoint chown postgres:16 65532:65532 /v
+          docker run --rm -v engine-sock:/v --entrypoint chown postgres:16@sha256:3950ad7c3148ca2175ef1b6c36c9efbf78957ae8fbe8b3a5d7c35af50500382f 65532:65532 /v
           docker run -d --name engine --network none --read-only --cap-drop ALL -v engine-sock:/run/engine fair-engine:bench serve --socket /run/engine/engine.sock --workers "$(nproc)"
           docker run -d --name engine-gate --read-only --cap-drop ALL -p 8444:8444 -p 8081:8081 -v engine-sock:/run/engine -v "$RUNNER_TEMP/engine-keys/engine-gate/tls:/keys/tls:ro" -e FAIR_ENV=development -e FAIR_ENGINE_GATE_TLS_DIR=/keys/tls fair-engine-gate:bench
           for _ in $(seq 1 60); do curl -fsS http://localhost:8081/readyz && break; sleep 2; done
@@ -208,7 +208,7 @@ jobs:
           FAIR_BENCH_ENGINE_ADDR: localhost:8444
           FAIR_BENCH_ENGINE_CLIENT_DIR: ${{ runner.temp }}/engine-keys/risk/engine-client
         run: go test -count=1 -timeout 180m -run TestBenchmarkGate -v ./db/tests/ # F-001, F-002 sequencer, search and export, F-003 risk scenarios, F-004 estimates, F-005 simulation, F-006 result views, F-007 register, F-008 acceptance, F-009 notifications, F-010 reports, F-011 imports, F-013 frameworks gates
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: bench-report
@@ -217,8 +217,8 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         # GOFIPS140 off for this step only: with it set, setup-go's "go env"
         # unpacks the FIPS module into the empty module cache, and the cache
         # restore then fails on those read-only files ("File exists").
@@ -228,17 +228,20 @@ jobs:
           go-version-file: go.mod
       # Pinned: a release built with a Go at least as new as go.mod's (v2
       # config); "latest" once resolved to a binary built with Go 1.24.
-      - uses: golangci/golangci-lint-action@v9
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.15.0
+      # F-012 T-01 (AC-03): actions by commit, images by digest, locks with hashes.
+      - name: Every build input pinned
+        run: go run ./cmd/pincheck
 
   # F-010 T-07 (design §3.5): the PDF writer's samples are PDF/UA-1, checked
   # by veraPDF (pinned by digest; CI only, never at runtime).
   pdfua:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         env:
           GOFIPS140: ""
         with:
@@ -260,12 +263,12 @@ jobs:
   engine:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Lint, format, types, tests, validation suite
-        run: docker run --rm -v "$PWD:/src" -w /src python:3.12.16-slim-bookworm bash scripts/engine-check.sh
+        run: docker run --rm -v "$PWD:/src" -w /src python:3.12.16-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df bash scripts/engine-check.sh
       - name: Lock files regenerate exactly
         run: |
-          docker run --rm -v "$PWD:/src" -w /src python:3.12.16-slim-bookworm bash scripts/engine-lock.sh
+          docker run --rm -v "$PWD:/src" -w /src python:3.12.16-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df bash scripts/engine-lock.sh
           sudo chown -R "$(id -u):$(id -g)" .
           git diff --exit-code -- engine/requirements.lock engine/requirements-dev.lock
 
@@ -278,8 +281,8 @@ jobs:
     env:
       IMAGE: fair-engine
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Build
         run: docker build --load --target engine -t "$IMAGE:ci" .
       - name: Verify non-root, read-only root, no shell, CPU dispatch pinned
@@ -292,7 +295,7 @@ jobs:
           # F-005 T-09: the build ran the validation suite; the image holds a passed record.
           docker run --rm --entrypoint /usr/local/bin/python3.12 "$IMAGE:ci" -c 'import json,sys; r=json.load(open("/engine/validation.json")); print(r["engine_version"], r["architecture"], r["passed"]); sys.exit(0 if r["passed"] else 1)'
       - name: SBOM (SPDX)
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
           image: ${{ env.IMAGE }}:ci
           format: spdx-json
@@ -309,7 +312,7 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: "1"
           ignore-unfixed: true
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: engine-sbom
           path: engine-sbom.spdx.json
@@ -319,11 +322,11 @@ jobs:
   proto:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Regenerate the Go code
-        run: docker run --rm -v "$PWD:/src" -w /src golang:1.26-bookworm bash scripts/gen-proto.sh
+        run: docker run --rm -v "$PWD:/src" -w /src golang:1.26-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 bash scripts/gen-proto.sh
       - name: Regenerate the Python code
-        run: docker run --rm -v "$PWD:/src" -w /src python:3.12-slim-bookworm bash scripts/gen-proto-py.sh
+        run: docker run --rm -v "$PWD:/src" -w /src python:3.12.16-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df bash scripts/gen-proto-py.sh
       - name: No differences
         run: |
           sudo chown -R "$(id -u):$(id -g)" .
@@ -336,8 +339,8 @@ jobs:
   openapi:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           cache: npm
@@ -355,8 +358,8 @@ jobs:
     env:
       IMAGE: ghcr.io/${{ github.repository_owner }}/fair-iam
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Set image tag
         run: echo "TAG=${GITHUB_SHA::12}" >> "$GITHUB_ENV"
       - name: Build
@@ -374,7 +377,7 @@ jobs:
         run: |
           if docker run --rm "$IMAGE:$TAG"; then echo "started without TLS"; exit 1; fi
       - name: SBOM (SPDX)
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
           image: ${{ env.IMAGE }}:${{ env.TAG }}
           format: spdx-json
@@ -386,7 +389,7 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: "1"
           ignore-unfixed: true
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sbom
           path: sbom.spdx.json
@@ -397,7 +400,7 @@ jobs:
         run: |
           echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           docker push "$IMAGE:$TAG"
-      - uses: sigstore/cosign-installer@v3
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       - name: Cosign keyless sign + SBOM attestation (main only)
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -431,8 +434,8 @@ jobs:
     env:
       IMAGE: ghcr.io/${{ github.repository_owner }}/fair-${{ matrix.component }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Set image tag
         run: echo "TAG=${GITHUB_SHA::12}" >> "$GITHUB_ENV"
       - name: Build
@@ -444,7 +447,7 @@ jobs:
             echo "started without configuration"; exit 1
           fi
       - name: SBOM (SPDX)
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
           image: ${{ env.IMAGE }}:${{ env.TAG }}
           format: spdx-json
@@ -456,7 +459,7 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: "1"
           ignore-unfixed: true
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sbom-${{ matrix.component }}
           path: sbom-${{ matrix.component }}.spdx.json
@@ -467,7 +470,7 @@ jobs:
         run: |
           echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           docker push "$IMAGE:$TAG"
-      - uses: sigstore/cosign-installer@v3
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       - name: Cosign keyless sign + SBOM attestation (main only)
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -483,8 +486,8 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           cache: npm
@@ -506,7 +509,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16@sha256:3950ad7c3148ca2175ef1b6c36c9efbf78957ae8fbe8b3a5d7c35af50500382f
         env:
           POSTGRES_PASSWORD: ci-only-admin
         ports: ["5432:5432"]
@@ -514,8 +517,8 @@ jobs:
           --health-cmd "pg_isready -U postgres"
           --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         # GOFIPS140 off for this step only: with it set, setup-go's "go env"
         # unpacks the FIPS module into the empty module cache, and the cache
         # restore then fails on those read-only files ("File exists").
@@ -523,7 +526,7 @@ jobs:
           GOFIPS140: ""
         with:
           go-version-file: go.mod
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           cache: npm
@@ -551,7 +554,7 @@ jobs:
       - name: Stop the harness
         if: always()
         run: touch web/.harness-stop; sleep 3; cat harness.log | tail -20
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: playwright-report
