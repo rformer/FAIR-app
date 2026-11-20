@@ -4,8 +4,9 @@
 #
 #   scripts/sbom-check.sh SBOM.spdx.json IMAGE COMPONENT
 #
-# Go images: every module linked into the binary (its build information,
-# "go version -m") is in the SBOM, by module path. The engine: every package
+# Go images: the main module, every module linked into the binary (its build
+# information, "go version -m") and the standard library are in the SBOM, by
+# module path. The engine: every package
 # of engine/requirements.lock is in the SBOM, by name. Needs docker and
 # python3.
 set -euo pipefail
@@ -34,7 +35,8 @@ else
   docker create --name "fair-sbom-$$" "$IMAGE" >/dev/null
   entry="$(docker inspect -f '{{index .Config.Entrypoint 0}}' "$IMAGE")"
   docker cp "fair-sbom-$$:$entry" "$(host "$W")/bin" >/dev/null
-  docker run --rm -v "$(host "$W"):/w:ro" "$GO_IMAGE" go version -m /w/bin | awk '$1 == "dep" { print tolower($2) }' > "$W/want"
+  docker run --rm -v "$(host "$W"):/w:ro" "$GO_IMAGE" go version -m /w/bin | awk '$1 == "mod" || $1 == "dep" { print tolower($2) }' > "$W/want"
+  echo stdlib >> "$W/want" # the Go standard library, which a stdlib-only binary (fips-probe) has alone
   cp "$W/names" "$W/have"
 fi
 
