@@ -28,6 +28,10 @@ func write(t *testing.T, root string, files map[string]string) {
 func TestPinsEnforced(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, map[string]string{
+		".github/actions/build/action.yml": `runs:
+  steps:
+    - uses: actions/upload-artifact@v7
+`,
 		".github/workflows/ci.yml": `jobs:
   a:
     services:
@@ -77,6 +81,7 @@ kubectl debug pod --image=busybox:1.36 -- sleep 1
 		lines = append(lines, p.String())
 	}
 	want := []string{
+		".github/actions/build/action.yml:3: action actions/upload-artifact@v7 is not pinned to a full commit",
 		".github/workflows/ci.yml:5: image postgres:16 is not pinned by digest (@sha256:...)",
 		".github/workflows/ci.yml:7: action actions/checkout@v7 is not pinned to a full commit",
 		".github/workflows/ci.yml:8: action actions/checkout@" + sha + " has no version comment (# vX.Y.Z)",

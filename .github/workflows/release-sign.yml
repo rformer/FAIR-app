@@ -1,28 +1,39 @@
-# F-012 T-06 (F-012-AC-08, AC-09; design §3.3): the release key's signatures,
-# called by the release pipeline (T-07) on v* tags. For each image it first
-# verifies the keyless signature, SPDX SBOM and SLSA provenance against the
-# release workflow's identity, then signs the image and attests that same
-# SBOM and provenance with the release key in AWS KMS, so the release
-# verifies offline with cosign.pub alone (scripts/verify-release.sh
-# -offline). The release manifest and SHA256SUMS are signed through
-# releasegen sign -kms (internal/kmssign), and cosign.pub is written from the
-# KMS key.
+# F-012 T-06, T-07 (F-012-AC-08, AC-09, AC-11; design §3.3, §3.4): the
+# release key's signatures, called by release.yml once every gate has
+# passed. For each staged image it first verifies the keyless signature and
+# SBOM attestation (release.yml on a v* tag) and the SLSA provenance (the
+# SLSA generator's workflow), then signs the image and attests that same
+# SBOM and provenance with the release key, so the release verifies offline
+# with cosign.pub alone (scripts/verify-release.sh -offline). It then signs
+# the profile packages, the release manifest and SHA256SUMS (over every
+# file of the release) with releasegen, and writes cosign.pub.
 #
-# Credentials: the job's GitHub OIDC token, written to a file and exchanged
-# by STS for the sign-only role (repository variables FAIR_RELEASE_ROLE_ARN,
-# FAIR_RELEASE_KMS_KEY, FAIR_RELEASE_REGION; the role's trust policy admits
-# only this repository's release workflow on a v* tag, T-12). No credential
-# is stored in GitHub.
+# The release key is the KMS key (internal/kmssign, ADR-018): the job's
+# GitHub OIDC token, written to a file, is exchanged by STS for the
+# sign-only role (repository variables FAIR_RELEASE_ROLE_ARN,
+# FAIR_RELEASE_KMS_KEY, FAIR_RELEASE_REGION; the role trusts only this
+# repository's release workflow on a v* tag, T-12). No credential is stored
+# in GitHub. test-key (the v0.0.0-test dry run only, decided by release.yml)
+# signs with a key made in this job and discarded with it, and never writes
+# to the public transparency log.
 # F-012 T-01: every action is pinned to a full commit (cmd/pincheck); Dependabot updates them.
-name: kms-sign
+name: release-sign
 
 on:
   workflow_call:
     inputs:
-      artifact:
-        description: Artifact holding images.json (component -> repository@sha256:digest), release-manifest.json and SHA256SUMS
+      pattern:
+        description: Artifacts making up the unsigned release (download-artifact pattern), holding staging.json (component -> staging repository@sha256:digest) and release-manifest.json
         required: true
         type: string
+      test-key:
+        description: Sign with a throwaway key (dry runs only)
+        required: true
+        type: boolean
+    outputs:
+      artifact:
+        description: The signed release's artifact
+        value: release-signed
 
 permissions:
   contents: read
@@ -40,6 +51,7 @@ jobs:
       AWS_ROLE_ARN: ${{ vars.FAIR_RELEASE_ROLE_ARN }}
       AWS_USE_FIPS_ENDPOINT: "true"
       KMS_KEY: ${{ vars.FAIR_RELEASE_KMS_KEY }}
+      GOFIPS140: v1.0.0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
@@ -50,45 +62,78 @@ jobs:
       - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: ${{ inputs.artifact }}
+          pattern: ${{ inputs.pattern }}
+          merge-multiple: true
           path: release
-      - name: OIDC token file for STS
+      - name: releasegen
+        run: go build -o "$RUNNER_TEMP/bin/releasegen" ./cmd/releasegen && echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: The release key (KMS)
+        if: ${{ !inputs.test-key }}
         run: |
+          [ -n "$KMS_KEY" ] && [ -n "$AWS_ROLE_ARN" ] && [ -n "$AWS_REGION" ] \
+            || { echo "FAIR_RELEASE_KMS_KEY, FAIR_RELEASE_ROLE_ARN and FAIR_RELEASE_REGION are required to sign a release"; exit 1; }
           install -d -m 0700 "$RUNNER_TEMP/oidc"
           curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
             "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value > "$RUNNER_TEMP/oidc/token"
           chmod 0600 "$RUNNER_TEMP/oidc/token"
-          echo "AWS_WEB_IDENTITY_TOKEN_FILE=$RUNNER_TEMP/oidc/token" >> "$GITHUB_ENV"
+          {
+            echo "AWS_WEB_IDENTITY_TOKEN_FILE=$RUNNER_TEMP/oidc/token"
+            echo "COSIGN_KEY=awskms:///$KMS_KEY"
+            echo "COSIGN_TLOG=--tlog-upload=true"
+            echo "RELEASEGEN_KEY=-kms $KMS_KEY -region $AWS_REGION"
+          } >> "$GITHUB_ENV"
+      - name: A throwaway test key (dry run)
+        if: ${{ inputs.test-key }}
+        run: |
+          case "$GITHUB_REF_NAME" in v0.0.0-test) ;; *) echo "a test key signs only the v0.0.0-test dry run"; exit 1 ;; esac
+          k="$RUNNER_TEMP/test-key"
+          install -d -m 0700 "$k"
+          openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt -out "$k/release.pem"
+          (cd "$k" && COSIGN_PASSWORD="" cosign import-key-pair --key release.pem --output-key-prefix release >/dev/null)
+          {
+            echo "COSIGN_PASSWORD="
+            echo "COSIGN_KEY=$k/release.key"
+            echo "COSIGN_TLOG=--tlog-upload=false"
+            echo "RELEASEGEN_KEY=-key $k/release.pem"
+          } >> "$GITHUB_ENV"
+      - name: cosign.pub
+        run: |
+          if [ "${{ inputs.test-key }}" = true ]; then
+            openssl ec -in "$RUNNER_TEMP/test-key/release.pem" -pubout -out release/cosign.pub
+          else
+            releasegen public -kms "$KMS_KEY" -region "$AWS_REGION" -out release/cosign.pub
+          fi
       - name: Sign and attest every image with the release key
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GOFIPS140: v1.0.0
         run: |
           echo "$GH_TOKEN" | cosign login ghcr.io -u "${{ github.actor }}" --password-stdin
-          id='^https://github\.com/${{ github.repository }}/\.github/workflows/release\.yml@refs/tags/v'
           issuer=https://token.actions.githubusercontent.com
-          for ref in $(jq -r '.[]' release/images.json); do
-            cosign verify --certificate-identity-regexp "$id" --certificate-oidc-issuer "$issuer" "$ref" >/dev/null
-            for type in spdxjson slsaprovenance; do
-              cosign verify-attestation --type "$type" --certificate-identity-regexp "$id" --certificate-oidc-issuer "$issuer" "$ref" \
-                | head -1 | jq -r .payload | base64 -d | jq .predicate > "predicate-$type.json"
-            done
-            cosign sign --yes --key "awskms:///$KMS_KEY" "$ref"
-            cosign attest --yes --key "awskms:///$KMS_KEY" --type spdxjson --predicate predicate-spdxjson.json "$ref"
-            cosign attest --yes --key "awskms:///$KMS_KEY" --type slsaprovenance --predicate predicate-slsaprovenance.json "$ref"
+          release_id='^https://github\.com/${{ github.repository }}/\.github/workflows/release\.yml@refs/tags/v'
+          slsa_id='^https://github\.com/slsa-framework/slsa-github-generator/\.github/workflows/generator_container_slsa3\.yml@refs/tags/v'
+          for ref in $(jq -r '.[]' release/staging.json); do
+            cosign verify --certificate-identity-regexp "$release_id" --certificate-oidc-issuer "$issuer" "$ref" >/dev/null
+            cosign verify-attestation --type spdxjson --certificate-identity-regexp "$release_id" --certificate-oidc-issuer "$issuer" "$ref" \
+              | head -1 | jq -r .payload | base64 -d | jq .predicate > predicate-spdx.json
+            cosign verify-attestation --type slsaprovenance --certificate-identity-regexp "$slsa_id" --certificate-oidc-issuer "$issuer" "$ref" \
+              | head -1 | jq -r .payload | base64 -d | jq .predicate > predicate-slsa.json
+            cosign sign --yes --key "$COSIGN_KEY" "$COSIGN_TLOG" "$ref"
+            cosign attest --yes --key "$COSIGN_KEY" "$COSIGN_TLOG" --type spdxjson --predicate predicate-spdx.json "$ref"
+            cosign attest --yes --key "$COSIGN_KEY" "$COSIGN_TLOG" --type slsaprovenance --predicate predicate-slsa.json "$ref"
             echo "signed $ref"
           done
-      - name: Sign the release manifest and SHA256SUMS; cosign.pub
-        env:
-          GOFIPS140: v1.0.0
+      - name: Sign the profile packages, the release manifest and SHA256SUMS
         run: |
-          go run ./cmd/releasegen public -kms "$KMS_KEY" -region "$AWS_REGION" -out release/cosign.pub
-          go run ./cmd/releasegen sign -kms "$KMS_KEY" -region "$AWS_REGION" -in release/release-manifest.json
-          go run ./cmd/releasegen sign -any -kms "$KMS_KEY" -region "$AWS_REGION" -in release/SHA256SUMS
+          # shellcheck disable=SC2086 # RELEASEGEN_KEY is two flags
+          releasegen profiles $RELEASEGEN_KEY -out release
+          # shellcheck disable=SC2086
+          releasegen sign $RELEASEGEN_KEY -in release/release-manifest.json
+          (cd release && find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' ! -name staging.json -printf '%f\n' | LC_ALL=C sort | xargs sha256sum > SHA256SUMS)
+          # shellcheck disable=SC2086
+          releasegen sign -any $RELEASEGEN_KEY -in release/SHA256SUMS
+          releasegen verify -pub release/cosign.pub -in release/release-manifest.json
+          releasegen verify -any -pub release/cosign.pub -in release/SHA256SUMS
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ inputs.artifact }}-signed
-          path: |
-            release/cosign.pub
-            release/release-manifest.json.sig
-            release/SHA256SUMS.sig
+          name: release-signed
+          path: release/

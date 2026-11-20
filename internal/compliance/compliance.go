@@ -146,6 +146,11 @@ func testExists(root, ref string) bool {
 	return false
 }
 
+// PlatformComponentUUID is the platform component's UUID: equal to
+// posture.PlatformComponentUUID (internal/posture TestPlatformComponentUUID),
+// which this package does not import (posture depends on the database).
+var PlatformComponentUUID = oscal.UUIDv5("urn:fair-app:posture:component/fair-platform")
+
 // ComponentDefinition builds the OSCAL component definition of the
 // platform component (componentUUID) from the features' statements, with
 // the given version and last-modified time. Identifiers are UUIDv5 names,

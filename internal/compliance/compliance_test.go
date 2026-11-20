@@ -15,10 +15,7 @@ import (
 
 const root = "../.."
 
-// platformComponent is posture.PlatformComponentUUID (asserted by
-// internal/posture TestPlatformComponentUUID; this package does not import
-// posture, which depends on the database).
-var platformComponent = oscal.UUIDv5("urn:fair-app:posture:component/fair-platform")
+var platformComponent = PlatformComponentUUID
 
 func load(t *testing.T, feature string) *Statements {
 	t.Helper()

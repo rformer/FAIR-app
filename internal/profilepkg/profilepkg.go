@@ -394,6 +394,12 @@ const SigSuffix = ".sig"
 // package it pins, after checking each package's bytes against its pin and
 // its own validity. It returns the signature files, keyed by name.
 func SignRelease(key *ecdsa.PrivateKey, manifestFile string, files map[string][]byte) (map[string][]byte, error) {
+	return SignReleaseWith(func(b []byte) ([]byte, error) { return Sign(key, b) }, manifestFile, files)
+}
+
+// SignReleaseWith is SignRelease with any signer that writes Sign's format,
+// such as the release key in AWS KMS (F-012 T-07, internal/kmssign).
+func SignReleaseWith(sign func([]byte) ([]byte, error), manifestFile string, files map[string][]byte) (map[string][]byte, error) {
 	m, err := DecodeManifest(files[manifestFile])
 	if err != nil {
 		return nil, err
@@ -410,11 +416,11 @@ func SignRelease(key *ecdsa.PrivateKey, manifestFile string, files map[string][]
 		if _, err := Decode(b); err != nil {
 			return nil, fmt.Errorf("%s: %w", e.File, err)
 		}
-		if sigs[e.File+SigSuffix], err = Sign(key, b); err != nil {
+		if sigs[e.File+SigSuffix], err = sign(b); err != nil {
 			return nil, err
 		}
 	}
-	if sigs[manifestFile+SigSuffix], err = Sign(key, files[manifestFile]); err != nil {
+	if sigs[manifestFile+SigSuffix], err = sign(files[manifestFile]); err != nil {
 		return nil, err
 	}
 	return sigs, nil

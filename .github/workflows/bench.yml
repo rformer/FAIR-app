@@ -1,0 +1,77 @@
+# The benchmark gate (F-001 T-12 and every feature's TestBenchmarkGate*),
+# against the real engine through engine-gate. F-012-AC-02: on every push to
+# main (ci.yml) and before every release (release.yml); F-012 T-07 moved it
+# here so both call the same job.
+# F-012 T-01: every action is pinned to a full commit (cmd/pincheck); Dependabot updates them.
+name: bench
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  GOFIPS140: v1.0.0
+  CGO_ENABLED: "0"
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    services:
+      postgres:
+        image: postgres:16@sha256:3950ad7c3148ca2175ef1b6c36c9efbf78957ae8fbe8b3a5d7c35af50500382f
+        env:
+          POSTGRES_PASSWORD: ci-only-admin
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        # GOFIPS140 off for this step only: with it set, setup-go's "go env"
+        # unpacks the FIPS module into the empty module cache, and the cache
+        # restore then fails on those read-only files ("File exists").
+        env:
+          GOFIPS140: ""
+        with:
+          go-version-file: go.mod
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+      # F-005 T-15: the simulation gate runs against the real engine through
+      # engine-gate (the production path), on this runner's CPUs. The gate
+      # runs as FAIR_ENV=development only so that it reads keys this runner
+      # created; its TLS and pinning are those of production.
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Simulation engine and engine-gate
+        run: |
+          docker build --load --target engine -t fair-engine:bench .
+          docker build --load --target engine-gate -t fair-engine-gate:bench .
+          go run ./cmd/iam keys init -dir "$RUNNER_TEMP/engine-keys" > /dev/null
+          chmod -R a+rX "$RUNNER_TEMP/engine-keys/engine-gate"
+          docker volume create engine-sock
+          docker run --rm -v engine-sock:/v --entrypoint chown postgres:16@sha256:3950ad7c3148ca2175ef1b6c36c9efbf78957ae8fbe8b3a5d7c35af50500382f 65532:65532 /v
+          docker run -d --name engine --network none --read-only --cap-drop ALL -v engine-sock:/run/engine fair-engine:bench serve --socket /run/engine/engine.sock --workers "$(nproc)"
+          docker run -d --name engine-gate --read-only --cap-drop ALL -p 8444:8444 -p 8081:8081 -v engine-sock:/run/engine -v "$RUNNER_TEMP/engine-keys/engine-gate/tls:/keys/tls:ro" -e FAIR_ENV=development -e FAIR_ENGINE_GATE_TLS_DIR=/keys/tls fair-engine-gate:bench
+          for _ in $(seq 1 60); do curl -fsS http://localhost:8081/readyz && break; sleep 2; done
+          curl -fsS http://localhost:8081/readyz
+      - name: Benchmark gate
+        env:
+          FAIR_TEST_PG: "1"
+          FAIR_BENCH: "1"
+          FAIR_BENCH_BASELINE: ${{ github.workspace }}/db/bench/baseline.json
+          FAIR_BENCH_REPORT: ${{ github.workspace }}/bench-report.md
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: ci-only-admin
+          FAIR_BENCH_ENGINE_ADDR: localhost:8444
+          FAIR_BENCH_ENGINE_CLIENT_DIR: ${{ runner.temp }}/engine-keys/risk/engine-client
+        run: go test -count=1 -timeout 180m -run TestBenchmarkGate -v ./db/tests/ # F-001, F-002 sequencer, search and export, F-003 risk scenarios, F-004 estimates, F-005 simulation, F-006 result views, F-007 register, F-008 acceptance, F-009 notifications, F-010 reports, F-011 imports, F-013 frameworks gates
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: bench-report
+          path: bench-report.md

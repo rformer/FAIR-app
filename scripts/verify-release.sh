@@ -31,7 +31,7 @@ if [ "${1:-}" = "-offline" ]; then OFFLINE=1; shift; fi
 DIR=${1:?usage: verify-release.sh [-offline] RELEASE_DIR}
 RELEASEGEN=${RELEASEGEN:-releasegen}
 COSIGN=${COSIGN:-cosign}
-IDENTITY=${FAIR_RELEASE_IDENTITY:-'^https://github\.com/rformer/FAIR-app/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$'}
+IDENTITY=${FAIR_RELEASE_IDENTITY:-'^https://github\.com/rformer/FAIR-app/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'}
 ISSUER=https://token.actions.githubusercontent.com
 PUB="$DIR/cosign.pub"
 

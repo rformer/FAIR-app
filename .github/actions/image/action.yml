@@ -1,0 +1,67 @@
+# F-012 T-03 to T-05, T-07: build one image and run every image gate, for
+# ci.yml's images matrix and the release (release.yml) alike: the
+# reproducible build (SOURCE_DATE_EPOCH, version, rewritten timestamps), the
+# hardening checks (scripts/image-check.sh), the SBOM and its completeness
+# check, and the vulnerability scan with the accepted findings of
+# security/vuln-exceptions.yaml. The caller checks out, sets up Go and
+# Buildx, then pushes and signs.
+# F-012 T-01: every action is pinned to a full commit (cmd/pincheck); Dependabot updates them.
+name: image
+description: Build one image and run the image gates
+inputs:
+  component:
+    description: Dockerfile target
+    required: true
+  image:
+    description: Repository to tag the image with (no tag)
+    required: true
+  tag:
+    description: Image tag
+    required: true
+  version:
+    description: Version stamped into the binaries
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Build
+      shell: bash
+      env:
+        COMPONENT: ${{ inputs.component }}
+        REF: ${{ inputs.image }}:${{ inputs.tag }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+        docker buildx build --target "$COMPONENT" \
+          --build-arg VERSION="$VERSION" --build-arg SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
+          --output "type=docker,name=$REF,rewrite-timestamp=true" .
+    - name: Hardening checks
+      shell: bash
+      run: bash scripts/image-check.sh "${{ inputs.image }}:${{ inputs.tag }}" "${{ inputs.component }}"
+    - name: SBOM (SPDX)
+      uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+      with:
+        image: ${{ inputs.image }}:${{ inputs.tag }}
+        format: spdx-json
+        output-file: sbom-${{ inputs.component }}.spdx.json
+        upload-artifact: false
+    - name: The SBOM lists everything the image contains
+      shell: bash
+      run: bash scripts/sbom-check.sh "sbom-${{ inputs.component }}.spdx.json" "${{ inputs.image }}:${{ inputs.tag }}" "${{ inputs.component }}"
+    - name: Accepted findings (expired or malformed exceptions fail)
+      shell: bash
+      env:
+        GOFIPS140: v1.0.0
+      run: go run ./cmd/vulnex -component "${{ inputs.component }}" -out .trivyignore
+    - name: Vulnerability scan (fail on fixable HIGH/CRITICAL)
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      with:
+        image-ref: ${{ inputs.image }}:${{ inputs.tag }}
+        severity: HIGH,CRITICAL
+        exit-code: "1"
+        ignore-unfixed: true
+        trivyignores: .trivyignore
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: sbom-${{ inputs.component }}
+        path: sbom-${{ inputs.component }}.spdx.json

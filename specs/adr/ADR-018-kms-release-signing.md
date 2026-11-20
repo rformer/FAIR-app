@@ -39,5 +39,5 @@ Use the **AWS SDK for Go v2**: `service/kms`, `service/sts` and `credentials/sts
 
 ## Consequences
 - `go.mod` gains the SDK modules listed above. Dependabot updates them with the other Go modules, and `govulncheck` covers them.
-- `releasegen sign -kms KEY -region R` and `releasegen public` work in the release workflow (`.github/workflows/kms-sign.yml`). Until the shared-services account and its key exist (F-012 T-12), they are exercised only against the fake in `internal/kmssign` tests.
+- `releasegen sign -kms KEY -region R` and `releasegen public` work in the release workflow (`.github/workflows/release-sign.yml`). Until the shared-services account and its key exist (F-012 T-12), they are exercised only against the fake in `internal/kmssign` tests.
 - If the SDK has to be replaced, only `internal/kmssign.Client` changes.

@@ -6,7 +6,8 @@
 // local and need no digest.
 //
 // What it reads:
-//   - .github/workflows/*.yml: every "uses:", "image:" and image on a
+//   - .github/workflows/*.yml and .github/actions/*/action.yml (F-012 T-07):
+//     every "uses:", "image:" and image on a
 //     docker run, pull or create line;
 //   - every Dockerfile*: FROM, with ARG defaults resolved;
 //   - scripts/**/*.sh and scripts/**/*.yaml: "image:", docker run, pull and
@@ -87,7 +88,7 @@ func Check(root string) ([]Problem, error) {
 		rel, _ := filepath.Rel(root, path)
 		rel = filepath.ToSlash(rel)
 		switch {
-		case strings.HasPrefix(rel, ".github/workflows/") && (strings.HasSuffix(name, ".yml") || strings.HasSuffix(name, ".yaml")):
+		case (strings.HasPrefix(rel, ".github/workflows/") || strings.HasPrefix(rel, ".github/actions/")) && (strings.HasSuffix(name, ".yml") || strings.HasSuffix(name, ".yaml")):
 			return scanText(path, true, add)
 		case strings.HasPrefix(name, "Dockerfile"):
 			return scanDockerfile(path, add)

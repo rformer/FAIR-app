@@ -1,29 +1,109 @@
-# F-015 T-07: release checklist gate. Runs on every release tag. Later
-# release jobs (packaging, signing with the release key per F-015 D-OQ5,
-# publishing; F-012) must declare `needs: [release-checklist]`.
+# F-012 T-07 (F-012-AC-11, AC-12; design §3.4): the release pipeline. On a
+# vX.Y.Z tag every artifact is built from that tag and checked, and nothing
+# is published unless every job before publish passed:
+#   plan          the version, the repositories, the signing key
+#   reproducible  every image built twice on two runners, digests equal (AC-10)
+#   build         every image through the image gates (.github/actions/image),
+#                 pushed by digest to the staging repository, keyless-signed
+#                 with its SBOM attested
+#   provenance    SLSA Build L3 provenance for every staged image
+#   manifest      the release manifest (registry digests, RBAC hashes, the
+#                 engine's validation record), the OSCAL component definition,
+#                 the OpenAPI bundle, fair-audit-verify, the SBOMs
+#   release-checklist  profilegen release-check (F-015 T-07)
+#   bench         the benchmark gate (bench.yml)
+#   notes         releasegen notes since the previous release
+#   sign          the release key: images, attestations, profile packages,
+#                 manifest, SHA256SUMS (release-sign.yml)
+#   publish       images copied from staging to the release repository with
+#                 their signatures, then the GitHub release with every file
+#   verify        scripts/verify-release.sh on what was published, online and
+#                 offline
+# TODO(F-012 T-08): the upgrade job joins the gates before sign.
+#
+# The v0.0.0-test tag is the dry run (T-07's verification): it runs every
+# job, publishes images under ghcr.io/<owner>/test/ and the GitHub release as
+# a draft, and signs with a throwaway key while the KMS key does not exist
+# (T-12). Any other tag needs the KMS key, or signing fails.
 # F-012 T-01: every action is pinned to a full commit (cmd/pincheck); Dependabot updates them.
 name: release
 
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   GOFIPS140: v1.0.0
   CGO_ENABLED: "0"
 
 jobs:
-  # F-005 T-09 (AC-21, design §3.6): the engine image's build runs the
-  # validation suite; its record goes into the release manifest, which the
-  # checklist requires to show a pass.
-  # TODO(F-012): the published manifest names every image by registry digest
-  # and is signed; this one names the engine by its built image ID.
-  engine-validation:
+  plan:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      dry-run: ${{ steps.plan.outputs.dry-run }}
+      test-key: ${{ steps.plan.outputs.test-key }}
+      staging: ${{ steps.plan.outputs.staging }}
+      release: ${{ steps.plan.outputs.release }}
+    steps:
+      - id: plan
+        env:
+          KMS_KEY: ${{ vars.FAIR_RELEASE_KMS_KEY }}
+        run: |
+          v="$GITHUB_REF_NAME"
+          [[ "$v" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$ ]] \
+            || { echo "$v is not a semantic version tag (vX.Y.Z[-pre])"; exit 1; }
+          owner="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
+          dry=false; release="$owner"
+          if [ "$v" = v0.0.0-test ]; then dry=true; release="$owner/test"; fi
+          test_key=false
+          if [ -z "$KMS_KEY" ]; then
+            [ "$dry" = true ] || { echo "no release key (FAIR_RELEASE_KMS_KEY): only the v0.0.0-test dry run may sign without it"; exit 1; }
+            test_key=true
+          fi
+          {
+            echo "version=$v"; echo "dry-run=$dry"; echo "test-key=$test_key"
+            echo "staging=$owner/staging"; echo "release=$release"
+          } >> "$GITHUB_OUTPUT"
+          echo "release $v: staging $owner/staging, release $release, dry run $dry, test key $test_key"
+
+  reproducible:
+    needs: [plan]
+    uses: ./.github/workflows/reproducible.yml
+
+  build:
+    needs: [plan]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        component: [iam, gateway, posture, posture-scanner, fips-probe, audit, risk, notify, integrate, engine-gate, engine]
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    env:
+      IMAGE: ${{ needs.plan.outputs.staging }}/fair-${{ matrix.component }}
+      VERSION: ${{ needs.plan.outputs.version }}
+    outputs:
+      digest-iam: ${{ steps.push.outputs.digest-iam }}
+      digest-gateway: ${{ steps.push.outputs.digest-gateway }}
+      digest-posture: ${{ steps.push.outputs.digest-posture }}
+      digest-posture-scanner: ${{ steps.push.outputs.digest-posture-scanner }}
+      digest-fips-probe: ${{ steps.push.outputs.digest-fips-probe }}
+      digest-audit: ${{ steps.push.outputs.digest-audit }}
+      digest-risk: ${{ steps.push.outputs.digest-risk }}
+      digest-notify: ${{ steps.push.outputs.digest-notify }}
+      digest-integrate: ${{ steps.push.outputs.digest-integrate }}
+      digest-engine-gate: ${{ steps.push.outputs.digest-engine-gate }}
+      digest-engine: ${{ steps.push.outputs.digest-engine }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
@@ -32,30 +112,108 @@ jobs:
         with:
           go-version-file: go.mod
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - name: Build the engine image (runs the validation suite)
-        run: docker build --load --target engine --build-arg SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" -t fair-engine:release .
-      - name: Release manifest with the engine's validation record
+      - uses: ./.github/actions/image
+        with:
+          component: ${{ matrix.component }}
+          image: ${{ env.IMAGE }}
+          tag: ${{ env.VERSION }}
+          version: ${{ env.VERSION }}
+      - name: Push to staging
+        id: push
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          id="$(docker image inspect -f '{{.Id}}' fair-engine:release)"
-          c="$(docker create fair-engine:release)"
-          docker cp "$c:/engine/validation.json" engine-validation.json
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker push "$IMAGE:$VERSION"
+          ref="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:$VERSION")"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "digest-${{ matrix.component }}=${ref#*@}" >> "$GITHUB_OUTPUT"
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+      - name: Keyless signature and SBOM attestation
+        run: |
+          cosign sign --yes "${{ steps.push.outputs.ref }}"
+          cosign attest --yes --type spdxjson --predicate "sbom-${{ matrix.component }}.spdx.json" "${{ steps.push.outputs.ref }}"
+
+  provenance:
+    needs: [plan, build]
+    strategy:
+      fail-fast: true
+      matrix:
+        component: [iam, gateway, posture, posture-scanner, fips-probe, audit, risk, notify, integrate, engine-gate, engine]
+    permissions:
+      actions: read
+      id-token: write
+      packages: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.1.0
+    with:
+      image: ${{ needs.plan.outputs.staging }}/fair-${{ matrix.component }}
+      digest: ${{ needs.build.outputs[format('digest-{0}', matrix.component)] }}
+      registry-username: ${{ github.actor }}
+    secrets:
+      registry-password: ${{ secrets.GITHUB_TOKEN }}
+
+  # The manifest and the release's files. Images are named in the release
+  # repository (where they are copied to on publish, digests unchanged);
+  # staging.json names them where they are now, for signing.
+  manifest:
+    needs: [plan, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      DIGESTS: ${{ toJSON(needs.build.outputs) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        env:
+          GOFIPS140: ""
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: sbom-*
+          merge-multiple: true
+          path: release
+      - name: Image lists
+        run: |
+          echo "$DIGESTS" | jq --arg p "${{ needs.plan.outputs.release }}" 'with_entries(.key |= ltrimstr("digest-") | .value = "\($p)/fair-\(.key)@\(.value)")' > release/images.json
+          echo "$DIGESTS" | jq --arg p "${{ needs.plan.outputs.staging }}" 'with_entries(.key |= ltrimstr("digest-") | .value = "\($p)/fair-\(.key)@\(.value)")' > release/staging.json
+          [ "$(jq length release/images.json)" -eq 11 ] || { echo "expected 11 images"; cat release/images.json; exit 1; }
+          cat release/images.json
+      - name: The engine's validation record (from the staged image)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          ref="$(jq -r .engine release/staging.json)"
+          docker pull -q "$ref"
+          c="$(docker create "$ref")"
+          docker cp "$c:/engine/validation.json" release/engine-validation.json
           docker rm "$c"
-          printf '{"engine": "fair-engine@%s"}' "$id" > images.json
-          go run ./cmd/releasegen manifest -release "${GITHUB_REF_NAME}" -images images.json -engine-validation engine-validation.json -out release-manifest.json
+      - name: Release manifest
+        run: go run ./cmd/releasegen manifest -release "$VERSION" -images release/images.json -engine-validation release/engine-validation.json -out release/release-manifest.json
+      - name: OSCAL component definition
+        run: go run ./cmd/releasegen component-definition -version "$VERSION" -source-date "$(git log -1 --format=%ct)" -out release/component-definition.json
+      - name: OpenAPI bundle
+        run: |
+          bash scripts/openapi-bundle.sh "$VERSION" "$RUNNER_TEMP/openapi"
+          rm "$RUNNER_TEMP/openapi/SHA256SUMS" # SHA256SUMS of the release covers them
+          tar --sort=name --mtime="@$(git log -1 --format=%ct)" --owner=0 --group=0 --numeric-owner \
+            -C "$RUNNER_TEMP/openapi" -czf "release/fair-openapi-$VERSION.tar.gz" .
+      - name: fair-audit-verify
+        run: |
+          bash scripts/audit-verify-dist.sh "$VERSION" "$RUNNER_TEMP/audit-verify"
+          rm "$RUNNER_TEMP/audit-verify/SHA256SUMS"
+          cp "$RUNNER_TEMP/audit-verify"/fair-audit-verify-* release/
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: release-manifest
-          path: |
-            release-manifest.json
-            engine-validation.json
-
-  # F-012 T-05 (AC-10): every image builds to the same digests on two
-  # runners; the checklist waits for it.
-  reproducible:
-    uses: ./.github/workflows/reproducible.yml
+          name: release-files
+          path: release/
 
   release-checklist:
-    needs: [engine-validation, reproducible]
+    needs: [manifest]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -67,49 +225,116 @@ jobs:
           GOFIPS140: ""
         with:
           go-version-file: go.mod
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: release-files
+          path: release
       # Pins match MANIFEST.json, profiles and packages rebuild byte for byte,
       # and the CMMC rule's 800-171 revision is re-confirmed against the eCFR
       # (32 CFR part 170); any amendment since the recorded confirmation fails.
       # Open external pen-test findings block too (security/pentest-findings.yaml).
       # The engine image passed its validation suite (F-005 T-09).
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: release-manifest
       - name: Release checklist
-        run: go run ./cmd/profilegen release-check -online -report release-checklist.md -manifest release-manifest.json
+        run: go run ./cmd/profilegen release-check -online -report release-checklist.md -manifest release/release-manifest.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: release-checklist
           path: release-checklist.md
 
-  # F-001 T-42 (design §6): the OpenAPI documents, linted and stamped with the
-  # release, with a SHA-256 manifest. The release publishing job (F-012)
-  # attaches this artifact to the release.
-  openapi:
+  bench:
+    needs: [plan]
+    uses: ./.github/workflows/bench.yml
+
+  notes:
+    needs: [plan]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24"
-          cache: npm
-          cache-dependency-path: tools/spectral/package-lock.json
-      - name: Spectral lint and rule self-test
-        run: bash scripts/openapi-lint.sh
-      - name: Stamp the documents with the release
-        run: bash scripts/openapi-bundle.sh "${GITHUB_REF_NAME}" openapi-dist
+          fetch-depth: 0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        env:
+          GOFIPS140: ""
+        with:
+          go-version-file: go.mod
+      - name: Release notes since the previous release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # The previous release: the newest vX.Y.Z tag before this one (the
+          # dry-run tag is never one); none before the first release (D-OQ3).
+          prev="$(git tag --list 'v*' --merged "$VERSION^" --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -vx "$VERSION" | head -1 || true)"
+          from="${prev:-4b825dc642cb6eb9a060e54bf8d69288fbee4904}"
+          since="$( [ -n "$prev" ] && git log -1 --format=%cI "$prev" || echo 1970-01-01T00:00:00Z)"
+          gh pr list --state merged --label security --limit 200 --search "merged:>=$since" --json number,title,url > security-prs.json
+          mkdir -p release
+          go run ./cmd/releasegen notes -from "$from" -to "$VERSION" -prs security-prs.json -out release/release-notes.md
+          echo "notes from ${prev:-the start} to $VERSION"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: openapi-${{ github.ref_name }}
-          path: openapi-dist/
+          name: release-notes
+          path: release/
 
-  # F-002 T-10 (design §11): fair-audit-verify for auditors' platforms, with
-  # the FIPS 140 module, and SHA256SUMS. The release publishing job (F-012)
-  # attaches this artifact to the release; the audit image carries the tool
-  # too, for air-gapped bundles.
-  audit-verify:
+  sign:
+    needs: [plan, reproducible, provenance, manifest, release-checklist, bench, notes]
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    uses: ./.github/workflows/release-sign.yml
+    with:
+      pattern: release-{files,notes}
+      test-key: ${{ needs.plan.outputs.test-key == 'true' }}
+
+  publish:
+    needs: [plan, sign]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: release-signed
+          path: release
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+      - name: Copy the images and their signatures to the release repository
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GH_TOKEN" | cosign login ghcr.io -u "${{ github.actor }}" --password-stdin
+          for c in $(jq -r 'keys[]' release/staging.json); do
+            src="$(jq -r --arg c "$c" '.[$c]' release/staging.json)"
+            dst="$(jq -r --arg c "$c" '.[$c]' release/images.json)"
+            cosign copy --force "$src" "${dst%@*}:$VERSION"
+            echo "$src -> ${dst%@*}:$VERSION"
+          done
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ needs.plan.outputs.dry-run }}
+        run: |
+          rm release/staging.json
+          flags=()
+          if [ "$DRY_RUN" = true ]; then flags+=(--draft --prerelease); fi
+          case "$VERSION" in *-*) flags+=(--prerelease) ;; esac
+          gh release create "$VERSION" --repo "${{ github.repository }}" --verify-tag \
+            --title "FAIR $VERSION" --notes-file release/release-notes.md "${flags[@]}" release/*
+
+  verify:
+    needs: [plan, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
@@ -117,11 +342,22 @@ jobs:
           GOFIPS140: ""
         with:
           go-version-file: go.mod
-      - name: Offline verifier tests (tamper corpus, no network)
-        run: go test -count=1 ./internal/audit/evidence/... ./cmd/audit-verify/
-      - name: Build
-        run: bash scripts/audit-verify-dist.sh "${GITHUB_REF_NAME}" audit-verify-dist
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: fair-audit-verify-${{ github.ref_name }}
-          path: audit-verify-dist/
+          name: release-signed
+          path: release
+      - name: releasegen
+        run: go build -o "$RUNNER_TEMP/bin/releasegen" ./cmd/releasegen && echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Verify the published release (online)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GH_TOKEN" | cosign login ghcr.io -u "${{ github.actor }}" --password-stdin
+          bash scripts/verify-release.sh release
+      - name: Verify it as an air-gapped bundle carries it (offline)
+        run: |
+          for c in $(jq -r 'keys[]' release/images.json); do
+            cosign save --dir "release/images/$c" "$(jq -r --arg c "$c" '.[$c]' release/images.json)"
+          done
+          bash scripts/verify-release.sh -offline release

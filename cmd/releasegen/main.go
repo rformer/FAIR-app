@@ -49,7 +49,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: releasegen manifest | sign | verify (see the command documentation)")
+		return errors.New("usage: releasegen manifest | sign | verify | public | permissions | notes | profiles | component-definition (see the command documentation)")
 	}
 	fs := flag.NewFlagSet(args[0], flag.ExitOnError)
 	switch args[0] {
@@ -198,6 +198,12 @@ func run(args []string) error {
 		}
 		fmt.Fprintf(os.Stderr, "release %s: %d images, %d RBAC objects, signature verified\n", m.Release, len(m.Images), len(m.RBAC))
 		return nil
+	case "notes":
+		return notes(args[1:])
+	case "profiles":
+		return profiles(args[1:])
+	case "component-definition":
+		return componentDefinition(args[1:])
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
