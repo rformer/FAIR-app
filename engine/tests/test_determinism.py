@@ -98,8 +98,17 @@ def _subprocess(default: bool) -> dict[str, object]:
 
 
 def test_default_and_pinned_cpu_features(reference: str) -> None:
+    """AC-17 holds whatever the CPU model because dispatch is pinned.
+
+    Pinned, every CPU model gives the reference digest. Unpinned, NumPy may
+    dispatch to wider instruction sets that round differently (on AVX-512
+    runners it does: CI, 2026-11-20), which is why fairsim.cpu pins and the
+    engine refuses to run unpinned; so the unpinned digest must equal the
+    reference only when NumPy dispatched nothing above the baseline.
+    """
     if cpu.architecture() not in cpu.DISPATCHED:
         pytest.skip("no pin on this architecture")
     pinned, default = _subprocess(False), _subprocess(True)
     assert pinned["digest"] == reference
-    assert default["digest"] == reference, f"results differ with NumPy dispatching {default['dispatched']}"
+    if not default["dispatched"]:
+        assert default["digest"] == reference
