@@ -11,10 +11,13 @@ on:
 permissions:
   contents: read
 
-# A newer push to a pull request supersedes its run; on main every run
-# completes, so each change gets its full set of results (F-012 T-03).
+# A newer push to a pull request supersedes its run; on main each commit
+# has its own group, so every run starts at once and completes, and each
+# change gets its full set of results (F-012 T-03, T-04). (One group for
+# main queued each run behind the last and dropped the queued one on the
+# next push.)
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -333,6 +336,20 @@ jobs:
       id-token: write   # keyless cosign signing (main only)
     env:
       IMAGE: ghcr.io/${{ github.repository_owner }}/fair-${{ matrix.component }}
+    # Each leg publishes its image's digest under its own key, for the
+    # provenance jobs (F-012 T-04).
+    outputs:
+      digest-iam: ${{ steps.push.outputs.digest-iam }}
+      digest-gateway: ${{ steps.push.outputs.digest-gateway }}
+      digest-posture: ${{ steps.push.outputs.digest-posture }}
+      digest-posture-scanner: ${{ steps.push.outputs.digest-posture-scanner }}
+      digest-fips-probe: ${{ steps.push.outputs.digest-fips-probe }}
+      digest-audit: ${{ steps.push.outputs.digest-audit }}
+      digest-risk: ${{ steps.push.outputs.digest-risk }}
+      digest-notify: ${{ steps.push.outputs.digest-notify }}
+      digest-integrate: ${{ steps.push.outputs.digest-integrate }}
+      digest-engine-gate: ${{ steps.push.outputs.digest-engine-gate }}
+      digest-engine: ${{ steps.push.outputs.digest-engine }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
@@ -353,12 +370,10 @@ jobs:
           image: ${{ env.IMAGE }}:${{ env.TAG }}
           format: spdx-json
           output-file: sbom-${{ matrix.component }}.spdx.json
-      - name: Every locked engine dependency is in the SBOM
-        if: matrix.component == 'engine'
-        run: |
-          for p in $(grep -oE '^[a-z0-9_.-]+==' engine/requirements.lock | tr -d '='); do
-            grep -qi "\"name\": *\"$p\"" sbom-engine.spdx.json || { echo "missing from the SBOM: $p"; exit 1; }
-          done
+      # F-012 T-04 (AC-08): every module linked into a Go binary, or every
+      # locked engine package, is in the SBOM.
+      - name: The SBOM lists everything the image contains
+        run: bash scripts/sbom-check.sh "sbom-${{ matrix.component }}.spdx.json" "$IMAGE:$TAG" "${{ matrix.component }}"
       - name: Accepted findings (expired or malformed exceptions fail)
         run: go run ./cmd/vulnex -component "${{ matrix.component }}" -out .trivyignore
       - name: Vulnerability scan (fail on fixable HIGH/CRITICAL)
@@ -374,20 +389,84 @@ jobs:
           name: sbom-${{ matrix.component }}
           path: sbom-${{ matrix.component }}.spdx.json
       - name: Push (main only)
+        id: push
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           docker push "$IMAGE:$TAG"
+          ref="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:$TAG")"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "digest-${{ matrix.component }}=${ref#*@}" >> "$GITHUB_OUTPUT"
       - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       - name: Cosign keyless sign + SBOM attestation (main only)
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: |
-          digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:$TAG")"
-          cosign sign --yes "$digest"
-          cosign attest --yes --type spdxjson --predicate "sbom-${{ matrix.component }}.spdx.json" "$digest"
+          cosign sign --yes "${{ steps.push.outputs.ref }}"
+          cosign attest --yes --type spdxjson --predicate "sbom-${{ matrix.component }}.spdx.json" "${{ steps.push.outputs.ref }}"
+      # F-012 T-04 (AC-08, AC-09): what was signed verifies, against this
+      # workflow's identity.
+      - name: Verify the signature and the SBOM attestation (main only)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          id="https://github.com/${{ github.workflow_ref }}"
+          issuer=https://token.actions.githubusercontent.com
+          cosign verify --certificate-identity "$id" --certificate-oidc-issuer "$issuer" "${{ steps.push.outputs.ref }}" >/dev/null
+          cosign verify-attestation --type spdxjson --certificate-identity "$id" --certificate-oidc-issuer "$issuer" "${{ steps.push.outputs.ref }}" >/dev/null
+          echo "verified ${{ steps.push.outputs.ref }}"
+
+  # F-012 T-04 (F-012-AC-08; design §3.3): SLSA Build Level 3 provenance for
+  # every image pushed from main, by the SLSA generator's isolated reusable
+  # workflow (referenced by release tag, as it requires), then verified.
+  provenance:
+    needs: [images]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [iam, gateway, posture, posture-scanner, fips-probe, audit, risk, notify, integrate, engine-gate, engine]
+    permissions:
+      actions: read
+      id-token: write
+      packages: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.1.0
+    with:
+      image: ghcr.io/${{ github.repository_owner }}/fair-${{ matrix.component }}
+      digest: ${{ needs.images.outputs[format('digest-{0}', matrix.component)] }}
+      registry-username: ${{ github.actor }}
+    secrets:
+      registry-password: ${{ secrets.GITHUB_TOKEN }}
+
+  provenance-verify:
+    needs: [images, provenance]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [iam, gateway, posture, posture-scanner, fips-probe, audit, risk, notify, integrate, engine-gate, engine]
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        env:
+          GOFIPS140: ""
+        with:
+          go-version: "1.26.11"
+      - name: slsa-verifier
+        env:
+          GOFIPS140: ""
+        run: go install github.com/slsa-framework/slsa-verifier/v2/cli/slsa-verifier@v2.7.1
+      - name: Verify the provenance (this repository, main)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          ref="ghcr.io/${{ github.repository_owner }}/fair-${{ matrix.component }}@${{ needs.images.outputs[format('digest-{0}', matrix.component)] }}"
+          "$(go env GOPATH)/bin/slsa-verifier" verify-image "$ref" --source-uri "github.com/${{ github.repository }}" --source-branch main
 
   # F-015 T-32: the web UI (ADR-003: React + TypeScript, Vite).
   web:
