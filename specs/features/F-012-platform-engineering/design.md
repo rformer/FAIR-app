@@ -1,5 +1,5 @@
 # F-012 Platform engineering — Design
-Status: In Review | Requirements version: 2026-11-19 (Approved) | Last updated: 2026-11-19
+Status: Approved | Requirements version: 2026-11-19 (Approved) | Last updated: 2026-11-20
 
 ## 1. Overview
 F-012 completes the build side the earlier features started and adds the SaaS operations side:
@@ -130,11 +130,12 @@ No new platform API. Tools: `pincheck`, `releasegen sign -kms|notes|verify`, `fl
 - **ADR-017 Telemetry:** OpenTelemetry for metrics and traces (OTLP, off by default), structured JSON logs with trace ids, an attribute allow-list; SaaS operations stack in a separate account.
 
 ## 10. Risks & open questions
-- D-OQ1: CI cost and time: the UI end-to-end and DB suites take about 30 minutes each; run in parallel on larger runners to meet the 45-minute target. Proposed: GitHub larger runners for `test-db` and `ui-e2e`.
-- D-OQ2: Amazon Managed Service for Prometheus and Grafana availability and FedRAMP status in GovCloud may change; the ops stack keeps self-run Prometheus and Grafana on the ops EKS as the fallback. Proposed: self-run on the ops EKS from the start, one less service dependency.
-- D-OQ3: The upgrade test needs representative data from older releases; until two minor releases exist (the first release is v0.1.0), it runs from the first release only. Proposed: accept; the job's matrix grows with releases.
-- D-OQ4: The fleet repository and the evidence bucket are outside this repository; their templates and tools live here, and their creation is part of the `infra` bootstrap task. Proposed: accept.
+- D-OQ1 (resolved 2026-11-20: as proposed): CI cost and time: the UI end-to-end and DB suites take about 30 minutes each; run in parallel on larger runners to meet the 45-minute target. Proposed: GitHub larger runners for `test-db` and `ui-e2e`.
+- D-OQ2 (resolved 2026-11-20: as proposed): Amazon Managed Service for Prometheus and Grafana availability and FedRAMP status in GovCloud may change; the ops stack keeps self-run Prometheus and Grafana on the ops EKS as the fallback. Proposed: self-run on the ops EKS from the start, one less service dependency.
+- D-OQ3 (resolved 2026-11-20: as proposed): The upgrade test needs representative data from older releases; until two minor releases exist (the first release is v0.1.0), it runs from the first release only. Proposed: accept; the job's matrix grows with releases.
+- D-OQ4 (resolved 2026-11-20: as proposed): The fleet repository and the evidence bucket are outside this repository; their templates and tools live here, and their creation is part of the `infra` bootstrap task. Proposed: accept.
 - The infrastructure cannot be applied from this environment; it is verified by `tofu validate`, `tofu test` with mock providers, Checkov and plan review. A first apply in a GovCloud sandbox account is a manual verification step of T-14.
 
 ## Change Log
 - 2026-11-19: Initial draft, In Review.
+- 2026-11-20: Approved by Robert Former; D-OQ1 to D-OQ4 resolved as proposed; ADR-016 and ADR-017 accepted with the design (written by T-12 and T-09).
