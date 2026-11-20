@@ -1,0 +1,108 @@
+# F-012 T-02 (F-012-AC-04; design §3.1): a daily re-scan of main and the
+# supported releases (the two newest v* tags) for known vulnerabilities in
+# Go modules and the standard library, the engine's locked Python packages,
+# the web UI's runtime dependencies and the repository's files (Trivy). A new
+# fixable high or critical finding opens an issue labelled "security" (or
+# comments on the open one), within a day of its publication.
+name: rescan
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  targets:
+    runs-on: ubuntu-latest
+    outputs:
+      refs: ${{ steps.refs.outputs.refs }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: refs
+        run: |
+          refs="$(git tag --list 'v*' --sort=-v:refname | head -2 | jq -R . | jq -sc '["main"] + .')"
+          echo "refs=$refs" >> "$GITHUB_OUTPUT"
+
+  scan:
+    needs: [targets]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ref: ${{ fromJSON(needs.targets.outputs.refs) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ matrix.ref }}
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        env:
+          GOFIPS140: ""
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - name: Go (govulncheck)
+        id: go
+        continue-on-error: true
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./... | tee govulncheck.txt
+      - name: Engine (pip-audit over the hashed lock)
+        id: py
+        continue-on-error: true
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src python:3.12.16-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df \
+            sh -c 'pip install -q --no-cache-dir pip-audit==2.9.0 && pip-audit --strict --disable-pip --require-hashes -r engine/requirements.lock' | tee pip-audit.txt
+      - name: Web UI (npm audit, runtime dependencies)
+        id: npm
+        continue-on-error: true
+        working-directory: web
+        run: npm ci --no-audit --no-fund --ignore-scripts && npm audit --omit=dev --audit-level=high | tee ../npm-audit.txt
+      - name: Repository files (Trivy, fixable high and critical)
+        id: trivy
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          output: trivy.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rescan-${{ matrix.ref }}
+          path: "*.txt"
+          if-no-files-found: ignore
+      - name: Findings (fail when any scanner found one)
+        run: |
+          failed=""
+          for s in go:${{ steps.go.outcome }} py:${{ steps.py.outcome }} npm:${{ steps.npm.outcome }} trivy:${{ steps.trivy.outcome }}; do
+            [ "${s#*:}" = success ] || failed="$failed ${s%%:*}"
+          done
+          [ -z "$failed" ] || { echo "findings from:$failed"; exit 1; }
+
+  report:
+    needs: [scan]
+    if: always() && needs.scan.result == 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the re-scan issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create security -R "${{ github.repository }}" --color B60205 --description "Security findings" --force >/dev/null
+          title="Daily vulnerability re-scan: findings"
+          body="The daily re-scan (run ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) found fixable high or critical vulnerabilities. Its artifacts list them by ref and scanner."
+          n="$(gh issue list -R "${{ github.repository }}" --state open --label security --search "in:title \"$title\"" --json number -q '.[0].number')"
+          if [ -n "$n" ]; then
+            gh issue comment "$n" -R "${{ github.repository }}" --body "$body"
+          else
+            gh issue create -R "${{ github.repository }}" --title "$title" --label security --body "$body"
+          fi

@@ -42,6 +42,7 @@ func TestPinsEnforced(t *testing.T) {
       - run: docker run --rm -v "$PWD:/src" -w /src golang:1.26-bookworm make
       - run: docker run --rm fair-dbtest:latest go test
       - run: npm install
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
       # - uses: actions/setup-go@v7 (a comment)
   slsa:
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.1.0
@@ -82,7 +83,8 @@ kubectl debug pod --image=busybox:1.36 -- sleep 1
 		".github/workflows/ci.yml:11: docker://alpine:3.20 is not pinned by digest",
 		".github/workflows/ci.yml:12: image golang:1.26-bookworm is not pinned by digest (@sha256:...)",
 		".github/workflows/ci.yml:14: npm install: use npm ci with the lock file",
-		".github/workflows/ci.yml:19: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@main must be referenced by a release tag (vX.Y.Z)",
+		".github/workflows/ci.yml:15: go run of golang.org/x/vuln/cmd/govulncheck@latest: name a version",
+		".github/workflows/ci.yml:20: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@main must be referenced by a release tag (vX.Y.Z)",
 		"Dockerfile:3: FROM golang:1.26-bookworm is not pinned by digest",
 		"Dockerfile:6: FROM python:3.12 is not pinned by digest",
 		"Dockerfile:7: FROM ${NOPE}: the variable has no pinned default",

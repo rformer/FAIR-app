@@ -63,6 +63,7 @@ var (
 	digestRE   = regexp.MustCompile(`@sha256:[0-9a-f]{64}$`)
 	varRE      = regexp.MustCompile(`\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?`)
 	hashLineRE = regexp.MustCompile(`--hash=sha256:[0-9a-f]{64}`)
+	goLatestRE = regexp.MustCompile(`\bgo (run|install) (\S+)@latest\b`)
 )
 
 // Check walks root and answers every problem, sorted.
@@ -171,6 +172,9 @@ func scanText(path string, workflow bool, add adder) error {
 			if strings.Contains(l, "npm install") || strings.Contains(l, "npm i ") {
 				add(path, n, "npm install: use npm ci with the lock file")
 			}
+		}
+		if m := goLatestRE.FindStringSubmatch(l); m != nil {
+			add(path, n, "go %s of %s@latest: name a version", m[1], m[2])
 		}
 		if m := imageKeyRE.FindStringSubmatch(l); m != nil {
 			image(m[1], add, path, n)

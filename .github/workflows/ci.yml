@@ -57,7 +57,7 @@ jobs:
       - name: go vet
         run: go vet ./...
       - name: govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - name: Unit tests (FIPS module, race detector)
         env:
           CGO_ENABLED: "1"
@@ -271,6 +271,11 @@ jobs:
           docker run --rm -v "$PWD:/src" -w /src python:3.12.16-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df bash scripts/engine-lock.sh
           sudo chown -R "$(id -u):$(id -g)" .
           git diff --exit-code -- engine/requirements.lock engine/requirements-dev.lock
+      # F-012 T-02 (AC-04): known vulnerabilities in the locked runtime packages.
+      - name: Dependency audit (pip-audit over the hashed lock)
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src python:3.12.16-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df \
+            sh -c 'pip install -q --no-cache-dir pip-audit==2.9.0 && pip-audit --strict --disable-pip --require-hashes -r engine/requirements.lock'
 
   # F-005 T-04 (ADR-013): the engine image is non-root, runs with a read-only
   # root filesystem, has no shell, pins NumPy's CPU dispatch, and passes the
@@ -324,7 +329,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Regenerate the Go code
-        run: docker run --rm -v "$PWD:/src" -w /src golang:1.26-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 bash scripts/gen-proto.sh
+        run: docker run --rm -v "$PWD:/src" -w /src golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 bash scripts/gen-proto.sh
       - name: Regenerate the Python code
         run: docker run --rm -v "$PWD:/src" -w /src python:3.12.16-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df bash scripts/gen-proto-py.sh
       - name: No differences
@@ -501,59 +506,49 @@ jobs:
       - name: Dependency audit (runtime dependencies, fail on high/critical)
         run: npm audit --omit=dev --audit-level=high
 
-  # F-015 T-32: the Posture page end to end against the real posture API and
-  # database (db/tests TestPostureUIHarness as the dev gateway), with axe
-  # WCAG 2.1 AA scans (scripts/ui-e2e.sh does the same locally).
+  # F-012 T-02, T-12 (AC-01, AC-14): the infrastructure code: formatted,
+  # valid, and its invariants tested with mock providers (no cloud or GitHub
+  # call).
+  infra:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: OpenTofu fmt, validate and test
+        run: |
+          for d in infra/github; do
+            run() { docker run --rm -v "$PWD/$d:/w" -w /w ghcr.io/opentofu/opentofu:1.13.9@sha256:f5aef7f2632b490e3c289a239d7974497d0583f3df6bfa35e8eb31a367ee5ec0 "$@"; }
+            run fmt -check -recursive
+            run init -input=false -lockfile=readonly >/dev/null
+            run validate -no-color
+            run test -no-color
+          done
+
+  # F-015 T-32, F-012 T-02 (AC-01): every page end to end against the real
+  # services, database and simulation engine, with axe WCAG 2.1 AA scans:
+  # scripts/ui-e2e.sh, as run locally (the harness in the fair-dbtest
+  # container, the engine image built and run beside it, Playwright here).
   ui-e2e:
     needs: [web]
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16@sha256:3950ad7c3148ca2175ef1b6c36c9efbf78957ae8fbe8b3a5d7c35af50500382f
-        env:
-          POSTGRES_PASSWORD: ci-only-admin
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s --health-timeout 5s --health-retries 10
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
-        # GOFIPS140 off for this step only: with it set, setup-go's "go env"
-        # unpacks the FIPS module into the empty module cache, and the cache
-        # restore then fails on those read-only files ("File exists").
-        env:
-          GOFIPS140: ""
-        with:
-          go-version-file: go.mod
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: Install psql client
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
-      - name: Build the web UI
-        working-directory: web
-        run: npm ci --no-audit --no-fund && npm run build
-      - name: Start the UI harness (seeded scenario, real API, dev gateway on :8099)
-        env:
-          FAIR_TEST_PG: "1"
-          FAIR_UI_HARNESS: "1"
-          PGHOST: localhost
-          PGPORT: "5432"
-          PGUSER: postgres
-          PGPASSWORD: ci-only-admin
+      - name: Test containers (PostgreSQL, NATS, the test image)
         run: |
-          (go test -count=1 -timeout 25m -v -run '^TestPostureUIHarness$' ./db/tests/ > harness.log 2>&1 &)
-          for i in $(seq 1 180); do curl -fsS http://localhost:8099/dev/ready && exit 0; sleep 2; done
-          cat harness.log; exit 1
-      - name: Playwright (end to end, axe WCAG 2.1 AA)
+          docker network create fairtest
+          docker run -d --name fairpg --network fairtest -e POSTGRES_PASSWORD=pgtest postgres:16@sha256:3950ad7c3148ca2175ef1b6c36c9efbf78957ae8fbe8b3a5d7c35af50500382f
+          docker run -d --name fairnats --network fairtest nats:2.10@sha256:5498ba57b9471840be3d15b033a4eec554d1c02fa6c2cc0ca2d888637f6c6e2f -js
+          docker build -q -f scripts/e2e/Dockerfile.dbtest -t fair-dbtest .
+      - name: Playwright browser and its system libraries
         working-directory: web
-        run: npx playwright install --with-deps chromium && npx playwright test
-      - name: Stop the harness
-        if: always()
-        run: touch web/.harness-stop; sleep 3; cat harness.log | tail -20
+        run: npm ci --no-audit --no-fund && npx playwright install --with-deps chromium
+      - name: End to end (scripts/ui-e2e.sh)
+        run: bash scripts/ui-e2e.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:

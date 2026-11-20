@@ -68,20 +68,25 @@ load() { # load <service/dir>...: one KV entry per directory, a field per file
     as65532 "set -e; args=''; for f in /w/src/$e/*; do args=\"\$args \$(basename \$f)=@\$f\"; done; bao kv put secret/fair/$e \$args >/dev/null"
   done
 }
-ENTRIES="gateway/jwt gateway/login-ticket gateway/secrets iam/jwt iam/login-ticket iam/secrets posture/jwt"
+# Every service with keys (deploy/k8s/keys/openbao/<service>.ctmpl) and every
+# directory iam keys init writes for them.
+SERVICES="audit engine-gate gateway iam integrate notify posture risk"
+ENTRIES="audit/checkpoint audit/jwt engine-gate/tls gateway/jwt gateway/login-ticket gateway/secrets iam/jwt iam/login-ticket iam/secrets
+  integrate/jwt integrate/secrets notify/jwt notify/webhook-secrets posture/jwt risk/engine-client risk/jwt risk/secrets"
+JWT_ENTRIES="audit/jwt gateway/jwt iam/jwt integrate/jwt notify/jwt posture/jwt risk/jwt"
 # shellcheck disable=SC2086
 load $ENTRIES
-as65532 'set -e; bao auth enable approle >/dev/null
-  for s in gateway iam posture; do
-    bao policy write fair-$s /etc/openbao/policy-$s.hcl >/dev/null
-    bao write auth/approle/role/fair-$s token_policies=fair-$s token_ttl=10m >/dev/null
-    bao read -field=role_id auth/approle/role/fair-$s/role-id > /w/role-$s
-    bao write -f -field=secret_id auth/approle/role/fair-$s/secret-id > /w/secret-$s
-  done'
+as65532 "set -e; bao auth enable approle >/dev/null
+  for s in $SERVICES; do
+    bao policy write fair-\$s /etc/openbao/policy-\$s.hcl >/dev/null
+    bao write auth/approle/role/fair-\$s token_policies=fair-\$s token_ttl=10m >/dev/null
+    bao read -field=role_id auth/approle/role/fair-\$s/role-id > /w/role-\$s
+    bao write -f -field=secret_id auth/approle/role/fair-\$s/secret-id > /w/secret-\$s
+  done"
 ok "keys loaded, policies and roles written"
 
 render() { # render <output dir>: each service's agent, once
-  for s in gateway iam posture; do
+  for s in $SERVICES; do
     mkdir -p "$W/$1/$s"
     chmod 0777 "$W/$1/$s"
     cat > "$W/agent-$s.hcl" <<EOF
@@ -137,10 +142,11 @@ ok "each service's role reads only its own keys"
 # Rotation: a new JWT signing key, reloaded and rendered.
 new="$(as65532 '/w/bin/iam keys rotate -dir /w/src -kind jwt' | sed -n 's/^added jwt key \([^;]*\);.*/\1/p')"
 [ -n "$new" ] || fail "rotate printed no key id"
-load gateway/jwt iam/jwt posture/jwt
+# shellcheck disable=SC2086
+load $JWT_ENTRIES
 render rendered # in place: the refresh a running sidecar does
 as65532 '/w/bin/iam keys check -dir /w/rendered' >/dev/null || fail "rotated keys"
-as65532 "grep -q 'PRIVATE KEY' /w/rendered/gateway/jwt/$new.pem && test -f /w/rendered/iam/jwt/$new.pem && test -f /w/rendered/posture/jwt/$new.pem" ||
+as65532 "grep -q 'PRIVATE KEY' /w/rendered/gateway/jwt/$new.pem && for d in audit iam integrate notify posture risk; do test -f /w/rendered/\$d/jwt/$new.pem || exit 1; done" ||
   fail "the new key $new was not delivered"
 ok "rotation: the new signing key $new is delivered and the set is consistent"
 

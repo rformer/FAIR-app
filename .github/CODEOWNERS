@@ -1,0 +1,4 @@
+# F-012 T-02 (F-012-AC-01): every change to main needs a code owner's
+# approval (infra/github: the approver must not be the change's last
+# pusher). Add engineers here as the team grows.
+* @rformer
