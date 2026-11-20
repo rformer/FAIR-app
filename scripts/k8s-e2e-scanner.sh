@@ -140,6 +140,23 @@ POD=$($K -n $NS get pod -l app.kubernetes.io/name=posture-scanner -o jsonpath='{
 DECOY_IP=$($K -n $NS get pod decoy -o jsonpath='{.status.podIP}')
 POSTURE_IP=$($K -n $NS get pod -l app.kubernetes.io/name=posture -o jsonpath='{.items[0].status.podIP}')
 
+# A new scan: restart the scanner and wait for a report after the restart.
+rescan() {
+  local before
+  before=$($K -n $NS logs deploy/posture | grep -c '"report"' || true)
+  $K -n $NS rollout restart deploy/posture-scanner >/dev/null
+  $K -n $NS rollout status deploy/posture-scanner --timeout=180s >/dev/null
+  report=""
+  for _ in $(seq 1 60); do
+    if [ "$($K -n $NS logs deploy/posture | grep -c '"report"' || true)" -gt "$before" ]; then
+      report=$($K -n $NS logs deploy/posture | grep '"report"' | tail -1)
+      return
+    fi
+    sleep 2
+  done
+  bad "no report after the scanner restart"
+}
+
 echo "== 1. the scanner reports over mTLS gRPC, with no refused reads"
 report=""
 for _ in $(seq 1 60); do
@@ -154,6 +171,15 @@ if [ -z "$report" ]; then
 else
   pass "report received from $POD"
 fi
+# The scanner starts with posture, so its first scan can find posture's mTLS
+# port not yet reachable ("unreachable", low; CI 2026-11-20). Scan once more
+# then; a real finding (high), or the same one again, still fails below.
+case "$report" in
+  *"tls_endpoints endpoint/posture.$NS.svc:9443 low"*)
+    echo "      the first scan raced posture's startup; scanning again"
+    rescan
+    echo "      $report" ;;
+esac
 case "$report" in
   *'"check_errors":null'* | *'"check_errors":[]'*) pass "no check errors: every granted read works, the release manifest verifies" ;;
   *) bad "check errors reported" ;;
@@ -254,22 +280,6 @@ if [ $ok = 1 ]; then pass "control: decoy reachable once allowed (the CNI enforc
 $K -n $NS delete networkpolicy e2e-control-allow-decoy >/dev/null
 
 echo "== 4. node FIPS evidence: fips-probe readiness and attestation (T-29)"
-# A new scan: restart the scanner and wait for a report after the restart.
-rescan() {
-  local before
-  before=$($K -n $NS logs deploy/posture | grep -c '"report"' || true)
-  $K -n $NS rollout restart deploy/posture-scanner >/dev/null
-  $K -n $NS rollout status deploy/posture-scanner --timeout=180s >/dev/null
-  report=""
-  for _ in $(seq 1 60); do
-    if [ "$($K -n $NS logs deploy/posture | grep -c '"report"' || true)" -gt "$before" ]; then
-      report=$($K -n $NS logs deploy/posture | grep '"report"' | tail -1)
-      return
-    fi
-    sleep 2
-  done
-  bad "no report after the scanner restart"
-}
 # (a) This kernel has no FIPS flag file: the probe cannot become Ready.
 probe_ready() { $K -n fair-fips-probe get pod -l app.kubernetes.io/name=fips-probe --field-selector "spec.nodeName=$NODE"   -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}'; }
 PROBE=$($K -n fair-fips-probe get pod -l app.kubernetes.io/name=fips-probe --field-selector "spec.nodeName=$NODE" -o jsonpath='{.items[0].metadata.name}')
