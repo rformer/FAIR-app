@@ -11,6 +11,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"github.com/rformer/fair-app/pkg/telemetry"
 	"strings"
 	"time"
 
@@ -75,13 +76,30 @@ func Connect(ctx context.Context, o Options) (*Publisher, error) {
 // msgID enables JetStream de-duplication of redelivered events.
 func (p *Publisher) Publish(ctx context.Context, subject, msgID string, data []byte) error {
 	_, err := p.js.Publish(ctx, subject, data, jetstream.WithMsgID(msgID))
+	if err == nil {
+		telemetry.Message(ctx, "publish", subjectName(subject))
+	}
 	return err
 }
 
 // Subscribe delivers core NATS messages on subject to fn (for example
 // settings heartbeats, F-015 T-25), on the connection's own goroutine.
 func (p *Publisher) Subscribe(subject string, fn func(data []byte)) (*nats.Subscription, error) {
-	return p.nc.Subscribe(subject, func(m *nats.Msg) { fn(m.Data) })
+	name := subjectName(subject)
+	return p.nc.Subscribe(subject, func(m *nats.Msg) {
+		telemetry.Message(context.Background(), "consume", name)
+		fn(m.Data)
+	})
+}
+
+// subjectName is a subject's first three tokens: the platform's subjects are
+// fixed names (iam.scope.changed), and anything after them is never recorded
+// (F-012 T-09, AC-23).
+func subjectName(subject string) string {
+	if t := strings.SplitN(subject, ".", 4); len(t) == 4 {
+		return strings.Join(t[:3], ".")
+	}
+	return subject
 }
 
 // Close drains and closes the connection.

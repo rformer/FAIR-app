@@ -77,6 +77,7 @@ import (
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/authz"
 	"github.com/rformer/fair-app/pkg/settings"
+	"github.com/rformer/fair-app/pkg/telemetry"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -102,7 +103,13 @@ func run() error {
 	if err := keys.CheckMounted(cfg.Env, os.Getenv); err != nil {
 		return err
 	}
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "gateway", "version", version)
+	logger := slog.New(telemetry.Logs(slog.NewJSONHandler(os.Stdout, nil))).With("service", "gateway", "version", version)
+	// F-012 T-09: metrics and traces when FAIR_OTEL_ENDPOINT is set (off otherwise).
+	tel, err := telemetry.Setup(context.Background(), "gateway", version)
+	if err != nil {
+		return fmt.Errorf("telemetry: %w", err)
+	}
+	defer func() { _ = tel.Shutdown(context.Background()) }()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -234,6 +241,7 @@ func run() error {
 	srv := server.New(server.Options{Addr: cfg.ListenAddr, TLSCertFile: cfg.TLSCertFile, TLSKeyFile: cfg.TLSKeyFile,
 		Plaintext: cfg.AllowPlaintext, Logger: logger})
 	srv.Mux().Handle("/", g.Handler())
+	srv.AddReadinessCheck(server.KeyFiles(os.Getenv, "FAIR_JWT_KEYS_DIR", "FAIR_LOGIN_TICKET_KEYS_DIR", "FAIR_SESSION_PEPPER_FILE", "FAIR_TOKEN_PEPPER_FILE", "FAIR_DB_CONTEXT_KEY_FILE", "FAIR_DB_CONTEXT_KEY_ID_FILE")) // F-012 T-09 (AC-22)
 	srv.AddReadinessCheck(server.ReadinessCheck{Name: "database", Check: func(ctx context.Context) error { return pool.Ping(ctx) }})
 	logger.Info("gateway started", "origin", origin, "upstreams", len(upstreams), "service_accounts", g.ServiceAccounts != nil,
 		"fips140", fips140.Enabled())

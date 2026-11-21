@@ -68,6 +68,9 @@ type CapacityMonitor struct {
 	DB    *pgxpool.Pool // app_audit
 	Audit events.Emitter
 	Quota int64 // FAIR_AUDIT_STORAGE_QUOTA, bytes
+	// Observe, when set, receives every measurement (F-012 T-09: the
+	// capacity gauge reads the last one; measuring has side effects).
+	Observe func(used, quota int64)
 }
 
 // Step measures once.
@@ -102,6 +105,9 @@ func (c CapacityMonitor) Step(ctx context.Context) (CapacityResult, error) {
 	})
 	if err != nil {
 		return res, fmt.Errorf("audit capacity: %w", err)
+	}
+	if c.Observe != nil {
+		c.Observe(res.Used, c.Quota)
 	}
 	return res, nil
 }

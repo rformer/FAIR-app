@@ -15,6 +15,7 @@ import (
 	"github.com/rformer/fair-app/internal/dbconn"
 	"github.com/rformer/fair-app/internal/natspub"
 	"github.com/rformer/fair-app/internal/scope"
+	"github.com/rformer/fair-app/pkg/telemetry"
 )
 
 // runWorker implements `iam worker` (F-001 T-08): the scope worker that keeps
@@ -25,8 +26,15 @@ import (
 // FAIR_DB_PASSWORD_FILE (app_rw), the libpq connection variables,
 // FAIR_NATS_URL and optional FAIR_NATS_CREDS_FILE.
 func runWorker() int {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})).
+	logger := slog.New(telemetry.Logs(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))).
 		With("service", "iam", "command", "worker", "version", version)
+	// F-012 T-09: metrics and traces when FAIR_OTEL_ENDPOINT is set (off otherwise).
+	tel, err := telemetry.Setup(context.Background(), "iam-worker", version)
+	if err != nil {
+		logger.Error("telemetry", "error", err.Error())
+		return 1
+	}
+	defer func() { _ = tel.Shutdown(context.Background()) }()
 	if err := worker(logger); err != nil {
 		logger.Error("worker stopped", "error", err.Error())
 		return 1

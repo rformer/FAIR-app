@@ -92,6 +92,7 @@ import (
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
 	"github.com/rformer/fair-app/pkg/settings"
+	"github.com/rformer/fair-app/pkg/telemetry"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -185,8 +186,14 @@ func currency(args []string, out io.Writer) error {
 }
 
 func run() error {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})).
+	logger := slog.New(telemetry.Logs(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))).
 		With("service", "risk", "version", version)
+	// F-012 T-09: metrics and traces when FAIR_OTEL_ENDPOINT is set (off otherwise).
+	tel, err := telemetry.Setup(context.Background(), "risk", version)
+	if err != nil {
+		return fmt.Errorf("telemetry: %w", err)
+	}
+	defer func() { _ = tel.Shutdown(context.Background()) }()
 	slog.SetDefault(logger)
 
 	cfg, err := config.Load("risk")
@@ -426,6 +433,7 @@ func run() error {
 	// F-005 T-11 (design §6.1): runs, worked by every replica.
 	var enqueue func(context.Context, pgx.Tx, analysis.SimulateArgs) error
 	var enqueueAggregate func(context.Context, pgx.Tx, analysis.AggregateArgs) error
+	var engineClient enginev1.EngineClient
 	if addr := os.Getenv("FAIR_ENGINE_ADDR"); addr != "" {
 		conn, err := dialEngine(cfg.Env, addr, os.Getenv("FAIR_ENGINE_CLIENT_DIR"))
 		if err != nil {
@@ -442,7 +450,8 @@ func run() error {
 				return errors.New("FAIR_ANALYSIS_WORKERS is 1 to 32")
 			}
 		}
-		w := &analysis.Worker{DB: pool, Engine: enginev1.NewEngineClient(conn), ImageDigest: image, Logger: logger, ThresholdBP: func() int {
+		engineClient = enginev1.NewEngineClient(conn)
+		w := &analysis.Worker{DB: pool, Engine: engineClient, ImageDigest: image, Logger: logger, ThresholdBP: func() int {
 			if n, err := sc.Int(settings.KeySimulationConvergenceBP, ""); err == nil {
 				return n
 			}
@@ -477,6 +486,17 @@ func run() error {
 	srv.AddReadinessCheck(server.ReadinessCheck{Name: "database", Check: func(ctx context.Context) error {
 		return schemaReady(ctx, pool)
 	}})
+	// F-012 T-09 (AC-22): readiness covers the keys, object storage and the engine.
+	srv.AddReadinessCheck(server.KeyFiles(os.Getenv, "FAIR_JWT_KEYS_DIR", "FAIR_REPORT_CONTEXT_KEY_FILE", "FAIR_REPORT_CONTEXT_KEY_ID_FILE", "FAIR_ENGINE_CLIENT_DIR"))
+	if reportStore != nil {
+		srv.AddReadinessCheck(server.Every(time.Minute, server.ReadinessCheck{Name: "report_store", Check: reportStore.CheckVersioned, Degraded: true}))
+	}
+	if engineClient != nil {
+		srv.AddReadinessCheck(server.Every(time.Minute, server.ReadinessCheck{Name: "engine", Degraded: true, Check: func(ctx context.Context) error {
+			_, err := engineClient.Info(ctx, &enginev1.InfoRequest{})
+			return err
+		}}))
+	}
 
 	// The risk API (T-05): every replica serves it.
 	if jwtKeys != nil {
@@ -568,7 +588,7 @@ func run() error {
 // mTLS (internal/enginetls), or, outside production, straight to an
 // engine's Unix socket.
 func dialEngine(env, addr, clientDir string) (*grpc.ClientConn, error) {
-	opts := []grpc.DialOption{grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(16 << 20))}
+	opts := append([]grpc.DialOption{grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(16 << 20))}, telemetry.EngineClient()...) // F-012 T-09
 	if strings.HasPrefix(addr, "unix://") {
 		if env == "production" {
 			return nil, errors.New("FAIR_ENGINE_ADDR: production reaches the engine through engine-gate (host:port), never a socket")

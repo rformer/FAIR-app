@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"github.com/rformer/fair-app/pkg/telemetry"
 	"log/slog"
 	"net"
 	"net/http"
@@ -19,6 +20,10 @@ import (
 type ReadinessCheck struct {
 	Name  string
 	Check func(ctx context.Context) error
+	// Degraded: a failure is reported ("degraded") but the service stays
+	// ready, for a dependency only some features need (the engine, object
+	// storage), whose requests fail closed on their own (F-012 T-09).
+	Degraded bool
 }
 
 // Options configures a Server.
@@ -53,7 +58,7 @@ func New(opts Options) *Server {
 
 	s.srv = &http.Server{
 		Addr:              opts.Addr,
-		Handler:           SecurityHeaders(s.mux),
+		Handler:           SecurityHeaders(telemetry.HTTP(s.mux)), // F-012 T-09: spans and durations by route pattern
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -156,6 +161,10 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	results := make(map[string]string, len(checks))
 	for _, c := range checks {
 		if err := c.Check(ctx); err != nil {
+			if c.Degraded {
+				results[c.Name] = "degraded"
+				continue
+			}
 			status = http.StatusServiceUnavailable
 			// Do not leak dependency error details to unauthenticated callers.
 			results[c.Name] = "not ready"

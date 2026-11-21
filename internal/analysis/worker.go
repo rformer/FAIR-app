@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/rformer/fair-app/pkg/telemetry"
+	"github.com/riverqueue/river/rivertype"
 	"io"
 	"log/slog"
 	"regexp"
@@ -331,10 +333,11 @@ func NewClient(pool *pgxpool.Pool, w *Worker, aw *AggregateWorker, workers int, 
 	river.AddWorker(ws, w)
 	river.AddWorker(ws, aw)
 	return river.NewClient(riverpgxv5.New(pool), &river.Config{
-		Queues:  map[string]river.QueueConfig{Queue: {MaxWorkers: workers}},
-		Workers: ws,
-		Schema:  RiverSchema,
-		Logger:  logger,
+		Queues:     map[string]river.QueueConfig{Queue: {MaxWorkers: workers}},
+		Workers:    ws,
+		Middleware: []rivertype.Middleware{&telemetry.River{}}, // F-012 T-09: job metrics
+		Schema:     RiverSchema,
+		Logger:     logger,
 	})
 }
 

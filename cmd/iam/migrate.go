@@ -25,6 +25,7 @@ import (
 	"github.com/rformer/fair-app/internal/profilepkg"
 	"github.com/rformer/fair-app/internal/risk/starter"
 	"github.com/rformer/fair-app/pkg/audit"
+	"github.com/rformer/fair-app/pkg/telemetry"
 	"github.com/rformer/fair-app/profiles"
 )
 
@@ -38,7 +39,7 @@ const exitChecksum = 3
 // Environment: FAIR_ENV (default production), FAIR_MIGRATOR_PASSWORD_FILE,
 // FAIR_REQUIRE_FIPS, and the libpq connection variables.
 func runMigrate() int {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})).
+	logger := slog.New(telemetry.Logs(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))).
 		With("service", "iam", "command", "migrate", "version", version)
 
 	env := os.Getenv("FAIR_ENV")

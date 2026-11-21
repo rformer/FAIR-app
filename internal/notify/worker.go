@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/rformer/fair-app/pkg/telemetry"
 	"time"
 
 	"github.com/google/uuid"
@@ -89,7 +90,7 @@ func (w Worker) Step(ctx context.Context) (int, error) {
 	}
 	for _, c := range work {
 		sent, err := w.send(ctx, c)
-		if err := w.settle(ctx, c.ID, token, sent, err); err != nil {
+		if err := w.settle(ctx, c.Kind, c.ID, token, sent, err); err != nil {
 			return 0, err
 		}
 	}
@@ -160,7 +161,7 @@ func (w Worker) retryHours() int {
 
 // settle records a send's outcome (the error decides: none, refused,
 // permanent, or retry).
-func (w Worker) settle(ctx context.Context, id, token string, sent Sent, err error) error {
+func (w Worker) settle(ctx context.Context, channel, id, token string, sent Sent, err error) error {
 	outcome, detail := "sent", sent.TLSVersion
 	if sent.Status != 0 {
 		detail = fmt.Sprintf("%d %s", sent.Status, sent.TLSVersion)
@@ -178,6 +179,14 @@ func (w Worker) settle(ctx context.Context, id, token string, sent Sent, err err
 	if err := w.DB.QueryRow(ctx, "SELECT notify.settle($1, $2, $3, $4, $5)", id, token, outcome, detail, w.retryHours()).Scan(&final); err != nil {
 		return fmt.Errorf("notify: settling %s: %w", id, err)
 	}
+	switch channel { // F-012 T-09: only fixed names reach telemetry
+	case "smtp", "email":
+		channel = "email"
+	case "webhook":
+	default:
+		channel = "other"
+	}
+	telemetry.Delivery(ctx, channel, outcome)
 	return nil
 }
 
@@ -224,7 +233,7 @@ func (w Worker) Digest(ctx context.Context) (bool, error) {
 		}
 	}
 	for _, it := range d.Items {
-		if serr := w.settle(ctx, it.ID, token, sent, err); serr != nil {
+		if serr := w.settle(ctx, "email", it.ID, token, sent, err); serr != nil {
 			return true, serr
 		}
 	}

@@ -16,6 +16,8 @@ package scope
 import (
 	"context"
 	"fmt"
+	"github.com/rformer/fair-app/pkg/telemetry"
+	"github.com/riverqueue/river/rivertype"
 	"log/slog"
 	"time"
 
@@ -383,6 +385,7 @@ func (w *Worker) RiverClient() (*river.Client[pgx.Tx], error) {
 	return river.NewClient(riverpgxv5.New(w.o.Pool), &river.Config{
 		Queues:       map[string]river.QueueConfig{river.QueueDefault: {MaxWorkers: 2}},
 		Workers:      workers,
+		Middleware:   []rivertype.Middleware{&telemetry.River{}}, // F-012 T-09: job metrics
 		PeriodicJobs: periodic,
 		Schema:       RiverSchema,
 		Logger:       w.o.Logger,

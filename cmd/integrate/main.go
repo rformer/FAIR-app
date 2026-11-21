@@ -61,6 +61,7 @@ import (
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
 	"github.com/rformer/fair-app/pkg/settings"
+	"github.com/rformer/fair-app/pkg/telemetry"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -76,8 +77,14 @@ func main() {
 }
 
 func run() error {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})).
+	logger := slog.New(telemetry.Logs(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))).
 		With("service", "integrate", "version", version)
+	// F-012 T-09: metrics and traces when FAIR_OTEL_ENDPOINT is set (off otherwise).
+	tel, err := telemetry.Setup(context.Background(), "integrate", version)
+	if err != nil {
+		return fmt.Errorf("telemetry: %w", err)
+	}
+	defer func() { _ = tel.Shutdown(context.Background()) }()
 	slog.SetDefault(logger)
 
 	cfg, err := config.Load("integrate")
@@ -212,6 +219,7 @@ func run() error {
 		Plaintext:   cfg.AllowPlaintext,
 		Logger:      logger,
 	})
+	srv.AddReadinessCheck(server.KeyFiles(os.Getenv, "FAIR_JWT_KEYS_DIR", "FAIR_INTEGRATE_SECRETS_DIR")) // F-012 T-09 (AC-22)
 	srv.AddReadinessCheck(server.ReadinessCheck{Name: "database", Check: func(ctx context.Context) error {
 		return schemaReady(ctx, pool)
 	}})

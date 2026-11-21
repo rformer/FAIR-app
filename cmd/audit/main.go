@@ -64,6 +64,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -80,6 +81,7 @@ import (
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
 	"github.com/rformer/fair-app/pkg/settings"
+	"github.com/rformer/fair-app/pkg/telemetry"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -95,8 +97,14 @@ func main() {
 }
 
 func run() error {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})).
+	logger := slog.New(telemetry.Logs(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))).
 		With("service", "audit", "version", version)
+	// F-012 T-09: metrics and traces when FAIR_OTEL_ENDPOINT is set (off otherwise).
+	tel, err := telemetry.Setup(context.Background(), "audit", version)
+	if err != nil {
+		return fmt.Errorf("telemetry: %w", err)
+	}
+	defer func() { _ = tel.Shutdown(context.Background()) }()
 	slog.SetDefault(logger)
 
 	cfg, err := config.Load("audit")
@@ -291,6 +299,20 @@ func run() error {
 			}, func(err error) { logger.Error("verification", "error", err.Error()) })
 		},
 	}
+	// F-012 T-09 (AC-22): each destination's forwarding backlog (records
+	// not yet forwarded).
+	for _, f := range forwarders {
+		if err := telemetry.Backlog("audit_forwarding_"+f.Name, func(ctx context.Context) (int64, error) {
+			var n *int64
+			err := pool.QueryRow(ctx, "SELECT waiting FROM audit.forward_backlog($1)", f.Name).Scan(&n)
+			if err != nil || n == nil {
+				return 0, errors.Join(err, errors.New("no destination"))
+			}
+			return *n, nil
+		}); err != nil {
+			return err
+		}
+	}
 	for _, f := range forwarders {
 		loops = append(loops, func(ctx context.Context) error {
 			return f.Run(ctx, 0, func(err error) { logger.Error("forwarding", "destination", f.Name, "error", err.Error()) })
@@ -303,7 +325,20 @@ func run() error {
 	}
 	// ...and measures audit storage against the quota (T-20).
 	if quota > 0 {
-		capm := auditsvc.CapacityMonitor{DB: pool, Audit: emitter, Quota: quota}
+		// F-012 T-09 (AC-22): the trail's capacity in per mille of the quota,
+		// from the last measurement.
+		var permille atomic.Int64
+		permille.Store(-1)
+		capm := auditsvc.CapacityMonitor{DB: pool, Audit: emitter, Quota: quota,
+			Observe: func(used, quota int64) { permille.Store(used * 1000 / quota) }}
+		if err := telemetry.Backlog("audit_capacity_permille", func(context.Context) (int64, error) {
+			if v := permille.Load(); v >= 0 {
+				return v, nil
+			}
+			return 0, errors.New("not measured yet")
+		}); err != nil {
+			return err
+		}
 		loops = append(loops, func(ctx context.Context) error {
 			return capm.Run(ctx, 0, func(err error) { logger.Error("capacity", "error", err.Error()) })
 		})
@@ -348,6 +383,13 @@ func run() error {
 	srv.AddReadinessCheck(server.ReadinessCheck{Name: "database", Check: func(ctx context.Context) error {
 		return schemaReady(ctx, pool)
 	}})
+	// F-012 T-09 (AC-22): readiness covers the keys, object storage and the engine.
+	srv.AddReadinessCheck(server.KeyFiles(os.Getenv, "FAIR_JWT_KEYS_DIR", "FAIR_AUDIT_CHECKPOINT_KEYS_DIR"))
+	for name, st := range map[string]*objstore.Store{"audit_store": store, "worm": worm} {
+		if st != nil {
+			srv.AddReadinessCheck(server.Every(time.Minute, server.ReadinessCheck{Name: name, Check: st.CheckBucket, Degraded: true}))
+		}
+	}
 
 	// The Audit API (T-12): every replica serves it.
 	if jwtKeys != nil {

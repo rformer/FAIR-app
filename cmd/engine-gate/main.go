@@ -29,6 +29,7 @@ import (
 	"github.com/rformer/fair-app/internal/enginegate"
 	"github.com/rformer/fair-app/internal/enginetls"
 	"github.com/rformer/fair-app/internal/keys"
+	"github.com/rformer/fair-app/pkg/telemetry"
 )
 
 var version = "dev"
@@ -48,8 +49,14 @@ func getenv(k, def string) string {
 }
 
 func run() error {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})).
+	logger := slog.New(telemetry.Logs(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))).
 		With("service", "engine-gate", "version", version)
+	// F-012 T-09: metrics and traces when FAIR_OTEL_ENDPOINT is set (off otherwise).
+	tel, err := telemetry.Setup(context.Background(), "engine-gate", version)
+	if err != nil {
+		return fmt.Errorf("telemetry: %w", err)
+	}
+	defer func() { _ = tel.Shutdown(context.Background()) }()
 	env := getenv("FAIR_ENV", "production")
 	if (os.Getenv("FAIR_REQUIRE_FIPS") != "false" || env == "production") && !fips140.Enabled() {
 		return errors.New("FIPS 140 mode is required but not enabled")

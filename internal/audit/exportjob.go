@@ -3,6 +3,8 @@ package audit
 import (
 	"context"
 	"errors"
+	"github.com/rformer/fair-app/pkg/telemetry"
+	"github.com/riverqueue/river/rivertype"
 	"log/slog"
 	"time"
 
@@ -78,10 +80,11 @@ func NewExportClient(pool *pgxpool.Pool, x *Exporter, logger *slog.Logger) (*riv
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &exportWorker{x: x, logger: logger})
 	return river.NewClient(riverpgxv5.New(pool), &river.Config{
-		Queues:  map[string]river.QueueConfig{ExportQueue: {MaxWorkers: 2}},
-		Workers: workers,
-		Schema:  RiverSchema,
-		Logger:  logger,
+		Queues:     map[string]river.QueueConfig{ExportQueue: {MaxWorkers: 2}},
+		Workers:    workers,
+		Middleware: []rivertype.Middleware{&telemetry.River{}}, // F-012 T-09: job metrics
+		Schema:     RiverSchema,
+		Logger:     logger,
 	})
 }
 

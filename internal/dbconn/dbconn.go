@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/rformer/fair-app/internal/config"
+	"github.com/rformer/fair-app/pkg/telemetry"
 )
 
 // Config builds connection settings from the standard libpq variables
@@ -34,6 +35,7 @@ func Config(env, user, passwordFile, appName string) (*pgx.ConnConfig, error) {
 	}
 	cfg.User, cfg.Password = user, pw
 	cfg.RuntimeParams["application_name"] = appName
+	cfg.Tracer = telemetry.PGX{} // F-012 T-09: statement operation and duration only, never the SQL or arguments
 	if env == "production" {
 		cfg.Fallbacks = nil // never retry without TLS
 	}
