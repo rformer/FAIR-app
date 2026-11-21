@@ -1,0 +1,7 @@
+# F-012 T-08 (D-OQ3, decided with Robert Former 2026-11-20): until the
+# first release (v0.1.0) exists, the upgrade test upgrades from this commit,
+# F-011's completion (migrations up to 0159), so migrations 0160 to 0169
+# (F-011 T-17c and F-013) are upgraded over representative data, and
+# F-011's binaries are checked on the upgraded schema. Release tags replace
+# it once one exists (TestUpgradeFromPreviousReleases).
+c06b3ee37dd54481958f651aff2d58bf0ca9aa00

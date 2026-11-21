@@ -12,6 +12,7 @@
 #                 the OpenAPI bundle, fair-audit-verify, the SBOMs
 #   release-checklist  profilegen release-check (F-015 T-07)
 #   bench         the benchmark gate (bench.yml)
+#   upgrade       the upgrade test from earlier releases (upgrade.yml, AC-13)
 #   notes         releasegen notes since the previous release
 #   sign          the release key: images, attestations, profile packages,
 #                 manifest, SHA256SUMS (release-sign.yml)
@@ -19,7 +20,6 @@
 #                 their signatures, then the GitHub release with every file
 #   verify        scripts/verify-release.sh on what was published, online and
 #                 offline
-# TODO(F-012 T-08): the upgrade job joins the gates before sign.
 #
 # The v0.0.0-test tag is the dry run (T-07's verification): it runs every
 # job, publishes images under ghcr.io/<owner>/test/ and the GitHub release as
@@ -246,6 +246,12 @@ jobs:
     needs: [plan]
     uses: ./.github/workflows/bench.yml
 
+  upgrade:
+    needs: [plan]
+    uses: ./.github/workflows/upgrade.yml
+    with:
+      engine: true
+
   notes:
     needs: [plan]
     runs-on: ubuntu-latest
@@ -282,7 +288,7 @@ jobs:
           path: release/
 
   sign:
-    needs: [plan, reproducible, provenance, manifest, release-checklist, bench, notes]
+    needs: [plan, reproducible, provenance, manifest, release-checklist, bench, upgrade, notes]
     permissions:
       contents: read
       id-token: write

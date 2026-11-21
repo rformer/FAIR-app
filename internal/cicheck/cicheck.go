@@ -9,6 +9,7 @@ import (
 	"bufio"
 	"bytes"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -53,11 +54,13 @@ func ImageTargets(dockerfile string) ([]string, error) {
 // Workflow is what the checks read of a GitHub Actions workflow.
 type Workflow struct {
 	Jobs map[string]Job `yaml:"jobs"`
+	path string
 }
 
 // Job is one job.
 type Job struct {
 	If       string `yaml:"if"`
+	Uses     string `yaml:"uses"` // a reusable workflow
 	Strategy struct {
 		Matrix map[string]any `yaml:"matrix"`
 	} `yaml:"strategy"`
@@ -69,7 +72,7 @@ func LoadWorkflow(path string) (*Workflow, error) {
 	if err != nil {
 		return nil, err
 	}
-	var w Workflow
+	w := Workflow{path: path}
 	if err := yaml.Unmarshal(b, &w); err != nil {
 		return nil, err
 	}
@@ -90,12 +93,24 @@ func (w *Workflow) MatrixValues(job, key string) []string {
 }
 
 // CheckNames is the check name of every job that runs on pull requests: the
-// job's key, or "key (value)" for each value of a one-key matrix. Jobs
-// conditioned on pushes (bench) are left out.
+// job's key, or "key (value)" for each value of a one-key matrix, or, for a
+// job calling a reusable workflow of this repository, "key / inner" for each
+// of its jobs. Jobs conditioned on pushes (bench) are left out.
 func (w *Workflow) CheckNames() []string {
 	var out []string
 	for name, j := range w.Jobs {
 		if strings.Contains(j.If, "github.event_name == 'push'") {
+			continue
+		}
+		if strings.HasPrefix(j.Uses, "./") {
+			inner, err := LoadWorkflow(filepath.Join(filepath.Dir(w.path), "..", "..", filepath.FromSlash(j.Uses)))
+			if err != nil {
+				out = append(out, name+" / ?") // fails the comparison, naming the job
+				continue
+			}
+			for _, n := range inner.CheckNames() {
+				out = append(out, name+" / "+n)
+			}
 			continue
 		}
 		m := j.Strategy.Matrix

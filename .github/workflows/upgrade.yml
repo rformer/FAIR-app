@@ -1,0 +1,70 @@
+# F-012 T-08 (F-012-AC-13, AC-21; design §3.4.1): the upgrade test
+# (db/tests TestUpgradeFromPreviousReleases). Each earlier release (or, until
+# v0.1.0, the baseline commit in db/upgrade/baseline, D-OQ3) seeds its data
+# through its own services, this release migrates a copy, and both releases'
+# services must start and answer on the upgraded schema. ci.yml runs it on
+# every change; release.yml runs it with the engine (so the old release also
+# seeds analyses, the register, acceptances and reports) before signing.
+# F-012 T-01: every action is pinned to a full commit (cmd/pincheck); Dependabot updates them.
+name: upgrade
+
+on:
+  workflow_call:
+    inputs:
+      engine:
+        description: Run the simulation engine, so the old release seeds analysis-dependent data
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  GOFIPS140: v1.0.0
+  CGO_ENABLED: "0"
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    services:
+      postgres:
+        image: postgres:16@sha256:3950ad7c3148ca2175ef1b6c36c9efbf78957ae8fbe8b3a5d7c35af50500382f
+        env:
+          POSTGRES_PASSWORD: ci-only-admin
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # earlier releases are checked out as worktrees
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        env:
+          GOFIPS140: ""
+        with:
+          go-version-file: go.mod
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        if: inputs.engine
+      - name: Simulation engine
+        if: inputs.engine
+        run: |
+          docker build --load --target engine -t fair-engine:upgrade .
+          install -d -m 0777 "$RUNNER_TEMP/engine"
+          docker run -d --name engine --network none --read-only --cap-drop ALL -v "$RUNNER_TEMP/engine:/run/engine" \
+            fair-engine:upgrade serve --socket /run/engine/engine.sock --workers "$(nproc)"
+          for _ in $(seq 1 60); do [ -S "$RUNNER_TEMP/engine/engine.sock" ] && break; sleep 2; done
+          [ -S "$RUNNER_TEMP/engine/engine.sock" ] || { docker logs engine; exit 1; }
+          echo "FAIR_UI_ENGINE_SOCKET=$RUNNER_TEMP/engine/engine.sock" >> "$GITHUB_ENV"
+      - name: Upgrade from earlier releases
+        env:
+          FAIR_TEST_PG: "1"
+          FAIR_TEST_UPGRADE: "1"
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: ci-only-admin
+        run: go test -count=1 -timeout 80m -run TestUpgradeFromPreviousReleases -v ./db/tests/

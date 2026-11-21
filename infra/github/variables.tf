@@ -37,6 +37,7 @@ variable "required_checks" {
     "images (engine)",
     "web",
     "ui-e2e",
+    "upgrade / upgrade",
     "pdfua",
     "infra",
   ]

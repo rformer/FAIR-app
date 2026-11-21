@@ -94,6 +94,11 @@ jobs:
           name: coverage
           path: coverage.out
 
+  # F-012 T-08 (AC-13, AC-21): every change still upgrades from the earlier
+  # releases, and their services still run on the upgraded schema.
+  upgrade:
+    uses: ./.github/workflows/upgrade.yml
+
   # F-015 T-37 and F-001 T-41: the deployment-mode matrix (F-015 design §11,
   # F-001 design §10), one install per mode.
   deployment-modes:
