@@ -547,7 +547,6 @@ func smokeRelease(t *testing.T, e *env, dir string) {
 	}
 }
 
-
 // logBuf is a service's output, written by the process and read by the test.
 type logBuf struct {
 	mu sync.Mutex
