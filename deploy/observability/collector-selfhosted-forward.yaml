@@ -1,0 +1,44 @@
+# Optional forwarding for a self-hosted or air-gapped installation
+# (F-012 T-11; F-012-AC-25; design §3.7).
+#
+# Add this file after collector-selfhosted.yaml:
+#   otelcol-contrib --config /etc/otelcol/collector-selfhosted.yaml \
+#                   --config /etc/otelcol/collector-selfhosted-forward.yaml
+# The Collector merges the two; the pipelines below replace the base ones and
+# send metrics and traces to a collector the administrator runs, in addition
+# to the local Prometheus endpoint. The destination is yours: FAIR never
+# configures one, and nothing here names the vendor.
+#
+# Environment:
+#   FAIR_OTEL_FORWARD_ENDPOINT   host:port of your collector's OTLP/gRPC
+#                                receiver (TLS 1.2 or later)
+# Files (mounted read-only):
+#   /etc/otelcol/forward/ca.crt              the CA of your collector
+#   /etc/otelcol/forward/tls.crt, tls.key    this Collector's client
+#                                            certificate, if yours asks for one
+# For a bearer token instead of a client certificate, use the
+# bearertokenauth extension with `filename:` (never the token in this file).
+
+exporters:
+  otlp_grpc/forward:
+    endpoint: ${env:FAIR_OTEL_FORWARD_ENDPOINT}
+    tls:
+      ca_file: /etc/otelcol/forward/ca.crt
+      cert_file: /etc/otelcol/forward/tls.crt
+      key_file: /etc/otelcol/forward/tls.key
+      min_version: "1.2"
+    sending_queue:
+      enabled: true
+    retry_on_failure:
+      enabled: true
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/installation, batch]
+      exporters: [prometheus, otlp_grpc/forward]
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/installation, batch]
+      exporters: [otlp_grpc/forward]

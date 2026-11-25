@@ -1,0 +1,48 @@
+# Latency SLO: the 95th percentile of each API's requests within 1 second
+# (F-012 T-11; F-012-AC-24; design §3.7), per service (job) and route
+# (http_route: the route pattern, or the prefix an API is mounted under).
+# Two windows must agree (1h and 5m), and a route needs some traffic
+# (3 requests a minute) so a single slow request does not page.
+#
+# Series: http_server_request_duration_seconds_bucket from
+# http.server.request.duration, bucketed by telemetry.SecondBuckets.
+groups:
+  - name: fair-latency-rates
+    rules:
+      - record: fair:http_request_duration_seconds:p95_rate5m
+        expr: |
+          histogram_quantile(0.95, sum by (fair_instance, job, http_route, le) (rate(http_server_request_duration_seconds_bucket{http_route!~"/healthz|/readyz"}[5m])))
+      - record: fair:http_request_duration_seconds:p95_rate1h
+        expr: |
+          histogram_quantile(0.95, sum by (fair_instance, job, http_route, le) (rate(http_server_request_duration_seconds_bucket{http_route!~"/healthz|/readyz"}[1h])))
+      - record: fair:http_requests:rate5m
+        expr: |
+          sum by (fair_instance, job, http_route) (rate(http_server_request_duration_seconds_count{http_route!~"/healthz|/readyz"}[5m]))
+
+  - name: fair-latency
+    rules:
+      - alert: ApiLatencyP95High
+        expr: |
+          (fair:http_request_duration_seconds:p95_rate1h > 1 and fair:http_request_duration_seconds:p95_rate5m > 1)
+          and on (fair_instance, job, http_route) fair:http_requests:rate5m > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          slo: latency
+        annotations:
+          summary: "{{ $labels.job }} {{ $labels.http_route }} p95 latency above 1 s"
+          description: "The 95th percentile of {{ $labels.job }} {{ $labels.http_route }} in instance {{ $labels.fair_instance }} is {{ $value | humanizeDuration }} (SLO: 1 s)."
+          runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/ApiLatencyP95High.md
+
+      - alert: ApiLatencyP95Severe
+        expr: |
+          (fair:http_request_duration_seconds:p95_rate1h > 2.5 and fair:http_request_duration_seconds:p95_rate5m > 2.5)
+          and on (fair_instance, job, http_route) fair:http_requests:rate5m > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          slo: latency
+        annotations:
+          summary: "{{ $labels.job }} {{ $labels.http_route }} p95 latency above 2.5 s"
+          description: "The 95th percentile of {{ $labels.job }} {{ $labels.http_route }} in instance {{ $labels.fair_instance }} is {{ $value | humanizeDuration }}, well past the 1 s SLO."
+          runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/ApiLatencyP95Severe.md

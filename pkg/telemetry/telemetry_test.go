@@ -18,6 +18,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -238,6 +239,28 @@ func TestInstruments(t *testing.T) {
 	if got := Attr(attribute.String("user.email", "a@example.test"), attribute.String("job.queue", "q")); len(got) != 1 || got[0].Key != "job.queue" {
 		t.Errorf("Attr kept %v", got)
 	}
+}
+
+// F-012 T-11: duration histograms have second buckets, so the latency alerts
+// (deploy/observability/alerts) can count requests over 1 second.
+func TestDurationBucketsInSeconds(t *testing.T) {
+	Job(context.Background(), "analysis", "simulate", "completed", 2*time.Second)
+	for _, sm := range collect(t).ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != "job.duration" {
+				continue
+			}
+			h, ok := m.Data.(metricdata.Histogram[float64])
+			if !ok || len(h.DataPoints) == 0 {
+				t.Fatalf("job.duration is %T", m.Data)
+			}
+			if got := h.DataPoints[0].Bounds; !slices.Equal(got, SecondBuckets) {
+				t.Errorf("bounds %v", got)
+			}
+			return
+		}
+	}
+	t.Error("no job.duration")
 }
 
 // A span's events and status text (which can hold error messages with

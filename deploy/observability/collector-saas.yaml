@@ -1,0 +1,150 @@
+# OpenTelemetry Collector for a SaaS instance (F-012 T-11; F-012-AC-24;
+# design §3.7; ADR-017): one Deployment per instance (replicas 1).
+#
+# Image: otel/opentelemetry-collector-contrib (the official contrib
+# distribution), mirrored to the shared ECR, signed and pinned by digest.
+#
+# It receives the services' OTLP and the log agent's (collector-saas-agent.yaml),
+# scrapes kube-state-metrics and cert-manager, reads the expiry of the engine's
+# mTLS certificates, and forwards everything over PrivateLink to the operations
+# account: metrics by Prometheus remote write, logs to Loki's OTLP endpoint,
+# traces to Tempo's OTLP endpoint. The ops account holds no customer data; the
+# services' telemetry carries none (F-012-AC-23, pkg/telemetry).
+#
+# Environment (set by the fleet overlay; none is a secret):
+#   FAIR_INSTANCE              the instance id, a label on every series
+#   FAIR_OPS_PROMETHEUS_URL    https://…/api/v1/write (ops Prometheus)
+#   FAIR_OPS_LOKI_URL          https://…/otlp (ops Loki's OTLP endpoint)
+#   FAIR_OPS_TEMPO_ENDPOINT    host:port (ops Tempo's OTLP/gRPC receiver)
+#   FAIR_KSM_TARGET            kube-state-metrics host:port
+#   FAIR_CERT_MANAGER_TARGET   cert-manager's metrics host:port
+# Files (mounted read-only; delivered by the External Secrets Operator):
+#   /etc/otelcol/tls/tls.crt, tls.key       the receiver's certificate
+#                                           (cert-manager, ACM Private CA)
+#   /etc/otelcol/ops/ca.crt                 the ops account's CA
+#   /etc/otelcol/ops/tls.crt, tls.key       this instance's client certificate
+#                                           for the ops endpoints (mTLS)
+#   /etc/otelcol/engine/gate.crt            the engine gate's certificate
+#   /etc/otelcol/engine/client.crt          the risk service's engine client
+#                                           certificate (public halves only:
+#                                           keys/engine-gate/tls/tls.crt and
+#                                           keys/risk/engine-client/tls.crt)
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        tls:
+          cert_file: /etc/otelcol/tls/tls.crt
+          key_file: /etc/otelcol/tls/tls.key
+          min_version: "1.2"
+          reload_interval: 1h
+
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: kube-state-metrics
+          scrape_interval: 30s
+          static_configs:
+            - targets: ["${env:FAIR_KSM_TARGET}"]
+        - job_name: cert-manager
+          scrape_interval: 60s
+          static_configs:
+            - targets: ["${env:FAIR_CERT_MANAGER_TARGET}"]
+
+  # The engine's pinned mTLS certificates are the platform's only key material
+  # with an end date (keys.EngineCertValidity); tlscheck.time_left reports
+  # the seconds left (EngineCertificateExpiringSoon).
+  tls_check:
+    collection_interval: 1h
+    targets:
+      - file_path: /etc/otelcol/engine/gate.crt
+      - file_path: /etc/otelcol/engine/client.crt
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  # The log agent's audit-event counts are delta sums; remote write takes
+  # cumulative ones.
+  delta_to_cumulative:
+    max_stale: 15m
+  resource/instance:
+    attributes:
+      - key: fair.instance
+        value: ${env:FAIR_INSTANCE}
+        action: upsert
+  batch: {}
+
+exporters:
+  # Metric names follow the exporter's conventions (docs/operations/telemetry.md);
+  # the alert rules in alerts/ use them.
+  prometheus_remote_write:
+    endpoint: ${env:FAIR_OPS_PROMETHEUS_URL}
+    tls:
+      ca_file: /etc/otelcol/ops/ca.crt
+      cert_file: /etc/otelcol/ops/tls.crt
+      key_file: /etc/otelcol/ops/tls.key
+      min_version: "1.2"
+    external_labels:
+      fair_instance: ${env:FAIR_INSTANCE}
+    resource_to_telemetry_conversion:
+      enabled: false
+    remote_write_queue:
+      enabled: true
+      queue_size: 10000
+    retry_on_failure:
+      enabled: true
+  otlp_http/loki:
+    logs_endpoint: ${env:FAIR_OPS_LOKI_URL}/v1/logs
+    tls:
+      ca_file: /etc/otelcol/ops/ca.crt
+      cert_file: /etc/otelcol/ops/tls.crt
+      key_file: /etc/otelcol/ops/tls.key
+      min_version: "1.2"
+    sending_queue:
+      enabled: true
+    retry_on_failure:
+      enabled: true
+  otlp_grpc/tempo:
+    endpoint: ${env:FAIR_OPS_TEMPO_ENDPOINT}
+    tls:
+      ca_file: /etc/otelcol/ops/ca.crt
+      cert_file: /etc/otelcol/ops/tls.crt
+      key_file: /etc/otelcol/ops/tls.key
+      min_version: "1.2"
+    sending_queue:
+      enabled: true
+    retry_on_failure:
+      enabled: true
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  telemetry:
+    metrics:
+      level: basic
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+  pipelines:
+    metrics:
+      receivers: [otlp, prometheus, tls_check]
+      processors: [memory_limiter, delta_to_cumulative, resource/instance, batch]
+      exporters: [prometheus_remote_write]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/instance, batch]
+      exporters: [otlp_http/loki]
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/instance, batch]
+      exporters: [otlp_grpc/tempo]

@@ -1,0 +1,107 @@
+# OpenTelemetry Collector log agent for a SaaS instance (F-012 T-11;
+# F-012-AC-24; design §3.7; ADR-017): a DaemonSet, one per node.
+#
+# The services log JSON to stdout (slog), and every audit event is also a
+# JSON line there (pkg/audit JSONLines). The agent reads the platform pods'
+# container logs, sends them to the instance's Collector (collector-saas.yaml),
+# and counts the audit events that alerts need, as the metric
+# fair.audit.events{type, severity} (fair_audit_events_total in Prometheus):
+#   audit.verification_failed, audit.verification_recovered   (F-002 T-11)
+#   audit.forward_backlog, audit.capacity_critical             (F-002 T-16, T-20)
+#   posture.drift_detected, posture.drift_resolved             (F-015 T-25)
+#   setting.revert_failed                                      (F-015 T-18)
+# Only the event type and severity become labels; nothing else of the event.
+#
+# Environment:
+#   FAIR_COLLECTOR_ENDPOINT   the instance Collector's OTLP/gRPC host:port
+# Files (mounted read-only):
+#   /var/log/pods                     the node's container logs (hostPath)
+#   /etc/otelcol/ca/ca.crt            the CA of the instance Collector
+#   /var/lib/otelcol                  file offsets (hostPath, per node)
+
+receivers:
+  file_log:
+    include: [/var/log/pods/fair-platform_*/*/*.log]
+    start_at: end
+    include_file_path: true
+    storage: file_storage
+    operators:
+      # CRI or Docker format; adds k8s.namespace.name, k8s.pod.name and
+      # k8s.container.name from the path.
+      - type: container
+      - type: json_parser
+        if: 'body matches "^\\{"'
+        parse_from: body
+        parse_to: attributes
+        on_error: send_quiet
+
+connectors:
+  count:
+    logs:
+      fair.audit.events:
+        description: Audit events the operations alerts follow, by type and severity
+        conditions:
+          - 'attributes["type"] == "audit.verification_failed"'
+          - 'attributes["type"] == "audit.verification_recovered"'
+          - 'attributes["type"] == "audit.forward_backlog"'
+          - 'attributes["type"] == "audit.capacity_critical"'
+          - 'attributes["type"] == "posture.drift_detected"'
+          - 'attributes["type"] == "posture.drift_resolved"'
+          - 'attributes["type"] == "setting.revert_failed"'
+        attributes:
+          - key: type
+          - key: severity
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  # The container is named after its service (deploy/k8s), so logs carry the
+  # same service.name as the service's metrics and traces (Loki's
+  # service_name).
+  resource/service:
+    attributes:
+      - key: service.name
+        from_attribute: k8s.container.name
+        action: insert
+  batch: {}
+
+exporters:
+  otlp_grpc/collector:
+    endpoint: ${env:FAIR_COLLECTOR_ENDPOINT}
+    tls:
+      ca_file: /etc/otelcol/ca/ca.crt
+      min_version: "1.2"
+    sending_queue:
+      enabled: true
+    retry_on_failure:
+      enabled: true
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  file_storage:
+    directory: /var/lib/otelcol
+    create_directory: true
+
+service:
+  extensions: [health_check, file_storage]
+  telemetry:
+    metrics:
+      level: basic
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+  pipelines:
+    logs:
+      receivers: [file_log]
+      processors: [memory_limiter, resource/service, batch]
+      exporters: [otlp_grpc/collector, count]
+    metrics/events:
+      receivers: [count]
+      processors: [batch]
+      exporters: [otlp_grpc/collector]

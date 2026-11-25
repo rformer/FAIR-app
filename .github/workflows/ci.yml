@@ -264,6 +264,18 @@ jobs:
       - name: Spectral lint and rule self-test
         run: bash scripts/openapi-lint.sh
 
+  # F-012 T-11 (F-012-AC-24, AC-25; design §3.7): the alert rules
+  # (promtool check rules and the rule tests), the dashboards' queries and
+  # every OpenTelemetry Collector configuration (otelcol-contrib validate),
+  # with images pinned by digest. TestAlertsHaveRunbooks runs with the unit
+  # tests.
+  observability:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Alert rules, dashboards and Collector configurations
+        run: bash scripts/observability-check.sh
+
   # F-012 T-03 (F-012-AC-05 to AC-07; design §3.2): every image the
   # Dockerfile builds, hardened and checked alike (scripts/image-check.sh:
   # non-root, no shell or package manager, refuses to start unconfigured on a

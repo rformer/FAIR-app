@@ -1,0 +1,91 @@
+# OpenTelemetry Collector for a self-hosted or air-gapped installation
+# (F-012 T-11; F-012-AC-25; design §3.7; ADR-017).
+#
+# Image: otel/opentelemetry-collector-contrib (the official contrib
+# distribution), mirrored and pinned by digest like every other image.
+#
+# It receives the services' OTLP over TLS and exposes the metrics as a
+# Prometheus endpoint for the installation's own Prometheus. Nothing in this
+# file sends anything outside the installation: there is no exporter but the
+# local Prometheus endpoint. To send telemetry to your own collector as well,
+# add collector-selfhosted-forward.yaml as a second --config (see
+# docs/operations/telemetry.md).
+#
+# Point every FAIR service at it with FAIR_OTEL_ENDPOINT=<service>:4317 and
+# FAIR_OTEL_CA_FILE set to the CA that signed /etc/otelcol/tls/tls.crt.
+#
+# Files (mounted read-only; nothing secret is written here):
+#   /etc/otelcol/tls/tls.crt, tls.key   the Collector's server certificate
+#
+# Environment:
+#   FAIR_INSTALLATION   a name for this installation, added to every signal
+#                       (default "fair")
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        tls:
+          cert_file: /etc/otelcol/tls/tls.crt
+          key_file: /etc/otelcol/tls/tls.key
+          min_version: "1.2"
+          reload_interval: 1h
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  resource/installation:
+    attributes:
+      - key: fair.installation
+        value: ${env:FAIR_INSTALLATION:-fair}
+        action: upsert
+  batch: {}
+
+exporters:
+  # The installation's Prometheus scrapes https://<collector>:8889/metrics.
+  # Names follow the exporter's conventions (docs/operations/telemetry.md):
+  # http.server.request.duration becomes
+  # http_server_request_duration_seconds_bucket, and so on.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    tls:
+      cert_file: /etc/otelcol/tls/tls.crt
+      key_file: /etc/otelcol/tls/tls.key
+      min_version: "1.2"
+      reload_interval: 1h
+    resource_to_telemetry_conversion:
+      enabled: false
+    send_timestamps: false
+    metric_expiration: 10m
+  # Discards traces unless the forwarding overlay replaces it.
+  nop: {}
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  telemetry:
+    metrics:
+      level: basic
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/installation, batch]
+      exporters: [prometheus]
+    # Traces are received so the services never see refused exports; they
+    # are kept only if collector-selfhosted-forward.yaml sends them on.
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [nop]

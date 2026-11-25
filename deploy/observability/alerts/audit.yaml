@@ -1,0 +1,77 @@
+# The audit trail's forwarding, verification and capacity (F-012 T-11;
+# F-012-AC-24; design §3.7; F-002).
+#
+# Series:
+#   backlog_audit_forwarding_<destination> (syslog, otlp): records not yet
+#     forwarded, from the audit service (telemetry.Backlog; no series while a
+#     destination is not configured)
+#   backlog_audit_capacity_permille: the trail's storage in per mille of
+#     FAIR_AUDIT_STORAGE_QUOTA, from the audit service
+#   fair_audit_events_total{type, severity}: audit events counted from the
+#     services' stdout by the SaaS log agent (collector-saas-agent.yaml)
+groups:
+  - name: fair-audit
+    rules:
+      # audit.forward_backlog_records is 10,000 in every profile's default.
+      - alert: AuditForwardingBacklogHigh
+        expr: |
+          max by (fair_instance, backlog) ({__name__=~"backlog_audit_forwarding_.+"}) >= 10000
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Audit forwarding to {{ $labels.backlog }} is behind"
+          description: "{{ $value }} audit records in instance {{ $labels.fair_instance }} are waiting for {{ $labels.backlog }}."
+          runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/AuditForwardingBacklogHigh.md
+
+      # Never back to zero and still growing over an hour: the forwarder is
+      # not delivering.
+      - alert: AuditForwardingStalled
+        expr: |
+          max by (fair_instance, backlog) (min_over_time({__name__=~"backlog_audit_forwarding_.+"}[1h])) > 0
+          and on (fair_instance, backlog)
+          max by (fair_instance, backlog) (deriv({__name__=~"backlog_audit_forwarding_.+"}[1h])) > 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Audit forwarding to {{ $labels.backlog }} has stalled"
+          description: "The {{ $labels.backlog }} backlog in instance {{ $labels.fair_instance }} has not emptied for over an hour and keeps growing."
+          runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/AuditForwardingStalled.md
+
+      # The verifier runs every 15 minutes and records
+      # audit.verification_failed on every failing run until a full run
+      # passes (audit.verification_recovered).
+      - alert: AuditVerificationFailed
+        expr: |
+          sum by (fair_instance) (increase(fair_audit_events_total{type="audit.verification_failed"}[30m])) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Audit trail verification failed"
+          description: "The audit trail of instance {{ $labels.fair_instance }} failed integrity verification in the last 30 minutes."
+          runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/AuditVerificationFailed.md
+
+      - alert: AuditCapacityHigh
+        expr: |
+          max by (fair_instance) (backlog_audit_capacity_permille) >= 750
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Audit storage at {{ $value }}‰ of its quota"
+          description: "The audit trail of instance {{ $labels.fair_instance }} uses {{ $value }} per mille of FAIR_AUDIT_STORAGE_QUOTA."
+          runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/AuditCapacityHigh.md
+
+      # At 100% the trail refuses every producer but the audit service
+      # (PF015): every audited change fails closed.
+      - alert: AuditCapacityCritical
+        expr: |
+          max by (fair_instance) (backlog_audit_capacity_permille) >= 900
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Audit storage at {{ $value }}‰ of its quota"
+          description: "The audit trail of instance {{ $labels.fair_instance }} uses {{ $value }} per mille of its quota; at 1000 every audited change is refused."
+          runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/AuditCapacityCritical.md

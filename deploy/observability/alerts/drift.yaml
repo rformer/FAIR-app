@@ -1,0 +1,38 @@
+# Security posture drift (F-012 T-11; F-012-AC-24; design §3.7; F-015
+# T-18, T-25).
+#
+# Series: fair_audit_events_total{type, severity}, audit events counted from
+# the services' stdout by the SaaS log agent (collector-saas-agent.yaml):
+#   posture.drift_detected   a drift finding opened (row MACs, bounds,
+#                            hard floor, missed reverts, heartbeats)
+#   setting.revert_failed    an expired exception's setting could not be
+#                            reverted (a critical finding)
+# Both events are recorded once per finding, so the alert keeps firing for a
+# while after the event; the finding itself stays open on the Posture page
+# until the drift check resolves it.
+# Infrastructure drift (tofu plan) is reported by the daily drift job
+# (F-012 T-14), not here.
+groups:
+  - name: fair-drift
+    rules:
+      - alert: PostureDriftDetected
+        expr: |
+          sum by (fair_instance) (increase(fair_audit_events_total{type="posture.drift_detected"}[15m])) > 0
+        keep_firing_for: 4h
+        labels:
+          severity: critical
+        annotations:
+          summary: "Security posture drift detected"
+          description: "The posture drift check opened a finding in instance {{ $labels.fair_instance }}."
+          runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/PostureDriftDetected.md
+
+      - alert: PostureRevertFailed
+        expr: |
+          sum by (fair_instance) (increase(fair_audit_events_total{type="setting.revert_failed"}[15m])) > 0
+        keep_firing_for: 4h
+        labels:
+          severity: critical
+        annotations:
+          summary: "An expired posture exception could not be reverted"
+          description: "Reverting an expired exception's setting failed in instance {{ $labels.fair_instance }}; the weaker value is still in force."
+          runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/PostureRevertFailed.md

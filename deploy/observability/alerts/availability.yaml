@@ -1,0 +1,86 @@
+# Availability SLO: 99.9% of API requests per service answer without a 5xx
+# (F-012 T-11; F-012-AC-24; design §3.7). Multi-window, multi-burn-rate
+# alerts (error budget 0.1% over 30 days): page at 14.4x (1h and 5m) or 6x
+# (6h and 30m), ticket at 3x (1d and 2h) or 1x (3d and 6h).
+#
+# Series: http_server_request_duration_seconds_count from
+# http.server.request.duration (pkg/telemetry, every service); job is the
+# service (service.name), fair_instance the SaaS instance (the Collector's
+# external label; absent self-hosted). Health probes are excluded.
+groups:
+  - name: fair-availability-rates
+    rules:
+      - record: fair:http_error_ratio:rate5m
+        expr: |
+          sum by (fair_instance, job) (rate(http_server_request_duration_seconds_count{http_response_status_code=~"5..", http_route!~"/healthz|/readyz"}[5m]))
+          / sum by (fair_instance, job) (rate(http_server_request_duration_seconds_count{http_route!~"/healthz|/readyz"}[5m]))
+      - record: fair:http_error_ratio:rate30m
+        expr: |
+          sum by (fair_instance, job) (rate(http_server_request_duration_seconds_count{http_response_status_code=~"5..", http_route!~"/healthz|/readyz"}[30m]))
+          / sum by (fair_instance, job) (rate(http_server_request_duration_seconds_count{http_route!~"/healthz|/readyz"}[30m]))
+      - record: fair:http_error_ratio:rate1h
+        expr: |
+          sum by (fair_instance, job) (rate(http_server_request_duration_seconds_count{http_response_status_code=~"5..", http_route!~"/healthz|/readyz"}[1h]))
+          / sum by (fair_instance, job) (rate(http_server_request_duration_seconds_count{http_route!~"/healthz|/readyz"}[1h]))
+      - record: fair:http_error_ratio:rate2h
+        expr: |
+          sum by (fair_instance, job) (rate(http_server_request_duration_seconds_count{http_response_status_code=~"5..", http_route!~"/healthz|/readyz"}[2h]))
+          / sum by (fair_instance, job) (rate(http_server_request_duration_seconds_count{http_route!~"/healthz|/readyz"}[2h]))
+      - record: fair:http_error_ratio:rate6h
+        expr: |
+          sum by (fair_instance, job) (rate(http_server_request_duration_seconds_count{http_response_status_code=~"5..", http_route!~"/healthz|/readyz"}[6h]))
+          / sum by (fair_instance, job) (rate(http_server_request_duration_seconds_count{http_route!~"/healthz|/readyz"}[6h]))
+      - record: fair:http_error_ratio:rate1d
+        expr: |
+          sum by (fair_instance, job) (rate(http_server_request_duration_seconds_count{http_response_status_code=~"5..", http_route!~"/healthz|/readyz"}[1d]))
+          / sum by (fair_instance, job) (rate(http_server_request_duration_seconds_count{http_route!~"/healthz|/readyz"}[1d]))
+      - record: fair:http_error_ratio:rate3d
+        expr: |
+          sum by (fair_instance, job) (rate(http_server_request_duration_seconds_count{http_response_status_code=~"5..", http_route!~"/healthz|/readyz"}[3d]))
+          / sum by (fair_instance, job) (rate(http_server_request_duration_seconds_count{http_route!~"/healthz|/readyz"}[3d]))
+
+  - name: fair-availability
+    rules:
+      - alert: ApiAvailabilityBudgetBurn
+        expr: |
+          (fair:http_error_ratio:rate1h > (14.4 * 0.001) and fair:http_error_ratio:rate5m > (14.4 * 0.001))
+          or
+          (fair:http_error_ratio:rate6h > (6 * 0.001) and fair:http_error_ratio:rate30m > (6 * 0.001))
+        for: 2m
+        labels:
+          severity: critical
+          slo: availability
+        annotations:
+          summary: "{{ $labels.job }} is burning its availability error budget fast"
+          description: "{{ $labels.job }} in instance {{ $labels.fair_instance }} answers {{ $value | humanizePercentage }} of requests with a 5xx; at this rate the 30-day 0.1% budget is gone in under 5 days."
+          runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/ApiAvailabilityBudgetBurn.md
+
+      - alert: ApiAvailabilityBudgetBurnSlow
+        expr: |
+          (fair:http_error_ratio:rate1d > (3 * 0.001) and fair:http_error_ratio:rate2h > (3 * 0.001))
+          or
+          (fair:http_error_ratio:rate3d > 0.001 and fair:http_error_ratio:rate6h > 0.001)
+        labels:
+          severity: warning
+          slo: availability
+        annotations:
+          summary: "{{ $labels.job }} is burning its availability error budget"
+          description: "{{ $labels.job }} in instance {{ $labels.fair_instance }} answers {{ $value | humanizePercentage }} of requests with a 5xx, above the 0.1% the SLO allows over 30 days."
+          runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/ApiAvailabilityBudgetBurnSlow.md
+
+      # A service with no running pods sends no requests to count; the
+      # Deployment's state comes from kube-state-metrics (scraped by the
+      # instance Collector).
+      - alert: ServiceUnavailable
+        expr: |
+          kube_deployment_status_replicas_available{namespace="fair-platform"} < 1
+          and on (fair_instance, namespace, deployment)
+          kube_deployment_spec_replicas{namespace="fair-platform"} > 0
+        for: 5m
+        labels:
+          severity: critical
+          slo: availability
+        annotations:
+          summary: "{{ $labels.deployment }} has no available pods"
+          description: "Deployment {{ $labels.deployment }} in instance {{ $labels.fair_instance }} has had no available replica for 5 minutes."
+          runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/ServiceUnavailable.md

@@ -1,0 +1,84 @@
+# Background job SLO: 99% of River job attempts per service and queue
+# complete (F-012 T-11; F-012-AC-24; design §3.7). Snoozed attempts are not
+# counted; failed and cancelled ones are. Burn rates as for availability,
+# against a 1% budget.
+#
+# Series: job_duration_seconds_count{job_queue, job_kind, job_outcome} from
+# job.duration (telemetry.River on every River client), and
+# notification_deliveries_total{channel, outcome} from
+# notification.deliveries (notify.Worker; outcomes sent, retry, permanent,
+# refused).
+groups:
+  - name: fair-job-rates
+    rules:
+      - record: fair:job_failure_ratio:rate5m
+        expr: |
+          sum by (fair_instance, job, job_queue) (rate(job_duration_seconds_count{job_outcome=~"failed|cancelled"}[5m]))
+          / sum by (fair_instance, job, job_queue) (rate(job_duration_seconds_count{job_outcome!="snoozed"}[5m]))
+      - record: fair:job_failure_ratio:rate30m
+        expr: |
+          sum by (fair_instance, job, job_queue) (rate(job_duration_seconds_count{job_outcome=~"failed|cancelled"}[30m]))
+          / sum by (fair_instance, job, job_queue) (rate(job_duration_seconds_count{job_outcome!="snoozed"}[30m]))
+      - record: fair:job_failure_ratio:rate1h
+        expr: |
+          sum by (fair_instance, job, job_queue) (rate(job_duration_seconds_count{job_outcome=~"failed|cancelled"}[1h]))
+          / sum by (fair_instance, job, job_queue) (rate(job_duration_seconds_count{job_outcome!="snoozed"}[1h]))
+      - record: fair:job_failure_ratio:rate2h
+        expr: |
+          sum by (fair_instance, job, job_queue) (rate(job_duration_seconds_count{job_outcome=~"failed|cancelled"}[2h]))
+          / sum by (fair_instance, job, job_queue) (rate(job_duration_seconds_count{job_outcome!="snoozed"}[2h]))
+      - record: fair:job_failure_ratio:rate6h
+        expr: |
+          sum by (fair_instance, job, job_queue) (rate(job_duration_seconds_count{job_outcome=~"failed|cancelled"}[6h]))
+          / sum by (fair_instance, job, job_queue) (rate(job_duration_seconds_count{job_outcome!="snoozed"}[6h]))
+      - record: fair:job_failure_ratio:rate1d
+        expr: |
+          sum by (fair_instance, job, job_queue) (rate(job_duration_seconds_count{job_outcome=~"failed|cancelled"}[1d]))
+          / sum by (fair_instance, job, job_queue) (rate(job_duration_seconds_count{job_outcome!="snoozed"}[1d]))
+      - record: fair:job_failure_ratio:rate3d
+        expr: |
+          sum by (fair_instance, job, job_queue) (rate(job_duration_seconds_count{job_outcome=~"failed|cancelled"}[3d]))
+          / sum by (fair_instance, job, job_queue) (rate(job_duration_seconds_count{job_outcome!="snoozed"}[3d]))
+
+  - name: fair-jobs
+    rules:
+      - alert: JobFailureBudgetBurn
+        expr: |
+          (fair:job_failure_ratio:rate1h > (14.4 * 0.01) and fair:job_failure_ratio:rate5m > (14.4 * 0.01))
+          or
+          (fair:job_failure_ratio:rate6h > (6 * 0.01) and fair:job_failure_ratio:rate30m > (6 * 0.01))
+        for: 2m
+        labels:
+          severity: critical
+          slo: jobs
+        annotations:
+          summary: "{{ $labels.job }} queue {{ $labels.job_queue }}: jobs failing fast"
+          description: "{{ $value | humanizePercentage }} of {{ $labels.job }}'s {{ $labels.job_queue }} job attempts in instance {{ $labels.fair_instance }} fail or are cancelled (budget: 1%)."
+          runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/JobFailureBudgetBurn.md
+
+      - alert: JobFailureBudgetBurnSlow
+        expr: |
+          (fair:job_failure_ratio:rate1d > (3 * 0.01) and fair:job_failure_ratio:rate2h > (3 * 0.01))
+          or
+          (fair:job_failure_ratio:rate3d > 0.01 and fair:job_failure_ratio:rate6h > 0.01)
+        labels:
+          severity: warning
+          slo: jobs
+        annotations:
+          summary: "{{ $labels.job }} queue {{ $labels.job_queue }}: jobs failing"
+          description: "{{ $value | humanizePercentage }} of {{ $labels.job }}'s {{ $labels.job_queue }} job attempts in instance {{ $labels.fair_instance }} fail or are cancelled (budget: 1%)."
+          runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/JobFailureBudgetBurnSlow.md
+
+      - alert: NotificationDeliveriesFailing
+        expr: |
+          sum by (fair_instance, channel) (rate(notification_deliveries_total{outcome!="sent"}[30m]))
+          / sum by (fair_instance, channel) (rate(notification_deliveries_total[30m]))
+          > 0.1
+        for: 15m
+        labels:
+          severity: warning
+          slo: jobs
+        annotations:
+          summary: "{{ $labels.channel }} notifications failing"
+          description: "{{ $value | humanizePercentage }} of {{ $labels.channel }} delivery attempts in instance {{ $labels.fair_instance }} were not sent over the last 30 minutes."
+          runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/NotificationDeliveriesFailing.md

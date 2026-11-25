@@ -27,6 +27,13 @@ type instruments struct {
 	backlogOnce sync.Mutex
 }
 
+// SecondBuckets are the bucket boundaries of every duration histogram, in
+// seconds: OpenTelemetry's HTTP boundaries (the SDK's default ones are meant
+// for milliseconds) extended to fifteen minutes for jobs and engine calls.
+// The latency alerts in deploy/observability/alerts read the 1 second
+// bucket (F-012 T-11).
+var SecondBuckets = []float64{0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10, 30, 60, 300, 900}
+
 var (
 	instOnce sync.Once
 	inst     instruments
@@ -36,11 +43,12 @@ func get() *instruments {
 	instOnce.Do(func() {
 		m := otel.GetMeterProvider().Meter(Scope)
 		s := metric.WithUnit("s")
-		inst.httpDur, _ = m.Float64Histogram("http.server.request.duration", s, metric.WithDescription("HTTP requests served"))
-		inst.dbDur, _ = m.Float64Histogram("db.client.operation.duration", s, metric.WithDescription("Database statements"))
-		inst.jobDur, _ = m.Float64Histogram("job.duration", s, metric.WithDescription("Background jobs run (River)"))
+		b := metric.WithExplicitBucketBoundaries(SecondBuckets...)
+		inst.httpDur, _ = m.Float64Histogram("http.server.request.duration", s, b, metric.WithDescription("HTTP requests served"))
+		inst.dbDur, _ = m.Float64Histogram("db.client.operation.duration", s, b, metric.WithDescription("Database statements"))
+		inst.jobDur, _ = m.Float64Histogram("job.duration", s, b, metric.WithDescription("Background jobs run (River)"))
 		inst.messages, _ = m.Int64Counter("messaging.messages", metric.WithDescription("NATS messages published and consumed"))
-		inst.engineDur, _ = m.Float64Histogram("engine.call.duration", s, metric.WithDescription("Simulation engine calls"))
+		inst.engineDur, _ = m.Float64Histogram("engine.call.duration", s, b, metric.WithDescription("Simulation engine calls"))
 		inst.deliveries, _ = m.Int64Counter("notification.deliveries", metric.WithDescription("Notification delivery attempts"))
 	})
 	return &inst

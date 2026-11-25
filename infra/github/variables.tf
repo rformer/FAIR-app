@@ -24,6 +24,7 @@ variable "required_checks" {
     "proto",
     "release-verify",
     "openapi",
+    "observability",
     "images (iam)",
     "images (gateway)",
     "images (posture)",

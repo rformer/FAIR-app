@@ -1,0 +1,174 @@
+# promtool test rules (scripts/observability-check.sh): the alerts fire on
+# the series the services and exporters emit, and stay quiet otherwise.
+rule_files:
+  - ../alerts/availability.yaml
+  - ../alerts/latency.yaml
+  - ../alerts/jobs.yaml
+  - ../alerts/audit.yaml
+  - ../alerts/expiry.yaml
+  - ../alerts/backups.yaml
+  - ../alerts/drift.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # 2% of the risk service's requests fail (20x the budget); the gateway's
+  # do not.
+  - interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_count{fair_instance="i1", job="risk", http_route="/api/v1/scenarios/{id}", http_request_method="GET", http_response_status_code="200"}'
+        values: '0+98x120'
+      - series: 'http_server_request_duration_seconds_count{fair_instance="i1", job="risk", http_route="/api/v1/scenarios/{id}", http_request_method="GET", http_response_status_code="500"}'
+        values: '0+2x120'
+      - series: 'http_server_request_duration_seconds_count{fair_instance="i1", job="gateway", http_route="/api/v1/", http_request_method="GET", http_response_status_code="200"}'
+        values: '0+100x120'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: ApiAvailabilityBudgetBurn
+        exp_alerts:
+          - exp_labels: { severity: critical, slo: availability, fair_instance: i1, job: risk }
+            exp_annotations:
+              summary: "risk is burning its availability error budget fast"
+              description: "risk in instance i1 answers 2% of requests with a 5xx; at this rate the 30-day 0.1% budget is gone in under 5 days."
+              runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/ApiAvailabilityBudgetBurn.md
+
+  # Requests at 2 s: p95 above 1 s, below 2.5 s.
+  - interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_bucket{fair_instance="i1", job="risk", http_route="/api/v1/scenarios", le="1"}'
+        values: '0x90'
+      - series: 'http_server_request_duration_seconds_bucket{fair_instance="i1", job="risk", http_route="/api/v1/scenarios", le="2.5"}'
+        values: '0+60x90'
+      - series: 'http_server_request_duration_seconds_bucket{fair_instance="i1", job="risk", http_route="/api/v1/scenarios", le="+Inf"}'
+        values: '0+60x90'
+      - series: 'http_server_request_duration_seconds_count{fair_instance="i1", job="risk", http_route="/api/v1/scenarios"}'
+        values: '0+60x90'
+    alert_rule_test:
+      - eval_time: 75m
+        alertname: ApiLatencyP95High
+        exp_alerts:
+          - exp_labels: { severity: warning, slo: latency, fair_instance: i1, job: risk, http_route: /api/v1/scenarios }
+            exp_annotations:
+              summary: "risk /api/v1/scenarios p95 latency above 1 s"
+              description: "The 95th percentile of risk /api/v1/scenarios in instance i1 is 2.425s (SLO: 1 s)."
+              runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/ApiLatencyP95High.md
+      - eval_time: 75m
+        alertname: ApiLatencyP95Severe
+        exp_alerts: []
+
+  # A tenth of the analysis queue's attempts fail; snoozes do not count.
+  - interval: 1m
+    input_series:
+      - series: 'job_duration_seconds_count{fair_instance="i1", job="risk", job_queue="analysis", job_kind="simulate", job_outcome="completed"}'
+        values: '0+9x480'
+      - series: 'job_duration_seconds_count{fair_instance="i1", job="risk", job_queue="analysis", job_kind="simulate", job_outcome="failed"}'
+        values: '0+1x480'
+      - series: 'job_duration_seconds_count{fair_instance="i1", job="risk", job_queue="report", job_kind="report", job_outcome="snoozed"}'
+        values: '0+50x120'
+      - series: 'job_duration_seconds_count{fair_instance="i1", job="risk", job_queue="report", job_kind="report", job_outcome="completed"}'
+        values: '0+5x120'
+    alert_rule_test:
+      - eval_time: 7h
+        alertname: JobFailureBudgetBurn
+        exp_alerts:
+          - exp_labels: { severity: critical, slo: jobs, fair_instance: i1, job: risk, job_queue: analysis }
+            exp_annotations:
+              summary: "risk queue analysis: jobs failing fast"
+              description: "10% of risk's analysis job attempts in instance i1 fail or are cancelled (budget: 1%)."
+              runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/JobFailureBudgetBurn.md
+
+  # The syslog backlog grows for over an hour; the OTLP one drains.
+  - interval: 1m
+    input_series:
+      - series: 'backlog_audit_forwarding_syslog{fair_instance="i1", job="audit", backlog="audit_forwarding_syslog"}'
+        values: '100+200x120'
+      - series: 'backlog_audit_forwarding_otlp{fair_instance="i1", job="audit", backlog="audit_forwarding_otlp"}'
+        values: '0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50 0 50'
+      - series: 'backlog_audit_capacity_permille{fair_instance="i1", job="audit", backlog="audit_capacity_permille"}'
+        values: '800x60'
+    alert_rule_test:
+      - eval_time: 80m
+        alertname: AuditForwardingStalled
+        exp_alerts:
+          - exp_labels: { severity: critical, fair_instance: i1, backlog: audit_forwarding_syslog }
+            exp_annotations:
+              summary: "Audit forwarding to audit_forwarding_syslog has stalled"
+              description: "The audit_forwarding_syslog backlog in instance i1 has not emptied for over an hour and keeps growing."
+              runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/AuditForwardingStalled.md
+      - eval_time: 80m
+        alertname: AuditForwardingBacklogHigh
+        exp_alerts:
+          - exp_labels: { severity: warning, fair_instance: i1, backlog: audit_forwarding_syslog }
+            exp_annotations:
+              summary: "Audit forwarding to audit_forwarding_syslog is behind"
+              description: "16100 audit records in instance i1 are waiting for audit_forwarding_syslog."
+              runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/AuditForwardingBacklogHigh.md
+      - eval_time: 30m
+        alertname: AuditCapacityHigh
+        exp_alerts:
+          - exp_labels: { severity: warning, fair_instance: i1 }
+            exp_annotations:
+              summary: "Audit storage at 800‰ of its quota"
+              description: "The audit trail of instance i1 uses 800 per mille of FAIR_AUDIT_STORAGE_QUOTA."
+              runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/AuditCapacityHigh.md
+      - eval_time: 30m
+        alertname: AuditCapacityCritical
+        exp_alerts: []
+
+  # One failed verification, then drift; nothing after the windows.
+  - interval: 1m
+    input_series:
+      - series: 'fair_audit_events_total{fair_instance="i1", type="audit.verification_failed", severity="critical"}'
+        values: '0x10 1x300'
+      - series: 'fair_audit_events_total{fair_instance="i1", type="posture.drift_detected", severity="high"}'
+        values: '0x10 1x300'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: AuditVerificationFailed
+        exp_alerts:
+          - exp_labels: { severity: critical, fair_instance: i1 }
+            exp_annotations:
+              summary: "Audit trail verification failed"
+              description: "The audit trail of instance i1 failed integrity verification in the last 30 minutes."
+              runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/AuditVerificationFailed.md
+      - eval_time: 90m
+        alertname: AuditVerificationFailed
+        exp_alerts: []
+      - eval_time: 3h
+        alertname: PostureDriftDetected
+        exp_alerts:
+          - exp_labels: { severity: critical, fair_instance: i1 }
+            exp_annotations:
+              summary: "Security posture drift detected"
+              description: "The posture drift check opened a finding in instance i1."
+              runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/PostureDriftDetected.md
+      - eval_time: 299m
+        alertname: PostureRevertFailed
+        exp_alerts: []
+
+  # An engine certificate with 20 days left, the other with 300.
+  - interval: 1m
+    input_series:
+      - series: 'tlscheck_time_left_seconds{fair_instance="i1", tlscheck_x509_cn="engine.fair-platform.svc"}'
+        values: '1728000x90'
+      - series: 'tlscheck_time_left_seconds{fair_instance="i1", tlscheck_x509_cn="risk"}'
+        values: '25920000x90'
+      - series: 'aws_backup_number_of_backup_jobs_failed_sum{account_id="111111111111"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 80m
+        alertname: EngineCertificateExpiringSoon
+        exp_alerts:
+          - exp_labels: { severity: warning, fair_instance: i1, tlscheck_x509_cn: engine.fair-platform.svc }
+            exp_annotations:
+              summary: "Engine mTLS certificate engine.fair-platform.svc expires within 30 days"
+              description: "The engine certificate engine.fair-platform.svc in instance i1 expires in 20d 0h 0m 0s; rotate with iam keys rotate -kind engine."
+              runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/EngineCertificateExpiringSoon.md
+      - eval_time: 5m
+        alertname: BackupJobFailed
+        exp_alerts:
+          - exp_labels: { severity: critical, account_id: "111111111111" }
+            exp_annotations:
+              summary: "A backup or backup copy job failed"
+              description: "AWS Backup reports 1 failed backup or copy jobs in account 111111111111."
+              runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/BackupJobFailed.md

@@ -1,0 +1,22 @@
+# Backup failures (F-012 T-11; F-012-AC-24; design §3.7, §3.5; OQ8: RPO
+# 15 minutes, RTO 4 hours).
+#
+# Series: AWS Backup's NumberOfBackupJobsFailed and NumberOfCopyJobsFailed
+# (the copy to the second GovCloud region), from the CloudWatch exporter
+# (YACE) in the operations account, per instance account (account_id).
+# RDS point-in-time recovery is continuous and has no job to fail; it is
+# checked by the quarterly restore test.
+groups:
+  - name: fair-backups
+    rules:
+      - alert: BackupJobFailed
+        expr: |
+          sum by (account_id) (aws_backup_number_of_backup_jobs_failed_sum) > 0
+          or
+          sum by (account_id) (aws_backup_number_of_copy_jobs_failed_sum) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "A backup or backup copy job failed"
+          description: "AWS Backup reports {{ $value }} failed backup or copy jobs in account {{ $labels.account_id }}."
+          runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/BackupJobFailed.md

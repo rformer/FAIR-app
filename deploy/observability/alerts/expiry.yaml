@@ -1,0 +1,48 @@
+# Certificate and key expiry within 30 days (F-012 T-11; F-012-AC-24;
+# design §3.7).
+#
+# Series:
+#   certmanager_certificate_expiration_timestamp_seconds: cert-manager's own
+#     metrics (internal TLS from the ACM Private CA), scraped by the instance
+#     Collector
+#   aws_certificatemanager_days_to_expiry_minimum: ACM's DaysToExpiry
+#     (public load balancer certificates), from the CloudWatch exporter
+#     (YACE) in the operations account
+#   tlscheck_time_left_seconds: the engine's pinned mTLS certificates
+#     (keys/engine-gate/tls, keys/risk/engine-client; the only FAIR key
+#     material with an end date), read by the Collector's tls_check receiver
+groups:
+  - name: fair-expiry
+    rules:
+      - alert: CertificateExpiringSoon
+        expr: |
+          (certmanager_certificate_expiration_timestamp_seconds - time()) < 30 * 86400
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Certificate {{ $labels.namespace }}/{{ $labels.name }} expires within 30 days"
+          description: "cert-manager Certificate {{ $labels.namespace }}/{{ $labels.name }} in instance {{ $labels.fair_instance }} expires in {{ $value | humanizeDuration }}."
+          runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/CertificateExpiringSoon.md
+
+      - alert: AcmCertificateExpiringSoon
+        expr: |
+          aws_certificatemanager_days_to_expiry_minimum < 30
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "ACM certificate expires in {{ $value }} days"
+          description: "ACM certificate {{ $labels.dimension_CertificateArn }} in account {{ $labels.account_id }} expires in {{ $value }} days."
+          runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/AcmCertificateExpiringSoon.md
+
+      - alert: EngineCertificateExpiringSoon
+        expr: |
+          tlscheck_time_left_seconds < 30 * 86400
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Engine mTLS certificate {{ $labels.tlscheck_x509_cn }} expires within 30 days"
+          description: "The engine certificate {{ $labels.tlscheck_x509_cn }} in instance {{ $labels.fair_instance }} expires in {{ $value | humanizeDuration }}; rotate with iam keys rotate -kind engine."
+          runbook_url: https://github.com/rformer/FAIR-app/blob/main/docs/operations/runbooks/EngineCertificateExpiringSoon.md
