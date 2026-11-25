@@ -71,6 +71,7 @@ import (
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
+	"github.com/rformer/fair-app/pkg/telemetry"
 )
 
 // API serves the estimate API.
@@ -136,6 +137,8 @@ var Prefixes = []string{"/api/v1/estimates", "/api/v1/calibration"}
 // every route that is not exempt.
 func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {
 	exempt, checked := http.NewServeMux(), http.NewServeMux()
+	// F-012 T-10: each mux reports its route to telemetry (telemetry.Routed).
+	routedExempt, routedChecked := telemetry.Routed(exempt), telemetry.Routed(checked)
 	for _, rt := range routes {
 		h := rt.h
 		mux := checked
@@ -147,10 +150,10 @@ func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {
 			h(a, w, r, p)
 		})
 	}
-	idem := server.Idempotent(riskapi.IdempotencyStore{DB: a.DB})(checked)
+	idem := server.Idempotent(riskapi.IdempotencyStore{DB: a.DB})(routedChecked)
 	both := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, pattern := exempt.Handler(r); pattern != "" {
-			exempt.ServeHTTP(w, r)
+			routedExempt.ServeHTTP(w, r)
 			return
 		}
 		idem.ServeHTTP(w, r)

@@ -30,6 +30,7 @@ import (
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
 	"github.com/rformer/fair-app/pkg/settings"
+	"github.com/rformer/fair-app/pkg/telemetry"
 )
 
 // Prefix is the API's base path.
@@ -116,7 +117,7 @@ func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {
 			h(a, w, r, p)
 		})
 	}
-	return server.Authenticate(kp, "posture", now)(server.Idempotent(posture.IdempotencyStore{DB: a.DB})(mux))
+	return server.Authenticate(kp, "posture", now)(server.Idempotent(posture.IdempotencyStore{DB: a.DB})(telemetry.Routed(mux)))
 }
 
 // --- helpers --------------------------------------------------------------

@@ -28,6 +28,7 @@ import (
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
+	"github.com/rformer/fair-app/pkg/telemetry"
 )
 
 // F-003 T-05 (AC-01 to AC-06, AC-15, AC-21, AC-26, AC-28, AC-29): the
@@ -57,7 +58,7 @@ func newRiskAPI(t *testing.T) *riskAPIEnv {
 	pool := r.appPool()
 	api := &riskapi.API{Reasons: reason.Static{}, DB: pool, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool)}),
 		Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: pool})}
-	srv := httptest.NewServer(api.Handler(keys, nil))
+	srv := httptest.NewServer(telemetry.HTTP(api.Handler(keys, nil))) // as server.New serves it (F-012 T-10)
 	t.Cleanup(srv.Close)
 	return &riskAPIEnv{riskEnv: r, url: srv.URL, keys: keys}
 }

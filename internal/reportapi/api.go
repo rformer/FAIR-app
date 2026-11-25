@@ -50,6 +50,7 @@ import (
 	"github.com/rformer/fair-app/internal/riskapi"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/authz"
+	"github.com/rformer/fair-app/pkg/telemetry"
 )
 
 const (
@@ -118,7 +119,7 @@ func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {
 			h(a, w, r, p)
 		})
 	}
-	return server.Authenticate(kp, "risk", now)(server.Idempotent(riskapi.IdempotencyStore{DB: a.DB})(mux))
+	return server.Authenticate(kp, "risk", now)(server.Idempotent(riskapi.IdempotencyStore{DB: a.DB})(telemetry.Routed(mux)))
 }
 
 var uuidRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)

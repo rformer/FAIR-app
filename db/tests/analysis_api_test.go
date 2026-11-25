@@ -33,6 +33,7 @@ import (
 	"github.com/rformer/fair-app/internal/reason"
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
+	"github.com/rformer/fair-app/pkg/telemetry"
 )
 
 // F-005 T-11 (F-005-AC-01 to AC-06, AC-11 to AC-15, AC-21 to AC-23; design
@@ -252,7 +253,7 @@ func analysisAPI(t *testing.T, ra *riskAPIEnv, lim analysis.Limits, engine bool)
 		api.Enqueue = analysis.Enqueuer(rc)
 		api.EnqueueAggregate = analysis.AggregateEnqueuer(rc)
 	}
-	srv := httptest.NewServer(api.Handler(ra.keys, nil))
+	srv := httptest.NewServer(telemetry.HTTP(api.Handler(ra.keys, nil))) // as server.New serves it (F-012 T-10)
 	t.Cleanup(srv.Close)
 	aa := *ra
 	aa.url = srv.URL

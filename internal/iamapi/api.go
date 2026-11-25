@@ -119,6 +119,7 @@ import (
 	"github.com/rformer/fair-app/internal/config"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/authz"
+	"github.com/rformer/fair-app/pkg/telemetry"
 )
 
 // API serves iam's administration routes.
@@ -250,7 +251,7 @@ func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {
 			h(a, w, r, p)
 		})
 	}
-	return server.Authenticate(kp, "iam", now)(server.Idempotent(IdempotencyStore{DB: a.DB})(mux))
+	return server.Authenticate(kp, "iam", now)(server.Idempotent(IdempotencyStore{DB: a.DB})(telemetry.Routed(mux)))
 }
 
 func (a *API) airGapped() bool { return a.DeploymentMode == config.ModeAirGapped }

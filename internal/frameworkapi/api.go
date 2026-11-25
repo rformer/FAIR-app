@@ -47,6 +47,7 @@ import (
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
+	"github.com/rformer/fair-app/pkg/telemetry"
 )
 
 // API serves the framework API.
@@ -120,7 +121,7 @@ func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {
 	}
 	// Imports take files up to framework.MaxFile (the rest of the request
 	// is small).
-	return server.Authenticate(kp, "risk", now)(server.IdempotentLimit(riskapi.IdempotencyStore{DB: a.DB}, framework.MaxFile+64<<10)(mux))
+	return server.Authenticate(kp, "risk", now)(server.IdempotentLimit(riskapi.IdempotencyStore{DB: a.DB}, framework.MaxFile+64<<10)(telemetry.Routed(mux)))
 }
 
 var (

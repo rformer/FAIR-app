@@ -72,6 +72,7 @@ import (
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
+	"github.com/rformer/fair-app/pkg/telemetry"
 )
 
 // Authorizer checks grants (authz.Cache).
@@ -158,7 +159,7 @@ func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {
 			h(a, w, r, p)
 		})
 	}
-	return server.Authenticate(kp, "risk", now)(server.Idempotent(IdempotencyStore{DB: a.DB})(mux))
+	return server.Authenticate(kp, "risk", now)(server.Idempotent(IdempotencyStore{DB: a.DB})(telemetry.Routed(mux)))
 }
 
 // --- permissions -------------------------------------------------------------

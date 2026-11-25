@@ -43,6 +43,7 @@ import (
 	"github.com/rformer/fair-app/internal/riskapi"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/authz"
+	"github.com/rformer/fair-app/pkg/telemetry"
 )
 
 // API serves the imports API.
@@ -108,7 +109,7 @@ func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {
 		})
 	}
 	store := riskapi.IdempotencyStore{DB: a.DB}
-	small, large := server.Idempotent(store)(mux), server.IdempotentLimit(store, UploadLimit)(mux)
+	small, large := server.Idempotent(store)(telemetry.Routed(mux)), server.IdempotentLimit(store, UploadLimit)(telemetry.Routed(mux))
 	return server.Authenticate(kp, "risk", now)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if isUpload(r) {
 			large.ServeHTTP(w, r)

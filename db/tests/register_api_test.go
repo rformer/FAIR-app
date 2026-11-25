@@ -16,6 +16,7 @@ import (
 	"github.com/rformer/fair-app/internal/registerapi"
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
+	"github.com/rformer/fair-app/pkg/telemetry"
 )
 
 // F-007 T-04 (F-007-AC-01 to AC-05, AC-19, AC-21, AC-22; design §6, §8):
@@ -35,7 +36,7 @@ func registerAPI(t *testing.T, ra *riskAPIEnv) *riskAPIEnv {
 	}
 	api := &registerapi.API{DB: pool, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool)}),
 		Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: pool}), EnqueueAggregate: analysis.AggregateEnqueuer(rc)}
-	srv := httptest.NewServer(api.Handler(ra.keys, nil))
+	srv := httptest.NewServer(telemetry.HTTP(api.Handler(ra.keys, nil))) // as server.New serves it (F-012 T-10)
 	t.Cleanup(srv.Close)
 	rg := *ra
 	rg.url = srv.URL

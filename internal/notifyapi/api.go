@@ -32,6 +32,7 @@ import (
 	"github.com/rformer/fair-app/internal/riskapi"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/authz"
+	"github.com/rformer/fair-app/pkg/telemetry"
 )
 
 // API serves the notifications API.
@@ -94,7 +95,7 @@ func (a *API) Handler(kp authz.KeyProvider, now func() time.Time) http.Handler {
 			h(a, w, r, p)
 		})
 	}
-	return server.Authenticate(kp, "notify", now)(server.Idempotent(riskapi.IdempotencyStore{DB: a.DB})(mux))
+	return server.Authenticate(kp, "notify", now)(server.Idempotent(riskapi.IdempotencyStore{DB: a.DB})(telemetry.Routed(mux)))
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

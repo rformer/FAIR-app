@@ -24,6 +24,7 @@ import (
 	"github.com/rformer/fair-app/internal/reports/doc"
 	"github.com/rformer/fair-app/pkg/authz"
 	"github.com/rformer/fair-app/pkg/settings"
+	"github.com/rformer/fair-app/pkg/telemetry"
 )
 
 // F-010 T-09 (F-010-AC-14 to AC-18, AC-22, AC-23; design §3.3, §3.6):
@@ -110,7 +111,7 @@ func reportAPI(t *testing.T, ra *riskAPIEnv, with ...map[string]reports.Kind) *r
 	}
 	api := &reportapi.API{DB: pool, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool)}), Kinds: kinds,
 		Enqueue: reports.Enqueuer(rc), Store: store, Settings: sc}
-	srv := httptest.NewServer(api.Handler(ra.keys, nil))
+	srv := httptest.NewServer(telemetry.HTTP(api.Handler(ra.keys, nil))) // as server.New serves it (F-012 T-10)
 	t.Cleanup(srv.Close)
 	rp := *ra
 	rp.url = srv.URL

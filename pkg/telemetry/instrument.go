@@ -55,10 +55,15 @@ func HTTP(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		ctx, span := tracer().Start(r.Context(), "HTTP "+r.Method, trace.WithSpanKind(trace.SpanKindServer))
+		matched := &route{}
+		ctx = context.WithValue(ctx, routeKey{}, matched)
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		req := r.WithContext(ctx)
 		next.ServeHTTP(sw, req)
-		route := req.Pattern // set by http.ServeMux on the request it routed
+		route := matched.get() // the innermost mux's pattern (Routed)
+		if route == "" {
+			route = req.Pattern // set by http.ServeMux on the request it routed
+		}
 		if route == "" {
 			route = "unmatched"
 		} else if i := strings.IndexByte(route, ' '); i >= 0 {
@@ -74,6 +79,39 @@ func HTTP(next http.Handler) http.Handler {
 		span.End()
 		get().httpDur.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(attrs...))
 	})
+}
+
+// Routed wraps a mux mounted below another (each API's own routes) so the
+// pattern it matched names the request's span and metrics, not the prefix
+// the outer mux matched.
+func Routed(mux http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mux.ServeHTTP(w, r) // http.ServeMux sets r.Pattern on this request
+		if m, ok := r.Context().Value(routeKey{}).(*route); ok && r.Pattern != "" {
+			m.set(r.Pattern)
+		}
+	})
+}
+
+type routeKey struct{}
+
+type route struct {
+	mu      sync.Mutex
+	pattern string
+}
+
+func (r *route) set(p string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.pattern == "" { // the innermost mux returns first
+		r.pattern = p
+	}
+}
+
+func (r *route) get() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.pattern
 }
 
 type statusWriter struct {

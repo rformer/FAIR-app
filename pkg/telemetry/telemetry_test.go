@@ -301,3 +301,18 @@ func TestNoEgressWhenOff(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 	}
 }
+
+// F-012 T-10: an API mounted under a prefix names its spans by its own
+// route, not the prefix the outer mux matched.
+func TestRoutedNamesInnerRoute(t *testing.T) {
+	spans.Reset()
+	inner := http.NewServeMux()
+	inner.HandleFunc("GET /api/v1/register/risks/{id}", func(http.ResponseWriter, *http.Request) {})
+	outer := http.NewServeMux()
+	outer.Handle("/api/v1/register/", Routed(inner))
+	HTTP(outer).ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/register/risks/abc-123", nil))
+	got := spans.GetSpans()
+	if len(got) != 1 || got[0].Name != "GET /api/v1/register/risks/{id}" {
+		t.Fatalf("spans %v", got)
+	}
+}

@@ -14,6 +14,7 @@ import (
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/audit"
 	"github.com/rformer/fair-app/pkg/authz"
+	"github.com/rformer/fair-app/pkg/telemetry"
 )
 
 // estimateAPI is a risk API environment whose calls go to the estimate API
@@ -23,7 +24,7 @@ func estimateAPI(t *testing.T, ra *riskAPIEnv) *riskAPIEnv {
 	pool := ra.appPool()
 	api := &estimateapi.API{DB: pool, Authz: authz.NewCache(authz.CacheOptions{Loader: authz.DBLoader(pool)}),
 		Audit: audit.WithTrail(audit.NewMemory(), audit.Trail{DB: pool})}
-	srv := httptest.NewServer(api.Handler(ra.keys, nil))
+	srv := httptest.NewServer(telemetry.HTTP(api.Handler(ra.keys, nil))) // as server.New serves it (F-012 T-10)
 	t.Cleanup(srv.Close)
 	ea := *ra
 	ea.url = srv.URL
