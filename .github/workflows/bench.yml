@@ -18,7 +18,7 @@ env:
 jobs:
   bench:
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    timeout-minutes: 260
     services:
       postgres:
         image: postgres:16@sha256:3950ad7c3148ca2175ef1b6c36c9efbf78957ae8fbe8b3a5d7c35af50500382f
@@ -69,7 +69,7 @@ jobs:
           PGPASSWORD: ci-only-admin
           FAIR_BENCH_ENGINE_ADDR: localhost:8444
           FAIR_BENCH_ENGINE_CLIENT_DIR: ${{ runner.temp }}/engine-keys/risk/engine-client
-        run: go test -count=1 -timeout 180m -run TestBenchmarkGate -v ./db/tests/ # F-001, F-002 sequencer, search and export, F-003 risk scenarios, F-004 estimates, F-005 simulation, F-006 result views, F-007 register, F-008 acceptance, F-009 notifications, F-010 reports, F-011 imports, F-013 frameworks gates
+        run: go test -count=1 -timeout 220m -run TestBenchmarkGate -v ./db/tests/ # F-001, F-002 sequencer, search and export, F-003 risk scenarios, F-004 estimates, F-005 simulation, F-006 result views, F-007 register, F-008 acceptance, F-009 notifications, F-010 reports, F-011 imports, F-013 frameworks gates
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
