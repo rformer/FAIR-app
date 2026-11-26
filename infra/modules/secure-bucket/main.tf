@@ -2,7 +2,9 @@
 # of the platform is made: KMS encryption under the caller's key, versioned,
 # no public access, owner-enforced objects, TLS 1.2 or later only, uploads
 # that name another encryption refused, optional Object Lock and access
-# logging. Every other module creates its buckets through this one.
+# logging, optional replication to another region (F-012 T-13: the
+# instances' audit and store buckets). Every other module creates its
+# buckets through this one.
 locals {
   arn = "arn:${var.partition}:s3:::${var.name}"
 
@@ -47,10 +49,10 @@ locals {
 }
 
 resource "aws_s3_bucket" "this" {
-  #checkov:skip=CKV_AWS_144:Cross-region replication is not part of the core accounts' buckets: S3 keeps them across three Availability Zones and Object Lock keeps the evidence; the instances' backups replicate to the second GovCloud region (T-13).
+  #checkov:skip=CKV_AWS_144:Replication is the caller's choice (var.replication, aws_s3_bucket_replication_configuration below): the instances' audit WORM, audit store and report store replicate to the second GovCloud region (T-13); the core accounts' buckets, access-log buckets and the replicas themselves do not (S3 keeps them across three Availability Zones, Object Lock keeps the evidence).
   #checkov:skip=CKV2_AWS_62:No consumer of object events: reads and writes are recorded by the organization trail and the server access logs.
   bucket              = var.name
-  object_lock_enabled = var.object_lock != null
+  object_lock_enabled = var.object_lock != null || var.object_lock_enabled
   force_destroy       = false
   tags                = var.tags
 }
@@ -123,6 +125,63 @@ resource "aws_s3_bucket_lifecycle_configuration" "this" {
       for_each = var.noncurrent_days == null ? [] : [var.noncurrent_days]
       content {
         noncurrent_days = noncurrent_version_expiration.value
+      }
+    }
+
+    # Replicas only: the source's deletes of named versions do not
+    # replicate, so a replica ages its copies out itself (never before
+    # Object Lock's retention: S3 refuses to remove a locked version).
+    dynamic "expiration" {
+      for_each = var.expiration_days == null ? [] : [var.expiration_days]
+      content {
+        days = expiration.value
+      }
+    }
+  }
+
+  depends_on = [aws_s3_bucket_versioning.this]
+}
+
+# Every new object version is copied to the destination bucket (another
+# region, same account) under the destination's key; deletes are not
+# replicated (delete markers off; deletes of versions never replicate).
+resource "aws_s3_bucket_replication_configuration" "this" {
+  count  = var.replication == null ? 0 : 1
+  bucket = aws_s3_bucket.this.id
+  role   = var.replication.role_arn
+
+  rule {
+    id     = "replica"
+    status = "Enabled"
+    filter {}
+
+    delete_marker_replication {
+      status = "Disabled"
+    }
+
+    source_selection_criteria {
+      sse_kms_encrypted_objects {
+        status = "Enabled"
+      }
+    }
+
+    destination {
+      bucket        = var.replication.destination_bucket_arn
+      storage_class = "STANDARD"
+      encryption_configuration {
+        replica_kms_key_id = var.replication.destination_kms_key_arn
+      }
+      replication_time {
+        status = "Enabled"
+        time {
+          minutes = 15
+        }
+      }
+      metrics {
+        status = "Enabled"
+        event_threshold {
+          minutes = 15
+        }
       }
     }
   }

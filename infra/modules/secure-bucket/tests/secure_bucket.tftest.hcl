@@ -107,3 +107,60 @@ run "kms_key_required" {
   }
   expect_failures = [var.kms_key_arn]
 }
+
+run "object_lock_without_default_retention" {
+  command = plan
+  variables {
+    object_lock_enabled = true
+  }
+
+  assert {
+    condition     = aws_s3_bucket.this.object_lock_enabled && length(aws_s3_bucket_object_lock_configuration.this) == 0 && output.object_lock == null
+    error_message = "Object Lock enabled, every write setting its own retention"
+  }
+}
+
+run "replication_to_another_bucket" {
+  command = plan
+  variables {
+    replication = {
+      role_arn                = "arn:aws-us-gov:iam::111111111111:role/fair-test-replication"
+      destination_bucket_arn  = "arn:aws-us-gov:s3:::fair-test-replica"
+      destination_kms_key_arn = "arn:aws-us-gov:kms:us-gov-east-1:111111111111:key/replica"
+    }
+  }
+
+  assert {
+    condition     = output.replication.destination_bucket_arn == "arn:aws-us-gov:s3:::fair-test-replica" && output.replication.replica_kms_key_arn == "arn:aws-us-gov:kms:us-gov-east-1:111111111111:key/replica"
+    error_message = "new versions replicate to the destination under its key"
+  }
+  assert {
+    condition     = aws_s3_bucket_replication_configuration.this[0].rule[0].delete_marker_replication[0].status == "Disabled"
+    error_message = "deletes do not replicate"
+  }
+  assert {
+    condition     = aws_s3_bucket_replication_configuration.this[0].rule[0].source_selection_criteria[0].sse_kms_encrypted_objects[0].status == "Enabled"
+    error_message = "KMS-encrypted objects replicate"
+  }
+}
+
+run "no_replication_unless_asked" {
+  command = plan
+
+  assert {
+    condition     = length(aws_s3_bucket_replication_configuration.this) == 0 && output.replication == null
+    error_message = "no replication by default"
+  }
+}
+
+run "replica_expiration" {
+  command = plan
+  variables {
+    expiration_days = 30
+  }
+
+  assert {
+    condition     = one([for r in aws_s3_bucket_lifecycle_configuration.this.rule : one(r.expiration).days if r.id == "housekeeping"]) == 30
+    error_message = "current versions expire after the asked days"
+  }
+}

@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# F-012 T-02, T-12 (F-012-AC-01, AC-14, AC-15; design §3.5): check the
+# F-012 T-02, T-12, T-13 (F-012-AC-01, AC-14, AC-15; design §3.5): check the
 # infrastructure code without reaching a cloud:
 #   - tofu fmt -check over infra/;
 #   - for every root and module (each directory under infra/ holding *.tf):
 #     tofu init -backend=false against the committed lock file, validate,
-#     and test (mock providers: no AWS or GitHub call);
+#     and test (mock providers: no AWS or GitHub call; modules taking
+#     aliased providers, such as modules/instance's aws.replica, mock each);
 #   - Checkov over infra/ with every Terraform check (the FedRAMP Moderate
 #     selection is a Prisma Cloud filter; without it the whole set runs,
 #     which contains it). Findings fail; suppressions are inline with

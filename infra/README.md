@@ -13,11 +13,36 @@ OpenTofu for the AWS GovCloud (US) organization that runs the SaaS offering, and
 | `organization/` | management | the organization, OUs `core` and `instances`, the guardrails (SCPs), the core accounts, delegated administrators, the management account's baseline |
 | `security/` | security | the log archive (Object Lock, compliance mode), the organization trail, GuardDuty and Config for the organization |
 | `shared/` | shared | the KMS release key and its sign-only role (release-sign.yml), the ECR release mirror |
-| `ops/` | ops | evidence, Loki and Tempo storage; the ops cluster follows with T-13's cluster module |
+| `ops/` | ops | evidence, Loki and Tempo storage; the ops cluster is still to come (T-13 built the instance module only) |
 | `github/` | — | branch protection and the repository's OIDC subject template (F-012 T-02, T-12) |
-| `modules/` | — | `secure-bucket`, `guardrails`, `account-baseline`, `org-security`, `release-signing`, `ecr-mirror`, `observability` |
+| `modules/` | — | `secure-bucket`, `guardrails`, `account-baseline`, `org-security`, `release-signing`, `ecr-mirror`, `observability`, `instance` |
 
-Customer instances (one account each, under the `instances` OU) come with T-13 (the instance module) and T-14 (`infra/instances/*.tfvars`, onboarding, drift, decommissioning). The `instances` OU exists and is empty until then.
+Customer instances (one account each, under the `instances` OU) are built by `modules/instance` (T-13); the root that composes it with `account-baseline` from `infra/instances/*.tfvars`, onboarding, drift and decommissioning come with T-14. The `instances` OU exists and is empty until then.
+
+## The instance module (`modules/instance`, F-012 T-13)
+One customer instance in its own account (design §3.5, ADR-016). It needs two AWS providers: `aws` (the home region) and `aws.replica` (the other GovCloud region), both with `use_fips_endpoint = true` and `allowed_account_ids = [<instance account>]`:
+
+    module "instance" {
+      source    = "../modules/instance"
+      providers = { aws = aws, aws.replica = aws.replica }
+      instance  = "acme"
+      account_id = "<instance account>"
+      domain    = "acme.<saas domain>"
+    }
+
+| What | How |
+|---|---|
+| Network | VPC (`vpc_cidr`, a /16) over three zones (`availability_zones`): public subnets (the load balancer and a NAT gateway each; no public addresses), workload subnets (/19; their one default route is the zone's NAT gateway), database subnets (no route out). S3 gateway endpoint and interface endpoints (`interface_endpoints`) whose policies admit this account's principals only. Flow logs (all traffic, a year). The default security group allows nothing. |
+| Egress | Nodes reach outside the VPC only on `external_egress_ports` (443, 465, 587); which pods may is the platform's NetworkPolicies' (notify and integrate, F-009, F-011). No peering, no transit gateway; the ops account only through the Collector's PrivateLink endpoint (`ops_telemetry`). |
+| EKS | Private API endpoint only; Secrets envelope-encrypted (key `eks`); every control-plane log; EKS access entries only (`cluster_admin_role_arns`, this account's roles), no implicit creator admin; one managed node group on `BOTTLEROCKET_x86_64_FIPS` (IMDSv2, hop limit 1, no admin or control container, volumes under key `nodes`); add-ons vpc-cni, kube-proxy, coredns, aws-ebs-csi-driver. |
+| Workload roles (IRSA) | `external-secrets` (fair-platform/fair-external-secrets: `fair/<instance>/*` only), `audit` (fair-platform/audit: the audit store and WORM; never deletes WORM objects), `risk` (fair-platform/risk: the report store), `load-balancer-controller`, `privateca-issuer` (cert-manager/aws-privateca-issuer), `ebs-csi`. Output `workload_roles` gives the ARNs for the service accounts' annotations. |
+| Database | RDS PostgreSQL 16 (`postgres_version`), Multi-AZ, private, key `database`, parameter group `rds.force_ssl = 1`, `ssl_min_protocol_version = TLSv1.2`, SCRAM, connection and DDL logs; 35 days of point-in-time recovery; deletion protection and a final snapshot; automated backups copied to the second region (key `database` there). The master password is RDS-managed (`rds!…`, outside `fair/<instance>/*`). |
+| Object storage | `fair-<instance>-audit-worm-<account>` (Object Lock compliance, `audit_worm_retention_days`), `-audit-store-` (Object Lock, each write sets its retention), `-report-store-` (versioned), each with a `-replica-` bucket in the second region under its own key (replicas age out after `audit_retention_days` / `report_replica_days`, since the sources' deletes do not replicate). Objects are read and written only by the bucket's service role and the replication role; nothing from another account. Output `service_environment` holds the `FAIR_AUDIT_WORM_*`, `FAIR_AUDIT_STORE_*`, `FAIR_REPORT_STORE_*` bucket, endpoint (`s3-fips.<region>.amazonaws.com:443`) and region. |
+| Keys | One KMS key per purpose (`alias/fair-<instance>-<purpose>`): database, audit-worm, audit-store, report-store, secrets, eks, nodes, logs; in the second region database, audit-worm, audit-store, report-store, logs; and the DNSSEC signing key. Every key policy denies principals of other accounts. |
+| Secrets | Secrets Manager entries, names only: `fair/<instance>/<service>/<dir>` for the 17 entries of the F-001 T-41 layout (`docs/install/keys.md`, read by `deploy/k8s/keys/saas/external-secrets.yaml`) and `fair/<instance>/database/<role>` for the 8 database login roles. Values are loaded at onboarding through files (T-14). Only the External Secrets role may read a value, and for the key files the roles in `secret_reader_role_arns` (the pipeline's key-rotation role; never the database passwords, never operators). |
+| DNS, TLS, WAF | Public zone `domain` (DNSSEC, query logs; delegate it with output `dns.name_servers` and `dns.ds_record`), private zone (`private_domain`), an ECDSA ACM certificate, the internet-facing ALB (HTTPS 443 only, `ELBSecurityPolicy-TLS13-1-2-FIPS-2023-04`) forwarding to the gateway's target group (`gateway_target_group_arn`, HTTPS to `gateway_port`, for a TargetGroupBinding), a WAF web ACL (IP reputation, common rules with body size counted, known bad inputs, SQL injection counted, anonymous IPs, a rate limit; logs with `cookie` and `authorization` redacted); an ACM Private CA (`private_ca_arn`) for cert-manager's internal certificates. |
+
+Outputs: `vpc_id`, `subnet_ids`, `cluster`, `workload_roles`, `database`, `buckets`, `service_environment`, `kms_keys`, `secret_names`, `gateway_target_group_arn`, `dns`, `private_ca_arn`, `web_acl_arn`, and `policy_documents` (every policy the module writes, for the isolation tests). In-cluster components (External Secrets, the load balancer controller, cert-manager, the Collector, Flux) are installed by T-15; the account's baseline is `modules/account-baseline`, composed beside this module by the instance root (T-14).
 
 ## State
 Each root's state is `<root>/terraform.tfstate` in the bucket `fair-tofu-state-<management account id>`:

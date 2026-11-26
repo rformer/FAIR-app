@@ -35,6 +35,36 @@ variable "object_lock" {
   }
 }
 
+variable "object_lock_enabled" {
+  description = "Enable Object Lock without a default retention: every write sets its own (internal/objstore CheckBucket requires Object Lock). Implied by object_lock."
+  type        = bool
+  default     = false
+}
+
+variable "expiration_days" {
+  description = "Days after which current versions expire (replicas, which do not receive the source's deletes), or null to keep them."
+  type        = number
+  default     = null
+  validation {
+    condition     = var.expiration_days == null || try(var.expiration_days >= 1, false)
+    error_message = "At least one day."
+  }
+}
+
+variable "replication" {
+  description = "Replicate every new object version to another bucket ({role_arn, destination_bucket_arn, destination_kms_key_arn}), or null."
+  type = object({
+    role_arn                = string
+    destination_bucket_arn  = string
+    destination_kms_key_arn = string
+  })
+  default = null
+  validation {
+    condition     = var.replication == null || (length(trimspace(try(var.replication.destination_kms_key_arn, ""))) > 0 && length(trimspace(try(var.replication.role_arn, ""))) > 0)
+    error_message = "Replicas are encrypted under a named key, by a named role."
+  }
+}
+
 variable "access_log_bucket" {
   description = "The bucket receiving this bucket's server access logs, or null (only for an access-log bucket itself)."
   type        = string
