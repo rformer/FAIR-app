@@ -78,8 +78,8 @@ jobs:
           chmod 0600 "$RUNNER_TEMP/oidc/token"
           {
             echo "AWS_WEB_IDENTITY_TOKEN_FILE=$RUNNER_TEMP/oidc/token"
-            echo "COSIGN_KEY=awskms:///$KMS_KEY"
-            echo "COSIGN_TLOG=--tlog-upload=true"
+            echo "RELEASE_SIGNING_KEY=awskms:///$KMS_KEY"
+            echo "RELEASE_TLOG=--tlog-upload=true"
             echo "RELEASEGEN_KEY=-kms $KMS_KEY -region $AWS_REGION"
           } >> "$GITHUB_ENV"
       - name: A throwaway test key (dry run)
@@ -92,8 +92,8 @@ jobs:
           (cd "$k" && COSIGN_PASSWORD="" cosign import-key-pair --key release.pem --output-key-prefix release >/dev/null)
           {
             echo "COSIGN_PASSWORD="
-            echo "COSIGN_KEY=$k/release.key"
-            echo "COSIGN_TLOG=--tlog-upload=false"
+            echo "RELEASE_SIGNING_KEY=$k/release.key"
+            echo "RELEASE_TLOG=--tlog-upload=false"
             echo "RELEASEGEN_KEY=-key $k/release.pem"
           } >> "$GITHUB_ENV"
       - name: cosign.pub
@@ -103,6 +103,9 @@ jobs:
           else
             releasegen public -kms "$KMS_KEY" -region "$AWS_REGION" -out release/cosign.pub
           fi
+      # The key is in RELEASE_SIGNING_KEY, not COSIGN_KEY: cosign reads
+      # COSIGN_KEY as --key, which would turn the keyless verification below
+      # into a key verification.
       - name: Sign and attest every image with the release key
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -117,9 +120,9 @@ jobs:
               | head -1 | jq -r .payload | base64 -d | jq .predicate > predicate-spdx.json
             cosign verify-attestation --type slsaprovenance --certificate-identity-regexp "$slsa_id" --certificate-oidc-issuer "$issuer" "$ref" \
               | head -1 | jq -r .payload | base64 -d | jq .predicate > predicate-slsa.json
-            cosign sign --yes --key "$COSIGN_KEY" "$COSIGN_TLOG" "$ref"
-            cosign attest --yes --key "$COSIGN_KEY" "$COSIGN_TLOG" --type spdxjson --predicate predicate-spdx.json "$ref"
-            cosign attest --yes --key "$COSIGN_KEY" "$COSIGN_TLOG" --type slsaprovenance --predicate predicate-slsa.json "$ref"
+            cosign sign --yes --key "$RELEASE_SIGNING_KEY" "$RELEASE_TLOG" "$ref"
+            cosign attest --yes --key "$RELEASE_SIGNING_KEY" "$RELEASE_TLOG" --type spdxjson --predicate predicate-spdx.json "$ref"
+            cosign attest --yes --key "$RELEASE_SIGNING_KEY" "$RELEASE_TLOG" --type slsaprovenance --predicate predicate-slsa.json "$ref"
             echo "signed $ref"
           done
       - name: Sign the profile packages, the release manifest and SHA256SUMS
