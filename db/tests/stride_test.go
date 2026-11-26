@@ -447,6 +447,40 @@ var strideF013 = map[string][]string{
 	},
 }
 
+// strideF012 maps F-012's design §6 rows (T-19).
+var strideF012 = map[string][]string{
+	"T: a tampered dependency or action enters a build | Everything pinned by digest or hash; Dependabot updates reviewed; vulnerability gates": {
+		"internal/pincheck:TestPinsEnforced", "internal/pincheck:TestRepositoryPinned",
+	},
+	"S, T: a forged or swapped image runs in SaaS | KMS and keyless signatures, SLSA L3 provenance, admission refuses unsigned or mismatched images": {
+		"internal/platformstride:TestSTRIDEF012Admission", "internal/fleet:TestAdmissionPolicy",
+	},
+	"T: an image differs from the source it claims | Reproducible builds checked on every release; provenance names the source commit": {
+		"internal/platformstride:TestProvenanceNamesSource", "internal/platformstride:TestSTRIDEF012Reproducible",
+	},
+	"E: the release key is misused | Key in a FIPS HSM (KMS), sign-only role, callable only by the release workflow on a `v*` tag (OIDC conditions); key use logged in CloudTrail": {
+		"internal/platformstride:TestSTRIDEF012ReleaseKey", "internal/kmssign:TestRefusesOtherKeys", "internal/kmssign:TestFailsClosed",
+	},
+	"I: telemetry or logs leak risk data or secrets | Attribute allow-list; no paths' ids, queries, bodies or arguments; redaction test": {
+		"db/tests:TestTelemetryRedaction", "pkg/telemetry:TestFilteredDropsEventsAndStatusText", "pkg/telemetry:TestHTTPRoutePatternOnly",
+	},
+	"I: one customer's instance reaches another's data | Account per instance, no peering, per-instance keys, SCPs": {
+		"internal/platformstride:TestSTRIDEF012InstanceIsolation",
+	},
+	"E: operators hold standing access to customer data | Just-in-time, second approval, time-bound, no data-plane rights; data only by customer-consented break-glass": {
+		"internal/platformstride:TestSTRIDEF012OperatorAccess", "internal/accessctl:TestExpireRemovesWhatNoActiveRequestBacks", "internal/accessctl:TestGrantRefusesOutsideTheWindow", "internal/accessctl:TestOperatorRBACReachesNoData",
+	},
+	"T, R: unreviewed or unattributed production changes | Branch protection as code, GitOps only, evidence export pairs every deployment with an approved PR": {
+		"internal/platformstride:TestSTRIDEF012BranchProtection", "internal/changeevidence:TestCollect", "internal/cicheck:TestRequiredChecksCoverJobs",
+	},
+	"T: infrastructure drifts from code | Daily drift plans alert; applies only from approved plans": {
+		"internal/platformstride:TestSTRIDEF012Drift", "internal/infraplan:TestDryRun",
+	},
+	"D: a bad release spreads across the fleet | Rings, soak times, health gates, stop on failure, rollback compatibility": {
+		"internal/fleetctl:TestPromoteStops", "internal/fleetctl:TestRollback", "db/tests:TestUpgradeFromPreviousReleases",
+	},
+}
+
 // The threat tables and the suites agree: every row has tests, every test
 // exists and is run by make test-stride, and no mapping names a row the
 // design no longer has. Runs without a database.
@@ -481,6 +515,7 @@ func TestSTRIDECatalog(t *testing.T) {
 		{"F-010-reporting-export", "## 7.", 8, strideF010},
 		{"F-011-integrations", "## 7.", 9, strideF011},
 		{"F-013-control-frameworks", "## 7.", 8, strideF013},
+		{"F-012-platform-engineering", "## 6.", 10, strideF012},
 	} {
 		rows := threatRows(t, filepath.Join(root, "specs", "features", c.feature, "design.md"), c.section)
 		if len(rows) < c.min {

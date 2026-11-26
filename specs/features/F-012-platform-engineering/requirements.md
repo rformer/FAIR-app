@@ -96,7 +96,7 @@ F-012 is how the platform is built, released and run. Every change is built and 
 | Change evidence | Vendor's, exportable | Customer's own | Customer's own |
 
 ## Control mapping (NIST SP 800-53r5)
-To be proposed with the tasks.
+CM-2, CM-3, CM-14, SA-10, SA-11, SR-4, SR-11, RA-5, SI-7, SI-4, AC-6, SC-7, SC-28, CP-9 (T-20; statements in `compliance/statements/F-012.yaml`, signed off by Robert Former 2026-11-26).
 
 ## Out of scope
 - Helm and Zarf packaging, the installer and its preflight checks, licences, self-hosted upgrades, backup and restore (F-014).

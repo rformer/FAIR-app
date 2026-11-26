@@ -1,0 +1,242 @@
+# NIST SP 800-53 Rev 5 control implementation statements for F-012
+# (platform engineering), task T-20. Source for the platform's OSCAL
+# component definition (F-014 assembles the features' files); checked by
+# internal/compliance tests: the controls are exactly F-012's control
+# mapping, every evidence path and test exists, and the OSCAL output
+# validates against the pinned schema.
+#
+# responsibility, per deployment mode (ADR-005):
+#   provider  the platform (and, in SaaS, the vendor operating it) meets it
+#   shared    the platform provides the mechanism; the customer operates it
+#   customer  the customer meets it
+# customer: what the customer does wherever the responsibility is shared
+# or customer. Evidence tests are "<package dir>:<test name>".
+feature: F-012
+title: Platform engineering
+status: approved # signed off by Robert Former, 2026-11-26
+controls:
+  - id: cm-2
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Every SaaS instance is defined as code: its AWS account, network,
+      cluster, database, stores and keys by the OpenTofu instance module
+      and its tfvars file, and its workloads by the release's signed
+      manifests, reconciled by Flux from the fleet repository. Each
+      release names every image by digest in its signed release manifest,
+      with the RBAC hashes the deployment scanner compares against. The
+      daily drift job compares each instance with its code.
+    customer: >-
+      Keep the deployment configuration you derive from the release's
+      manifests under version control, and run the deployment scanner
+      against the signed release manifest.
+    evidence:
+      code: [infra/modules/instance/main.tf, deploy/fleet/flux/kustomization.yaml, .github/workflows/infra-instances.yml,
+             internal/fleet/render.go, cmd/releasegen/main.go]
+      tests: ["internal/platformstride:TestSTRIDEF012InstanceIsolation", "internal/fleet:TestFluxObjects", "internal/fleet:TestRenderRelease",
+              "internal/platformstride:TestSTRIDEF012Drift"]
+
+  - id: cm-3
+    responsibility: { saas: provider, self-hosted: customer, air-gapped: customer }
+    statement: >-
+      In SaaS, changes reach production only through pull requests: the
+      default branch requires a second engineer's approval and every CI
+      gate, with no bypass; infrastructure applies wait for an approved
+      environment and apply only the reviewed plan; releases reach
+      instances ring by ring through reviewed pin changes, gated on soak
+      time, health and service-level objectives. The change-evidence
+      export pairs every deployment with its approved pull request and
+      reports every gap as a finding.
+    customer: >-
+      Control changes to your installation through your own change
+      process; the release notes list each release's migrations, settings
+      and permission changes.
+    evidence:
+      code: [infra/github/main.tf, .github/workflows/infra-instances.yml, internal/fleetctl/promote.go, internal/changeevidence/collect.go]
+      tests: ["internal/platformstride:TestSTRIDEF012BranchProtection", "internal/changeevidence:TestCollect", "internal/fleetctl:TestMergeCheck",
+              "internal/fleetctl:TestPromoteStops", "internal/cicheck:TestRequiredChecksCoverJobs"]
+
+  - id: cm-14
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Every image and release file is signed twice: keylessly by the
+      release workflow, and with the release key, an ECDSA P-256 key in an
+      AWS KMS HSM usable only by the release workflow on a version tag.
+      SaaS clusters admit only images signed with the release key and
+      carrying provenance from this repository's release workflow. Offline
+      verification needs only the release's public key.
+    customer: >-
+      Verify each release with scripts/verify-release.sh (offline in
+      air-gapped installations) before installing it, against the release
+      key's published fingerprint.
+    evidence:
+      code: [internal/kmssign/kmssign.go, .github/workflows/release-sign.yml, deploy/fleet/policy/release.yaml, scripts/verify-release.sh]
+      tests: ["internal/kmssign:TestSignMatchesFileKeyFormat", "internal/fleet:TestAdmissionPolicy", "internal/platformstride:TestSTRIDEF012ReleaseKey",
+              "internal/platformstride:TestSTRIDEF012Admission"]
+
+  - id: sa-10
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      The platform's source, build and deployment configuration are under
+      version control with branch protection as code. Every build input is
+      pinned: actions by full commit, images by digest, Go modules by
+      go.sum, Python and npm locks by hash; images build reproducibly, and
+      every release builds them twice on separate runners and refuses a
+      digest that differs.
+    evidence:
+      code: [internal/pincheck/pincheck.go, scripts/repro-build.sh, .github/workflows/release.yml, infra/github/main.tf]
+      tests: ["internal/pincheck:TestRepositoryPinned", "internal/pincheck:TestPinsEnforced", "internal/platformstride:TestSTRIDEF012Reproducible"]
+
+  - id: sa-11
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Every change passes the required gates before it merges: lint and
+      formatting, unit tests with the race detector, the database security
+      tests, the STRIDE suites, the end-to-end UI tests, the image
+      hardening and vulnerability gates, the upgrade test from earlier
+      releases, and, on the default branch and before every release, the
+      performance benchmark. A test keeps the required checks equal to the
+      pipeline's jobs.
+    evidence:
+      code: [.github/workflows/ci.yml, infra/github/main.tf]
+      tests: ["internal/cicheck:TestRequiredChecksCoverJobs", "db/tests:TestUpgradeFromPreviousReleases", "db/tests:TestSTRIDECatalog"]
+
+  - id: sr-4
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Each image ships with an SPDX software bill of materials, checked to
+      list every Go module or locked Python package it contains, and SLSA
+      Build Level 3 provenance from the SLSA generator naming this
+      repository and the release tag. Both are attested keylessly and
+      again with the release key, and the release's verification checks
+      them online and offline.
+    evidence:
+      code: [scripts/sbom-check.sh, .github/workflows/release.yml, .github/workflows/release-sign.yml, scripts/verify-release.sh]
+      tests: ["internal/platformstride:TestProvenanceNamesSource", "internal/fleet:TestAdmissionPolicy"]
+
+  - id: sr-11
+    responsibility: { saas: provider, self-hosted: provider, air-gapped: provider }
+    statement: >-
+      Third-party images the platform runs are listed with their digest and
+      their publisher's exact signing identity. When a release mirrors one,
+      it verifies the publisher's signature first, copies the image by
+      digest, and signs the copy with the release key, so admission checks
+      it like the platform's own images; the release refuses any image
+      that is neither its own nor listed.
+    evidence:
+      code: [deploy/third-party-images.json, internal/fleet/render.go, .github/workflows/release.yml]
+      tests: ["internal/fleet:TestThirdPartyList", "internal/fleet:TestRenderRefuses", "internal/platformstride:TestSTRIDEF012Admission"]
+
+  - id: ra-5
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Every change and every image is scanned: govulncheck for the Go code,
+      pip-audit for the engine's locked packages, npm audit for the web UI,
+      and Trivy for every image, failing on fixable high or critical
+      findings. A finding is accepted only in security/vuln-exceptions.yaml
+      with a reason and an expiry at most 90 days after review; an expired
+      exception fails the scan. A daily job rescans the default branch.
+    customer: >-
+      Scan your installation's running images with your own scanner, and
+      apply the platform's releases that fix vulnerabilities.
+    evidence:
+      code: [internal/vulnex/vulnex.go, security/vuln-exceptions.yaml, .github/workflows/ci.yml, .github/workflows/rescan.yml]
+      tests: ["internal/vulnex:TestRepositoryExceptions", "internal/vulnex:TestExceptions", "internal/cicheck:TestImageMatrixCoversDockerfile"]
+
+  - id: si-7
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      Software integrity is checked at every step: images are hardened and
+      checked (non-root, no shell or package manager, the FIPS 140 module
+      on); release files carry signatures checked against the release key;
+      Flux applies only the release's signed manifests; the admission
+      policy refuses unsigned images, images signed by another key, and
+      images whose provenance names another source, and fails closed.
+    customer: >-
+      Run the platform from the release's verified images, and keep
+      admission control that requires the release key's signature in your
+      cluster.
+    evidence:
+      code: [scripts/image-check.sh, deploy/fleet/policy/release.yaml, deploy/fleet/flux/kustomization.yaml, internal/kmssign/kmssign.go]
+      tests: ["internal/fleet:TestAdmissionPolicy", "internal/kmssign:TestFailsClosed", "internal/platformstride:TestSTRIDEF012Admission"]
+
+  - id: si-4
+    responsibility: { saas: provider, self-hosted: shared, air-gapped: shared }
+    statement: >-
+      The services emit OpenTelemetry metrics and traces (request rates,
+      errors and latencies, statements, jobs, messages, engine calls,
+      deliveries, the audit trail's forwarding backlog and capacity) and
+      structured logs with trace ids, through an attribute allow-list that
+      carries no risk data, tokens or personal data. In SaaS, SLO
+      burn-rate alerts, each with a runbook, page the operators. Telemetry
+      is off until an endpoint is configured and never calls the vendor.
+    customer: >-
+      In self-hosted and air-gapped installations, point the services at
+      your own OpenTelemetry Collector and load the provided alert rules.
+    evidence:
+      code: [pkg/telemetry/allowed.go, deploy/observability/alerts/availability.yaml]
+      tests: ["db/tests:TestTelemetryRedaction", "pkg/telemetry:TestOffWithoutEndpoint", "internal/observability:TestAlertsHaveRunbooks"]
+
+  - id: ac-6
+    responsibility: { saas: provider, self-hosted: customer, air-gapped: customer }
+    statement: >-
+      SaaS operators hold no standing access to instances. Access is
+      requested in a reviewed file approved by a second operator, granted
+      for at most eight hours through IAM Identity Center and the cluster's
+      access entries, and removed by a job every fifteen minutes. Operator
+      roles deny every data-plane action (object reads, secret values, key
+      use, database connections, sessions on nodes); customer data is
+      reached only through the customer's consented break-glass (F-001).
+    customer: >-
+      Grant your administrators cluster and cloud access by least
+      privilege, outside the platform.
+    evidence:
+      code: [internal/accessctl/controller.go, infra/modules/operator-access/main.tf, infra/instance/access.tf]
+      tests: ["internal/accessctl:TestOperatorRBACReachesNoData", "internal/accessctl:TestExpireRemovesWhatNoActiveRequestBacks",
+              "internal/accessctl:TestGrantRefusesOutsideTheWindow", "internal/platformstride:TestSTRIDEF012OperatorAccess"]
+
+  - id: sc-7
+    responsibility: { saas: provider, self-hosted: customer, air-gapped: customer }
+    statement: >-
+      Each SaaS customer has its own AWS account in the GovCloud
+      organization, whose service control policies allow only GovCloud
+      regions and deny unencrypted or public storage and turning off the
+      security services. The instance's network has no peering; its
+      cluster API is private; workloads have no route to the internet but
+      through NAT on the ports they need; only the load balancer, behind a
+      web application firewall, takes traffic from the internet, on 443.
+    customer: >-
+      Protect your installation's network boundary: the platform needs
+      inbound HTTPS to its gateway only.
+    evidence:
+      code: [infra/modules/guardrails/main.tf, infra/modules/instance/network.tf]
+      tests: ["internal/platformstride:TestSTRIDEF012InstanceIsolation"]
+
+  - id: sc-28
+    responsibility: { saas: provider, self-hosted: customer, air-gapped: customer }
+    statement: >-
+      Every SaaS store is encrypted at rest under its own customer-managed
+      KMS key per purpose (database, audit write-once store, audit store,
+      report store, secrets, cluster secrets, nodes, logs), with keys that
+      deny other accounts. The audit write-once store uses Object Lock in
+      compliance mode.
+    customer: >-
+      Encrypt your database, object stores and Kubernetes secrets at rest.
+    evidence:
+      code: [infra/modules/instance/kms.tf, infra/modules/instance/storage.tf]
+      tests: ["internal/platformstride:TestSTRIDEF012InstanceIsolation", "internal/platformstride:TestBackupsAndRetention"]
+
+  - id: cp-9
+    responsibility: { saas: provider, self-hosted: customer, air-gapped: customer }
+    statement: >-
+      Each SaaS instance's database keeps 35 days of point-in-time
+      recovery with deletion protection and a final snapshot, and its
+      automated backups are copied to the second GovCloud region; the
+      audit stores and the report store replicate there under that
+      region's keys. Decommissioning keeps every retained store, its keys
+      and its replicas for the retention period.
+    customer: >-
+      Back up your installation's database and object stores (F-014
+      provides the procedure).
+    evidence:
+      code: [infra/modules/instance/database.tf, infra/modules/instance/storage.tf]
+      tests: ["internal/platformstride:TestBackupsAndRetention"]
