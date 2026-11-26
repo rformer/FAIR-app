@@ -35,7 +35,7 @@
 //	                        every run (optional)
 //	FAIR_ANALYSIS_WORKERS   simulations run at once by this replica (2)
 //	FAIR_REPORT_STORE_*     the report store (F-010 T-05: BUCKET, ENDPOINT,
-//	                        REGION, ACCESS_KEY_FILE, SECRET_KEY_FILE,
+//	                        REGION, ACCESS_KEY_FILE, SECRET_KEY_FILE (or CREDENTIALS=web-identity, ADR-012 amendment 1),
 //	                        CA_FILE): a versioned bucket; required in
 //	                        production, with FAIR_REPORT_CONTEXT_KEY_FILE and
 //	                        FAIR_REPORT_CONTEXT_KEY_ID_FILE (T-09: reports are

@@ -19,6 +19,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -34,20 +35,57 @@ type Config struct {
 	Region        string // default us-east-1
 	AccessKeyFile string
 	SecretKeyFile string
-	CAFile        string // optional: the store's CA (else the system roots)
+	// WebIdentity selects short-lived credentials from STS for a web
+	// identity token in place of the key files (SaaS: the service account's
+	// IRSA token, F-012 T-13; ADR-012 amendment 1). The token is read from
+	// WebIdentityTokenFile at every exchange (the kubelet rotates it).
+	WebIdentity          bool
+	WebIdentityTokenFile string
+	RoleARN              string
+	STSEndpoint          string // https URL; default the region's STS endpoint
+	CAFile               string // optional: the store's CA (else the system roots)
 	// Plaintext allows HTTP without TLS: development only (Env).
 	Plaintext bool
 	Env       string // FAIR_ENV
 }
 
 // FromEnv reads a Config from <prefix>_ENDPOINT, _BUCKET, _REGION,
-// _ACCESS_KEY_FILE, _SECRET_KEY_FILE, _CA_FILE and _PLAINTEXT ("true").
+// _ACCESS_KEY_FILE, _SECRET_KEY_FILE, _CA_FILE and _PLAINTEXT ("true"). With
+// <prefix>_CREDENTIALS=web-identity, credentials come from STS for the token
+// in AWS_WEB_IDENTITY_TOKEN_FILE and the role AWS_ROLE_ARN (both set by EKS
+// for a service account with a role), at <prefix>_STS_ENDPOINT if set.
 func FromEnv(prefix, env string, getenv func(string) string) Config {
-	return Config{
+	c := Config{
 		Endpoint: getenv(prefix + "_ENDPOINT"), Bucket: getenv(prefix + "_BUCKET"), Region: getenv(prefix + "_REGION"),
 		AccessKeyFile: getenv(prefix + "_ACCESS_KEY_FILE"), SecretKeyFile: getenv(prefix + "_SECRET_KEY_FILE"),
 		CAFile: getenv(prefix + "_CA_FILE"), Plaintext: getenv(prefix+"_PLAINTEXT") == "true", Env: env,
 	}
+	if getenv(prefix+"_CREDENTIALS") == CredentialsWebIdentity {
+		c.WebIdentity = true
+		c.WebIdentityTokenFile, c.RoleARN = getenv("AWS_WEB_IDENTITY_TOKEN_FILE"), getenv("AWS_ROLE_ARN")
+		c.STSEndpoint = getenv(prefix + "_STS_ENDPOINT")
+	}
+	return c
+}
+
+// CredentialsWebIdentity is <prefix>_CREDENTIALS's value for STS web
+// identity credentials.
+const CredentialsWebIdentity = "web-identity"
+
+// CredentialsConfigured says whether the environment names a store's
+// credentials: both key files, or web identity with its token file and
+// role (for install checks).
+func CredentialsConfigured(prefix string, getenv func(string) string) error {
+	if getenv(prefix+"_CREDENTIALS") == CredentialsWebIdentity {
+		if getenv("AWS_WEB_IDENTITY_TOKEN_FILE") == "" || getenv("AWS_ROLE_ARN") == "" {
+			return fmt.Errorf("%s_CREDENTIALS=web-identity needs AWS_WEB_IDENTITY_TOKEN_FILE and AWS_ROLE_ARN", prefix)
+		}
+		return nil
+	}
+	if getenv(prefix+"_ACCESS_KEY_FILE") == "" || getenv(prefix+"_SECRET_KEY_FILE") == "" {
+		return fmt.Errorf("%s_ACCESS_KEY_FILE and %s_SECRET_KEY_FILE (or %s_CREDENTIALS=web-identity) are required", prefix, prefix, prefix)
+	}
+	return nil
 }
 
 // Store is one bucket.
@@ -74,13 +112,17 @@ func New(cfg Config) (*Store, error) {
 	if cfg.Plaintext && cfg.Env != "development" {
 		errs = append(errs, fmt.Errorf("%w: plaintext object storage is for development only; use TLS", ErrConfig))
 	}
-	access, err := readCredential(cfg.AccessKeyFile, "access key")
-	if err != nil {
-		errs = append(errs, err)
-	}
-	secret, err := readCredential(cfg.SecretKeyFile, "secret key")
-	if err != nil {
-		errs = append(errs, err)
+	var access, secret string
+	if cfg.WebIdentity {
+		errs = append(errs, checkWebIdentity(&cfg)...)
+	} else {
+		var err error
+		if access, err = readCredential(cfg.AccessKeyFile, "access key"); err != nil {
+			errs = append(errs, err)
+		}
+		if secret, err = readCredential(cfg.SecretKeyFile, "secret key"); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	tlsConf := &tls.Config{MinVersion: tls.VersionTLS12}
 	if cfg.CAFile != "" {
@@ -103,13 +145,59 @@ func New(cfg Config) (*Store, error) {
 	}
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.TLSClientConfig = tlsConf
+	creds := credentials.NewStaticV4(access, secret, "")
+	if cfg.WebIdentity {
+		var err error
+		if creds, err = webIdentity(cfg, tr); err != nil {
+			return nil, err
+		}
+	}
 	c, err := minio.New(cfg.Endpoint, &minio.Options{
-		Creds: credentials.NewStaticV4(access, secret, ""), Secure: !cfg.Plaintext, Region: region, Transport: tr,
+		Creds: creds, Secure: !cfg.Plaintext, Region: region, Transport: tr,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrConfig, err)
 	}
 	return &Store{c: c, bucket: cfg.Bucket}, nil
+}
+
+// checkWebIdentity checks a web identity configuration and fills in the
+// region's STS endpoint.
+func checkWebIdentity(cfg *Config) []error {
+	var errs []error
+	if cfg.WebIdentityTokenFile == "" || cfg.RoleARN == "" {
+		errs = append(errs, fmt.Errorf("%w: web identity needs AWS_WEB_IDENTITY_TOKEN_FILE and AWS_ROLE_ARN", ErrConfig))
+	}
+	if cfg.STSEndpoint == "" {
+		if cfg.Region == "" {
+			return append(errs, fmt.Errorf("%w: web identity needs the region (for its STS endpoint) or an STS endpoint", ErrConfig))
+		}
+		cfg.STSEndpoint = "https://sts." + cfg.Region + ".amazonaws.com" // GovCloud's regional STS endpoints are FIPS endpoints
+	}
+	if u, err := url.Parse(cfg.STSEndpoint); err != nil || u.Scheme != "https" || u.Host == "" {
+		errs = append(errs, fmt.Errorf("%w: the STS endpoint must be an https URL, got %q", ErrConfig, cfg.STSEndpoint))
+	}
+	return errs
+}
+
+// webIdentity is STS credentials for the token file, re-read at every
+// exchange, over the store's TLS configuration (TLS 1.2 or later).
+func webIdentity(cfg Config, tr *http.Transport) (*credentials.Credentials, error) {
+	file := cfg.WebIdentityTokenFile
+	creds, err := credentials.NewSTSWebIdentity(cfg.STSEndpoint, func() (*credentials.WebIdentityToken, error) {
+		tok, err := readCredential(file, "web identity token")
+		if err != nil {
+			return nil, err
+		}
+		return &credentials.WebIdentityToken{Token: tok}, nil
+	}, func(w *credentials.STSWebIdentity) {
+		w.RoleARN = cfg.RoleARN
+		w.Client = &http.Client{Transport: tr, Timeout: 30 * time.Second}
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrConfig, err)
+	}
+	return creds, nil
 }
 
 func readCredential(file, what string) (string, error) {

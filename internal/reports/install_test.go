@@ -26,6 +26,21 @@ func TestCheckInstall(t *testing.T) {
 				t.Errorf("%s without %s: %v", mode, k, err)
 			}
 		}
+		// SaaS: web identity in place of the key files (ADR-012 amendment 1).
+		wi := map[string]string{}
+		for k, v := range full {
+			if !strings.HasSuffix(k, "_KEY_FILE") || strings.HasPrefix(k, "FAIR_REPORT_CONTEXT") {
+				wi[k] = v
+			}
+		}
+		wi[StorePrefix+"_CREDENTIALS"] = "web-identity"
+		if err := CheckInstall(InstallCheck{Env: "production", Mode: mode, Getenv: get(wi)}); err == nil {
+			t.Errorf("%s: web identity without its token file and role accepted", mode)
+		}
+		wi["AWS_WEB_IDENTITY_TOKEN_FILE"], wi["AWS_ROLE_ARN"] = "/var/run/secrets/eks.amazonaws.com/serviceaccount/token", "arn:aws-us-gov:iam::1:role/risk"
+		if err := CheckInstall(InstallCheck{Env: "production", Mode: mode, Getenv: get(wi)}); err != nil {
+			t.Errorf("%s: web identity refused: %v", mode, err)
+		}
 		if err := CheckInstall(InstallCheck{Env: "development", Mode: mode, Getenv: get(map[string]string{})}); err != nil {
 			t.Errorf("%s in development: %v", mode, err)
 		}

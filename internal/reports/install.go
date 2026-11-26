@@ -33,11 +33,15 @@ func CheckInstall(c InstallCheck) error {
 		return nil
 	}
 	var errs []error
-	for _, k := range []string{StorePrefix + "_BUCKET", StorePrefix + "_ENDPOINT", StorePrefix + "_ACCESS_KEY_FILE", StorePrefix + "_SECRET_KEY_FILE",
+	for _, k := range []string{StorePrefix + "_BUCKET", StorePrefix + "_ENDPOINT",
 		"FAIR_REPORT_CONTEXT_KEY_FILE", "FAIR_REPORT_CONTEXT_KEY_ID_FILE"} {
 		if c.Getenv(k) == "" {
 			errs = append(errs, fmt.Errorf("%s is required in production (F-010: the report store and the report context key)", k))
 		}
+	}
+	// The store's credentials: key files, or web identity (ADR-012 amendment 1).
+	if err := objstore.CredentialsConfigured(StorePrefix, c.Getenv); err != nil {
+		errs = append(errs, fmt.Errorf("%w (F-010: the report store)", err))
 	}
 	return errors.Join(errs...)
 }

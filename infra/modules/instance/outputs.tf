@@ -53,16 +53,17 @@ output "buckets" {
 }
 
 output "service_environment" {
-  description = "The stores' environment for the platform's manifests (the instance overlay, T-15): bucket, S3 FIPS endpoint (host:port), region per FAIR_<STORE> prefix."
+  description = "The stores' environment for the platform's manifests (the instance overlay, T-15): bucket, S3 FIPS endpoint (host:port), region and web-identity credentials (the service's IRSA role; ADR-012 amendment 1) per FAIR_<STORE> prefix."
   value = {
     for prefix, bucket in {
       FAIR_AUDIT_WORM   = module.audit_worm.id
       FAIR_AUDIT_STORE  = module.audit_store.id
       FAIR_REPORT_STORE = module.report_store.id
       } : prefix => {
-      "${prefix}_BUCKET"   = bucket
-      "${prefix}_ENDPOINT" = local.s3_endpoint
-      "${prefix}_REGION"   = var.region
+      "${prefix}_BUCKET"      = bucket
+      "${prefix}_ENDPOINT"    = local.s3_endpoint
+      "${prefix}_REGION"      = var.region
+      "${prefix}_CREDENTIALS" = "web-identity"
     }
   }
 }

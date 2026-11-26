@@ -29,6 +29,8 @@
 //	                                 FAIR_AUDIT_WORM_ENDPOINT, _REGION,
 //	                                 _ACCESS_KEY_FILE, _SECRET_KEY_FILE,
 //	                                 _CA_FILE (internal/objstore)
+//	                                 (either store may use <PREFIX>_CREDENTIALS=
+//	                                 web-identity: ADR-012 amendment 1)
 //	FAIR_AUDIT_STORE_BUCKET          the audit store: evidence export bundles
 //	                                 (T-15) and, from T-18, archives; required
 //	                                 in production, with FAIR_AUDIT_STORE_

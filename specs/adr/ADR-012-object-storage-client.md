@@ -48,3 +48,13 @@ It is pinned as `versity/versitygw:v1.9.0` by digest (released 2026-10-13), and 
 ## Consequences
 - **Updates:** minio-go updates are reviewed like the SAML and WebAuthn libraries' (ADR-009, ADR-010): changelog and advisories, then the contract tests. The SBOM covers the new modules.
 - **CI:** the contract tests (`internal/objstore`, `FAIR_TEST_S3=1`) run in CI's test job against versitygw. A store adopted later (the bundled one, or a customer's) should pass the same tests.
+
+## Amendment 1 (2026-11-25, F-012 T-13; decided with Robert Former)
+In SaaS, F-012's instance module (T-13) gives each service an IAM role through its Kubernetes service account (IRSA) and creates no IAM users or access keys. `internal/objstore` therefore gains a second credential mode, chosen per store by `<PREFIX>_CREDENTIALS=web-identity`:
+- **Credentials:** minio-go's STS web identity provider exchanges the service account's token for short-lived credentials (`AssumeRoleWithWebIdentity`).
+- **Token and role:** the token is read from `AWS_WEB_IDENTITY_TOKEN_FILE` at every exchange, since the kubelet rotates it; the role is `AWS_ROLE_ARN`. EKS sets both.
+- **STS endpoint:** the store region's endpoint (`https://sts.<region>.amazonaws.com`, a FIPS endpoint in GovCloud), or `<PREFIX>_STS_ENDPOINT`, which must be https.
+- **Transport:** the exchange uses the store's TLS configuration (TLS 1.2 or later; `<PREFIX>_CA_FILE` if set).
+- **Install checks:** they accept either mode (`objstore.CredentialsConfigured`).
+
+Static key files stay the default and are what self-hosted and air-gapped stores use. Credentials still never come from environment values: the token is a file, and the role ARN is not a secret.
