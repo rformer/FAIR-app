@@ -20,6 +20,8 @@ variable "required_checks" {
     "deployment-modes (self-hosted)",
     "deployment-modes (air-gapped)",
     "k8s-e2e",
+    "fleet",
+    "admission-e2e",
     "engine",
     "proto",
     "release-verify",

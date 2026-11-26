@@ -276,6 +276,41 @@ jobs:
       - name: Alert rules, dashboards and Collector configurations
         run: bash scripts/observability-check.sh
 
+  # F-012 T-15 (F-012-AC-18, AC-19; design §3.6): the fleet's templates.
+  # fleet: the release artifact rendered from deploy/k8s and every
+  # kustomization of deploy/fleet built and validated by kubeconform (strict,
+  # with the add-ons' CRD schemas), and internal/fleet's tests.
+  # admission-e2e: on kind, Flux reconciles a stand-in release in order and
+  # refuses unsigned artifacts, and the policy-controller admits only the
+  # release-key-signed image with this repository's provenance.
+  fleet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        env:
+          GOFIPS140: ""
+        with:
+          go-version-file: go.mod
+      - name: Fleet templates
+        run: |
+          go test -count=1 ./internal/fleet/
+          bash scripts/fleet-check.sh
+
+  admission-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        env:
+          GOFIPS140: ""
+        with:
+          go-version-file: go.mod
+      - name: Install kind
+        run: go install sigs.k8s.io/kind@v0.33.0 && echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Admission and Flux end to end on kind
+        run: scripts/admission-e2e.sh
+
   # F-012 T-03 (F-012-AC-05 to AC-07; design §3.2): every image the
   # Dockerfile builds, hardened and checked alike (scripts/image-check.sh:
   # non-root, no shell or package manager, refuses to start unconfigured on a

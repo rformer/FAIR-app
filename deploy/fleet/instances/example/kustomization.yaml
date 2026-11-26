@@ -1,0 +1,28 @@
+# F-012 T-15 (F-012-AC-18; design §3.6): one instance in the fleet
+# repository, instances/<id>/ (the path its Flux bootstrap reconciles). It
+# pins the release, carries the instance's values and includes the fleet's
+# bases. Every change here is an approved pull request; promotion and
+# rollback change only the release pin (cmd/fleetctl, T-16).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../release-key
+  - ../../flux
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+  - name: fair-instance
+    namespace: flux-system
+    envs: [instance.env]
+patches:
+  # The release pin.
+  - target: { kind: OCIRepository, name: fair-release }
+    patch: |
+      - { op: replace, path: /spec/ref/tag, value: v0.1.0 }
+  # Flux's events to the operations account (deploy/fleet/flux/notifications.yaml).
+  - target: { kind: Provider, name: fair-ops }
+    patch: |
+      - { op: replace, path: /spec/address, value: "https://events.ops.fair.internal/flux/events" }
+  - target: { kind: Alert, name: fair-deployments }
+    patch: |
+      - { op: replace, path: /spec/eventMetadata/instance, value: example }

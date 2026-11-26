@@ -1,0 +1,39 @@
+# F-012 T-15 (F-012-AC-19; design §3.6): the one third-party image in the
+# release's namespaces, the OpenTelemetry Collector (deploy/observability/
+# k8s-saas.yaml), admitted by its publisher's keyless signature: the
+# OpenTelemetry project's release workflow
+# (open-telemetry/opentelemetry-collector-releases) at a v0.* tag, through
+# the public Fulcio and Rekor. FAIR_COLLECTOR_IMAGES is where this instance
+# pulls it, a glob ending in * so that it matches the reference with its
+# tag and digest: index.docker.io/otel/opentelemetry-collector-contrib*, or
+# the shared ECR mirror's <registry>/fair/mirror/opentelemetry-collector*
+# (same digest, signature copied).
+#
+# Interim: mode warn. The OpenTelemetry project signs in the Sigstore bundle
+# format (OCI referrers) only, and the policy-controller (v0.13.1 shipped by
+# chart 0.10.8, and v0.15.1 too, tried 2026-11-26) cannot verify bundle
+# signatures yet ("bundle support for image signatures is not yet
+# implemented"). Until it can, or until the design settles on verifying the
+# publisher's signature when the image is mirrored (and signing the mirrored
+# digest with a key the policy-controller checks), the Collector is admitted
+# with a warning naming this policy; it is still pinned by digest
+# (deploy/observability/k8s-saas.yaml), and any other image no policy
+# matches is refused. scripts/admission-e2e.sh checks both.
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: fair-collector
+  labels: { app.kubernetes.io/part-of: fair-platform }
+spec:
+  mode: warn
+  images:
+    - glob: "${FAIR_COLLECTOR_IMAGES}"
+  authorities:
+    - name: opentelemetry-release
+      keyless:
+        url: https://fulcio.sigstore.dev
+        identities:
+          - issuer: https://token.actions.githubusercontent.com
+            subjectRegExp: '^https://github\.com/open-telemetry/opentelemetry-collector-releases/\.github/workflows/.+@refs/tags/v0\.[0-9]+\.[0-9]+$'
+      ctlog:
+        url: https://rekor.sigstore.dev

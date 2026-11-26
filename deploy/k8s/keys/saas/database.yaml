@@ -1,0 +1,131 @@
+# F-012 T-15 (design §3.5, §3.6): SaaS, the database role passwords from
+# the instance's Secrets Manager entries fair/<instance>/database/<role>
+# ({"password": ...}, loaded at onboarding, infra/modules/instance
+# secrets.tf), copied by the External Secrets Operator into the Secrets the
+# services mount (/secrets/db/password, mode 0400). The release renders
+# REPLACE_WITH_INSTANCE as the instance's id (releasegen fleet).
+# the migration Job (iam migrate)
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: iam-db-migrator
+  namespace: fair-platform
+spec:
+  refreshInterval: 5m
+  secretStoreRef: { kind: SecretStore, name: fair-instance-keys }
+  target:
+    name: iam-db-migrator
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      type: Opaque
+  data:
+    - secretKey: password
+      remoteRef:
+        key: fair/REPLACE_WITH_INSTANCE/database/app_migrator
+        property: password
+---
+# iam-worker
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: iam-db-app
+  namespace: fair-platform
+spec:
+  refreshInterval: 5m
+  secretStoreRef: { kind: SecretStore, name: fair-instance-keys }
+  target:
+    name: iam-db-app
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      type: Opaque
+  data:
+    - secretKey: password
+      remoteRef:
+        key: fair/REPLACE_WITH_INSTANCE/database/app_rw
+        property: password
+---
+# risk: writes only under RLS
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: risk-db-app
+  namespace: fair-platform
+spec:
+  refreshInterval: 5m
+  secretStoreRef: { kind: SecretStore, name: fair-instance-keys }
+  target:
+    name: risk-db-app
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      type: Opaque
+  data:
+    - secretKey: password
+      remoteRef:
+        key: fair/REPLACE_WITH_INSTANCE/database/app_rw
+        property: password
+---
+# audit
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: audit-db-app
+  namespace: fair-platform
+spec:
+  refreshInterval: 5m
+  secretStoreRef: { kind: SecretStore, name: fair-instance-keys }
+  target:
+    name: audit-db-app
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      type: Opaque
+  data:
+    - secretKey: password
+      remoteRef:
+        key: fair/REPLACE_WITH_INSTANCE/database/app_audit
+        property: password
+---
+# notify
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: notify-db-app
+  namespace: fair-platform
+spec:
+  refreshInterval: 5m
+  secretStoreRef: { kind: SecretStore, name: fair-instance-keys }
+  target:
+    name: notify-db-app
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      type: Opaque
+  data:
+    - secretKey: password
+      remoteRef:
+        key: fair/REPLACE_WITH_INSTANCE/database/app_notify
+        property: password
+---
+# integrate
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: integrate-db-app
+  namespace: fair-platform
+spec:
+  refreshInterval: 5m
+  secretStoreRef: { kind: SecretStore, name: fair-instance-keys }
+  target:
+    name: integrate-db-app
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      type: Opaque
+  data:
+    - secretKey: password
+      remoteRef:
+        key: fair/REPLACE_WITH_INSTANCE/database/app_integrate
+        property: password

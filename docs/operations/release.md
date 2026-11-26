@@ -14,14 +14,14 @@ A release is a signed `vX.Y.Z` tag. `.github/workflows/release.yml` builds and c
 | `reproducible` | Every image is built twice on two runners, and the digests must be equal (AC-10). |
 | `build` | Each image goes through every image gate (`.github/actions/image`: hardening, SBOM completeness, vulnerability scan with the accepted findings). It is pushed by digest to staging, signed keylessly, and its SBOM is attested. |
 | `provenance` | SLSA Build Level 3 provenance for every staged image, from the SLSA generator. |
-| `manifest` | `release-manifest.json` (images by digest under the release repository, RBAC hashes, the engine's validation record), `component-definition.json` (OSCAL), the OpenAPI bundle, `fair-audit-verify` for every platform, the SBOMs. |
+| `manifest` | `release-manifest.json` (images by digest under the release repository, RBAC hashes, the engine's validation record), `component-definition.json` (OSCAL), the OpenAPI bundle, `fair-audit-verify` for every platform, the SBOMs. The fleet's manifests (`releasegen fleet`, [fleet.md](fleet.md)) are pushed to staging as the OCI artifact `fair-manifests:<version>` and signed keylessly; `fleet.json` names it. |
 | `release-checklist` | `profilegen release-check -online`: pins, profile packages rebuilt byte for byte, the CMMC rule re-confirmed against the eCFR, no open external pen-test findings, the engine's validation passed. |
 | `bench` | The benchmark gate (`bench.yml`, as on `main`). |
 | `upgrade` | The upgrade test (`upgrade.yml`, `TestUpgradeFromPreviousReleases`). Each earlier release (the newest patch of the two newest minor releases; before `v0.1.0`, the baseline commit in `db/upgrade/baseline`) seeds its data through its own services. This release migrates a copy of that data and checks it. Then both releases' services must start and answer on the upgraded schema (AC-13, AC-21). |
 | `notes` | `releasegen notes` since the previous release: migrations, profile packages, setting definitions, the permission catalog, security events added, ADRs, and pull requests labelled `security`. |
-| `sign` | `release-sign.yml` verifies each staged image's keyless signature, SBOM and provenance. It then signs and attests them again with the release key, signs the profile packages, the manifest and `SHA256SUMS`, and writes `cosign.pub`. |
-| `publish` | Copies the images with their signatures and attestations from staging to the release repository (`cosign copy`), then creates the GitHub release with every file. |
-| `verify` | `scripts/verify-release.sh` on what was published, online, and offline as an air-gapped bundle carries it. |
+| `sign` | `release-sign.yml` verifies each staged image's keyless signature, SBOM and provenance. It then signs and attests them again with the release key, signs the fleet artifact with the release key (after checking its keyless signature), signs the profile packages, the manifest and `SHA256SUMS`, and writes `cosign.pub`. |
+| `publish` | Copies the images with their signatures and attestations, and the fleet artifact with its signatures, from staging to the release repository (`cosign copy`), then creates the GitHub release with every file. |
+| `verify` | `scripts/verify-release.sh` on what was published, online, and offline as an air-gapped bundle carries it; the fleet artifact's release-key and keyless signatures. |
 
 ## The release key
 The release key is an ECDSA P-256 key in AWS KMS in the shared-services account (ADR-018). It is set up by F-012 T-12, with the repository variables `FAIR_RELEASE_KMS_KEY`, `FAIR_RELEASE_ROLE_ARN` and `FAIR_RELEASE_REGION`. The role it is used through can only `kms:Sign` with that key, and only for this repository's release workflow on a `v*` tag. GitHub holds no credential for it.

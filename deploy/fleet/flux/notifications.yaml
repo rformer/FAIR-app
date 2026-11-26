@@ -1,0 +1,41 @@
+# F-012 T-15 (F-012-AC-18, AC-26; design §3.6, §3.8): Flux's events go to
+# the operations account's receiver (over PrivateLink), which keeps them in
+# the Object Lock evidence bucket (infra/modules/observability) for the
+# change-evidence export (cmd/evidence, T-17) and alerts on failures.
+#   - every event of the release's source and reconciliation steps, the
+#     fleet's own and the add-ons' (info and error): a deployment record is
+#     the release revision a step applied, with its time;
+#   - signed with HMAC-SHA256 (generic-hmac: the X-Signature header) under
+#     the token in flux-system/fair-ops-events, so the receiver accepts only
+#     this instance's events.
+# The instance overlay sets the receiver's address and the instance id
+# (deploy/fleet/instances/example).
+apiVersion: notification.toolkit.fluxcd.io/v1
+kind: Provider
+metadata:
+  name: fair-ops
+  namespace: flux-system
+  labels: { app.kubernetes.io/part-of: fair-platform }
+spec:
+  type: generic-hmac
+  address: https://REPLACE_WITH_OPS_EVENTS_HOST/flux/events
+  secretRef:
+    name: fair-ops-events
+---
+apiVersion: notification.toolkit.fluxcd.io/v1
+kind: Alert
+metadata:
+  name: fair-deployments
+  namespace: flux-system
+  labels: { app.kubernetes.io/part-of: fair-platform }
+spec:
+  providerRef:
+    name: fair-ops
+  eventSeverity: info
+  eventSources:
+    - { kind: OCIRepository, name: fair-release }
+    - { kind: GitRepository, name: flux-system }
+    - { kind: Kustomization, name: "*" }
+    - { kind: HelmRelease, name: "*" }
+  eventMetadata:
+    instance: REPLACE_WITH_INSTANCE

@@ -19,6 +19,10 @@
 //	    checks FILE.sig; -list then prints "component image" for each image
 //	    of the verified manifest (scripts/verify-release.sh); -any checks the
 //	    signature of any file (SHA256SUMS) without reading it as a manifest.
+//	releasegen fleet -release VERSION -images FILE -out DIR [-deploy deploy/k8s]
+//	    [-keys deploy/k8s/keys] [-observability deploy/observability]
+//	    the per-release platform manifests Flux reconciles (F-012 T-15,
+//	    internal/fleet): published as a signed OCI artifact by release.yml.
 //	releasegen permissions [-out deploy/k8s/permission-manifest.json]
 //	    the scanner's permission manifest for consent (T-30); a test keeps
 //	    the committed file current.
@@ -34,6 +38,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/rformer/fair-app/internal/fleet"
 	"github.com/rformer/fair-app/internal/kmssign"
 	"github.com/rformer/fair-app/internal/profilepkg"
 	"github.com/rformer/fair-app/internal/releasemanifest"
@@ -49,7 +54,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: releasegen manifest | sign | verify | public | permissions | notes | profiles | component-definition (see the command documentation)")
+		return errors.New("usage: releasegen manifest | fleet | sign | verify | public | permissions | notes | profiles | component-definition (see the command documentation)")
 	}
 	fs := flag.NewFlagSet(args[0], flag.ExitOnError)
 	switch args[0] {
@@ -198,6 +203,23 @@ func run(args []string) error {
 		}
 		fmt.Fprintf(os.Stderr, "release %s: %d images, %d RBAC objects, signature verified\n", m.Release, len(m.Images), len(m.RBAC))
 		return nil
+	case "fleet":
+		release := fs.String("release", "", "release version")
+		images := fs.String("images", "", "JSON file: component -> repository@sha256:<digest>")
+		deploy := fs.String("deploy", "deploy/k8s", "reference manifests")
+		keys := fs.String("keys", "deploy/k8s/keys", "key store manifests")
+		obs := fs.String("observability", "deploy/observability", "Collector configurations and objects (\"\": none)")
+		out := fs.String("out", "", "output directory (must not exist)")
+		_ = fs.Parse(args[1:])
+		b, err := os.ReadFile(*images) // #nosec G304 G703 -- release-pipeline operator input
+		if err != nil {
+			return err
+		}
+		var imgs map[string]string
+		if err := json.Unmarshal(b, &imgs); err != nil {
+			return fmt.Errorf("%s: %w", *images, err)
+		}
+		return fleet.Render(fleet.Options{Release: *release, Images: imgs, Deploy: *deploy, Keys: *keys, Observability: *obs}, *out)
 	case "notes":
 		return notes(args[1:])
 	case "profiles":

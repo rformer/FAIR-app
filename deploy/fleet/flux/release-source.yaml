@@ -1,0 +1,26 @@
+# F-012 T-15 (F-012-AC-18, AC-19; design §3.6; ADR-016): the release this
+# instance runs. The release pipeline publishes the platform's manifests as
+# an OCI artifact (releasegen fleet, then flux push artifact; release.yml)
+# and signs it with the release key; Flux pulls only an artifact whose
+# signature verifies with flux-system/fair-release-key (deploy/fleet/
+# release-key) and reconciles nothing from one that does not.
+#
+# The instance pins the release by tag (ref.tag, patched by its overlay,
+# deploy/fleet/instances); promotion and rollback are pull requests changing
+# that pin (cmd/fleetctl, T-16). Never a range or "latest": no image
+# automation runs (design §3.6).
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: fair-release
+  namespace: flux-system
+  labels: { app.kubernetes.io/part-of: fair-platform }
+spec:
+  interval: 10m
+  url: oci://ghcr.io/rformer/fair-manifests
+  ref:
+    tag: REPLACE_WITH_RELEASE
+  verify:
+    provider: cosign
+    secretRef:
+      name: fair-release-key

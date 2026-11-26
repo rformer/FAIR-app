@@ -9,15 +9,18 @@
 #   provenance    SLSA Build L3 provenance for every staged image
 #   manifest      the release manifest (registry digests, RBAC hashes, the
 #                 engine's validation record), the OSCAL component definition,
-#                 the OpenAPI bundle, fair-audit-verify, the SBOMs
+#                 the OpenAPI bundle, fair-audit-verify, the SBOMs; the
+#                 fleet's per-release manifests (releasegen fleet, F-012
+#                 T-15) pushed to staging as an OCI artifact, keyless-signed
 #   release-checklist  profilegen release-check (F-015 T-07)
 #   bench         the benchmark gate (bench.yml)
 #   upgrade       the upgrade test from earlier releases (upgrade.yml, AC-13)
 #   notes         releasegen notes since the previous release
-#   sign          the release key: images, attestations, profile packages,
-#                 manifest, SHA256SUMS (release-sign.yml)
-#   publish       images copied from staging to the release repository with
-#                 their signatures, then the GitHub release with every file
+#   sign          the release key: images, attestations, the fleet artifact,
+#                 profile packages, manifest, SHA256SUMS (release-sign.yml)
+#   publish       images and the fleet artifact copied from staging to the
+#                 release repository with their signatures, then the GitHub
+#                 release with every file
 #   verify        scripts/verify-release.sh on what was published, online and
 #                 offline
 #
@@ -42,6 +45,8 @@ concurrency:
 env:
   GOFIPS140: v1.0.0
   CGO_ENABLED: "0"
+  # F-012 T-15: pushes the fleet's per-release manifests (flux push artifact).
+  FLUX_CLI_IMAGE: ghcr.io/fluxcd/flux-cli:v2.10.0@sha256:1a5178b1770052d6e88ab1c7c8434c5ac9bca8a8ab984dcaf6b9df31814ce9f2
 
 jobs:
   plan:
@@ -160,7 +165,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: read
+      packages: write
+      id-token: write
     env:
       VERSION: ${{ needs.plan.outputs.version }}
       DIGESTS: ${{ toJSON(needs.build.outputs) }}
@@ -194,6 +200,37 @@ jobs:
           docker rm "$c"
       - name: Release manifest
         run: go run ./cmd/releasegen manifest -release "$VERSION" -images release/images.json -engine-validation release/engine-validation.json -out release/release-manifest.json
+      # F-012 T-15 (AC-18; design §3.6): the platform's manifests as the fleet
+      # reconciles them (internal/fleet), the images named in the release
+      # repository by digest; pushed to staging and keyless-signed like the
+      # images, signed with the release key by release-sign.yml and copied
+      # to the release repository by publish. fleet.json names it in both.
+      - name: Fleet manifests (OCI artifact)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STAGING: ${{ needs.plan.outputs.staging }}
+          RELEASE: ${{ needs.plan.outputs.release }}
+        run: |
+          go run ./cmd/releasegen fleet -release "$VERSION" -images release/images.json -out "$RUNNER_TEMP/fleet"
+          tar --sort=name --mtime="@$(git log -1 --format=%ct)" --owner=0 --group=0 --numeric-owner \
+            -C "$RUNNER_TEMP/fleet" -czf "release/fair-fleet-$VERSION.tar.gz" .
+          out="$(docker run --rm -v "$RUNNER_TEMP/fleet:/fleet:ro" "$FLUX_CLI_IMAGE" push artifact \
+            "oci://$STAGING/fair-manifests:$VERSION" --path=/fleet --reproducible \
+            --source="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" --revision="$VERSION@sha1:$GITHUB_SHA" \
+            --creds "${{ github.actor }}:$GH_TOKEN" 2>&1)"
+          echo "$out"
+          digest="$(echo "$out" | grep -o 'sha256:[0-9a-f]\{64\}' | tail -1)"
+          [ -n "$digest" ] || { echo "no digest from flux push artifact"; exit 1; }
+          jq -n --arg s "$STAGING/fair-manifests@$digest" --arg r "$RELEASE/fair-manifests@$digest" \
+            '{staging: $s, release: $r}' > release/fleet.json
+          cat release/fleet.json
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+      - name: Keyless signature of the fleet manifests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GH_TOKEN" | cosign login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cosign sign --yes "$(jq -r .staging release/fleet.json)"
       - name: OSCAL component definition
         run: go run ./cmd/releasegen component-definition -version "$VERSION" -source-date "$(git log -1 --format=%ct)" -out release/component-definition.json
       - name: OpenAPI bundle
@@ -330,6 +367,16 @@ jobs:
             done
             echo "$src -> ${dst%@*}:$VERSION"
           done
+          # The fleet's manifests (F-012 T-15): Flux pulls them by this tag.
+          src="$(jq -r .staging release/fleet.json)"
+          dst="$(jq -r .release release/fleet.json)"
+          for attempt in 1 2 3 4; do
+            cosign copy --force "$src" "${dst%@*}:$VERSION" && break
+            [ "$attempt" = 4 ] && exit 1
+            echo "copy of the fleet manifests refused; retrying in $((attempt * 20)) s"
+            sleep $((attempt * 20))
+          done
+          echo "$src -> ${dst%@*}:$VERSION"
       - name: GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -368,6 +415,13 @@ jobs:
         run: |
           echo "$GH_TOKEN" | cosign login ghcr.io -u "${{ github.actor }}" --password-stdin
           bash scripts/verify-release.sh release
+      - name: Verify the fleet manifests (F-012 T-15)
+        run: |
+          ref="$(jq -r .release release/fleet.json)"
+          cosign verify --key release/cosign.pub "$ref" >/dev/null
+          cosign verify --certificate-identity-regexp "^https://github\.com/${{ github.repository }}/\.github/workflows/release\.yml@refs/tags/v" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com "$ref" >/dev/null
+          echo "ok - fleet manifests $ref: release key and keyless signatures"
       - name: Verify it as an air-gapped bundle carries it (offline)
         run: |
           for c in $(jq -r 'keys[]' release/images.json); do

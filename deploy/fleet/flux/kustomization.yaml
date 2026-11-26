@@ -1,0 +1,11 @@
+# F-012 T-15 (design §3.6): an instance's Flux objects, in flux-system.
+# The fleet repository's instances/<id>/ includes this base and sets the
+# instance's values (deploy/fleet/instances/example).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: flux-system
+resources:
+  - release-source.yaml
+  - fleet.yaml
+  - release.yaml
+  - notifications.yaml

@@ -1,0 +1,8 @@
+# Stands in for the SaaS key store's ExternalSecrets.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fixture-secrets
+  namespace: fair-platform
+data:
+  key: fair/REPLACE_WITH_INSTANCE/iam/jwt

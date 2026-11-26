@@ -1,0 +1,16 @@
+# The public entry: the load balancer controller registers the gateway's
+# pods (IP targets, HTTPS) in the target group OpenTofu made behind the WAF
+# and the TLS 1.2+ FIPS listener (infra/modules/instance output
+# gateway_target_group_arn). Only the gateway is reachable from outside.
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  name: gateway
+  namespace: fair-platform
+  labels: { app.kubernetes.io/part-of: fair-platform }
+spec:
+  serviceRef:
+    name: gateway
+    port: 443
+  targetGroupARN: "${FAIR_GATEWAY_TARGET_GROUP_ARN}"
+  targetType: ip

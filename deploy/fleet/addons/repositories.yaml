@@ -1,0 +1,48 @@
+# F-012 T-15 (design §3.6): the add-ons' chart repositories. Each chart is
+# pinned by exact version in its HelmRelease and each image by digest in its
+# values; Dependabot does not see these, so updating one is a reviewed pull
+# request to the fleet repository (docs/operations/fleet.md).
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: sigstore
+  namespace: flux-system
+spec:
+  url: https://sigstore.github.io/helm-charts
+  interval: 24h
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: external-secrets
+  namespace: flux-system
+spec:
+  url: https://charts.external-secrets.io
+  interval: 24h
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: jetstack
+  namespace: flux-system
+spec:
+  url: https://charts.jetstack.io
+  interval: 24h
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: aws-privateca-issuer
+  namespace: flux-system
+spec:
+  url: https://cert-manager.github.io/aws-privateca-issuer
+  interval: 24h
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: eks
+  namespace: flux-system
+spec:
+  url: https://aws.github.io/eks-charts
+  interval: 24h

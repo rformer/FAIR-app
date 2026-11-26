@@ -1,0 +1,1 @@
+endpoint: ${env:FAIR_COLLECTOR_ENDPOINT}

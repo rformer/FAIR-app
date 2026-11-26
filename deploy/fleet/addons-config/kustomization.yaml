@@ -1,0 +1,19 @@
+# F-012 T-15 (design §3.5, §3.6): the add-ons' instance configuration,
+# after the add-ons and the release's namespaces exist (fair-addons-config,
+# deploy/fleet/flux/fleet.yaml). ${FAIR_*} from the instance's fair-instance
+# ConfigMap.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - issuer.yaml
+  - external-secrets-account.yaml
+  - target-group-binding.yaml
+generatorOptions:
+  disableNameSuffixHash: true
+# The database's CA (PGSSLROOTCERT=/db-ca/ca.crt): the RDS certificate
+# bundle of the GovCloud regions, public, from AWS's trust store
+# (docs/operations/fleet.md).
+secretGenerator:
+  - name: db-ca
+    namespace: fair-platform
+    files: [ca.crt=rds-ca.pem]

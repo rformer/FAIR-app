@@ -1,0 +1,203 @@
+# F-012 T-15 (F-012-AC-18; design §3.6): the release artifact's directories
+# (internal/fleet), reconciled in order. Each step waits until every object
+# it applied is ready (wait: true; kstatus) and the next starts only then
+# (dependsOn):
+#
+#   fair-policy (fleet.yaml)       admission enforces the release key first
+#   fair-namespaces                namespaces, default-deny, admission label
+#   fair-addons-config (fleet.yaml) issuer, External Secrets' account, ingress
+#   fair-secrets                   keys, database passwords, certificates
+#   fair-migrate                   the iam migration Job must succeed
+#   fair-platform                  the services
+#   fair-observability             the Collector and its log agent
+#
+# A failed migration stops the rollout: fair-platform never applies a
+# release whose migration did not complete. The previous release keeps
+# running on the migrated schema (expand-contract, AC-21).
+#
+# ${FAIR_*} are post-build variables from the instance's fair-instance
+# ConfigMap (deploy/fleet/instances/example/instance.env); the
+# kustomize-controller runs with StrictPostBuildSubstitutions, so a missing
+# value fails the step instead of applying an empty one.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: fair-namespaces
+  namespace: flux-system
+  labels: { app.kubernetes.io/part-of: fair-platform }
+spec:
+  dependsOn:
+    - name: fair-policy
+  sourceRef: { kind: OCIRepository, name: fair-release }
+  path: ./namespaces
+  interval: 10m
+  retryInterval: 2m
+  timeout: 5m
+  prune: false # namespaces hold the customer's workloads; removing one is a reviewed operation
+  wait: true
+  postBuild:
+    substituteFrom:
+      - { kind: ConfigMap, name: fair-instance }
+  patches:
+    # Admission verifies every image in the platform's namespaces
+    # (deploy/fleet/policy; the policy-controller's namespace selector).
+    - target: { kind: Namespace }
+      patch: |
+        - op: add
+          path: /metadata/labels/policy.sigstore.dev~1include
+          value: "true"
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: fair-secrets
+  namespace: flux-system
+  labels: { app.kubernetes.io/part-of: fair-platform }
+spec:
+  dependsOn:
+    - name: fair-addons-config
+  sourceRef: { kind: OCIRepository, name: fair-release }
+  path: ./secrets
+  interval: 10m
+  retryInterval: 2m
+  timeout: 10m
+  prune: true
+  wait: true
+  postBuild:
+    substituteFrom:
+      - { kind: ConfigMap, name: fair-instance }
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: fair-migrate
+  namespace: flux-system
+  labels: { app.kubernetes.io/part-of: fair-platform }
+spec:
+  dependsOn:
+    - name: fair-secrets
+  sourceRef: { kind: OCIRepository, name: fair-release }
+  path: ./migrate
+  interval: 10m
+  retryInterval: 5m
+  timeout: 30m
+  prune: true
+  wait: true
+  # A Job's template cannot change: a new release replaces the Job, which
+  # then runs that release's `iam migrate` once (migrations are recorded by
+  # checksum, so a rerun applies nothing twice).
+  force: true
+  postBuild:
+    substituteFrom:
+      - { kind: ConfigMap, name: fair-instance }
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: fair-platform
+  namespace: flux-system
+  labels: { app.kubernetes.io/part-of: fair-platform }
+spec:
+  dependsOn:
+    - name: fair-migrate
+  sourceRef: { kind: OCIRepository, name: fair-release }
+  path: ./platform
+  interval: 10m
+  retryInterval: 2m
+  timeout: 15m
+  prune: true
+  wait: true
+  postBuild:
+    substituteFrom:
+      - { kind: ConfigMap, name: fair-instance }
+  patches:
+    # The stores: the instance's buckets through the S3 FIPS endpoint, with
+    # web-identity credentials for the service's IRSA role (ADR-012
+    # amendment 1; infra/modules/instance output service_environment); no
+    # key files.
+    - target: { kind: Deployment, name: audit }
+      patch: |
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: audit
+        spec:
+          template:
+            spec:
+              containers:
+                - name: audit
+                  env:
+                    - { name: FAIR_AUDIT_STORE_BUCKET, value: "${FAIR_AUDIT_STORE_BUCKET}" }
+                    - { name: FAIR_AUDIT_STORE_ENDPOINT, value: "${FAIR_AUDIT_STORE_ENDPOINT}" }
+                    - { name: FAIR_AUDIT_STORE_REGION, value: "${FAIR_AUDIT_STORE_REGION}" }
+                    - { name: FAIR_AUDIT_STORE_CREDENTIALS, value: web-identity }
+                    - { name: FAIR_AUDIT_STORE_ACCESS_KEY_FILE, $patch: delete }
+                    - { name: FAIR_AUDIT_STORE_SECRET_KEY_FILE, $patch: delete }
+                    # SaaS: write-once checkpoint copies (F-002 AC-10).
+                    - { name: FAIR_AUDIT_WORM_BUCKET, value: "${FAIR_AUDIT_WORM_BUCKET}" }
+                    - { name: FAIR_AUDIT_WORM_ENDPOINT, value: "${FAIR_AUDIT_WORM_ENDPOINT}" }
+                    - { name: FAIR_AUDIT_WORM_REGION, value: "${FAIR_AUDIT_WORM_REGION}" }
+                    - { name: FAIR_AUDIT_WORM_CREDENTIALS, value: web-identity }
+                  volumeMounts:
+                    - { mountPath: /secrets/store, $patch: delete }
+              volumes:
+                - { name: store, $patch: delete }
+    - target: { kind: Deployment, name: risk }
+      patch: |
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: risk
+        spec:
+          template:
+            spec:
+              containers:
+                - name: risk
+                  env:
+                    - { name: FAIR_REPORT_STORE_BUCKET, value: "${FAIR_REPORT_STORE_BUCKET}" }
+                    - { name: FAIR_REPORT_STORE_ENDPOINT, value: "${FAIR_REPORT_STORE_ENDPOINT}" }
+                    - { name: FAIR_REPORT_STORE_REGION, value: "${FAIR_REPORT_STORE_REGION}" }
+                    - { name: FAIR_REPORT_STORE_CREDENTIALS, value: web-identity }
+                    - { name: FAIR_REPORT_STORE_ACCESS_KEY_FILE, $patch: delete }
+                    - { name: FAIR_REPORT_STORE_SECRET_KEY_FILE, $patch: delete }
+                  volumeMounts:
+                    - { mountPath: /secrets/report-store, $patch: delete }
+              volumes:
+                - { name: report-store, $patch: delete }
+    # IRSA: the services' roles (infra/modules/instance output workload_roles).
+    - target: { kind: ServiceAccount, name: audit }
+      patch: |
+        apiVersion: v1
+        kind: ServiceAccount
+        metadata:
+          name: audit
+          annotations:
+            eks.amazonaws.com/role-arn: "${FAIR_ROLE_AUDIT}"
+    - target: { kind: ServiceAccount, name: risk }
+      patch: |
+        apiVersion: v1
+        kind: ServiceAccount
+        metadata:
+          name: risk
+          annotations:
+            eks.amazonaws.com/role-arn: "${FAIR_ROLE_RISK}"
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: fair-observability
+  namespace: flux-system
+  labels: { app.kubernetes.io/part-of: fair-platform }
+spec:
+  dependsOn:
+    - name: fair-secrets
+  sourceRef: { kind: OCIRepository, name: fair-release }
+  path: ./observability
+  interval: 10m
+  retryInterval: 2m
+  timeout: 10m
+  prune: true
+  wait: true
+  postBuild:
+    substituteFrom:
+      - { kind: ConfigMap, name: fair-instance }

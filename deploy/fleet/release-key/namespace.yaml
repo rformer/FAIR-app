@@ -1,0 +1,10 @@
+# The policy-controller's namespace (deploy/fleet/addons/policy-controller.yaml
+# installs into it), made here so the key Secret can exist before it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cosign-system
+  labels:
+    app.kubernetes.io/part-of: fair-platform
+    pod-security.kubernetes.io/enforce: baseline # the chart sets no seccomp profile
+    pod-security.kubernetes.io/warn: restricted

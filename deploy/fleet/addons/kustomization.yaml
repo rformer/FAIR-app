@@ -1,0 +1,12 @@
+# F-012 T-15 (design §3.5, §3.6): the cluster add-ons of every SaaS
+# instance, as Flux HelmReleases (charts by exact version, images by
+# digest). Reconciled by fair-addons (deploy/fleet/flux/fleet.yaml), with
+# the instance's values substituted (${FAIR_*}).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - repositories.yaml
+  - policy-controller.yaml
+  - external-secrets.yaml
+  - cert-manager.yaml
+  - load-balancer-controller.yaml

@@ -1,0 +1,52 @@
+# F-012 T-15 (F-012-AC-19; design §3.3, §3.6, STRIDE "a forged or swapped
+# image runs in SaaS"): the admission policy for the platform's images.
+#
+# The Sigstore policy-controller (deploy/fleet/addons/policy-controller.yaml)
+# checks every Pod created in a namespace labelled
+# policy.sigstore.dev/include=true (every namespace of the release:
+# fair-platform, fair-fips-probe, fair-observability). An image there is
+# admitted only when a ClusterImagePolicy matches it and every one of its
+# authorities passes; an image no policy matches is refused (no-match-policy
+# deny). For an image of the release repository this one requires:
+#   - a signature by the release key (cosign-system/fair-release-key, the
+#     release's cosign.pub: release-sign.yml signs every image with the KMS
+#     release key after verifying its keyless signature by release.yml);
+#   - a SLSA provenance attestation, signed by the same key, whose builder is
+#     the SLSA generator's container workflow and whose source is this
+#     repository's release workflow at a v* tag.
+# An unsigned image, one signed by another key, one whose provenance names
+# another builder or source, and one from any other repository are refused
+# (scripts/admission-e2e.sh).
+#
+# FAIR_RELEASE_IMAGES is the glob of the release's images where this
+# instance pulls them: ghcr.io/rformer/fair-* (the release repository), or
+# the shared ECR mirror's <registry>/fair/* (same digests, signatures copied).
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: fair-release
+  labels: { app.kubernetes.io/part-of: fair-platform }
+spec:
+  mode: enforce
+  images:
+    - glob: "${FAIR_RELEASE_IMAGES}"
+  authorities:
+    - name: release-key
+      key:
+        secretRef:
+          name: fair-release-key
+        hashAlgorithm: sha256
+      attestations:
+        - name: slsa-provenance
+          predicateType: https://slsa.dev/provenance/v0.2 # cosign attest --type slsaprovenance
+          policy:
+            type: cue
+            data: |
+              predicateType: "https://slsa.dev/provenance/v0.2"
+              predicate: {
+                builder: id: =~"^https://github\\.com/slsa-framework/slsa-github-generator/\\.github/workflows/generator_container_slsa3\\.yml@refs/tags/v[0-9]+\\.[0-9]+\\.[0-9]+$"
+                invocation: configSource: {
+                  uri: =~"^git\\+https://github\\.com/rformer/FAIR-app@refs/tags/v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$"
+                  entryPoint: ".github/workflows/release.yml"
+                }
+              }

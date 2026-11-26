@@ -1,0 +1,82 @@
+# F-012 T-15 (design §3.5): cert-manager (chart v1.21.3) and the AWS
+# Private CA issuer (chart v1.12.0), images by digest. The services'
+# certificates (the release's secrets/certificates.yaml) come from the
+# instance's ACM Private CA through the cluster issuer fair-internal
+# (deploy/fleet/addons-config). The issuer's controller signs through the
+# IRSA role privateca-issuer (cert-manager/aws-privateca-issuer; may issue
+# from this instance's CA only), on FIPS endpoints.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cert-manager
+  namespace: flux-system
+  labels: { app.kubernetes.io/part-of: fair-platform }
+spec:
+  interval: 30m
+  releaseName: cert-manager
+  targetNamespace: cert-manager
+  install:
+    createNamespace: true
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
+  chart:
+    spec:
+      chart: cert-manager
+      version: v1.21.3
+      sourceRef: { kind: HelmRepository, name: jetstack }
+  values:
+    crds:
+      enabled: true
+      keep: true
+    image:
+      repository: quay.io/jetstack/cert-manager-controller
+      digest: sha256:9f4f96a33c7774cef24466fcd85031997531a03a8d117f151126baa8d1290dcc
+    webhook:
+      image:
+        repository: quay.io/jetstack/cert-manager-webhook
+        digest: sha256:055ac8e9de6a0ba6763794838fe38944acc650f68ebe1b01dd8be079e580f458
+    cainjector:
+      image:
+        repository: quay.io/jetstack/cert-manager-cainjector
+        digest: sha256:083d0e906f8eb44e255fe4ff817ae54e49f9ed82e22f1011bb4e9e4f4b8a641f
+    startupapicheck:
+      image:
+        repository: quay.io/jetstack/cert-manager-startupapicheck
+        digest: sha256:1c519d4afca1413d1e4ccd78bdc756184418ab55a34569a3b3de39d32f9974e1
+    # The Collector scrapes cert-manager's metrics (FAIR_CERT_MANAGER_TARGET).
+    prometheus:
+      enabled: true
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: aws-privateca-issuer
+  namespace: flux-system
+  labels: { app.kubernetes.io/part-of: fair-platform }
+spec:
+  dependsOn:
+    - name: cert-manager
+  interval: 30m
+  releaseName: aws-privateca-issuer
+  targetNamespace: cert-manager
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
+  chart:
+    spec:
+      chart: aws-privateca-issuer
+      version: v1.12.0
+      sourceRef: { kind: HelmRepository, name: aws-privateca-issuer }
+  values:
+    image:
+      repository: public.ecr.aws/k1n1h4h4/cert-manager-aws-privateca-issuer
+      tag: v1.12.0@sha256:3891985ffeb87a471ad467ed045c07441153c68b1e096bac5f02051f153dc2f4
+    serviceAccount:
+      create: true
+      name: aws-privateca-issuer
+      annotations:
+        eks.amazonaws.com/role-arn: "${FAIR_ROLE_PRIVATECA_ISSUER}"
+    env:
+      AWS_USE_FIPS_ENDPOINT: "true"

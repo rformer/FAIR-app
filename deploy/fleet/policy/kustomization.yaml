@@ -1,0 +1,8 @@
+# F-012 T-15 (F-012-AC-19; design §3.6): the admission policies, reconciled
+# by fair-policy (deploy/fleet/flux/fleet.yaml) before any namespace of the
+# release exists.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - release.yaml
+  - collector.yaml

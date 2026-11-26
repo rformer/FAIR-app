@@ -1,0 +1,2 @@
+# The Collector expands this itself; Flux must not.
+label: ${env:FAIR_INSTANCE}

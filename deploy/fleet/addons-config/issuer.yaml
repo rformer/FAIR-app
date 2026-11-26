@@ -1,0 +1,12 @@
+# The services' certificates (deploy/k8s/keys/saas/certificates.yaml) are
+# issued by the instance's ACM Private CA (infra/modules/instance output
+# private_ca_arn; short-lived, FIPS HSM) through the AWS Private CA issuer,
+# with the controller's own IRSA credentials.
+apiVersion: awspca.cert-manager.io/v1beta1
+kind: AWSPCAClusterIssuer
+metadata:
+  name: fair-internal
+  labels: { app.kubernetes.io/part-of: fair-platform }
+spec:
+  arn: "${FAIR_PRIVATE_CA_ARN}"
+  region: "${FAIR_REGION}"

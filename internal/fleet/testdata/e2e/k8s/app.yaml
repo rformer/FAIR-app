@@ -1,0 +1,101 @@
+# admission-e2e's stand-in release (scripts/admission-e2e.sh): the shape of
+# deploy/k8s in miniature, rendered by releasegen fleet like the real one.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fair-platform
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: fair-platform
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: iam
+  namespace: fair-platform
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iam
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: iam, app.kubernetes.io/part-of: fair-platform }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: iam }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: iam, app.kubernetes.io/part-of: fair-platform }
+    spec:
+      serviceAccountName: iam
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: iam
+          image: ghcr.io/rformer/fair-iam:REPLACE_WITH_DIGEST
+          command: ["sleep", "3600"]
+          env:
+            - { name: FAIR_DEPLOYMENT_MODE, value: self-hosted }
+            - { name: PGHOST, value: REPLACE_WITH_DB_HOST }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iam-migrate
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: iam-migrate, app.kubernetes.io/part-of: fair-platform }
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: iam-migrate, app.kubernetes.io/part-of: fair-platform }
+    spec:
+      restartPolicy: Never
+      serviceAccountName: iam
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: migrate
+          image: ghcr.io/rformer/fair-iam:REPLACE_WITH_DIGEST
+          command: ["sh", "-c", "sleep 5; echo migrated"]
+          env:
+            - { name: PGHOST, value: REPLACE_WITH_DB_HOST }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: iam-migrate-egress
+  namespace: fair-platform
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: iam-migrate }
+  policyTypes: [Egress]
+  egress:
+    - ports: [{ port: 53, protocol: UDP }]

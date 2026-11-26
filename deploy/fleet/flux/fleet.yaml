@@ -1,0 +1,64 @@
+# F-012 T-15 (F-012-AC-18, AC-19; design §3.6): what the fleet repository
+# itself holds for every instance, reconciled from it (the GitRepository
+# flux-system that the instance's bootstrap made; the fleet repository's
+# layout is deploy/fleet's): the cluster add-ons, the admission policy and
+# the add-ons' instance configuration. Changing any of it is an approved
+# pull request to the fleet repository (branch protection, AC-18).
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: fair-addons
+  namespace: flux-system
+  labels: { app.kubernetes.io/part-of: fair-platform }
+spec:
+  sourceRef: { kind: GitRepository, name: flux-system }
+  path: ./addons
+  interval: 30m
+  retryInterval: 2m
+  timeout: 15m
+  prune: true
+  wait: true
+  postBuild:
+    substituteFrom:
+      - { kind: ConfigMap, name: fair-instance }
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: fair-policy
+  namespace: flux-system
+  labels: { app.kubernetes.io/part-of: fair-platform }
+spec:
+  dependsOn:
+    - name: fair-addons
+  sourceRef: { kind: GitRepository, name: flux-system }
+  path: ./policy
+  interval: 30m
+  retryInterval: 2m
+  timeout: 5m
+  prune: true
+  wait: true
+  postBuild:
+    substituteFrom:
+      - { kind: ConfigMap, name: fair-instance }
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: fair-addons-config
+  namespace: flux-system
+  labels: { app.kubernetes.io/part-of: fair-platform }
+spec:
+  dependsOn:
+    - name: fair-addons
+    - name: fair-namespaces
+  sourceRef: { kind: GitRepository, name: flux-system }
+  path: ./addons-config
+  interval: 30m
+  retryInterval: 2m
+  timeout: 5m
+  prune: true
+  wait: true
+  postBuild:
+    substituteFrom:
+      - { kind: ConfigMap, name: fair-instance }

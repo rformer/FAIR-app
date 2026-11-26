@@ -1,0 +1,25 @@
+# F-012 T-15 (F-012-AC-18, AC-19; design §3.3, §3.6): the release public
+# key, the one trust anchor of the fleet. cosign.pub is the release's own
+# cosign.pub (the KMS release key, ADR-018; check its fingerprint against
+# the release notes, docs/security/verify.md). Two Secrets carry it:
+#   flux-system/fair-release-key    Flux verifies the release's OCI artifact
+#                                   (deploy/fleet/flux/release-source.yaml)
+#   cosign-system/fair-release-key  the policy-controller verifies every
+#                                   platform image (deploy/fleet/policy)
+# Rotating the release key is a pull request changing this file, merged
+# before the first release signed by the new key.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    app.kubernetes.io/part-of: fair-platform
+secretGenerator:
+  - name: fair-release-key
+    namespace: flux-system
+    files: [cosign.pub]
+  - name: fair-release-key
+    namespace: cosign-system
+    files: [cosign.pub]

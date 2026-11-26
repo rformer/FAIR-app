@@ -125,6 +125,16 @@ jobs:
             cosign attest --yes --key "$RELEASE_SIGNING_KEY" "$RELEASE_TLOG" --type slsaprovenance --predicate predicate-slsa.json "$ref"
             echo "signed $ref"
           done
+      # F-012 T-15 (AC-18, AC-19): the fleet's per-release manifests (the OCI
+      # artifact Flux verifies with cosign.pub before reconciling anything).
+      - name: Sign the fleet manifests with the release key
+        if: ${{ hashFiles('release/fleet.json') != '' }}
+        run: |
+          ref="$(jq -r .staging release/fleet.json)"
+          release_id='^https://github\.com/${{ github.repository }}/\.github/workflows/release\.yml@refs/tags/v'
+          cosign verify --certificate-identity-regexp "$release_id" --certificate-oidc-issuer https://token.actions.githubusercontent.com "$ref" >/dev/null
+          cosign sign --yes --key "$RELEASE_SIGNING_KEY" "$RELEASE_TLOG" "$ref"
+          echo "signed $ref"
       - name: Sign the profile packages, the release manifest and SHA256SUMS
         run: |
           # shellcheck disable=SC2086 # RELEASEGEN_KEY is two flags

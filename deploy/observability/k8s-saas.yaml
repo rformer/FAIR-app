@@ -1,0 +1,246 @@
+# F-012 T-15 (F-012-AC-24; design §3.6, §3.7; ADR-017): the Kubernetes
+# objects of a SaaS instance's telemetry, rendered by `releasegen fleet` into
+# the release artifact's observability/ directory beside the two Collector
+# configurations (collector-saas.yaml as ConfigMap otelcol-saas in
+# fair-platform, collector-saas-agent.yaml as otelcol-agent in
+# fair-observability). ${FAIR_*} are Flux post-build variables from the
+# instance's fair-instance ConfigMap (deploy/fleet/instances).
+#
+# The instance Collector runs in fair-platform: the engine certificates whose
+# expiry it reads are there, and it mounts only their public halves. The log
+# agent needs the node's container logs (hostPath), which the restricted and
+# baseline pod security levels forbid, so it has a namespace of its own
+# enforcing privileged and holding nothing else (as fips-probe).
+#
+# Image: otel/opentelemetry-collector-contrib 0.165.0, the version
+# scripts/observability-check.sh validates these configurations with,
+# mirrored to the shared ECR by digest (the instance overlay maps the
+# registry); admitted by its publisher's keyless signature
+# (deploy/fleet/policy/collector.yaml).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fair-observability
+  labels:
+    app.kubernetes.io/part-of: fair-platform
+    pod-security.kubernetes.io/enforce: privileged # hostPath; nothing else runs here
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: fair-observability
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otelcol
+  namespace: fair-platform
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otelcol
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: otelcol, app.kubernetes.io/part-of: fair-platform }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: otelcol }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: otelcol, app.kubernetes.io/part-of: fair-platform }
+    spec:
+      serviceAccountName: otelcol
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: otelcol
+          image: otel/opentelemetry-collector-contrib:0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea
+          args: ["--config=/conf/config.yaml"]
+          ports:
+            - { name: otlp-grpc, containerPort: 4317 }
+            - { name: health, containerPort: 13133 }
+          env:
+            - { name: FAIR_INSTANCE, value: "${FAIR_INSTANCE}" }
+            - { name: FAIR_OPS_PROMETHEUS_URL, value: "${FAIR_OPS_PROMETHEUS_URL}" }
+            - { name: FAIR_OPS_LOKI_URL, value: "${FAIR_OPS_LOKI_URL}" }
+            - { name: FAIR_OPS_TEMPO_ENDPOINT, value: "${FAIR_OPS_TEMPO_ENDPOINT}" }
+            - { name: FAIR_KSM_TARGET, value: "${FAIR_KSM_TARGET}" }
+            - { name: FAIR_CERT_MANAGER_TARGET, value: "${FAIR_CERT_MANAGER_TARGET}" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          livenessProbe:
+            httpGet: { path: /, port: health }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /, port: health }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1Gi }
+          volumeMounts:
+            - { name: config, mountPath: /conf, readOnly: true }
+            - { name: tls, mountPath: /etc/otelcol/tls, readOnly: true }
+            - { name: ops, mountPath: /etc/otelcol/ops, readOnly: true }
+            - { name: engine-gate, mountPath: /etc/otelcol/engine/gate.crt, subPath: gate.crt, readOnly: true }
+            - { name: engine-client, mountPath: /etc/otelcol/engine/client.crt, subPath: client.crt, readOnly: true }
+      volumes:
+        - name: config
+          configMap: { name: otelcol-saas }
+        - name: tls
+          secret: { secretName: otelcol-tls } # cert-manager (deploy/k8s/keys/saas/certificates.yaml)
+        - name: ops
+          secret: { secretName: otelcol-ops } # the ops endpoints' CA and this instance's client certificate
+        # Public halves only: the private keys of these entries are not mounted.
+        - name: engine-gate
+          secret: { secretName: fair-engine-gate-tls, items: [{ key: tls.crt, path: gate.crt }] }
+        - name: engine-client
+          secret: { secretName: fair-risk-engine-client, items: [{ key: tls.crt, path: client.crt }] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otelcol
+  namespace: fair-platform
+spec:
+  selector: { app.kubernetes.io/name: otelcol }
+  ports: [{ name: otlp-grpc, port: 4317, targetPort: otlp-grpc }]
+---
+# The platform's pods send OTLP to the Collector (FAIR_OTEL_ENDPOINT,
+# pkg/telemetry); the log agent sends it the logs.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: otelcol-ingress
+  namespace: fair-platform
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: otelcol }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app.kubernetes.io/part-of: fair-platform } }
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: fair-observability } }
+          podSelector: { matchLabels: { app.kubernetes.io/name: otelcol-agent } }
+      ports: [{ port: 4317, protocol: TCP }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: otel-egress
+  namespace: fair-platform
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/part-of: fair-platform }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector: { matchLabels: { app.kubernetes.io/name: otelcol } }
+      ports: [{ port: 4317, protocol: TCP }]
+---
+# Egress: the ops account over PrivateLink (HTTPS and OTLP/gRPC), the
+# scrape targets (kube-state-metrics, cert-manager) and DNS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: otelcol-egress
+  namespace: fair-platform
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: otelcol }
+  policyTypes: [Egress]
+  egress:
+    - ports: [{ port: 443, protocol: TCP }, { port: 4317, protocol: TCP }]
+    - ports: [{ port: 8080, protocol: TCP }, { port: 9402, protocol: TCP }]
+    - ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otelcol-agent
+  namespace: fair-observability
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otelcol-agent
+  namespace: fair-observability
+  labels: { app.kubernetes.io/name: otelcol-agent, app.kubernetes.io/part-of: fair-platform }
+spec:
+  selector:
+    matchLabels: { app.kubernetes.io/name: otelcol-agent }
+  updateStrategy: { type: RollingUpdate }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: otelcol-agent, app.kubernetes.io/part-of: fair-platform }
+    spec:
+      serviceAccountName: otelcol-agent
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # The kubelet writes container logs readable by root only, so the agent
+      # reads them as root; everything else stays dropped and read-only.
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: otelcol-agent
+          image: otel/opentelemetry-collector-contrib:0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea
+          args: ["--config=/conf/config.yaml"]
+          ports: [{ name: health, containerPort: 13133 }]
+          env:
+            - { name: FAIR_COLLECTOR_ENDPOINT, value: otelcol.fair-platform.svc:4317 }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          readinessProbe:
+            httpGet: { path: /, port: health }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          volumeMounts:
+            - { name: config, mountPath: /conf, readOnly: true }
+            - { name: ca, mountPath: /etc/otelcol/ca, readOnly: true }
+            - { name: pods, mountPath: /var/log/pods, readOnly: true }
+            - { name: offsets, mountPath: /var/lib/otelcol }
+      volumes:
+        - name: config
+          configMap: { name: otelcol-agent }
+        - name: ca
+          secret: { secretName: otelcol-agent-ca, items: [{ key: ca.crt, path: ca.crt }] }
+        - name: pods
+          hostPath: { path: /var/log/pods, type: Directory }
+        - name: offsets
+          hostPath: { path: /var/lib/otelcol, type: DirectoryOrCreate }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: otelcol-agent-egress
+  namespace: fair-observability
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: otelcol-agent }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: fair-platform } }
+          podSelector: { matchLabels: { app.kubernetes.io/name: otelcol } }
+      ports: [{ port: 4317, protocol: TCP }]
+    - ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]

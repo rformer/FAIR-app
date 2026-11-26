@@ -1,0 +1,44 @@
+# F-012 T-15 (F-012-AC-19; design §3.6): the Sigstore policy-controller,
+# chart policy-controller 0.10.8 (app v0.13.1), images by digest. Its
+# webhooks check Pods in namespaces labelled policy.sigstore.dev/include=true
+# against the ClusterImagePolicies of deploy/fleet/policy; they fail closed
+# (failurePolicy Fail: no admission while the controller is down), and an
+# image no policy matches is refused (no-match-policy deny). The release key
+# is cosign-system/fair-release-key (deploy/fleet/release-key).
+# scripts/admission-e2e.sh installs this chart with these values.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: policy-controller
+  namespace: flux-system
+  labels: { app.kubernetes.io/part-of: fair-platform }
+spec:
+  interval: 30m
+  releaseName: policy-controller
+  targetNamespace: cosign-system
+  install:
+    createNamespace: false # deploy/fleet/release-key
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
+  chart:
+    spec:
+      chart: policy-controller
+      version: 0.10.8
+      sourceRef: { kind: HelmRepository, name: sigstore }
+  values:
+    webhook:
+      image:
+        repository: ghcr.io/sigstore/policy-controller/policy-controller
+        version: sha256:0bcd60beb93f4427c29cf3a669743caf58490e98ded4380c33c09f092734a6ab # v0.13.1
+      replicaCount: 2
+      failurePolicy: Fail
+      configData:
+        no-match-policy: deny
+      namespaceSelector:
+        matchExpressions:
+          - { key: policy.sigstore.dev/include, operator: In, values: ["true"] }
+    leasescleanup:
+      image:
+        repository: cgr.dev/chainguard/kubectl
+        version: sha256:cc7c7a490e13b6f1d6c8d7ad4ca7487d53b4b693b901a6eac5731a05365a2807

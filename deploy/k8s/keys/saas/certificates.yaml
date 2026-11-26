@@ -1,0 +1,155 @@
+# F-012 T-15 (design §3.5, §3.6): SaaS, the services' TLS certificates,
+# issued by cert-manager from the instance's ACM Private CA (the cluster
+# issuer fair-internal, an AWSPCAClusterIssuer: deploy/fleet/addons-config).
+# ECDSA P-256, short-lived and renewed by cert-manager; each Secret also
+# carries the CA (ca.crt). gateway-ca and otelcol-agent-ca are mounted for
+# their ca.crt only.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: iam-tls
+  namespace: fair-platform
+spec:
+  secretName: iam-tls
+  commonName: iam.fair-platform.svc
+  dnsNames: [iam.fair-platform.svc]
+  usages: [digital signature, server auth]
+  duration: 720h
+  renewBefore: 240h
+  privateKey: { algorithm: ECDSA, size: 256, rotationPolicy: Always }
+  issuerRef: { group: awspca.cert-manager.io, kind: AWSPCAClusterIssuer, name: fair-internal }
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: audit-tls
+  namespace: fair-platform
+spec:
+  secretName: audit-tls
+  commonName: audit.fair-platform.svc
+  dnsNames: [audit.fair-platform.svc]
+  usages: [digital signature, server auth]
+  duration: 720h
+  renewBefore: 240h
+  privateKey: { algorithm: ECDSA, size: 256, rotationPolicy: Always }
+  issuerRef: { group: awspca.cert-manager.io, kind: AWSPCAClusterIssuer, name: fair-internal }
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: risk-tls
+  namespace: fair-platform
+spec:
+  secretName: risk-tls
+  commonName: risk.fair-platform.svc
+  dnsNames: [risk.fair-platform.svc]
+  usages: [digital signature, server auth]
+  duration: 720h
+  renewBefore: 240h
+  privateKey: { algorithm: ECDSA, size: 256, rotationPolicy: Always }
+  issuerRef: { group: awspca.cert-manager.io, kind: AWSPCAClusterIssuer, name: fair-internal }
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: notify-tls
+  namespace: fair-platform
+spec:
+  secretName: notify-tls
+  commonName: notify.fair-platform.svc
+  dnsNames: [notify.fair-platform.svc]
+  usages: [digital signature, server auth]
+  duration: 720h
+  renewBefore: 240h
+  privateKey: { algorithm: ECDSA, size: 256, rotationPolicy: Always }
+  issuerRef: { group: awspca.cert-manager.io, kind: AWSPCAClusterIssuer, name: fair-internal }
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: integrate-tls
+  namespace: fair-platform
+spec:
+  secretName: integrate-tls
+  commonName: integrate.fair-platform.svc
+  dnsNames: [integrate.fair-platform.svc]
+  usages: [digital signature, server auth]
+  duration: 720h
+  renewBefore: 240h
+  privateKey: { algorithm: ECDSA, size: 256, rotationPolicy: Always }
+  issuerRef: { group: awspca.cert-manager.io, kind: AWSPCAClusterIssuer, name: fair-internal }
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: posture-tls
+  namespace: fair-platform
+spec:
+  secretName: posture-tls
+  commonName: posture.fair-platform
+  dnsNames: [posture.fair-platform, posture.fair-platform.svc]
+  usages: [digital signature, server auth]
+  duration: 720h
+  renewBefore: 240h
+  privateKey: { algorithm: ECDSA, size: 256, rotationPolicy: Always }
+  issuerRef: { group: awspca.cert-manager.io, kind: AWSPCAClusterIssuer, name: fair-internal }
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: gateway-ca
+  namespace: fair-platform
+spec:
+  secretName: gateway-ca
+  commonName: gateway.fair-platform.svc
+  dnsNames: [gateway.fair-platform.svc]
+  usages: [digital signature, server auth]
+  duration: 720h
+  renewBefore: 240h
+  privateKey: { algorithm: ECDSA, size: 256, rotationPolicy: Always }
+  issuerRef: { group: awspca.cert-manager.io, kind: AWSPCAClusterIssuer, name: fair-internal }
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: otelcol-tls
+  namespace: fair-platform
+spec:
+  secretName: otelcol-tls
+  commonName: otelcol.fair-platform.svc
+  dnsNames: [otelcol.fair-platform.svc]
+  usages: [digital signature, server auth]
+  duration: 720h
+  renewBefore: 240h
+  privateKey: { algorithm: ECDSA, size: 256, rotationPolicy: Always }
+  issuerRef: { group: awspca.cert-manager.io, kind: AWSPCAClusterIssuer, name: fair-internal }
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: otelcol-agent-ca
+  namespace: fair-observability
+spec:
+  secretName: otelcol-agent-ca
+  commonName: otelcol-agent.fair-observability.svc
+  dnsNames: [otelcol-agent.fair-observability.svc]
+  usages: [digital signature, client auth]
+  duration: 720h
+  renewBefore: 240h
+  privateKey: { algorithm: ECDSA, size: 256, rotationPolicy: Always }
+  issuerRef: { group: awspca.cert-manager.io, kind: AWSPCAClusterIssuer, name: fair-internal }
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: posture-scanner-tls
+  namespace: fair-platform
+spec:
+  secretName: posture-scanner-tls
+  commonName: posture-scanner
+  uris: ["spiffe://fair-platform/posture-scanner"]
+  usages: [digital signature, client auth]
+  duration: 720h
+  renewBefore: 240h
+  privateKey: { algorithm: ECDSA, size: 256, rotationPolicy: Always }
+  issuerRef: { group: awspca.cert-manager.io, kind: AWSPCAClusterIssuer, name: fair-internal }
