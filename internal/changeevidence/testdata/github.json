@@ -1,0 +1,1479 @@
+{
+ "requests": [
+  {
+   "uri": "/repos/acme/fair/pulls?base=main&direction=desc&per_page=100&sort=updated&state=closed",
+   "next": "/repos/acme/fair/pulls?base=main&direction=desc&per_page=100&sort=updated&state=closed&page=2",
+   "body": [
+    {
+     "url": "https://api.github.test/repos/acme/fair/pulls/12",
+     "id": 9012,
+     "number": 12,
+     "state": "closed",
+     "title": "Add the register export",
+     "html_url": "https://github.test/acme/fair/pull/12",
+     "user": {
+      "login": "alice",
+      "id": 1,
+      "type": "User",
+      "html_url": "https://github.test/alice"
+     },
+     "created_at": "2026-10-01T00:00:00Z",
+     "updated_at": "2026-11-20T12:00:00Z",
+     "closed_at": "2026-11-20T11:00:00Z",
+     "merged_at": "2026-11-20T11:00:00Z",
+     "merge_commit_sha": "12b0000000000000000000000000000000000000",
+     "head": {
+      "ref": "change-12",
+      "sha": "12a0000000000000000000000000000000000000"
+     },
+     "base": {
+      "ref": "main",
+      "sha": "ba5e000000000000000000000000000000000000"
+     }
+    },
+    {
+     "url": "https://api.github.test/repos/acme/fair/pulls/11",
+     "id": 9011,
+     "number": 11,
+     "state": "closed",
+     "title": "Tune the engine",
+     "html_url": "https://github.test/acme/fair/pull/11",
+     "user": {
+      "login": "carol",
+      "id": 3,
+      "type": "User",
+      "html_url": "https://github.test/carol"
+     },
+     "created_at": "2026-10-01T00:00:00Z",
+     "updated_at": "2026-11-15T12:00:00Z",
+     "closed_at": "2026-11-15T11:00:00Z",
+     "merged_at": "2026-11-15T11:00:00Z",
+     "merge_commit_sha": "11b0000000000000000000000000000000000000",
+     "head": {
+      "ref": "change-11",
+      "sha": "11a0000000000000000000000000000000000000"
+     },
+     "base": {
+      "ref": "main",
+      "sha": "ba5e000000000000000000000000000000000000"
+     }
+    },
+    {
+     "url": "https://api.github.test/repos/acme/fair/pulls/10",
+     "id": 9010,
+     "number": 10,
+     "state": "closed",
+     "title": "Abandoned",
+     "html_url": "https://github.test/acme/fair/pull/10",
+     "user": {
+      "login": "dave",
+      "id": 4,
+      "type": "User",
+      "html_url": "https://github.test/dave"
+     },
+     "created_at": "2026-10-01T00:00:00Z",
+     "updated_at": "2026-11-14T12:00:00Z",
+     "closed_at": "2026-11-14T12:00:00Z",
+     "merged_at": null,
+     "merge_commit_sha": null,
+     "head": {
+      "ref": "change-10",
+      "sha": "10a0000000000000000000000000000000000000"
+     },
+     "base": {
+      "ref": "main",
+      "sha": "ba5e000000000000000000000000000000000000"
+     }
+    }
+   ]
+  },
+  {
+   "uri": "/repos/acme/fair/pulls?base=main&direction=desc&per_page=100&sort=updated&state=closed&page=2",
+   "body": [
+    {
+     "url": "https://api.github.test/repos/acme/fair/pulls/9",
+     "id": 9009,
+     "number": 9,
+     "state": "closed",
+     "title": "Fix a typo",
+     "html_url": "https://github.test/acme/fair/pull/9",
+     "user": {
+      "login": "alice",
+      "id": 1,
+      "type": "User",
+      "html_url": "https://github.test/alice"
+     },
+     "created_at": "2026-10-01T00:00:00Z",
+     "updated_at": "2026-11-05T12:00:00Z",
+     "closed_at": "2026-11-05T11:00:00Z",
+     "merged_at": "2026-11-05T11:00:00Z",
+     "merge_commit_sha": "09b0000000000000000000000000000000000000",
+     "head": {
+      "ref": "change-9",
+      "sha": "09a0000000000000000000000000000000000000"
+     },
+     "base": {
+      "ref": "main",
+      "sha": "ba5e000000000000000000000000000000000000"
+     }
+    },
+    {
+     "url": "https://api.github.test/repos/acme/fair/pulls/8",
+     "id": 9008,
+     "number": 8,
+     "state": "closed",
+     "title": "Old change",
+     "html_url": "https://github.test/acme/fair/pull/8",
+     "user": {
+      "login": "bob",
+      "id": 2,
+      "type": "User",
+      "html_url": "https://github.test/bob"
+     },
+     "created_at": "2026-10-01T00:00:00Z",
+     "updated_at": "2026-10-20T12:00:00Z",
+     "closed_at": "2026-10-20T11:00:00Z",
+     "merged_at": "2026-10-20T11:00:00Z",
+     "merge_commit_sha": "08b0000000000000000000000000000000000000",
+     "head": {
+      "ref": "change-8",
+      "sha": "08a0000000000000000000000000000000000000"
+     },
+     "base": {
+      "ref": "main",
+      "sha": "ba5e000000000000000000000000000000000000"
+     }
+    }
+   ]
+  },
+  {
+   "uri": "/repos/acme/fair/pulls/12/reviews?per_page=100",
+   "body": [
+    {
+     "id": 1,
+     "user": {
+      "login": "bob",
+      "id": 2,
+      "type": "User",
+      "html_url": "https://github.test/bob"
+     },
+     "body": "",
+     "state": "COMMENTED",
+     "commit_id": "12c0000000000000000000000000000000000000",
+     "submitted_at": "2026-11-19T10:00:00Z",
+     "html_url": "https://github.test/r/1",
+     "author_association": "MEMBER"
+    },
+    {
+     "id": 2,
+     "user": {
+      "login": "bob",
+      "id": 2,
+      "type": "User",
+      "html_url": "https://github.test/bob"
+     },
+     "body": "",
+     "state": "APPROVED",
+     "commit_id": "12a0000000000000000000000000000000000000",
+     "submitted_at": "2026-11-20T10:00:00Z",
+     "html_url": "https://github.test/r/2",
+     "author_association": "MEMBER"
+    }
+   ]
+  },
+  {
+   "uri": "/repos/acme/fair/pulls/12/commits?per_page=100",
+   "body": [
+    {
+     "sha": "12c0000000000000000000000000000000000000",
+     "commit": {
+      "message": "change",
+      "author": {
+       "name": "alice",
+       "date": "2026-10-01T00:00:00Z"
+      }
+     },
+     "author": {
+      "login": "alice",
+      "id": 1,
+      "type": "User",
+      "html_url": "https://github.test/alice"
+     },
+     "committer": {
+      "login": "web-flow",
+      "id": 99
+     }
+    },
+    {
+     "sha": "12a0000000000000000000000000000000000000",
+     "commit": {
+      "message": "change",
+      "author": {
+       "name": "alice",
+       "date": "2026-10-01T00:00:00Z"
+      }
+     },
+     "author": {
+      "login": "alice",
+      "id": 1,
+      "type": "User",
+      "html_url": "https://github.test/alice"
+     },
+     "committer": {
+      "login": "web-flow",
+      "id": 99
+     }
+    }
+   ]
+  },
+  {
+   "uri": "/repos/acme/fair/commits/12a0000000000000000000000000000000000000/check-runs?per_page=100",
+   "body": {
+    "total_count": 3,
+    "check_runs": [
+     {
+      "id": 101,
+      "name": "test",
+      "head_sha": "12a0000000000000000000000000000000000000",
+      "status": "completed",
+      "conclusion": "failure",
+      "html_url": "https://github.test/acme/fair/runs/101",
+      "started_at": "2026-11-01T00:00:00Z",
+      "completed_at": "2026-11-01T00:10:00Z",
+      "app": {
+       "slug": "github-actions"
+      }
+     },
+     {
+      "id": 102,
+      "name": "test",
+      "head_sha": "12a0000000000000000000000000000000000000",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.test/acme/fair/runs/102",
+      "started_at": "2026-11-01T00:00:00Z",
+      "completed_at": "2026-11-01T00:10:00Z",
+      "app": {
+       "slug": "github-actions"
+      }
+     },
+     {
+      "id": 103,
+      "name": "lint",
+      "head_sha": "12a0000000000000000000000000000000000000",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.test/acme/fair/runs/103",
+      "started_at": "2026-11-01T00:00:00Z",
+      "completed_at": "2026-11-01T00:10:00Z",
+      "app": {
+       "slug": "github-actions"
+      }
+     },
+     {
+      "id": 104,
+      "name": "images (iam)",
+      "head_sha": "12a0000000000000000000000000000000000000",
+      "status": "completed",
+      "conclusion": "skipped",
+      "html_url": "https://github.test/acme/fair/runs/104",
+      "started_at": "2026-11-01T00:00:00Z",
+      "completed_at": "2026-11-01T00:10:00Z",
+      "app": {
+       "slug": "github-actions"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "uri": "/repos/acme/fair/pulls/11/reviews?per_page=100",
+   "body": [
+    {
+     "id": 3,
+     "user": {
+      "login": "dave",
+      "id": 4,
+      "type": "User",
+      "html_url": "https://github.test/dave"
+     },
+     "body": "",
+     "state": "APPROVED",
+     "commit_id": "11c0000000000000000000000000000000000000",
+     "submitted_at": "2026-11-14T10:00:00Z",
+     "html_url": "https://github.test/r/3",
+     "author_association": "MEMBER"
+    }
+   ]
+  },
+  {
+   "uri": "/repos/acme/fair/pulls/11/commits?per_page=100",
+   "body": [
+    {
+     "sha": "11c0000000000000000000000000000000000000",
+     "commit": {
+      "message": "change",
+      "author": {
+       "name": "carol",
+       "date": "2026-10-01T00:00:00Z"
+      }
+     },
+     "author": {
+      "login": "carol",
+      "id": 3,
+      "type": "User",
+      "html_url": "https://github.test/carol"
+     },
+     "committer": {
+      "login": "web-flow",
+      "id": 99
+     }
+    },
+    {
+     "sha": "11a0000000000000000000000000000000000000",
+     "commit": {
+      "message": "change",
+      "author": {
+       "name": "carol",
+       "date": "2026-10-01T00:00:00Z"
+      }
+     },
+     "author": {
+      "login": "carol",
+      "id": 3,
+      "type": "User",
+      "html_url": "https://github.test/carol"
+     },
+     "committer": {
+      "login": "web-flow",
+      "id": 99
+     }
+    }
+   ]
+  },
+  {
+   "uri": "/repos/acme/fair/commits/11a0000000000000000000000000000000000000/check-runs?per_page=100",
+   "body": {
+    "total_count": 2,
+    "check_runs": [
+     {
+      "id": 111,
+      "name": "test",
+      "head_sha": "11a0000000000000000000000000000000000000",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.test/acme/fair/runs/111",
+      "started_at": "2026-11-01T00:00:00Z",
+      "completed_at": "2026-11-01T00:10:00Z",
+      "app": {
+       "slug": "github-actions"
+      }
+     },
+     {
+      "id": 112,
+      "name": "lint",
+      "head_sha": "11a0000000000000000000000000000000000000",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.test/acme/fair/runs/112",
+      "started_at": "2026-11-01T00:00:00Z",
+      "completed_at": "2026-11-01T00:10:00Z",
+      "app": {
+       "slug": "github-actions"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "uri": "/repos/acme/fair/pulls/9/reviews?per_page=100",
+   "body": []
+  },
+  {
+   "uri": "/repos/acme/fair/pulls/9/commits?per_page=100",
+   "body": [
+    {
+     "sha": "09a0000000000000000000000000000000000000",
+     "commit": {
+      "message": "change",
+      "author": {
+       "name": "alice",
+       "date": "2026-10-01T00:00:00Z"
+      }
+     },
+     "author": {
+      "login": "alice",
+      "id": 1,
+      "type": "User",
+      "html_url": "https://github.test/alice"
+     },
+     "committer": {
+      "login": "web-flow",
+      "id": 99
+     }
+    }
+   ]
+  },
+  {
+   "uri": "/repos/acme/fair/commits/09a0000000000000000000000000000000000000/check-runs?per_page=100",
+   "body": {
+    "total_count": 1,
+    "check_runs": [
+     {
+      "id": 91,
+      "name": "lint",
+      "head_sha": "09a0000000000000000000000000000000000000",
+      "status": "completed",
+      "conclusion": "failure",
+      "html_url": "https://github.test/acme/fair/runs/91",
+      "started_at": "2026-11-01T00:00:00Z",
+      "completed_at": "2026-11-01T00:10:00Z",
+      "app": {
+       "slug": "github-actions"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "uri": "/repos/acme/fair/commits/07b0000000000000000000000000000000000000/pulls?per_page=100",
+   "body": [
+    {
+     "url": "https://api.github.test/repos/acme/fair/pulls/7",
+     "id": 9007,
+     "number": 7,
+     "state": "closed",
+     "title": "Pair-written change",
+     "html_url": "https://github.test/acme/fair/pull/7",
+     "user": {
+      "login": "erin",
+      "id": 5,
+      "type": "User",
+      "html_url": "https://github.test/erin"
+     },
+     "created_at": "2026-10-01T00:00:00Z",
+     "updated_at": "2026-10-28T12:00:00Z",
+     "closed_at": "2026-10-28T11:00:00Z",
+     "merged_at": "2026-10-28T11:00:00Z",
+     "merge_commit_sha": "07b0000000000000000000000000000000000000",
+     "head": {
+      "ref": "change-7",
+      "sha": "07a0000000000000000000000000000000000000"
+     },
+     "base": {
+      "ref": "main",
+      "sha": "ba5e000000000000000000000000000000000000"
+     }
+    }
+   ]
+  },
+  {
+   "uri": "/repos/acme/fair/pulls/7/reviews?per_page=100",
+   "body": [
+    {
+     "id": 4,
+     "user": {
+      "login": "frank",
+      "id": 6,
+      "type": "User",
+      "html_url": "https://github.test/frank"
+     },
+     "body": "",
+     "state": "APPROVED",
+     "commit_id": "07a0000000000000000000000000000000000000",
+     "submitted_at": "2026-10-28T10:00:00Z",
+     "html_url": "https://github.test/r/4",
+     "author_association": "MEMBER"
+    }
+   ]
+  },
+  {
+   "uri": "/repos/acme/fair/pulls/7/commits?per_page=100",
+   "body": [
+    {
+     "sha": "07c0000000000000000000000000000000000000",
+     "commit": {
+      "message": "change",
+      "author": {
+       "name": "erin",
+       "date": "2026-10-01T00:00:00Z"
+      }
+     },
+     "author": {
+      "login": "erin",
+      "id": 5,
+      "type": "User",
+      "html_url": "https://github.test/erin"
+     },
+     "committer": {
+      "login": "web-flow",
+      "id": 99
+     }
+    },
+    {
+     "sha": "07a0000000000000000000000000000000000000",
+     "commit": {
+      "message": "change",
+      "author": {
+       "name": "frank",
+       "date": "2026-10-01T00:00:00Z"
+      }
+     },
+     "author": {
+      "login": "frank",
+      "id": 6,
+      "type": "User",
+      "html_url": "https://github.test/frank"
+     },
+     "committer": {
+      "login": "web-flow",
+      "id": 99
+     }
+    }
+   ]
+  },
+  {
+   "uri": "/repos/acme/fair/commits/07a0000000000000000000000000000000000000/check-runs?per_page=100",
+   "body": {
+    "total_count": 2,
+    "check_runs": [
+     {
+      "id": 71,
+      "name": "test",
+      "head_sha": "07a0000000000000000000000000000000000000",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.test/acme/fair/runs/71",
+      "started_at": "2026-11-01T00:00:00Z",
+      "completed_at": "2026-11-01T00:10:00Z",
+      "app": {
+       "slug": "github-actions"
+      }
+     },
+     {
+      "id": 72,
+      "name": "lint",
+      "head_sha": "07a0000000000000000000000000000000000000",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.test/acme/fair/runs/72",
+      "started_at": "2026-11-01T00:00:00Z",
+      "completed_at": "2026-11-01T00:10:00Z",
+      "app": {
+       "slug": "github-actions"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "uri": "/repos/acme/fair/commits/d100000000000000000000000000000000000000/pulls?per_page=100",
+   "body": []
+  },
+  {
+   "uri": "/repos/acme/fair/commits/d200000000000000000000000000000000000000/pulls?per_page=100",
+   "body": []
+  },
+  {
+   "uri": "/repos/acme/fair/releases?per_page=100",
+   "body": [
+    {
+     "url": "https://api.github.test/repos/acme/fair/releases/3",
+     "html_url": "https://github.test/acme/fair/releases/tag/v0.2.0",
+     "id": 3,
+     "tag_name": "v0.2.0",
+     "target_commitish": "main",
+     "name": "FAIR v0.2.0",
+     "draft": false,
+     "prerelease": false,
+     "created_at": "2026-11-21T09:00:00Z",
+     "published_at": "2026-11-21T09:00:00Z",
+     "author": {
+      "login": "alice",
+      "id": 1,
+      "type": "User",
+      "html_url": "https://github.test/alice"
+     },
+     "assets": [
+      {
+       "url": "https://api.github.test/repos/acme/fair/releases/assets/201",
+       "id": 201,
+       "name": "release-manifest.json",
+       "content_type": "application/octet-stream",
+       "state": "uploaded",
+       "size": 1,
+       "browser_download_url": "https://github.test/acme/fair/releases/download/x/release-manifest.json"
+      },
+      {
+       "url": "https://api.github.test/repos/acme/fair/releases/assets/202",
+       "id": 202,
+       "name": "release-manifest.json.sig",
+       "content_type": "application/octet-stream",
+       "state": "uploaded",
+       "size": 1,
+       "browser_download_url": "https://github.test/acme/fair/releases/download/x/release-manifest.json.sig"
+      },
+      {
+       "url": "https://api.github.test/repos/acme/fair/releases/assets/203",
+       "id": 203,
+       "name": "SHA256SUMS",
+       "content_type": "application/octet-stream",
+       "state": "uploaded",
+       "size": 1,
+       "browser_download_url": "https://github.test/acme/fair/releases/download/x/SHA256SUMS"
+      },
+      {
+       "url": "https://api.github.test/repos/acme/fair/releases/assets/204",
+       "id": 204,
+       "name": "SHA256SUMS.sig",
+       "content_type": "application/octet-stream",
+       "state": "uploaded",
+       "size": 1,
+       "browser_download_url": "https://github.test/acme/fair/releases/download/x/SHA256SUMS.sig"
+      },
+      {
+       "url": "https://api.github.test/repos/acme/fair/releases/assets/205",
+       "id": 205,
+       "name": "cosign.pub",
+       "content_type": "application/octet-stream",
+       "state": "uploaded",
+       "size": 1,
+       "browser_download_url": "https://github.test/acme/fair/releases/download/x/cosign.pub"
+      },
+      {
+       "url": "https://api.github.test/repos/acme/fair/releases/assets/206",
+       "id": 206,
+       "name": "sbom-iam.spdx.json",
+       "content_type": "application/octet-stream",
+       "state": "uploaded",
+       "size": 1,
+       "browser_download_url": "https://github.test/acme/fair/releases/download/x/sbom-iam.spdx.json"
+      }
+     ]
+    },
+    {
+     "url": "https://api.github.test/repos/acme/fair/releases/4",
+     "html_url": "https://github.test/acme/fair/releases/tag/v0.0.0-test",
+     "id": 4,
+     "tag_name": "v0.0.0-test",
+     "target_commitish": "main",
+     "name": "FAIR v0.0.0-test",
+     "draft": true,
+     "prerelease": true,
+     "created_at": "2026-11-01T00:00:00Z",
+     "published_at": null,
+     "author": {
+      "login": "alice",
+      "id": 1,
+      "type": "User",
+      "html_url": "https://github.test/alice"
+     },
+     "assets": []
+    },
+    {
+     "url": "https://api.github.test/repos/acme/fair/releases/2",
+     "html_url": "https://github.test/acme/fair/releases/tag/v0.1.1",
+     "id": 2,
+     "tag_name": "v0.1.1",
+     "target_commitish": "main",
+     "name": "FAIR v0.1.1",
+     "draft": false,
+     "prerelease": false,
+     "created_at": "2026-11-10T09:00:00Z",
+     "published_at": "2026-11-10T09:00:00Z",
+     "author": {
+      "login": "alice",
+      "id": 1,
+      "type": "User",
+      "html_url": "https://github.test/alice"
+     },
+     "assets": [
+      {
+       "url": "https://api.github.test/repos/acme/fair/releases/assets/101",
+       "id": 101,
+       "name": "release-manifest.json",
+       "content_type": "application/octet-stream",
+       "state": "uploaded",
+       "size": 1,
+       "browser_download_url": "https://github.test/acme/fair/releases/download/x/release-manifest.json"
+      }
+     ]
+    },
+    {
+     "url": "https://api.github.test/repos/acme/fair/releases/1",
+     "html_url": "https://github.test/acme/fair/releases/tag/v0.1.0",
+     "id": 1,
+     "tag_name": "v0.1.0",
+     "target_commitish": "main",
+     "name": "FAIR v0.1.0",
+     "draft": false,
+     "prerelease": false,
+     "created_at": "2026-10-25T09:00:00Z",
+     "published_at": "2026-10-25T09:00:00Z",
+     "author": {
+      "login": "alice",
+      "id": 1,
+      "type": "User",
+      "html_url": "https://github.test/alice"
+     },
+     "assets": []
+    }
+   ]
+  },
+  {
+   "uri": "/repos/acme/fair/releases/assets/101",
+   "text": "{\"format\":\"fair-platform-release-manifest/v1\"}\n"
+  },
+  {
+   "uri": "/repos/acme/fair/commits/v0.2.0",
+   "body": {
+    "sha": "2000000000000000000000000000000000000000",
+    "commit": {
+     "message": "release"
+    }
+   }
+  },
+  {
+   "uri": "/repos/acme/fair/commits/v0.1.1",
+   "body": {
+    "sha": "1100000000000000000000000000000000000000",
+    "commit": {
+     "message": "release"
+    }
+   }
+  },
+  {
+   "uri": "/repos/acme/fair/actions/workflows/release.yml/runs?event=push&head_sha=2000000000000000000000000000000000000000&per_page=100",
+   "body": {
+    "total_count": 2,
+    "workflow_runs": [
+     {
+      "id": 499,
+      "name": "release",
+      "head_branch": "v0.2.0",
+      "head_sha": "2000000000000000000000000000000000000000",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "failure",
+      "html_url": "https://github.test/acme/fair/actions/runs/499",
+      "run_attempt": 1,
+      "created_at": "2026-11-21T07:00:00Z",
+      "actor": {
+       "login": "alice",
+       "id": 1,
+       "type": "User",
+       "html_url": "https://github.test/alice"
+      },
+      "triggering_actor": {
+       "login": "alice",
+       "id": 1,
+       "type": "User",
+       "html_url": "https://github.test/alice"
+      }
+     },
+     {
+      "id": 500,
+      "name": "release",
+      "head_branch": "v0.2.0",
+      "head_sha": "2000000000000000000000000000000000000000",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.test/acme/fair/actions/runs/500",
+      "run_attempt": 1,
+      "created_at": "2026-11-21T08:00:00Z",
+      "actor": {
+       "login": "alice",
+       "id": 1,
+       "type": "User",
+       "html_url": "https://github.test/alice"
+      },
+      "triggering_actor": {
+       "login": "alice",
+       "id": 1,
+       "type": "User",
+       "html_url": "https://github.test/alice"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "uri": "/repos/acme/fair/actions/runs/500/jobs?filter=latest&per_page=100",
+   "body": {
+    "total_count": 7,
+    "jobs": [
+     {
+      "id": 1,
+      "name": "build (iam)",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.test/acme/fair/actions/runs/1/job/1"
+     },
+     {
+      "id": 2,
+      "name": "provenance (iam) / generator",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.test/acme/fair/actions/runs/1/job/2"
+     },
+     {
+      "id": 3,
+      "name": "manifest",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.test/acme/fair/actions/runs/1/job/3"
+     },
+     {
+      "id": 4,
+      "name": "sign / sign",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.test/acme/fair/actions/runs/1/job/4"
+     },
+     {
+      "id": 5,
+      "name": "publish",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.test/acme/fair/actions/runs/1/job/5"
+     },
+     {
+      "id": 6,
+      "name": "verify",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.test/acme/fair/actions/runs/1/job/6"
+     },
+     {
+      "id": 7,
+      "name": "bench / bench",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.test/acme/fair/actions/runs/1/job/7"
+     }
+    ]
+   }
+  },
+  {
+   "uri": "/repos/acme/fair/actions/workflows/release.yml/runs?event=push&head_sha=1100000000000000000000000000000000000000&per_page=100",
+   "body": {
+    "total_count": 1,
+    "workflow_runs": [
+     {
+      "id": 400,
+      "name": "release",
+      "head_branch": "v0.1.1",
+      "head_sha": "1100000000000000000000000000000000000000",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "failure",
+      "html_url": "https://github.test/acme/fair/actions/runs/400",
+      "run_attempt": 1,
+      "created_at": "2026-11-10T08:00:00Z",
+      "actor": {
+       "login": "alice",
+       "id": 1,
+       "type": "User",
+       "html_url": "https://github.test/alice"
+      },
+      "triggering_actor": {
+       "login": "alice",
+       "id": 1,
+       "type": "User",
+       "html_url": "https://github.test/alice"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "uri": "/repos/acme/fair/actions/runs/400/jobs?filter=latest&per_page=100",
+   "body": {
+    "total_count": 4,
+    "jobs": [
+     {
+      "id": 11,
+      "name": "build (iam)",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.test/acme/fair/actions/runs/1/job/11"
+     },
+     {
+      "id": 12,
+      "name": "sign / sign",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.test/acme/fair/actions/runs/1/job/12"
+     },
+     {
+      "id": 13,
+      "name": "publish",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.test/acme/fair/actions/runs/1/job/13"
+     },
+     {
+      "id": 14,
+      "name": "verify",
+      "status": "completed",
+      "conclusion": "failure",
+      "html_url": "https://github.test/acme/fair/actions/runs/1/job/14"
+     }
+    ]
+   }
+  },
+  {
+   "uri": "/repos/acme/fair/compare/v0.1.1...v0.2.0?per_page=100",
+   "body": {
+    "status": "ahead",
+    "ahead_by": 2,
+    "total_commits": 2,
+    "commits": [
+     {
+      "sha": "11b0000000000000000000000000000000000000",
+      "commit": {
+       "message": "change",
+       "author": {
+        "name": "carol",
+        "date": "2026-10-01T00:00:00Z"
+       }
+      },
+      "author": {
+       "login": "carol",
+       "id": 3,
+       "type": "User",
+       "html_url": "https://github.test/carol"
+      },
+      "committer": {
+       "login": "web-flow",
+       "id": 99
+      }
+     },
+     {
+      "sha": "12b0000000000000000000000000000000000000",
+      "commit": {
+       "message": "change",
+       "author": {
+        "name": "alice",
+        "date": "2026-10-01T00:00:00Z"
+       }
+      },
+      "author": {
+       "login": "alice",
+       "id": 1,
+       "type": "User",
+       "html_url": "https://github.test/alice"
+      },
+      "committer": {
+       "login": "web-flow",
+       "id": 99
+      }
+     }
+    ]
+   }
+  },
+  {
+   "uri": "/repos/acme/fair/compare/v0.1.0...v0.1.1?per_page=100",
+   "next": "/repos/acme/fair/compare/v0.1.0...v0.1.1?per_page=100&page=2",
+   "body": {
+    "status": "ahead",
+    "ahead_by": 3,
+    "total_commits": 3,
+    "commits": [
+     {
+      "sha": "07b0000000000000000000000000000000000000",
+      "commit": {
+       "message": "change",
+       "author": {
+        "name": "erin",
+        "date": "2026-10-01T00:00:00Z"
+       }
+      },
+      "author": {
+       "login": "erin",
+       "id": 5,
+       "type": "User",
+       "html_url": "https://github.test/erin"
+      },
+      "committer": {
+       "login": "web-flow",
+       "id": 99
+      }
+     },
+     {
+      "sha": "d100000000000000000000000000000000000000",
+      "commit": {
+       "message": "change",
+       "author": {
+        "name": "alice",
+        "date": "2026-10-01T00:00:00Z"
+       }
+      },
+      "author": {
+       "login": "alice",
+       "id": 1,
+       "type": "User",
+       "html_url": "https://github.test/alice"
+      },
+      "committer": {
+       "login": "web-flow",
+       "id": 99
+      }
+     }
+    ]
+   }
+  },
+  {
+   "uri": "/repos/acme/fair/compare/v0.1.0...v0.1.1?per_page=100&page=2",
+   "body": {
+    "status": "ahead",
+    "ahead_by": 3,
+    "total_commits": 3,
+    "commits": [
+     {
+      "sha": "09b0000000000000000000000000000000000000",
+      "commit": {
+       "message": "change",
+       "author": {
+        "name": "alice",
+        "date": "2026-10-01T00:00:00Z"
+       }
+      },
+      "author": {
+       "login": "alice",
+       "id": 1,
+       "type": "User",
+       "html_url": "https://github.test/alice"
+      },
+      "committer": {
+       "login": "web-flow",
+       "id": 99
+      }
+     }
+    ]
+   }
+  },
+  {
+   "uri": "/repos/acme/fair/actions/workflows/infra-instances.yml/runs?branch=main&created=2026-11-01T00%3A00%3A00Z..2026-11-30T23%3A59%3A59Z&event=push&per_page=100",
+   "body": {
+    "total_count": 4,
+    "workflow_runs": [
+     {
+      "id": 700,
+      "name": "infra-instances",
+      "head_branch": "main",
+      "head_sha": "12b0000000000000000000000000000000000000",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.test/acme/fair/actions/runs/700",
+      "run_attempt": 1,
+      "created_at": "2026-11-20T11:05:00Z",
+      "actor": {
+       "login": "alice",
+       "id": 1,
+       "type": "User",
+       "html_url": "https://github.test/alice"
+      },
+      "triggering_actor": {
+       "login": "alice",
+       "id": 1,
+       "type": "User",
+       "html_url": "https://github.test/alice"
+      }
+     },
+     {
+      "id": 701,
+      "name": "infra-instances",
+      "head_branch": "main",
+      "head_sha": "d200000000000000000000000000000000000000",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.test/acme/fair/actions/runs/701",
+      "run_attempt": 1,
+      "created_at": "2026-11-18T09:00:00Z",
+      "actor": {
+       "login": "carol",
+       "id": 3,
+       "type": "User",
+       "html_url": "https://github.test/carol"
+      },
+      "triggering_actor": {
+       "login": "carol",
+       "id": 3,
+       "type": "User",
+       "html_url": "https://github.test/carol"
+      }
+     },
+     {
+      "id": 702,
+      "name": "infra-instances",
+      "head_branch": "main",
+      "head_sha": "11b0000000000000000000000000000000000000",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.test/acme/fair/actions/runs/702",
+      "run_attempt": 1,
+      "created_at": "2026-11-15T11:05:00Z",
+      "actor": {
+       "login": "carol",
+       "id": 3,
+       "type": "User",
+       "html_url": "https://github.test/carol"
+      },
+      "triggering_actor": {
+       "login": "carol",
+       "id": 3,
+       "type": "User",
+       "html_url": "https://github.test/carol"
+      }
+     },
+     {
+      "id": 703,
+      "name": "infra-instances",
+      "head_branch": "main",
+      "head_sha": "09b0000000000000000000000000000000000000",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "failure",
+      "html_url": "https://github.test/acme/fair/actions/runs/703",
+      "run_attempt": 1,
+      "created_at": "2026-11-05T11:05:00Z",
+      "actor": {
+       "login": "alice",
+       "id": 1,
+       "type": "User",
+       "html_url": "https://github.test/alice"
+      },
+      "triggering_actor": {
+       "login": "alice",
+       "id": 1,
+       "type": "User",
+       "html_url": "https://github.test/alice"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "uri": "/repos/acme/fair/actions/runs/700/jobs?filter=latest&per_page=100",
+   "body": {
+    "total_count": 5,
+    "jobs": [
+     {
+      "id": 70,
+      "name": "instances",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.test/acme/fair/actions/runs/1/job/70"
+     },
+     {
+      "id": 71,
+      "name": "check",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.test/acme/fair/actions/runs/1/job/71"
+     },
+     {
+      "id": 72,
+      "name": "plan (alpha)",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.test/acme/fair/actions/runs/1/job/72"
+     },
+     {
+      "id": 73,
+      "name": "apply (alpha)",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.test/acme/fair/actions/runs/1/job/73"
+     },
+     {
+      "id": 74,
+      "name": "apply (beta)",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "html_url": "https://github.test/acme/fair/actions/runs/1/job/74"
+     }
+    ]
+   }
+  },
+  {
+   "uri": "/repos/acme/fair/actions/runs/700/approvals",
+   "body": [
+    {
+     "environments": [
+      {
+       "id": 1,
+       "name": "instances"
+      }
+     ],
+     "state": "approved",
+     "user": {
+      "login": "bob",
+      "id": 2,
+      "type": "User",
+      "html_url": "https://github.test/bob"
+     },
+     "comment": "plan reviewed"
+    }
+   ]
+  },
+  {
+   "uri": "/repos/acme/fair/actions/runs/701/jobs?filter=latest&per_page=100",
+   "body": {
+    "total_count": 1,
+    "jobs": [
+     {
+      "id": 75,
+      "name": "apply (alpha)",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.test/acme/fair/actions/runs/1/job/75"
+     }
+    ]
+   }
+  },
+  {
+   "uri": "/repos/acme/fair/actions/runs/701/approvals",
+   "body": [
+    {
+     "environments": [
+      {
+       "id": 1,
+       "name": "instances"
+      }
+     ],
+     "state": "approved",
+     "user": {
+      "login": "carol",
+      "id": 3,
+      "type": "User",
+      "html_url": "https://github.test/carol"
+     },
+     "comment": ""
+    },
+    {
+     "environments": [
+      {
+       "id": 2,
+       "name": "other"
+      }
+     ],
+     "state": "approved",
+     "user": {
+      "login": "dave",
+      "id": 4,
+      "type": "User",
+      "html_url": "https://github.test/dave"
+     },
+     "comment": ""
+    }
+   ]
+  },
+  {
+   "uri": "/repos/acme/fair/actions/runs/702/jobs?filter=latest&per_page=100",
+   "body": {
+    "total_count": 2,
+    "jobs": [
+     {
+      "id": 76,
+      "name": "check",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.test/acme/fair/actions/runs/1/job/76"
+     },
+     {
+      "id": 77,
+      "name": "apply",
+      "status": "completed",
+      "conclusion": "skipped",
+      "html_url": "https://github.test/acme/fair/actions/runs/1/job/77"
+     }
+    ]
+   }
+  },
+  {
+   "uri": "/repos/acme/fair/actions/runs/703/jobs?filter=latest&per_page=100",
+   "body": {
+    "total_count": 1,
+    "jobs": [
+     {
+      "id": 78,
+      "name": "apply (beta)",
+      "status": "completed",
+      "conclusion": "failure",
+      "html_url": "https://github.test/acme/fair/actions/runs/1/job/78"
+     }
+    ]
+   }
+  },
+  {
+   "uri": "/repos/acme/fair/actions/runs/703/approvals",
+   "body": []
+  },
+  {
+   "uri": "/repos/acme/fleet/pulls?base=main&direction=desc&per_page=100&sort=updated&state=closed",
+   "body": [
+    {
+     "url": "https://api.github.test/repos/acme/fleet/pulls/3",
+     "id": 9003,
+     "number": 3,
+     "state": "closed",
+     "title": "Promote alpha to v0.2.0",
+     "html_url": "https://github.test/acme/fleet/pull/3",
+     "user": {
+      "login": "hank",
+      "id": 8,
+      "type": "User",
+      "html_url": "https://github.test/hank"
+     },
+     "created_at": "2026-10-01T00:00:00Z",
+     "updated_at": "2026-11-22T09:59:00Z",
+     "closed_at": "2026-11-22T09:58:00Z",
+     "merged_at": "2026-11-22T09:58:00Z",
+     "merge_commit_sha": "f200000000000000000000000000000000000000",
+     "head": {
+      "ref": "change-3",
+      "sha": "fa30000000000000000000000000000000000000"
+     },
+     "base": {
+      "ref": "main",
+      "sha": "ba5e000000000000000000000000000000000000"
+     }
+    },
+    {
+     "url": "https://api.github.test/repos/acme/fleet/pulls/4",
+     "id": 9004,
+     "number": 4,
+     "state": "closed",
+     "title": "Promote beta to v0.1.1",
+     "html_url": "https://github.test/acme/fleet/pull/4",
+     "user": {
+      "login": "ivan",
+      "id": 9,
+      "type": "User",
+      "html_url": "https://github.test/ivan"
+     },
+     "created_at": "2026-10-01T00:00:00Z",
+     "updated_at": "2026-11-11T08:59:00Z",
+     "closed_at": "2026-11-11T08:58:00Z",
+     "merged_at": "2026-11-11T08:58:00Z",
+     "merge_commit_sha": "f300000000000000000000000000000000000000",
+     "head": {
+      "ref": "change-4",
+      "sha": "fa40000000000000000000000000000000000000"
+     },
+     "base": {
+      "ref": "main",
+      "sha": "ba5e000000000000000000000000000000000000"
+     }
+    },
+    {
+     "url": "https://api.github.test/repos/acme/fleet/pulls/1",
+     "id": 9001,
+     "number": 1,
+     "state": "closed",
+     "title": "Bootstrap",
+     "html_url": "https://github.test/acme/fleet/pull/1",
+     "user": {
+      "login": "hank",
+      "id": 8,
+      "type": "User",
+      "html_url": "https://github.test/hank"
+     },
+     "created_at": "2026-10-01T00:00:00Z",
+     "updated_at": "2026-10-02T00:00:00Z",
+     "closed_at": "2026-10-02T00:00:00Z",
+     "merged_at": "2026-10-02T00:00:00Z",
+     "merge_commit_sha": "f100000000000000000000000000000000000000",
+     "head": {
+      "ref": "change-1",
+      "sha": "fa10000000000000000000000000000000000000"
+     },
+     "base": {
+      "ref": "main",
+      "sha": "ba5e000000000000000000000000000000000000"
+     }
+    }
+   ]
+  },
+  {
+   "uri": "/repos/acme/fleet/pulls/3/reviews?per_page=100",
+   "body": [
+    {
+     "id": 30,
+     "user": {
+      "login": "gina",
+      "id": 7,
+      "type": "User",
+      "html_url": "https://github.test/gina"
+     },
+     "body": "",
+     "state": "APPROVED",
+     "commit_id": "fa30000000000000000000000000000000000000",
+     "submitted_at": "2026-11-22T09:50:00Z",
+     "html_url": "https://github.test/r/30",
+     "author_association": "MEMBER"
+    }
+   ]
+  },
+  {
+   "uri": "/repos/acme/fleet/pulls/3/commits?per_page=100",
+   "body": [
+    {
+     "sha": "fa30000000000000000000000000000000000000",
+     "commit": {
+      "message": "change",
+      "author": {
+       "name": "hank",
+       "date": "2026-10-01T00:00:00Z"
+      }
+     },
+     "author": {
+      "login": "hank",
+      "id": 8,
+      "type": "User",
+      "html_url": "https://github.test/hank"
+     },
+     "committer": {
+      "login": "web-flow",
+      "id": 99
+     }
+    }
+   ]
+  },
+  {
+   "uri": "/repos/acme/fleet/pulls/4/reviews?per_page=100",
+   "body": []
+  },
+  {
+   "uri": "/repos/acme/fleet/pulls/4/commits?per_page=100",
+   "body": [
+    {
+     "sha": "fa40000000000000000000000000000000000000",
+     "commit": {
+      "message": "change",
+      "author": {
+       "name": "ivan",
+       "date": "2026-10-01T00:00:00Z"
+      }
+     },
+     "author": {
+      "login": "ivan",
+      "id": 9,
+      "type": "User",
+      "html_url": "https://github.test/ivan"
+     },
+     "committer": {
+      "login": "web-flow",
+      "id": 99
+     }
+    }
+   ]
+  }
+ ]
+}

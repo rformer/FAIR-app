@@ -1,0 +1,22 @@
+{
+ "involvedObject": {
+  "kind": "Kustomization",
+  "namespace": "flux-system",
+  "name": "flux-system",
+  "apiVersion": "v1"
+ },
+ "severity": "info",
+ "timestamp": "2026-11-11T09:00:00Z",
+ "message": "Reconciliation finished",
+ "reason": "ReconciliationSucceeded",
+ "metadata": {
+  "instance": "beta",
+  "revision": "main@sha1:f300000000000000000000000000000000000000"
+ },
+ "reportingController": "kustomize-controller",
+ "reportingInstance": "kustomize-controller-0"
+}
+{"involvedObject": {"kind": "Kustomization", "namespace": "flux-system", "name": "fair-migrate", "apiVersion": "v1"}, "severity": "error", "timestamp": "2026-11-11T09:02:00Z", "message": "Job fair-system/iam-migrate failed", "reason": "HealthCheckFailed", "metadata": {"instance": "beta", "revision": "v0.1.1@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}, "reportingController": "kustomize-controller", "reportingInstance": "kustomize-controller-0"}
+{"involvedObject": {"kind": "OCIRepository", "namespace": "flux-system", "name": "fair-release", "apiVersion": "v1"}, "severity": "error", "timestamp": "2026-11-12T08:00:00Z", "message": "no matching signatures", "reason": "VerificationError", "metadata": {"instance": "beta"}, "reportingController": "kustomize-controller", "reportingInstance": "kustomize-controller-0"}
+{"involvedObject": {"kind": "OCIRepository", "namespace": "flux-system", "name": "fair-release", "apiVersion": "v1"}, "severity": "error", "timestamp": "2026-11-12T08:10:00Z", "message": "no matching signatures", "reason": "VerificationError", "metadata": {"instance": "beta"}, "reportingController": "kustomize-controller", "reportingInstance": "kustomize-controller-0"}
+{"involvedObject": {"kind": "Kustomization", "namespace": "flux-system", "name": "fair-platform", "apiVersion": "v1"}, "severity": "info", "timestamp": "2026-12-01T00:00:00Z", "message": "Reconciliation finished", "reason": "ReconciliationSucceeded", "metadata": {"instance": "beta", "revision": "v0.1.1@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}, "reportingController": "kustomize-controller", "reportingInstance": "kustomize-controller-0"}

@@ -22,8 +22,8 @@ tofu apply ruleset.plan
 Once applied, direct pushes to `main` stop: every change, including the
 maintainer's own, needs a second engineer's approval. Apply it when a second
 engineer is a code owner. Until then, the CI gates still run on every push,
-and the evidence export (T-17) reports each change merged without an
-approving review as a finding.
+and the evidence export (`cmd/evidence`, `docs/formats/fair-change-evidence-v1.md`)
+reports each change merged without an approving review as a finding.
 
 When a CI job is renamed or added, update `required_checks` in the same pull
 request, or the rule waits for a check that never reports.

@@ -1,0 +1,36 @@
+record,id,instance,time,actor,approvers,release,status,url,findings
+pull_request,acme/fair#7,,2026-10-28T11:00:00Z,erin,,,unapproved,https://github.test/acme/fair/pull/7,self_approval
+pull_request,acme/fair#9,,2026-11-05T11:00:00Z,alice,,,unapproved,https://github.test/acme/fair/pull/9,check_failed;check_missing;no_approval
+pull_request,acme/fair#11,,2026-11-15T11:00:00Z,carol,,,unapproved,https://github.test/acme/fair/pull/11,stale_approval
+pull_request,acme/fair#12,,2026-11-20T11:00:00Z,alice,bob,,approved,https://github.test/acme/fair/pull/12,
+pull_request,acme/fleet#3,,2026-11-22T09:58:00Z,hank,gina,,approved,https://github.test/acme/fleet/pull/3,
+pull_request,acme/fleet#4,,2026-11-11T08:58:00Z,ivan,,,unapproved,https://github.test/acme/fleet/pull/4,no_approval
+release,v0.1.1,,2026-11-10T09:00:00Z,,,v0.1.1,missing,https://github.test/acme/fair/releases/tag/v0.1.1,release_job_failed;release_job_missing;release_key_mismatch;release_sums_unsigned;release_unsigned
+release,v0.2.0,,2026-11-21T09:00:00Z,,,v0.2.0,verified,https://github.test/acme/fair/releases/tag/v0.2.0,
+deployment,alpha:v0.2.0:2026-11-22T10:01:00Z,alpha,2026-11-22T10:05:00Z,,,v0.2.0,succeeded,,
+deployment,beta:v0.1.1:2026-11-11T09:02:00Z,beta,2026-11-11T09:02:00Z,,,v0.1.1,failed,,deployment_failed;deployment_unapproved;deployment_unsigned_release
+apply,alpha:700,alpha,2026-11-20T11:05:00Z,alice,bob:approved,,success,https://github.test/acme/fair/actions/runs/700,
+apply,alpha:701,alpha,2026-11-18T09:00:00Z,carol,carol:approved,,success,https://github.test/acme/fair/actions/runs/701,apply_self_approved;apply_without_pull_request
+apply,beta:700,beta,2026-11-20T11:05:00Z,alice,bob:approved,,cancelled,https://github.test/acme/fair/actions/runs/700,apply_not_completed
+apply,beta:703,beta,2026-11-05T11:05:00Z,alice,,,failure,https://github.test/acme/fair/actions/runs/703,apply_failed;apply_unapproved
+finding,apply:alpha:701,alpha,,,,,apply_self_approved,,approved only by the person who started the run: carol
+finding,apply:alpha:701,alpha,,,,,apply_without_pull_request,,commit d200000000000000000000000000000000000000 has no merged pull request
+finding,apply:beta:700,beta,,,,,apply_not_completed,,the apply did not run (cancelled); the merged change is not applied
+finding,apply:beta:703,beta,,,,,apply_failed,,the apply failed
+finding,apply:beta:703,beta,,,,,apply_unapproved,,ran without an approval of environment instances
+finding,commit:acme/fair@d100000000000000000000000000000000000000,,,,,v0.1.1,commit_without_pull_request,,in v0.1.1 without a merged pull request
+finding,deployment:beta:v0.1.1:2026-11-11T09:02:00Z,beta,,,,v0.1.1,deployment_failed,,never reconciled; error events: 1
+finding,deployment:beta:v0.1.1:2026-11-11T09:02:00Z,beta,,,,v0.1.1,deployment_unapproved,,fleet pull request acme/fleet#4 has no approval by another person
+finding,deployment:beta:v0.1.1:2026-11-11T09:02:00Z,beta,,,,v0.1.1,deployment_unsigned_release,,release v0.1.1: manifest signature missing
+finding,instance:beta,beta,,,,,release_source_refused,,2026-11-12T08:00:00Z: no matching signatures
+finding,pull_request:acme/fair#11,,,,,,stale_approval,,approved an earlier commit than the merged head 11a0000000000000000000000000000000000000: dave
+finding,pull_request:acme/fair#7,,,,,,self_approval,,approved only by the author or a commit author: frank
+finding,pull_request:acme/fair#9,,,,,,check_failed,,lint: failure
+finding,pull_request:acme/fair#9,,,,,,check_missing,,test: no run on 09a0000000000000000000000000000000000000
+finding,pull_request:acme/fair#9,,,,,,no_approval,,merged without an approving review
+finding,pull_request:acme/fleet#4,,,,,,no_approval,,merged without an approving review
+finding,release:v0.1.1,,,,,v0.1.1,release_job_failed,,verify: failure
+finding,release:v0.1.1,,,,,v0.1.1,release_job_missing,,provenance: not in run 400
+finding,release:v0.1.1,,,,,v0.1.1,release_key_mismatch,,cosign.pub is not in the release
+finding,release:v0.1.1,,,,,v0.1.1,release_sums_unsigned,,SHA256SUMS or its signature is not in the release
+finding,release:v0.1.1,,,,,v0.1.1,release_unsigned,,release-manifest.json or its signature is not in the release

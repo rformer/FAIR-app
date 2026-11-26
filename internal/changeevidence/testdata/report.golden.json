@@ -1,0 +1,500 @@
+{
+  "format": "fair.change-evidence.v1",
+  "repository": "acme/fair",
+  "fleet_repository": "acme/fleet",
+  "from": "2026-11-01T00:00:00Z",
+  "to": "2026-12-01T00:00:00Z",
+  "required_checks": [
+    "lint",
+    "test"
+  ],
+  "release_jobs": [
+    "build",
+    "provenance",
+    "publish",
+    "sign",
+    "verify"
+  ],
+  "pull_requests": [
+    {
+      "id": "acme/fair#7",
+      "repository": "acme/fair",
+      "number": 7,
+      "title": "Pair-written change",
+      "url": "https://github.test/acme/fair/pull/7",
+      "author": "erin",
+      "merged_at": "2026-10-28T11:00:00Z",
+      "merge_commit": "07b0000000000000000000000000000000000000",
+      "head": "07a0000000000000000000000000000000000000",
+      "approvers": [],
+      "reviews": [
+        {
+          "user": "frank",
+          "state": "APPROVED",
+          "commit": "07a0000000000000000000000000000000000000",
+          "submitted_at": "2026-10-28T10:00:00Z"
+        }
+      ],
+      "checks": [
+        {
+          "name": "lint",
+          "conclusion": "success",
+          "url": "https://github.test/acme/fair/runs/72"
+        },
+        {
+          "name": "test",
+          "conclusion": "success",
+          "url": "https://github.test/acme/fair/runs/71"
+        }
+      ]
+    },
+    {
+      "id": "acme/fair#9",
+      "repository": "acme/fair",
+      "number": 9,
+      "title": "Fix a typo",
+      "url": "https://github.test/acme/fair/pull/9",
+      "author": "alice",
+      "merged_at": "2026-11-05T11:00:00Z",
+      "merge_commit": "09b0000000000000000000000000000000000000",
+      "head": "09a0000000000000000000000000000000000000",
+      "approvers": [],
+      "reviews": [],
+      "checks": [
+        {
+          "name": "lint",
+          "conclusion": "failure",
+          "url": "https://github.test/acme/fair/runs/91"
+        },
+        {
+          "name": "test",
+          "conclusion": "missing"
+        }
+      ]
+    },
+    {
+      "id": "acme/fair#11",
+      "repository": "acme/fair",
+      "number": 11,
+      "title": "Tune the engine",
+      "url": "https://github.test/acme/fair/pull/11",
+      "author": "carol",
+      "merged_at": "2026-11-15T11:00:00Z",
+      "merge_commit": "11b0000000000000000000000000000000000000",
+      "head": "11a0000000000000000000000000000000000000",
+      "approvers": [],
+      "reviews": [
+        {
+          "user": "dave",
+          "state": "APPROVED",
+          "commit": "11c0000000000000000000000000000000000000",
+          "submitted_at": "2026-11-14T10:00:00Z"
+        }
+      ],
+      "checks": [
+        {
+          "name": "lint",
+          "conclusion": "success",
+          "url": "https://github.test/acme/fair/runs/112"
+        },
+        {
+          "name": "test",
+          "conclusion": "success",
+          "url": "https://github.test/acme/fair/runs/111"
+        }
+      ]
+    },
+    {
+      "id": "acme/fair#12",
+      "repository": "acme/fair",
+      "number": 12,
+      "title": "Add the register export",
+      "url": "https://github.test/acme/fair/pull/12",
+      "author": "alice",
+      "merged_at": "2026-11-20T11:00:00Z",
+      "merge_commit": "12b0000000000000000000000000000000000000",
+      "head": "12a0000000000000000000000000000000000000",
+      "approvers": [
+        "bob"
+      ],
+      "reviews": [
+        {
+          "user": "bob",
+          "state": "COMMENTED",
+          "commit": "12c0000000000000000000000000000000000000",
+          "submitted_at": "2026-11-19T10:00:00Z"
+        },
+        {
+          "user": "bob",
+          "state": "APPROVED",
+          "commit": "12a0000000000000000000000000000000000000",
+          "submitted_at": "2026-11-20T10:00:00Z"
+        }
+      ],
+      "checks": [
+        {
+          "name": "lint",
+          "conclusion": "success",
+          "url": "https://github.test/acme/fair/runs/103"
+        },
+        {
+          "name": "test",
+          "conclusion": "success",
+          "url": "https://github.test/acme/fair/runs/102"
+        }
+      ]
+    },
+    {
+      "id": "acme/fleet#3",
+      "repository": "acme/fleet",
+      "number": 3,
+      "title": "Promote alpha to v0.2.0",
+      "url": "https://github.test/acme/fleet/pull/3",
+      "author": "hank",
+      "merged_at": "2026-11-22T09:58:00Z",
+      "merge_commit": "f200000000000000000000000000000000000000",
+      "head": "fa30000000000000000000000000000000000000",
+      "approvers": [
+        "gina"
+      ],
+      "reviews": [
+        {
+          "user": "gina",
+          "state": "APPROVED",
+          "commit": "fa30000000000000000000000000000000000000",
+          "submitted_at": "2026-11-22T09:50:00Z"
+        }
+      ],
+      "checks": []
+    },
+    {
+      "id": "acme/fleet#4",
+      "repository": "acme/fleet",
+      "number": 4,
+      "title": "Promote beta to v0.1.1",
+      "url": "https://github.test/acme/fleet/pull/4",
+      "author": "ivan",
+      "merged_at": "2026-11-11T08:58:00Z",
+      "merge_commit": "f300000000000000000000000000000000000000",
+      "head": "fa40000000000000000000000000000000000000",
+      "approvers": [],
+      "reviews": [],
+      "checks": []
+    }
+  ],
+  "releases": [
+    {
+      "tag": "v0.1.1",
+      "url": "https://github.test/acme/fair/releases/tag/v0.1.1",
+      "published_at": "2026-11-10T09:00:00Z",
+      "prerelease": false,
+      "commit": "1100000000000000000000000000000000000000",
+      "previous": "v0.1.0",
+      "manifest_signature": "missing",
+      "sums_signature": "missing",
+      "release_key": "missing",
+      "images": {},
+      "run": {
+        "id": 400,
+        "url": "https://github.test/acme/fair/actions/runs/400",
+        "commit": "1100000000000000000000000000000000000000",
+        "conclusion": "failure",
+        "jobs": [
+          {
+            "name": "build (iam)",
+            "conclusion": "success"
+          },
+          {
+            "name": "publish",
+            "conclusion": "success"
+          },
+          {
+            "name": "sign / sign",
+            "conclusion": "success"
+          },
+          {
+            "name": "verify",
+            "conclusion": "failure"
+          }
+        ]
+      },
+      "commits": 3,
+      "pull_requests": [
+        "acme/fair#7",
+        "acme/fair#9"
+      ]
+    },
+    {
+      "tag": "v0.2.0",
+      "url": "https://github.test/acme/fair/releases/tag/v0.2.0",
+      "published_at": "2026-11-21T09:00:00Z",
+      "prerelease": false,
+      "commit": "2000000000000000000000000000000000000000",
+      "previous": "v0.1.1",
+      "manifest": "577558e5366a90227c711c164303a4d5458d8b422db4c279f26d54fbb6756339",
+      "manifest_signature": "verified",
+      "sums_signature": "verified",
+      "release_key": "matches",
+      "images": {
+        "iam": "ghcr.io/acme/fair-iam@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      "run": {
+        "id": 500,
+        "url": "https://github.test/acme/fair/actions/runs/500",
+        "commit": "2000000000000000000000000000000000000000",
+        "conclusion": "success",
+        "jobs": [
+          {
+            "name": "bench / bench",
+            "conclusion": "success"
+          },
+          {
+            "name": "build (iam)",
+            "conclusion": "success"
+          },
+          {
+            "name": "manifest",
+            "conclusion": "success"
+          },
+          {
+            "name": "provenance (iam) / generator",
+            "conclusion": "success"
+          },
+          {
+            "name": "publish",
+            "conclusion": "success"
+          },
+          {
+            "name": "sign / sign",
+            "conclusion": "success"
+          },
+          {
+            "name": "verify",
+            "conclusion": "success"
+          }
+        ]
+      },
+      "commits": 2,
+      "pull_requests": [
+        "acme/fair#11",
+        "acme/fair#12"
+      ]
+    }
+  ],
+  "deployments": [
+    {
+      "id": "alpha:v0.2.0:2026-11-22T10:01:00Z",
+      "instance": "alpha",
+      "release": "v0.2.0",
+      "artifact": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "status": "succeeded",
+      "started_at": "2026-11-22T10:01:00Z",
+      "completed_at": "2026-11-22T10:05:00Z",
+      "errors": 0,
+      "fleet_commit": "f200000000000000000000000000000000000000",
+      "fleet_pull_request": "acme/fleet#3"
+    },
+    {
+      "id": "beta:v0.1.1:2026-11-11T09:02:00Z",
+      "instance": "beta",
+      "release": "v0.1.1",
+      "artifact": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "status": "failed",
+      "started_at": "2026-11-11T09:02:00Z",
+      "errors": 1,
+      "fleet_commit": "f300000000000000000000000000000000000000",
+      "fleet_pull_request": "acme/fleet#4"
+    }
+  ],
+  "infrastructure_applies": [
+    {
+      "id": "alpha:700",
+      "instance": "alpha",
+      "run": 700,
+      "url": "https://github.test/acme/fair/actions/runs/700",
+      "commit": "12b0000000000000000000000000000000000000",
+      "created_at": "2026-11-20T11:05:00Z",
+      "triggered_by": "alice",
+      "conclusion": "success",
+      "pull_request": "acme/fair#12",
+      "approvals": [
+        {
+          "user": "bob",
+          "state": "approved",
+          "comment": "plan reviewed"
+        }
+      ]
+    },
+    {
+      "id": "alpha:701",
+      "instance": "alpha",
+      "run": 701,
+      "url": "https://github.test/acme/fair/actions/runs/701",
+      "commit": "d200000000000000000000000000000000000000",
+      "created_at": "2026-11-18T09:00:00Z",
+      "triggered_by": "carol",
+      "conclusion": "success",
+      "approvals": [
+        {
+          "user": "carol",
+          "state": "approved"
+        }
+      ]
+    },
+    {
+      "id": "beta:700",
+      "instance": "beta",
+      "run": 700,
+      "url": "https://github.test/acme/fair/actions/runs/700",
+      "commit": "12b0000000000000000000000000000000000000",
+      "created_at": "2026-11-20T11:05:00Z",
+      "triggered_by": "alice",
+      "conclusion": "cancelled",
+      "pull_request": "acme/fair#12",
+      "approvals": [
+        {
+          "user": "bob",
+          "state": "approved",
+          "comment": "plan reviewed"
+        }
+      ]
+    },
+    {
+      "id": "beta:703",
+      "instance": "beta",
+      "run": 703,
+      "url": "https://github.test/acme/fair/actions/runs/703",
+      "commit": "09b0000000000000000000000000000000000000",
+      "created_at": "2026-11-05T11:05:00Z",
+      "triggered_by": "alice",
+      "conclusion": "failure",
+      "pull_request": "acme/fair#9",
+      "approvals": []
+    }
+  ],
+  "findings": [
+    {
+      "code": "apply_self_approved",
+      "subject": "apply:alpha:701",
+      "instance": "alpha",
+      "detail": "approved only by the person who started the run: carol"
+    },
+    {
+      "code": "apply_without_pull_request",
+      "subject": "apply:alpha:701",
+      "instance": "alpha",
+      "detail": "commit d200000000000000000000000000000000000000 has no merged pull request"
+    },
+    {
+      "code": "apply_not_completed",
+      "subject": "apply:beta:700",
+      "instance": "beta",
+      "detail": "the apply did not run (cancelled); the merged change is not applied"
+    },
+    {
+      "code": "apply_failed",
+      "subject": "apply:beta:703",
+      "instance": "beta",
+      "detail": "the apply failed"
+    },
+    {
+      "code": "apply_unapproved",
+      "subject": "apply:beta:703",
+      "instance": "beta",
+      "detail": "ran without an approval of environment instances"
+    },
+    {
+      "code": "commit_without_pull_request",
+      "subject": "commit:acme/fair@d100000000000000000000000000000000000000",
+      "release": "v0.1.1",
+      "detail": "in v0.1.1 without a merged pull request"
+    },
+    {
+      "code": "deployment_failed",
+      "subject": "deployment:beta:v0.1.1:2026-11-11T09:02:00Z",
+      "instance": "beta",
+      "release": "v0.1.1",
+      "detail": "never reconciled; error events: 1"
+    },
+    {
+      "code": "deployment_unapproved",
+      "subject": "deployment:beta:v0.1.1:2026-11-11T09:02:00Z",
+      "instance": "beta",
+      "release": "v0.1.1",
+      "detail": "fleet pull request acme/fleet#4 has no approval by another person"
+    },
+    {
+      "code": "deployment_unsigned_release",
+      "subject": "deployment:beta:v0.1.1:2026-11-11T09:02:00Z",
+      "instance": "beta",
+      "release": "v0.1.1",
+      "detail": "release v0.1.1: manifest signature missing"
+    },
+    {
+      "code": "release_source_refused",
+      "subject": "instance:beta",
+      "instance": "beta",
+      "detail": "2026-11-12T08:00:00Z: no matching signatures"
+    },
+    {
+      "code": "stale_approval",
+      "subject": "pull_request:acme/fair#11",
+      "detail": "approved an earlier commit than the merged head 11a0000000000000000000000000000000000000: dave"
+    },
+    {
+      "code": "self_approval",
+      "subject": "pull_request:acme/fair#7",
+      "detail": "approved only by the author or a commit author: frank"
+    },
+    {
+      "code": "check_failed",
+      "subject": "pull_request:acme/fair#9",
+      "detail": "lint: failure"
+    },
+    {
+      "code": "check_missing",
+      "subject": "pull_request:acme/fair#9",
+      "detail": "test: no run on 09a0000000000000000000000000000000000000"
+    },
+    {
+      "code": "no_approval",
+      "subject": "pull_request:acme/fair#9",
+      "detail": "merged without an approving review"
+    },
+    {
+      "code": "no_approval",
+      "subject": "pull_request:acme/fleet#4",
+      "detail": "merged without an approving review"
+    },
+    {
+      "code": "release_job_failed",
+      "subject": "release:v0.1.1",
+      "release": "v0.1.1",
+      "detail": "verify: failure"
+    },
+    {
+      "code": "release_job_missing",
+      "subject": "release:v0.1.1",
+      "release": "v0.1.1",
+      "detail": "provenance: not in run 400"
+    },
+    {
+      "code": "release_key_mismatch",
+      "subject": "release:v0.1.1",
+      "release": "v0.1.1",
+      "detail": "cosign.pub is not in the release"
+    },
+    {
+      "code": "release_sums_unsigned",
+      "subject": "release:v0.1.1",
+      "release": "v0.1.1",
+      "detail": "SHA256SUMS or its signature is not in the release"
+    },
+    {
+      "code": "release_unsigned",
+      "subject": "release:v0.1.1",
+      "release": "v0.1.1",
+      "detail": "release-manifest.json or its signature is not in the release"
+    }
+  ]
+}

@@ -18,3 +18,6 @@ profiles/** text eol=lf
 
 # Infrastructure code (F-012 T-12): one form on every checkout.
 infra/** text eol=lf
+
+# Change-evidence golden files are compared byte for byte (F-012 T-17).
+internal/changeevidence/testdata/** text eol=lf
