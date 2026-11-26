@@ -4,6 +4,7 @@
 # the WAF web ACL. Its targets are the gateway pods, registered by the load
 # balancer controller's TargetGroupBinding (T-15) over HTTPS.
 resource "aws_acm_certificate" "public" {
+  count             = local.live ? 1 : 0
   domain_name       = var.domain
   validation_method = "DNS"
   key_algorithm     = "EC_prime256v1"
@@ -17,8 +18,8 @@ resource "aws_acm_certificate" "public" {
 }
 
 resource "aws_route53_record" "certificate" {
-  for_each = { for o in aws_acm_certificate.public.domain_validation_options : o.domain_name => o }
-  zone_id  = aws_route53_zone.public.zone_id
+  for_each = { for o in flatten(aws_acm_certificate.public[*].domain_validation_options) : o.domain_name => o }
+  zone_id  = aws_route53_zone.public[0].zone_id
   name     = each.value.resource_record_name
   type     = each.value.resource_record_type
   ttl      = 300
@@ -26,32 +27,35 @@ resource "aws_route53_record" "certificate" {
 }
 
 resource "aws_acm_certificate_validation" "public" {
-  certificate_arn         = aws_acm_certificate.public.arn
+  count                   = local.live ? 1 : 0
+  certificate_arn         = aws_acm_certificate.public[0].arn
   validation_record_fqdns = [for r in aws_route53_record.certificate : r.fqdn]
 }
 
 resource "aws_lb" "public" {
   #checkov:skip=CKV_AWS_91:ALB access logs can only be delivered with SSE-S3, which the guardrails refuse (every bucket and upload is KMS, ADR-016); every request is logged by the WAF web ACL to CloudWatch Logs under the logs key instead (aws_wafv2_web_acl_logging_configuration.public).
+  count                      = local.live ? 1 : 0
   name                       = local.name
   internal                   = false
   load_balancer_type         = "application"
   ip_address_type            = "ipv4"
-  security_groups            = [aws_security_group.alb.id]
+  security_groups            = [aws_security_group.alb[0].id]
   subnets                    = [for z, _ in local.zones : aws_subnet.public[z].id]
   drop_invalid_header_fields = true
   desync_mitigation_mode     = "strictest"
-  enable_deletion_protection = true
+  enable_deletion_protection = local.protected
   enable_http2               = true
   tags                       = local.tags
 }
 
 resource "aws_lb_target_group" "gateway" {
+  count                = local.live ? 1 : 0
   name                 = "${local.name}-gw"
   port                 = var.gateway_port
   protocol             = "HTTPS"
   protocol_version     = "HTTP1"
   target_type          = "ip"
-  vpc_id               = aws_vpc.this.id
+  vpc_id               = aws_vpc.this[0].id
   deregistration_delay = 30
   health_check {
     enabled             = true
@@ -68,14 +72,15 @@ resource "aws_lb_target_group" "gateway" {
 }
 
 resource "aws_lb_listener" "https" {
-  load_balancer_arn = aws_lb.public.arn
+  count             = local.live ? 1 : 0
+  load_balancer_arn = aws_lb.public[0].arn
   port              = 443
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-FIPS-2023-04"
-  certificate_arn   = aws_acm_certificate_validation.public.certificate_arn
+  certificate_arn   = aws_acm_certificate_validation.public[0].certificate_arn
   default_action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.gateway.arn
+    target_group_arn = aws_lb_target_group.gateway[0].arn
   }
   tags = local.tags
 }
@@ -99,6 +104,7 @@ locals {
 }
 
 resource "aws_wafv2_web_acl" "public" {
+  count       = local.live ? 1 : 0
   name        = local.name
   description = "FAIR ${var.instance}: the public entry"
   scope       = "REGIONAL"
@@ -195,8 +201,9 @@ resource "aws_wafv2_web_acl" "public" {
 }
 
 resource "aws_wafv2_web_acl_association" "public" {
-  resource_arn = aws_lb.public.arn
-  web_acl_arn  = aws_wafv2_web_acl.public.arn
+  count        = local.live ? 1 : 0
+  resource_arn = aws_lb.public[0].arn
+  web_acl_arn  = aws_wafv2_web_acl.public[0].arn
 }
 
 # Every request, a year, under the logs key; credentials never logged
@@ -206,9 +213,15 @@ resource "aws_cloudwatch_log_group" "waf" {
   kms_key_id        = aws_kms_key.home["logs"].arn
   retention_in_days = 365
   tags              = local.tags
+
+  # Retained on decommissioning (var.status).
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_cloudwatch_log_resource_policy" "waf" {
+  count       = local.live ? 1 : 0
   policy_name = "${local.name}-waf-logs"
   policy_document = jsonencode({
     Version = "2012-10-17"
@@ -227,7 +240,8 @@ resource "aws_cloudwatch_log_resource_policy" "waf" {
 }
 
 resource "aws_wafv2_web_acl_logging_configuration" "public" {
-  resource_arn            = aws_wafv2_web_acl.public.arn
+  count                   = local.live ? 1 : 0
+  resource_arn            = aws_wafv2_web_acl.public[0].arn
   log_destination_configs = [aws_cloudwatch_log_group.waf.arn]
   redacted_fields {
     single_header {

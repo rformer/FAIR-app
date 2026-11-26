@@ -16,3 +16,13 @@ output "mirror_repositories" {
   description = "The mirror's repositories."
   value       = module.mirror.repository_urls
 }
+
+output "dns_delegation" {
+  description = "The parent zone's delegation (infra/instance var.dns and the organization root's var.dns_delegation); null without a parent zone."
+  value       = one(module.parent_zone[*].dns_delegation)
+}
+
+output "parent_zone_registrar" {
+  description = "The parent zone's name servers and DS record, for the registrar (once)."
+  value       = one(module.parent_zone[*].registrar)
+}

@@ -12,6 +12,11 @@ locals {
     "rds-monitoring" = "monitoring.rds.amazonaws.com"
     "flow-logs"      = "vpc-flow-logs.amazonaws.com"
   }
+  # Retired (var.status): the replication role only, which the retained
+  # buckets' replication configurations name.
+  service_roles = { for k, v in local.service_principals : k => v if local.live || k == "replication" }
+  irsa_roles    = { for k, v in local.irsa : k => v if local.live }
+
   # Services that act for one account carry it as aws:SourceAccount.
   service_source_account = ["replication", "flow-logs"]
 
@@ -30,7 +35,7 @@ locals {
     "ebs-csi"                  = { namespace = "kube-system", service_account = "ebs-csi-controller-sa" }
   }
 
-  oidc_host = trimprefix(aws_eks_cluster.this.identity[0].oidc[0].issuer, "https://")
+  oidc_host = try(trimprefix(aws_eks_cluster.this[0].identity[0].oidc[0].issuer, "https://"), null)
 
   secrets_arn_prefix = "arn:${local.p}:secretsmanager:${var.region}:${local.acct}:secret:fair/${var.instance}/"
   s3_arn             = { for k, v in local.bucket : k => "arn:${local.p}:s3:::${v}" }
@@ -169,7 +174,7 @@ locals {
         Sid      = "GatewayTargets"
         Effect   = "Allow"
         Action   = ["elasticloadbalancing:RegisterTargets", "elasticloadbalancing:DeregisterTargets"]
-        Resource = aws_lb_target_group.gateway.arn
+        Resource = one(aws_lb_target_group.gateway[*].arn)
       },
       {
         # Describe calls take no resource (IAM's service authorization).
@@ -189,7 +194,7 @@ locals {
       Sid      = "IssueInternalCertificates"
       Effect   = "Allow"
       Action   = ["acm-pca:DescribeCertificateAuthority", "acm-pca:GetCertificate", "acm-pca:IssueCertificate"]
-      Resource = aws_acmpca_certificate_authority.internal.arn
+      Resource = one(aws_acmpca_certificate_authority.internal[*].arn)
     }]
 
     # Volumes under the nodes key (AmazonEBSCSIDriverPolicy for the rest).
@@ -221,7 +226,7 @@ locals {
 }
 
 resource "aws_iam_role" "service" {
-  for_each = local.service_principals
+  for_each = local.service_roles
   name     = "${local.name}-${each.key}"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -238,19 +243,20 @@ resource "aws_iam_role" "service" {
 }
 
 resource "aws_iam_openid_connect_provider" "cluster" {
-  url            = aws_eks_cluster.this.identity[0].oidc[0].issuer
+  count          = local.live ? 1 : 0
+  url            = aws_eks_cluster.this[0].identity[0].oidc[0].issuer
   client_id_list = ["sts.amazonaws.com"]
   tags           = local.tags
 }
 
 resource "aws_iam_role" "irsa" {
-  for_each = local.irsa
+  for_each = local.irsa_roles
   name     = "${local.name}-${each.key}"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
-      Principal = { Federated = aws_iam_openid_connect_provider.cluster.arn }
+      Principal = { Federated = aws_iam_openid_connect_provider.cluster[0].arn }
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = {
@@ -268,27 +274,27 @@ resource "aws_iam_role" "irsa" {
 # cluster needs its role's policies first, and the workload roles need the
 # cluster's OIDC issuer.
 resource "aws_iam_role_policy" "service" {
-  for_each = { for k, v in local.policies : k => v if contains(keys(local.service_principals), k) }
+  for_each = { for k, v in local.policies : k => v if contains(keys(local.service_roles), k) }
   name     = "${local.name}-${each.key}"
   role     = aws_iam_role.service[each.key].name
   policy   = jsonencode({ Version = "2012-10-17", Statement = each.value })
 }
 
 resource "aws_iam_role_policy" "irsa" {
-  for_each = { for k, v in local.policies : k => v if contains(keys(local.irsa), k) }
+  for_each = { for k, v in local.policies : k => v if contains(keys(local.irsa_roles), k) }
   name     = "${local.name}-${each.key}"
   role     = aws_iam_role.irsa[each.key].name
   policy   = jsonencode({ Version = "2012-10-17", Statement = each.value })
 }
 
 resource "aws_iam_role_policy_attachment" "service" {
-  for_each   = { for k, v in local.managed_attachments : k => v if contains(keys(local.service_principals), v.role) }
+  for_each   = { for k, v in local.managed_attachments : k => v if contains(keys(local.service_roles), v.role) }
   role       = aws_iam_role.service[each.value.role].name
   policy_arn = each.value.arn
 }
 
 resource "aws_iam_role_policy_attachment" "irsa" {
-  for_each   = { for k, v in local.managed_attachments : k => v if contains(keys(local.irsa), v.role) }
+  for_each   = { for k, v in local.managed_attachments : k => v if contains(keys(local.irsa_roles), v.role) }
   role       = aws_iam_role.irsa[each.value.role].name
   policy_arn = each.value.arn
 }

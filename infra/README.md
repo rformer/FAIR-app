@@ -10,14 +10,19 @@ OpenTofu for the AWS GovCloud (US) organization that runs the SaaS offering, and
 | Directory | Account | Holds |
 |---|---|---|
 | `state/` | management | the OpenTofu state bucket (Object Lock, KMS) and its key |
-| `organization/` | management | the organization, OUs `core` and `instances`, the guardrails (SCPs), the core accounts, delegated administrators, the management account's baseline |
+| `organization/` | management | the organization, OUs `core` and `instances`, the guardrails (SCPs), the core accounts, delegated administrators, the management account's baseline, the instance pipeline's roles in both management accounts (`modules/instance-pipeline`, T-14) |
 | `security/` | security | the log archive (Object Lock, compliance mode), the organization trail, GuardDuty and Config for the organization |
-| `shared/` | shared | the KMS release key and its sign-only role (release-sign.yml), the ECR release mirror |
+| `shared/` | shared | the KMS release key and its sign-only role (release-sign.yml), the ECR release mirror, the SaaS parent zone and its delegation roles (`modules/parent-zone`, T-14) |
+| `instance-account/` | both management accounts | one instance's account: created through the commercial pair, joined, placed under `instances` (T-14; state `instances/<name>/account.tfstate`) |
+| `instance/` | the instance's | one instance's stack: `account-baseline`, `instance`, its zone's delegation, the read-only `fair-instance-plan` (T-14; state `instances/<name>/terraform.tfstate`) |
+| `instances/` | — | the instances' specs, `<name>.tfvars` (one per customer; `examples/` is never applied) |
 | `ops/` | ops | evidence, Loki and Tempo storage; the ops cluster is still to come (T-13 built the instance module only) |
 | `github/` | — | branch protection and the repository's OIDC subject template (F-012 T-02, T-12) |
-| `modules/` | — | `secure-bucket`, `guardrails`, `account-baseline`, `org-security`, `release-signing`, `ecr-mirror`, `observability`, `instance` |
+| `modules/` | — | `secure-bucket`, `guardrails`, `account-baseline`, `org-security`, `release-signing`, `ecr-mirror`, `observability`, `instance`, `instance-pipeline`, `parent-zone` |
 
-Customer instances (one account each, under the `instances` OU) are built by `modules/instance` (T-13); the root that composes it with `account-baseline` from `infra/instances/*.tfvars`, onboarding, drift and decommissioning come with T-14. The `instances` OU exists and is empty until then.
+Customer instances (one account each, under the `instances` OU) are built by `modules/instance` (T-13) through the roots `instance-account` and `instance`, from `infra/instances/<name>.tfvars` pull requests: planned in the pull request, applied after approval in the protected environment `instances`, checked for drift daily (`.github/workflows/infra-instances.yml`, `scripts/infra-instance.sh`, `scripts/infra-drift.sh`; T-14). Runbooks: `docs/operations/onboarding.md`, `docs/operations/decommissioning.md`; the first sandbox apply: `docs/operations/sandbox-apply.md` (not yet performed).
+
+`scripts/infra-check.sh` also plans every spec in `infra/instances/` (and the example) against the instance root's validations with mock providers (`infra/instance/spec-tests`), and refuses a spec that sets a field outside `infra/instance/variables.tf`.
 
 ## The instance module (`modules/instance`, F-012 T-13)
 One customer instance in its own account (design §3.5, ADR-016). It needs two AWS providers: `aws` (the home region) and `aws.replica` (the other GovCloud region), both with `use_fips_endpoint = true` and `allowed_account_ids = [<instance account>]`:
@@ -42,7 +47,9 @@ One customer instance in its own account (design §3.5, ADR-016). It needs two A
 | Secrets | Secrets Manager entries, names only: `fair/<instance>/<service>/<dir>` for the 17 entries of the F-001 T-41 layout (`docs/install/keys.md`, read by `deploy/k8s/keys/saas/external-secrets.yaml`) and `fair/<instance>/database/<role>` for the 8 database login roles. Values are loaded at onboarding through files (T-14). Only the External Secrets role may read a value, and for the key files the roles in `secret_reader_role_arns` (the pipeline's key-rotation role; never the database passwords, never operators). |
 | DNS, TLS, WAF | Public zone `domain` (DNSSEC, query logs; delegate it with output `dns.name_servers` and `dns.ds_record`), private zone (`private_domain`), an ECDSA ACM certificate, the internet-facing ALB (HTTPS 443 only, `ELBSecurityPolicy-TLS13-1-2-FIPS-2023-04`) forwarding to the gateway's target group (`gateway_target_group_arn`, HTTPS to `gateway_port`, for a TargetGroupBinding), a WAF web ACL (IP reputation, common rules with body size counted, known bad inputs, SQL injection counted, anonymous IPs, a rate limit; logs with `cookie` and `authorization` redacted); an ACM Private CA (`private_ca_arn`) for cert-manager's internal certificates. |
 
-Outputs: `vpc_id`, `subnet_ids`, `cluster`, `workload_roles`, `database`, `buckets`, `service_environment`, `kms_keys`, `secret_names`, `gateway_target_group_arn`, `dns`, `private_ca_arn`, `web_acl_arn`, and `policy_documents` (every policy the module writes, for the isolation tests). In-cluster components (External Secrets, the load balancer controller, cert-manager, the Collector, Flux) are installed by T-15; the account's baseline is `modules/account-baseline`, composed beside this module by the instance root (T-14).
+Outputs: `vpc_id`, `subnet_ids`, `cluster`, `workload_roles`, `database`, `buckets`, `service_environment`, `kms_keys`, `secret_names`, `gateway_target_group_arn`, `dns`, `private_ca_arn`, `web_acl_arn`, and `policy_documents` (every policy the module writes, for the isolation tests). In-cluster components (External Secrets, the load balancer controller, cert-manager, the Collector, Flux) are installed by T-15; the account's baseline is `modules/account-baseline`, composed beside this module by the instance root (`infra/instance`, T-14).
+
+`status` (T-14) decommissions the instance: `retiring` lifts the database's and the load balancer's deletion protection only; `retired` removes the workloads and keeps every bucket and replica (the audit WORM under Object Lock), every key, the log groups and the replication role (output `retained`). The module's buckets, keys and log groups carry `prevent_destroy`; nothing in it removes a retained store (`docs/operations/decommissioning.md`).
 
 ## State
 Each root's state is `<root>/terraform.tfstate` in the bucket `fair-tofu-state-<management account id>`:
@@ -59,9 +66,10 @@ Member-account roots assume `OrganizationAccountAccessRole` (the infrastructure 
 ## Bootstrap (once, recorded as a change)
 1. `state/`: apply with a local state, then run `tofu init -migrate-state` with its backend configuration.
 2. `organization/`: apply. This creates the organization, the OUs and the guardrails, and creates the core accounts through the paired commercial management account (`create_govcloud`).
-3. For each core account, invite its GovCloud account (output `govcloud_account_ids`) into the GovCloud organization. Accept the invitation as the account's `OrganizationAccountAccessRole`. Then list the account in `govcloud_account_ids` and run `tofu import 'aws_organizations_account.member["<name>"]' <id>`. Applying then places the account under `core` and delegates CloudTrail, Config and GuardDuty to the security account.
+3. For each core account, invite its GovCloud account (output `govcloud_account_ids`) into the GovCloud organization. Accept the invitation as the account's `OrganizationAccountAccessRole`. Then list the account in `govcloud_account_ids` and run `tofu import 'aws_organizations_account.member["<name>"]' <id>`. Applying then places the account under `core` and delegates CloudTrail, Config and GuardDuty to the security account. (Instance accounts need no such step: the instance pipeline invites, accepts, imports and places them, T-14.)
 4. `security/`, then `shared/` and `ops/` (with the security root's `log_archive` output), then `organization/` again with `log_archive` (the management account's Config).
-5. Set the repository variables `FAIR_RELEASE_KMS_KEY`, `FAIR_RELEASE_ROLE_ARN` and `FAIR_RELEASE_REGION` from the shared root's `github_variables` output. Apply `github/`, which sets the OIDC subject template the sign-only role's trust expects.
+5. Set the repository variables `FAIR_RELEASE_KMS_KEY`, `FAIR_RELEASE_ROLE_ARN` and `FAIR_RELEASE_REGION` from the shared root's `github_variables` output. Apply `github/`, which sets the OIDC subject template the sign-only role's trust expects (and, T-14, the environment `instances` with its reviewers).
+6. The instance pipeline (T-14): `shared/` with `parent_zone`, the parent domain's delegation at its registrar, `organization/` with `dns_delegation`, then the repository variable `FAIR_INSTANCES_CONFIG` (`docs/operations/onboarding.md`, "One-time setup").
 
 ## Changing a provider version
 Change the exact version in every `versions.tf`, then run `INFRA_LOCK=1 scripts/infra-check.sh`, which rewrites every lock file with hashes for each platform.

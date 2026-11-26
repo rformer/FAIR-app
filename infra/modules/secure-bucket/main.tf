@@ -55,6 +55,12 @@ resource "aws_s3_bucket" "this" {
   object_lock_enabled = var.object_lock != null || var.object_lock_enabled
   force_destroy       = false
   tags                = var.tags
+
+  # No code path removes a bucket of this module (state, evidence, logs,
+  # the instances' stores: decommissioning keeps them, F-012 T-14).
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_s3_bucket_ownership_controls" "this" {

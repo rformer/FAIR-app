@@ -41,6 +41,7 @@ variable "required_checks" {
     "upgrade / upgrade",
     "pdfua",
     "infra",
+    "infra-drift",
   ]
   validation {
     condition     = length(var.required_checks) > 0 && alltrue([for c in var.required_checks : length(trimspace(c)) > 0])
@@ -52,4 +53,16 @@ variable "bypass_actors" {
   description = "Repository roles that may bypass the rules in an emergency (each bypass is recorded by GitHub). Empty: nobody."
   type        = list(number)
   default     = []
+}
+
+variable "instance_reviewers" {
+  description = "Who approves the instance pipeline's applies (environment instances): GitHub user and team ids; at least one (F-012 T-14)."
+  type = object({
+    users = list(number)
+    teams = list(number)
+  })
+  validation {
+    condition     = length(var.instance_reviewers.users) + length(var.instance_reviewers.teams) > 0 && length(var.instance_reviewers.users) + length(var.instance_reviewers.teams) <= 6
+    error_message = "One to six reviewers (GitHub's limit is six)."
+  }
 }

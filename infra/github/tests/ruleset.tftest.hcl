@@ -1,6 +1,10 @@
 # F-012 T-02: the ruleset's invariants, with a mock provider (no GitHub call).
 mock_provider "github" {}
 
+variables {
+  instance_reviewers = { users = [1001], teams = [] }
+}
+
 run "protects_the_default_branch" {
   command = plan
 
@@ -83,4 +87,31 @@ run "oidc_subject_names_the_workflow" {
     condition     = github_actions_repository_oidc_subject_claim_customization_template.repository.include_claim_keys == tolist(["repo", "context", "job_workflow_ref"])
     error_message = "sub is repo:<repo>:<context>:job_workflow_ref:<workflow>, in that order"
   }
+}
+
+# F-012 T-14: applies to instances wait for a reviewer who did not start
+# them, from main only.
+run "instance_applies_need_an_approval" {
+  command = plan
+
+  assert {
+    condition     = github_repository_environment.instances.environment == "instances" && github_repository_environment.instances.prevent_self_review && !github_repository_environment.instances.can_admins_bypass
+    error_message = "the instances environment: no self-review, no admin bypass"
+  }
+  assert {
+    condition     = github_repository_environment.instances.reviewers[0].users == toset([1001])
+    error_message = "its required reviewers"
+  }
+  assert {
+    condition     = github_repository_environment.instances.deployment_branch_policy[0].protected_branches && !github_repository_environment.instances.deployment_branch_policy[0].custom_branch_policies
+    error_message = "only protected branches (main) deploy"
+  }
+}
+
+run "an_environment_without_reviewers_refused" {
+  command = plan
+  variables {
+    instance_reviewers = { users = [], teams = [] }
+  }
+  expect_failures = [var.instance_reviewers]
 }

@@ -31,7 +31,7 @@ locals {
 
 resource "aws_secretsmanager_secret" "this" {
   #checkov:skip=CKV2_AWS_57:Not rotated by a Lambda: the entries are key files rotated by `iam keys rotate` (docs/install/keys.md: rotation adds a key and the old one keeps verifying) and database passwords changed with the role (T-14 runbook); a generic rotation function would break the key sets' pairing.
-  for_each                = local.secret_entries
+  for_each                = { for k, v in local.secret_entries : k => v if local.live }
   name                    = "fair/${var.instance}/${each.key}"
   description             = "FAIR ${var.instance}: ${each.value}"
   kms_key_id              = aws_kms_key.home["secrets"].arn
@@ -40,7 +40,7 @@ resource "aws_secretsmanager_secret" "this" {
 }
 
 resource "aws_secretsmanager_secret_policy" "this" {
-  for_each   = local.secret_entries
+  for_each   = { for k, v in local.secret_entries : k => v if local.live }
   secret_arn = aws_secretsmanager_secret.this[each.key].arn
   policy = jsonencode({
     Version = "2012-10-17"

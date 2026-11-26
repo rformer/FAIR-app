@@ -1,0 +1,26 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [
+    {
+      "address": "aws_organizations_account.commercial",
+      "change": {
+        "actions": [
+          "no-op"
+        ]
+      },
+      "mode": "managed",
+      "type": "aws_organizations_account"
+    },
+    {
+      "address": "aws_organizations_account.member[0]",
+      "change": {
+        "actions": [
+          "no-op"
+        ]
+      },
+      "mode": "managed",
+      "type": "aws_organizations_account"
+    }
+  ],
+  "terraform_version": "1.13.9"
+}

@@ -1,0 +1,16 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [
+    {
+      "address": "module.instance.module.audit_worm.aws_s3_bucket.this",
+      "change": {
+        "actions": [
+          "delete"
+        ]
+      },
+      "mode": "managed",
+      "type": "aws_s3_bucket"
+    }
+  ],
+  "terraform_version": "1.13.9"
+}

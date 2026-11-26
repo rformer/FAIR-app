@@ -464,6 +464,24 @@ jobs:
       - name: OpenTofu fmt, validate and test; Checkov
         run: bash scripts/infra-check.sh
 
+  # F-012 T-14 (AC-16; design §6 "T: infrastructure drifts from code"): the
+  # daily drift job's decision (infra-instances.yml, job report) run without
+  # AWS over recorded plans: clean, drifted, failed and missing plans,
+  # changes outside OpenTofu the code does not manage, a plan deleting a
+  # retained store. Each must reach its recorded verdict and issue text.
+  infra-drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        env:
+          GOFIPS140: ""
+        with:
+          go-version-file: go.mod
+      - name: Drift job dry run (scripts/infra-drift.sh -dry-run)
+        run: bash scripts/infra-drift.sh -dry-run
+
   # F-015 T-32, F-012 T-02 (AC-01): every page end to end against the real
   # services, database and simulation engine, with axe WCAG 2.1 AA scans:
   # scripts/ui-e2e.sh, as run locally (the harness in the fair-dbtest

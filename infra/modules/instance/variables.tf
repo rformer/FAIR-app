@@ -7,6 +7,16 @@ variable "instance" {
   }
 }
 
+variable "status" {
+  description = "The instance's lifecycle state (docs/operations/decommissioning.md): active; retiring (the exports are taken, the database's and load balancer's deletion protection is lifted); retired (the workloads are removed, the retained stores, keys and logs are kept)."
+  type        = string
+  default     = "active"
+  validation {
+    condition     = contains(["active", "retiring", "retired"], var.status)
+    error_message = "active, retiring or retired."
+  }
+}
+
 variable "account_id" {
   description = "The instance's own account (one account per instance, ADR-016): every principal and resource the module names is in it."
   type        = string

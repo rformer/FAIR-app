@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# F-012 T-02, T-12, T-13 (F-012-AC-01, AC-14, AC-15; design §3.5): check the
+# F-012 T-02, T-12, T-13, T-14 (F-012-AC-01, AC-14, AC-15; design §3.5): check the
 # infrastructure code without reaching a cloud:
 #   - tofu fmt -check over infra/;
 #   - for every root and module (each directory under infra/ holding *.tf):
@@ -78,6 +78,22 @@ for d in "${dirs[@]}"; do
   tofu "$d" validate -no-color
   if [ -d "infra/$d/tests" ]; then
     tofu "$d" test -no-color
+  fi
+  # T-14: every instance's spec (and the example) plans against every
+  # validation, with mock providers. A field infra/instance does not declare
+  # fails (tofu would ignore it); so does a spec whose name is not its file's.
+  if [ "$d" = instance ]; then
+    declared="$(sed -n 's/^variable "\([a-z_]*\)" {$/\1/p' infra/instance/variables.tf)"
+    for f in infra/instances/*.tfvars infra/instances/examples/*.tfvars; do
+      [ -e "$f" ] || continue
+      echo "== instance: spec $f"
+      while IFS= read -r k; do
+        grep -qxF "$k" <<<"$declared" || { echo "infra: $f sets $k, which is not a spec field (infra/instance/variables.tf; pipeline.tf is the pipeline's)"; exit 1; }
+      done < <(sed -n 's/^\([a-z_][a-z0-9_]*\) *=.*/\1/p' "$f")
+      grep -qx "instance *= *\"$(basename "$f" .tfvars)\"" "$f" || { echo "infra: $f must set instance = \"$(basename "$f" .tfvars)\""; exit 1; }
+      spec_out="$(tofu instance test -no-color -test-directory=spec-tests -var-file="../${f#infra/}" 2>&1)" || { echo "$spec_out"; exit 1; }
+      echo "$spec_out" | tail -1
+    done
   fi
 done
 

@@ -25,3 +25,11 @@ output "guardrails" {
   description = "The guardrail policies' ids."
   value       = module.guardrails.policy_ids
 }
+
+output "instances_pipeline" {
+  description = "The instance pipeline's roles and the organization's ids (repository variables of infra-instances.yml, docs/operations/onboarding.md)."
+  value = merge(module.instance_pipeline.roles, {
+    organization_id = aws_organizations_organization.this.id
+    instances_ou_id = aws_organizations_organizational_unit.instances.id
+  })
+}

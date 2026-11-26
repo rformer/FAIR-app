@@ -16,7 +16,10 @@
 # the aws.commercial provider) and then join this organization by
 # invitation. Once a GovCloud account id is known it is listed in
 # govcloud_account_ids: the account is imported and placed under its OU. The invitation and its acceptance are the one step
-# outside OpenTofu (README "Bootstrap").
+# outside OpenTofu for the core accounts (README "Bootstrap"); instance
+# accounts are created, invited, accepted and placed by the instance
+# pipeline (infra/instance-account, scripts/infra-instance.sh, T-14), whose
+# roles are module.instance_pipeline below.
 locals {
   tags = merge(var.tags, { "fair:root" = "organization" })
 
@@ -134,4 +137,22 @@ module "baseline" {
   partition          = var.partition
   config_bucket      = var.log_archive.bucket
   config_kms_key_arn = var.log_archive.kms_key_arn
+}
+
+# F-012 T-14: the instance pipeline's roles in both management accounts
+# (infra-instances.yml; docs/operations/onboarding.md).
+module "instance_pipeline" {
+  source                = "../modules/instance-pipeline"
+  providers             = { aws = aws, aws.commercial = aws.commercial }
+  account_id            = var.account_id
+  commercial_account_id = var.commercial_account_id
+  partition             = var.partition
+  organization_id       = aws_organizations_organization.this.id
+  instances_ou_path     = "${aws_organizations_organization.this.id}/${aws_organizations_organization.this.roots[0].id}/${aws_organizations_organizational_unit.instances.id}/"
+  protected_account_ids = values(var.govcloud_account_ids)
+  repository            = var.repository
+  state_bucket          = "fair-tofu-state-${var.account_id}"
+  dns_read_role_arn     = try(var.dns_delegation.read_role_arn, null)
+  dns_delegate_role_arn = try(var.dns_delegation.delegate_role_arn, null)
+  tags                  = local.tags
 }

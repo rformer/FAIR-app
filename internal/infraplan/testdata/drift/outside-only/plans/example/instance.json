@@ -1,0 +1,48 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [
+    {
+      "address": "module.instance.aws_kms_key.home[\"audit-worm\"]",
+      "change": {
+        "actions": [
+          "no-op"
+        ]
+      },
+      "mode": "managed",
+      "type": "aws_kms_key"
+    },
+    {
+      "address": "module.instance.module.audit_worm.aws_s3_bucket.this",
+      "change": {
+        "actions": [
+          "no-op"
+        ]
+      },
+      "mode": "managed",
+      "type": "aws_s3_bucket"
+    },
+    {
+      "address": "aws_iam_role.plan",
+      "change": {
+        "actions": [
+          "no-op"
+        ]
+      },
+      "mode": "managed",
+      "type": "aws_iam_role"
+    }
+  ],
+  "resource_drift": [
+    {
+      "address": "module.instance.aws_eks_node_group.this[0]",
+      "change": {
+        "actions": [
+          "update"
+        ]
+      },
+      "mode": "managed",
+      "type": "aws_eks_node_group"
+    }
+  ],
+  "terraform_version": "1.13.9"
+}

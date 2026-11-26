@@ -7,7 +7,8 @@
 # No peering and no transit gateway: the ops account is reached only by
 # the Collector's PrivateLink endpoint (outbound) and Flux's pull (AC-15).
 locals {
-  zones = { for i, z in var.availability_zones : z => i }
+  zones      = { for i, z in var.availability_zones : z => i }
+  live_zones = { for z, i in local.zones : z => i if local.live }
 
   # Subnet ranges: workload /19 at 0, 32, 64; database /24 at 96 to 98;
   # public /24 at 100 to 102 (third octet).
@@ -32,6 +33,7 @@ locals {
 }
 
 resource "aws_vpc" "this" {
+  count                = local.live ? 1 : 0
   cidr_block           = var.vpc_cidr
   enable_dns_support   = true
   enable_dns_hostnames = true
@@ -41,13 +43,14 @@ resource "aws_vpc" "this" {
 # The default security group allows nothing (no rules): every interface
 # names one of the groups below.
 resource "aws_default_security_group" "this" {
-  vpc_id = aws_vpc.this.id
+  count  = local.live ? 1 : 0
+  vpc_id = aws_vpc.this[0].id
   tags   = merge(local.tags, { Name = "${local.name}-default-unused" })
 }
 
 resource "aws_subnet" "public" {
-  for_each                = local.zones
-  vpc_id                  = aws_vpc.this.id
+  for_each                = local.live_zones
+  vpc_id                  = aws_vpc.this[0].id
   availability_zone       = each.key
   cidr_block              = local.public_cidr[each.key]
   map_public_ip_on_launch = false
@@ -55,8 +58,8 @@ resource "aws_subnet" "public" {
 }
 
 resource "aws_subnet" "workload" {
-  for_each                = local.zones
-  vpc_id                  = aws_vpc.this.id
+  for_each                = local.live_zones
+  vpc_id                  = aws_vpc.this[0].id
   availability_zone       = each.key
   cidr_block              = local.workload_cidr[each.key]
   map_public_ip_on_launch = false
@@ -64,8 +67,8 @@ resource "aws_subnet" "workload" {
 }
 
 resource "aws_subnet" "database" {
-  for_each                = local.zones
-  vpc_id                  = aws_vpc.this.id
+  for_each                = local.live_zones
+  vpc_id                  = aws_vpc.this[0].id
   availability_zone       = each.key
   cidr_block              = local.database_cidr[each.key]
   map_public_ip_on_launch = false
@@ -75,35 +78,38 @@ resource "aws_subnet" "database" {
 # The internet gateway serves the public subnets only (the load balancer
 # and the NAT gateways).
 resource "aws_internet_gateway" "this" {
-  vpc_id = aws_vpc.this.id
+  count  = local.live ? 1 : 0
+  vpc_id = aws_vpc.this[0].id
   tags   = merge(local.tags, { Name = local.name })
 }
 
 resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.this.id
+  count  = local.live ? 1 : 0
+  vpc_id = aws_vpc.this[0].id
   tags   = merge(local.tags, { Name = "${local.name}-public", "fair:tier" = "public" })
 }
 
 resource "aws_route" "public_internet" {
-  route_table_id         = aws_route_table.public.id
+  count                  = local.live ? 1 : 0
+  route_table_id         = aws_route_table.public[0].id
   destination_cidr_block = "0.0.0.0/0"
-  gateway_id             = aws_internet_gateway.this.id
+  gateway_id             = aws_internet_gateway.this[0].id
 }
 
 resource "aws_route_table_association" "public" {
-  for_each       = local.zones
+  for_each       = local.live_zones
   subnet_id      = aws_subnet.public[each.key].id
-  route_table_id = aws_route_table.public.id
+  route_table_id = aws_route_table.public[0].id
 }
 
 resource "aws_eip" "nat" {
-  for_each = local.zones
+  for_each = local.live_zones
   domain   = "vpc"
   tags     = merge(local.tags, { Name = "${local.name}-nat-${each.key}" })
 }
 
 resource "aws_nat_gateway" "this" {
-  for_each      = local.zones
+  for_each      = local.live_zones
   allocation_id = aws_eip.nat[each.key].id
   subnet_id     = aws_subnet.public[each.key].id
   tags          = merge(local.tags, { Name = "${local.name}-${each.key}" })
@@ -111,42 +117,44 @@ resource "aws_nat_gateway" "this" {
 }
 
 resource "aws_route_table" "workload" {
-  for_each = local.zones
-  vpc_id   = aws_vpc.this.id
+  for_each = local.live_zones
+  vpc_id   = aws_vpc.this[0].id
   tags     = merge(local.tags, { Name = "${local.name}-workload-${each.key}", "fair:tier" = "workload" })
 }
 
 # The workload subnets' one way out: the zone's NAT gateway (node security
 # group egress limited to var.external_egress_ports).
 resource "aws_route" "workload_egress" {
-  for_each               = local.zones
+  for_each               = local.live_zones
   route_table_id         = aws_route_table.workload[each.key].id
   destination_cidr_block = "0.0.0.0/0"
   nat_gateway_id         = aws_nat_gateway.this[each.key].id
 }
 
 resource "aws_route_table_association" "workload" {
-  for_each       = local.zones
+  for_each       = local.live_zones
   subnet_id      = aws_subnet.workload[each.key].id
   route_table_id = aws_route_table.workload[each.key].id
 }
 
 # The database subnets: the VPC's local route only.
 resource "aws_route_table" "database" {
-  vpc_id = aws_vpc.this.id
+  count  = local.live ? 1 : 0
+  vpc_id = aws_vpc.this[0].id
   tags   = merge(local.tags, { Name = "${local.name}-database", "fair:tier" = "database" })
 }
 
 resource "aws_route_table_association" "database" {
-  for_each       = local.zones
+  for_each       = local.live_zones
   subnet_id      = aws_subnet.database[each.key].id
-  route_table_id = aws_route_table.database.id
+  route_table_id = aws_route_table.database[0].id
 }
 
 # S3 through a gateway endpoint (the stores, ECR's layers), from the
 # workload subnets.
 resource "aws_vpc_endpoint" "s3" {
-  vpc_id            = aws_vpc.this.id
+  count             = local.live ? 1 : 0
+  vpc_id            = aws_vpc.this[0].id
   service_name      = "com.amazonaws.${var.region}.s3"
   vpc_endpoint_type = "Gateway"
   route_table_ids   = [for z, _ in local.zones : aws_route_table.workload[z].id]
@@ -155,21 +163,21 @@ resource "aws_vpc_endpoint" "s3" {
 }
 
 resource "aws_vpc_endpoint" "interface" {
-  for_each            = toset(var.interface_endpoints)
-  vpc_id              = aws_vpc.this.id
+  for_each            = toset([for e in var.interface_endpoints : e if local.live])
+  vpc_id              = aws_vpc.this[0].id
   service_name        = "com.amazonaws.${var.region}.${each.key}"
   vpc_endpoint_type   = "Interface"
   private_dns_enabled = true
   subnet_ids          = [for z, _ in local.zones : aws_subnet.workload[z].id]
-  security_group_ids  = [aws_security_group.endpoints.id]
+  security_group_ids  = [aws_security_group.endpoints[0].id]
   policy              = contains(local.endpoint_policy_services, each.key) ? local.endpoint_policy : null
   tags                = merge(local.tags, { Name = "${local.name}-${each.key}" })
 }
 
 # The Collector's way to the ops account (PrivateLink, outbound only).
 resource "aws_vpc_endpoint" "telemetry" {
-  count               = var.ops_telemetry == null ? 0 : 1
-  vpc_id              = aws_vpc.this.id
+  count               = var.ops_telemetry == null || !local.live ? 0 : 1
+  vpc_id              = aws_vpc.this[0].id
   service_name        = var.ops_telemetry.service_name
   vpc_endpoint_type   = "Interface"
   private_dns_enabled = false
@@ -185,10 +193,16 @@ resource "aws_cloudwatch_log_group" "flow" {
   kms_key_id        = aws_kms_key.home["logs"].arn
   retention_in_days = 365
   tags              = local.tags
+
+  # Retained on decommissioning (var.status).
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_flow_log" "this" {
-  vpc_id                   = aws_vpc.this.id
+  count                    = local.live ? 1 : 0
+  vpc_id                   = aws_vpc.this[0].id
   traffic_type             = "ALL"
   log_destination_type     = "cloud-watch-logs"
   log_destination          = aws_cloudwatch_log_group.flow.arn
@@ -202,55 +216,60 @@ resource "aws_flow_log" "this" {
 # nodes carry only their own group (not EKS's cluster security group,
 # whose egress is open), so their egress is exactly these rules.
 resource "aws_security_group" "alb" {
+  count       = local.live ? 1 : 0
   name        = "${local.name}-alb"
   description = "The public load balancer: HTTPS in, the gateway pods out"
-  vpc_id      = aws_vpc.this.id
+  vpc_id      = aws_vpc.this[0].id
   tags        = merge(local.tags, { Name = "${local.name}-alb" })
 }
 
 resource "aws_security_group" "nodes" {
+  count       = local.live ? 1 : 0
   name        = "${local.name}-nodes"
   description = "The EKS nodes and pods"
-  vpc_id      = aws_vpc.this.id
+  vpc_id      = aws_vpc.this[0].id
   tags        = merge(local.tags, { Name = "${local.name}-nodes" })
 }
 
 resource "aws_security_group" "cluster" {
+  count       = local.live ? 1 : 0
   name        = "${local.name}-cluster"
   description = "The EKS API endpoint (private): HTTPS from the nodes"
-  vpc_id      = aws_vpc.this.id
+  vpc_id      = aws_vpc.this[0].id
   tags        = merge(local.tags, { Name = "${local.name}-cluster" })
 }
 
 resource "aws_security_group" "database" {
+  count       = local.live ? 1 : 0
   name        = "${local.name}-database"
   description = "PostgreSQL: from the nodes only"
-  vpc_id      = aws_vpc.this.id
+  vpc_id      = aws_vpc.this[0].id
   tags        = merge(local.tags, { Name = "${local.name}-database" })
 }
 
 resource "aws_security_group" "endpoints" {
+  count       = local.live ? 1 : 0
   name        = "${local.name}-endpoints"
   description = "Interface VPC endpoints: HTTPS from the VPC"
-  vpc_id      = aws_vpc.this.id
+  vpc_id      = aws_vpc.this[0].id
   tags        = merge(local.tags, { Name = "${local.name}-endpoints" })
 }
 
 resource "aws_security_group" "telemetry" {
-  count       = var.ops_telemetry == null ? 0 : 1
+  count       = var.ops_telemetry == null || !local.live ? 0 : 1
   name        = "${local.name}-telemetry"
   description = "The ops telemetry endpoint: from the nodes (the Collector)"
-  vpc_id      = aws_vpc.this.id
+  vpc_id      = aws_vpc.this[0].id
   tags        = merge(local.tags, { Name = "${local.name}-telemetry" })
 }
 
 locals {
   sg = {
-    alb       = aws_security_group.alb.id
-    nodes     = aws_security_group.nodes.id
-    cluster   = aws_security_group.cluster.id
-    database  = aws_security_group.database.id
-    endpoints = aws_security_group.endpoints.id
+    alb       = one(aws_security_group.alb[*].id)
+    nodes     = one(aws_security_group.nodes[*].id)
+    cluster   = one(aws_security_group.cluster[*].id)
+    database  = one(aws_security_group.database[*].id)
+    endpoints = one(aws_security_group.endpoints[*].id)
   }
 
   # group, type, protocol, from, to, and cidr or peer group (or self).
@@ -287,11 +306,11 @@ locals {
       } },
     ),
   )
-  sg_all = merge(local.sg, var.ops_telemetry == null ? {} : { telemetry = aws_security_group.telemetry[0].id })
+  sg_all = merge(local.sg, length(aws_security_group.telemetry) == 0 ? {} : { telemetry = aws_security_group.telemetry[0].id })
 }
 
 resource "aws_security_group_rule" "rule" {
-  for_each                 = local.sg_rules
+  for_each                 = { for k, v in local.sg_rules : k => v if local.live }
   security_group_id        = local.sg_all[each.value.group]
   type                     = each.value.type
   protocol                 = each.value.protocol

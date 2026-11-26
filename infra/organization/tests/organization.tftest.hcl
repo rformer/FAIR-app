@@ -111,3 +111,31 @@ run "only_core_accounts" {
   }
   expect_failures = [var.core_accounts]
 }
+
+# F-012 T-14: the instance pipeline's roles reach the instances OU only,
+# never the management or a joined core account.
+run "the_instance_pipeline_reaches_the_instances_ou_only" {
+  command = plan
+  variables {
+    govcloud_account_ids = { security = "444444444444", shared = "222222222222", ops = "333333333333" }
+  }
+
+  assert {
+    condition = anytrue([for s in jsondecode(module.instance_pipeline.policy_documents["role/apply"]).Statement :
+    s.Sid == "InfrastructureRoleOfAnInstance" && s.Condition["ForAnyValue:StringLike"]["aws:ResourceOrgPaths"] == ["o-abcdefghij/r-ab12/ou-ab12-abcdefgh/*"]])
+    error_message = "the apply role's instance accounts are the instances OU's"
+  }
+  assert {
+    condition = anytrue([for s in jsondecode(module.instance_pipeline.policy_documents["role/apply"]).Statement :
+      s.Sid == "NeverTheManagementOrCoreAccounts" && toset(s.Resource) == toset([
+        "arn:aws-us-gov:iam::111111111111:role/*", "arn:aws-us-gov:iam::222222222222:role/*",
+        "arn:aws-us-gov:iam::333333333333:role/*", "arn:aws-us-gov:iam::444444444444:role/*",
+    ])])
+    error_message = "the management and the joined core accounts are protected"
+  }
+  assert {
+    condition = alltrue([for s in jsondecode(module.instance_pipeline.policy_documents["role/plan"]).Statement :
+    alltrue([for r in flatten([s.Resource]) : !startswith(r, "arn:aws-us-gov:s3:::") || startswith(r, "arn:aws-us-gov:s3:::fair-tofu-state-111111111111")])])
+    error_message = "the state bucket is the management account's"
+  }
+}

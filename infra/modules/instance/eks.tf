@@ -18,9 +18,15 @@ resource "aws_cloudwatch_log_group" "cluster" {
   kms_key_id        = aws_kms_key.home["logs"].arn
   retention_in_days = 365
   tags              = local.tags
+
+  # Retained on decommissioning (var.status).
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_eks_cluster" "this" {
+  count                     = local.live ? 1 : 0
   name                      = local.cluster_name
   role_arn                  = aws_iam_role.service["cluster"].arn
   version                   = var.kubernetes_version
@@ -28,7 +34,7 @@ resource "aws_eks_cluster" "this" {
 
   vpc_config {
     subnet_ids              = [for z, _ in local.zones : aws_subnet.workload[z].id]
-    security_group_ids      = [aws_security_group.cluster.id]
+    security_group_ids      = [aws_security_group.cluster[0].id]
     endpoint_private_access = true
     endpoint_public_access  = false
   }
@@ -64,16 +70,16 @@ resource "aws_eks_cluster" "this" {
 }
 
 resource "aws_eks_access_entry" "admin" {
-  for_each      = toset(var.cluster_admin_role_arns)
-  cluster_name  = aws_eks_cluster.this.name
+  for_each      = toset([for a in var.cluster_admin_role_arns : a if local.live])
+  cluster_name  = aws_eks_cluster.this[0].name
   principal_arn = each.key
   type          = "STANDARD"
   tags          = local.tags
 }
 
 resource "aws_eks_access_policy_association" "admin" {
-  for_each      = toset(var.cluster_admin_role_arns)
-  cluster_name  = aws_eks_cluster.this.name
+  for_each      = toset([for a in var.cluster_admin_role_arns : a if local.live])
+  cluster_name  = aws_eks_cluster.this[0].name
   principal_arn = each.key
   policy_arn    = "arn:${local.p}:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
   access_scope {
@@ -98,10 +104,11 @@ locals {
 }
 
 resource "aws_launch_template" "nodes" {
+  count                  = local.live ? 1 : 0
   name                   = "${local.name}-nodes"
   description            = "FAIR ${var.instance} nodes: Bottlerocket FIPS, IMDSv2 only, encrypted volumes"
   update_default_version = true
-  vpc_security_group_ids = [aws_security_group.nodes.id]
+  vpc_security_group_ids = [aws_security_group.nodes[0].id]
   user_data              = base64encode(local.bottlerocket_settings)
 
   metadata_options {
@@ -150,7 +157,8 @@ resource "aws_launch_template" "nodes" {
 }
 
 resource "aws_eks_node_group" "this" {
-  cluster_name    = aws_eks_cluster.this.name
+  count           = local.live ? 1 : 0
+  cluster_name    = aws_eks_cluster.this[0].name
   node_group_name = "fair"
   node_role_arn   = aws_iam_role.service["nodes"].arn
   subnet_ids      = [for z, _ in local.zones : aws_subnet.workload[z].id]
@@ -169,8 +177,8 @@ resource "aws_eks_node_group" "this" {
   }
 
   launch_template {
-    id      = aws_launch_template.nodes.id
-    version = aws_launch_template.nodes.latest_version
+    id      = aws_launch_template.nodes[0].id
+    version = aws_launch_template.nodes[0].latest_version
   }
 
   tags = local.tags
@@ -189,8 +197,8 @@ resource "aws_eks_node_group" "this" {
 # Add-ons EKS manages: networking, DNS, the EBS CSI driver (under its own
 # workload role).
 resource "aws_eks_addon" "this" {
-  for_each                    = toset(["vpc-cni", "kube-proxy", "coredns", "aws-ebs-csi-driver"])
-  cluster_name                = aws_eks_cluster.this.name
+  for_each                    = toset([for a in ["vpc-cni", "kube-proxy", "coredns", "aws-ebs-csi-driver"] : a if local.live])
+  cluster_name                = aws_eks_cluster.this[0].name
   addon_name                  = each.key
   service_account_role_arn    = each.key == "aws-ebs-csi-driver" ? aws_iam_role.irsa["ebs-csi"].arn : null
   resolve_conflicts_on_create = "OVERWRITE"

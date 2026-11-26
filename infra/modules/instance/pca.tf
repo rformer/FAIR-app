@@ -4,6 +4,7 @@
 # certificates last at most seven days, so no revocation list is published
 # (nothing public, nothing to serve).
 resource "aws_acmpca_certificate_authority" "internal" {
+  count                           = local.live ? 1 : 0
   type                            = "ROOT"
   usage_mode                      = "SHORT_LIVED_CERTIFICATE"
   key_storage_security_standard   = "FIPS_140_2_LEVEL_3_OR_HIGHER"
@@ -33,8 +34,9 @@ resource "aws_acmpca_certificate_authority" "internal" {
 }
 
 resource "aws_acmpca_certificate" "internal_root" {
-  certificate_authority_arn   = aws_acmpca_certificate_authority.internal.arn
-  certificate_signing_request = aws_acmpca_certificate_authority.internal.certificate_signing_request
+  count                       = local.live ? 1 : 0
+  certificate_authority_arn   = aws_acmpca_certificate_authority.internal[0].arn
+  certificate_signing_request = aws_acmpca_certificate_authority.internal[0].certificate_signing_request
   signing_algorithm           = "SHA256WITHECDSA"
   template_arn                = "arn:${local.p}:acm-pca:::template/RootCACertificate/V1"
   validity {
@@ -44,7 +46,8 @@ resource "aws_acmpca_certificate" "internal_root" {
 }
 
 resource "aws_acmpca_certificate_authority_certificate" "internal" {
-  certificate_authority_arn = aws_acmpca_certificate_authority.internal.arn
-  certificate               = aws_acmpca_certificate.internal_root.certificate
-  certificate_chain         = aws_acmpca_certificate.internal_root.certificate_chain
+  count                     = local.live ? 1 : 0
+  certificate_authority_arn = aws_acmpca_certificate_authority.internal[0].arn
+  certificate               = aws_acmpca_certificate.internal_root[0].certificate
+  certificate_chain         = aws_acmpca_certificate.internal_root[0].certificate_chain
 }

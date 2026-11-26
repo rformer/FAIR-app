@@ -21,11 +21,25 @@
 #     ACM Private CA for internal TLS (cert-manager).
 # The account's baseline (Config, EBS default encryption, account-wide S3
 # public access block) is modules/account-baseline, composed beside this
-# module by the instance root (T-14).
+# module by the instance root (infra/instance, T-14).
+#
+# Decommissioning (T-14, F-012-AC-17; docs/operations/decommissioning.md):
+# var.status moves active -> retiring -> retired, each a reviewed pull
+# request. Retiring lifts the deletion protection of the database and the
+# load balancer only (the customer's export and the audit evidence export
+# are taken and recorded in the instance's tfvars). Retired removes the
+# workloads (network, cluster, database, load balancer, WAF, DNS, Private
+# CA, secrets, workload roles) and keeps, with prevent_destroy, the stores
+# and their replicas (the audit WORM's Object Lock holds its copies for
+# their retention), every key, the log groups and the replication role;
+# the database leaves its final snapshot and its automated backups. No
+# path of this module removes a retained store.
 locals {
-  name = "fair-${var.instance}"
-  p    = var.partition
-  acct = var.account_id
+  live      = var.status != "retired"
+  protected = var.status == "active"
+  name      = "fair-${var.instance}"
+  p         = var.partition
+  acct      = var.account_id
 
   # Every principal the module names is this account's (AC-15). Role ARNs
   # are built from names, so policies do not wait on the roles.
@@ -44,4 +58,9 @@ locals {
   s3_endpoint = "s3-fips.${var.region}.amazonaws.com:443"
 
   tags = merge(var.tags, { "fair:instance" = var.instance })
+
+  retained_log_groups = concat(
+    [aws_cloudwatch_log_group.cluster.name, aws_cloudwatch_log_group.flow.name, aws_cloudwatch_log_group.dns.name, aws_cloudwatch_log_group.waf.name],
+    [for g in aws_cloudwatch_log_group.database : g.name],
+  )
 }

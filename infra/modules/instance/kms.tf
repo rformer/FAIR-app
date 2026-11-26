@@ -108,6 +108,11 @@ resource "aws_kms_key" "home" {
   multi_region            = false
   policy                  = local.home_key_policy[each.key]
   tags                    = merge(local.tags, { "fair:purpose" = each.key })
+
+  # Retained on decommissioning (var.status).
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_kms_alias" "home" {
@@ -127,6 +132,11 @@ resource "aws_kms_key" "replica" {
   multi_region            = false
   policy                  = local.replica_key_policy[each.key]
   tags                    = merge(local.tags, { "fair:purpose" = each.key })
+
+  # Retained on decommissioning (var.status).
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_kms_alias" "replica" {

@@ -8,6 +8,7 @@
 # External Secrets role cannot read it); the roles' passwords are the
 # fair/<instance>/database/* entries (secrets.tf).
 resource "aws_db_subnet_group" "this" {
+  count       = local.live ? 1 : 0
   name        = local.name
   description = "FAIR ${var.instance}: the database subnets (no route out of the VPC)"
   subnet_ids  = [for z, _ in local.zones : aws_subnet.database[z].id]
@@ -15,6 +16,7 @@ resource "aws_db_subnet_group" "this" {
 }
 
 resource "aws_db_parameter_group" "this" {
+  count       = local.live ? 1 : 0
   name        = "${local.name}-postgres16"
   family      = "postgres16"
   description = "FAIR ${var.instance}: TLS required, connection and DDL logging"
@@ -63,9 +65,15 @@ resource "aws_cloudwatch_log_group" "database" {
   kms_key_id        = aws_kms_key.home["logs"].arn
   retention_in_days = 365
   tags              = local.tags
+
+  # Retained on decommissioning (var.status).
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_db_instance" "this" {
+  count          = local.live ? 1 : 0
   identifier     = local.name
   engine         = "postgres"
   engine_version = var.postgres_version
@@ -84,13 +92,13 @@ resource "aws_db_instance" "this" {
   kms_key_id            = aws_kms_key.home["database"].arn
 
   multi_az               = true
-  db_subnet_group_name   = aws_db_subnet_group.this.name
-  vpc_security_group_ids = [aws_security_group.database.id]
+  db_subnet_group_name   = aws_db_subnet_group.this[0].name
+  vpc_security_group_ids = [aws_security_group.database[0].id]
   publicly_accessible    = false
   network_type           = "IPV4"
   ca_cert_identifier     = var.db_ca_cert_identifier
 
-  parameter_group_name                = aws_db_parameter_group.this.name
+  parameter_group_name                = aws_db_parameter_group.this[0].name
   iam_database_authentication_enabled = var.db_iam_authentication
 
   backup_retention_period   = var.db_backup_retention_days
@@ -98,7 +106,7 @@ resource "aws_db_instance" "this" {
   maintenance_window        = "sun:08:30-sun:09:30"
   copy_tags_to_snapshot     = true
   delete_automated_backups  = false
-  deletion_protection       = true
+  deletion_protection       = local.protected
   skip_final_snapshot       = false
   final_snapshot_identifier = "${local.name}-final"
 
@@ -120,8 +128,9 @@ resource "aws_db_instance" "this" {
 # Automated backups (snapshots and transaction logs) copied to the second
 # region under its database key, kept as long as the source's.
 resource "aws_db_instance_automated_backups_replication" "this" {
+  count                  = local.live ? 1 : 0
   provider               = aws.replica
-  source_db_instance_arn = aws_db_instance.this.arn
+  source_db_instance_arn = aws_db_instance.this[0].arn
   kms_key_id             = aws_kms_key.replica["database"].arn
   retention_period       = var.db_backup_retention_days
 }

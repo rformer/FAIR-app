@@ -83,3 +83,22 @@ variable "tags" {
   type        = map(string)
   default     = { "fair:managed-by" = "opentofu" }
 }
+
+variable "repository" {
+  description = "The repository whose infra-instances.yml the instance pipeline's roles trust."
+  type        = string
+  default     = "rformer/FAIR-app"
+  validation {
+    condition     = can(regex("^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$", var.repository))
+    error_message = "<owner>/<name>, no wildcards."
+  }
+}
+
+variable "dns_delegation" {
+  description = "The parent zone's roles (shared root output dns_delegation), or null until the shared root has a parent zone."
+  type = object({
+    read_role_arn     = string
+    delegate_role_arn = string
+  })
+  default = null
+}

@@ -242,15 +242,15 @@ run "every_store_is_encrypted_under_its_own_key" {
     error_message = "each bucket (and replica) under its purpose's key"
   }
   assert {
-    condition     = aws_db_instance.this.storage_encrypted && aws_db_instance.this.kms_key_id == aws_kms_key.home["database"].arn && aws_db_instance.this.performance_insights_kms_key_id == aws_kms_key.home["database"].arn
+    condition     = aws_db_instance.this[0].storage_encrypted && aws_db_instance.this[0].kms_key_id == aws_kms_key.home["database"].arn && aws_db_instance.this[0].performance_insights_kms_key_id == aws_kms_key.home["database"].arn
     error_message = "the database's storage and Performance Insights under the database key"
   }
   assert {
-    condition     = aws_db_instance.this.master_user_secret_kms_key_id == aws_kms_key.home["secrets"].arn && aws_db_instance_automated_backups_replication.this.kms_key_id == aws_kms_key.replica["database"].arn
+    condition     = aws_db_instance.this[0].master_user_secret_kms_key_id == aws_kms_key.home["secrets"].arn && aws_db_instance_automated_backups_replication.this[0].kms_key_id == aws_kms_key.replica["database"].arn
     error_message = "the master secret under the secrets key; backup copies under the replica database key"
   }
   assert {
-    condition     = aws_eks_cluster.this.encryption_config[0].provider[0].key_arn == aws_kms_key.home["eks"].arn && contains(aws_eks_cluster.this.encryption_config[0].resources, "secrets")
+    condition     = aws_eks_cluster.this[0].encryption_config[0].provider[0].key_arn == aws_kms_key.home["eks"].arn && contains(aws_eks_cluster.this[0].encryption_config[0].resources, "secrets")
     error_message = "Kubernetes Secrets envelope-encrypted under the eks key"
   }
   assert {
@@ -263,11 +263,11 @@ run "every_store_is_encrypted_under_its_own_key" {
     error_message = "every log group under the logs key, kept a year"
   }
   assert {
-    condition     = alltrue([for d in aws_launch_template.nodes.block_device_mappings : d.ebs[0].encrypted == "true" && d.ebs[0].kms_key_id == aws_kms_key.home["nodes"].arn])
+    condition     = alltrue([for d in aws_launch_template.nodes[0].block_device_mappings : d.ebs[0].encrypted == "true" && d.ebs[0].kms_key_id == aws_kms_key.home["nodes"].arn])
     error_message = "node volumes under the nodes key"
   }
   assert {
-    condition     = length(distinct(concat([for k in aws_kms_key.home : k.arn], [for k in aws_kms_key.replica : k.arn], [aws_kms_key.dnssec.arn]))) == 14 && toset(keys(aws_kms_key.home)) == toset(["database", "audit-worm", "audit-store", "report-store", "secrets", "eks", "nodes", "logs"]) && toset(keys(aws_kms_key.replica)) == toset(["database", "audit-worm", "audit-store", "report-store", "logs"])
+    condition     = length(distinct(concat([for k in aws_kms_key.home : k.arn], [for k in aws_kms_key.replica : k.arn], [aws_kms_key.dnssec[0].arn]))) == 14 && toset(keys(aws_kms_key.home)) == toset(["database", "audit-worm", "audit-store", "report-store", "secrets", "eks", "nodes", "logs"]) && toset(keys(aws_kms_key.replica)) == toset(["database", "audit-worm", "audit-store", "report-store", "logs"])
     error_message = "one distinct key per purpose and region"
   }
   assert {
@@ -329,7 +329,7 @@ run "stores_replicate_to_the_second_region" {
     error_message = "the sources expire nothing themselves (the services delete by version)"
   }
   assert {
-    condition     = aws_db_instance_automated_backups_replication.this.source_db_instance_arn == aws_db_instance.this.arn && aws_db_instance_automated_backups_replication.this.retention_period == 35
+    condition     = aws_db_instance_automated_backups_replication.this[0].source_db_instance_arn == aws_db_instance.this[0].arn && aws_db_instance_automated_backups_replication.this[0].retention_period == 35
     error_message = "the database's automated backups copied to the second region, 35 days"
   }
 }
@@ -346,31 +346,31 @@ run "the_database_requires_tls" {
   command = plan
 
   assert {
-    condition     = one([for p in aws_db_parameter_group.this.parameter : p.value if p.name == "rds.force_ssl"]) == "1"
+    condition     = one([for p in aws_db_parameter_group.this[0].parameter : p.value if p.name == "rds.force_ssl"]) == "1"
     error_message = "rds.force_ssl = 1"
   }
   assert {
-    condition     = one([for p in aws_db_parameter_group.this.parameter : p.value if p.name == "ssl_min_protocol_version"]) == "TLSv1.2"
+    condition     = one([for p in aws_db_parameter_group.this[0].parameter : p.value if p.name == "ssl_min_protocol_version"]) == "TLSv1.2"
     error_message = "TLS 1.2 or later"
   }
   assert {
-    condition     = aws_db_parameter_group.this.family == "postgres16" && aws_db_instance.this.engine == "postgres" && aws_db_instance.this.engine_version == "16" && aws_db_instance.this.parameter_group_name == aws_db_parameter_group.this.name
+    condition     = aws_db_parameter_group.this[0].family == "postgres16" && aws_db_instance.this[0].engine == "postgres" && aws_db_instance.this[0].engine_version == "16" && aws_db_instance.this[0].parameter_group_name == aws_db_parameter_group.this[0].name
     error_message = "PostgreSQL 16 with this parameter group"
   }
   assert {
-    condition     = one([for p in aws_db_parameter_group.this.parameter : p.value if p.name == "log_statement"]) == "ddl"
+    condition     = one([for p in aws_db_parameter_group.this[0].parameter : p.value if p.name == "log_statement"]) == "ddl"
     error_message = "no data-bearing statement logged"
   }
   assert {
-    condition     = aws_db_instance.this.multi_az && !aws_db_instance.this.publicly_accessible && aws_db_instance.this.deletion_protection && !aws_db_instance.this.skip_final_snapshot
+    condition     = aws_db_instance.this[0].multi_az && !aws_db_instance.this[0].publicly_accessible && aws_db_instance.this[0].deletion_protection && !aws_db_instance.this[0].skip_final_snapshot
     error_message = "Multi-AZ, private, deletion protection, a final snapshot"
   }
   assert {
-    condition     = aws_db_instance.this.backup_retention_period == 35 && aws_db_instance.this.manage_master_user_password
+    condition     = aws_db_instance.this[0].backup_retention_period == 35 && aws_db_instance.this[0].manage_master_user_password
     error_message = "35 days of point-in-time recovery; the master password managed by RDS"
   }
   assert {
-    condition     = aws_db_instance.this.vpc_security_group_ids == toset([aws_security_group.database.id]) && aws_db_subnet_group.this.subnet_ids == toset([for s in aws_subnet.database : s.id])
+    condition     = aws_db_instance.this[0].vpc_security_group_ids == toset([aws_security_group.database[0].id]) && aws_db_subnet_group.this[0].subnet_ids == toset([for s in aws_subnet.database : s.id])
     error_message = "in the database subnets, behind the database group"
   }
 }
@@ -387,31 +387,31 @@ run "the_cluster_is_private_and_encrypted" {
   command = plan
 
   assert {
-    condition     = aws_eks_cluster.this.vpc_config[0].endpoint_private_access && !aws_eks_cluster.this.vpc_config[0].endpoint_public_access
+    condition     = aws_eks_cluster.this[0].vpc_config[0].endpoint_private_access && !aws_eks_cluster.this[0].vpc_config[0].endpoint_public_access
     error_message = "the API endpoint is private only"
   }
   assert {
-    condition     = aws_eks_cluster.this.enabled_cluster_log_types == toset(["api", "audit", "authenticator", "controllerManager", "scheduler"])
+    condition     = aws_eks_cluster.this[0].enabled_cluster_log_types == toset(["api", "audit", "authenticator", "controllerManager", "scheduler"])
     error_message = "every control-plane log"
   }
   assert {
-    condition     = aws_eks_cluster.this.access_config[0].authentication_mode == "API" && !aws_eks_cluster.this.access_config[0].bootstrap_cluster_creator_admin_permissions
+    condition     = aws_eks_cluster.this[0].access_config[0].authentication_mode == "API" && !aws_eks_cluster.this[0].access_config[0].bootstrap_cluster_creator_admin_permissions
     error_message = "access entries only; no implicit administrator"
   }
   assert {
-    condition     = aws_eks_node_group.this.ami_type == "BOTTLEROCKET_x86_64_FIPS"
+    condition     = aws_eks_node_group.this[0].ami_type == "BOTTLEROCKET_x86_64_FIPS"
     error_message = "nodes on Bottlerocket's FIPS variant"
   }
   assert {
-    condition     = aws_launch_template.nodes.metadata_options[0].http_tokens == "required" && aws_launch_template.nodes.metadata_options[0].http_put_response_hop_limit == 1
+    condition     = aws_launch_template.nodes[0].metadata_options[0].http_tokens == "required" && aws_launch_template.nodes[0].metadata_options[0].http_put_response_hop_limit == 1
     error_message = "IMDSv2 only, unreachable from pods"
   }
   assert {
-    condition     = aws_launch_template.nodes.vpc_security_group_ids == toset([aws_security_group.nodes.id])
+    condition     = aws_launch_template.nodes[0].vpc_security_group_ids == toset([aws_security_group.nodes[0].id])
     error_message = "nodes carry only their own group (their egress is exactly its rules)"
   }
   assert {
-    condition     = aws_eks_cluster.this.vpc_config[0].subnet_ids == toset([for s in aws_subnet.workload : s.id]) && aws_eks_node_group.this.subnet_ids == toset([for s in aws_subnet.workload : s.id])
+    condition     = aws_eks_cluster.this[0].vpc_config[0].subnet_ids == toset([for s in aws_subnet.workload : s.id]) && aws_eks_node_group.this[0].subnet_ids == toset([for s in aws_subnet.workload : s.id])
     error_message = "control-plane interfaces and nodes in the workload subnets"
   }
 }
@@ -424,7 +424,7 @@ run "no_public_routes_from_private_subnets" {
     error_message = "the workload subnets' default route is a NAT gateway, never the internet gateway"
   }
   assert {
-    condition     = aws_route.public_internet.route_table_id == aws_route_table.public.id && aws_route.public_internet.gateway_id == aws_internet_gateway.this.id
+    condition     = aws_route.public_internet[0].route_table_id == aws_route_table.public[0].id && aws_route.public_internet[0].gateway_id == aws_internet_gateway.this[0].id
     error_message = "only the public route table routes to the internet gateway"
   }
   assert {
@@ -432,11 +432,11 @@ run "no_public_routes_from_private_subnets" {
     error_message = "the public route table serves the public subnets only"
   }
   assert {
-    condition     = alltrue([for a in aws_route_table_association.workload : a.route_table_id != aws_route_table.public.id]) && alltrue([for a in aws_route_table_association.database : a.route_table_id == aws_route_table.database.id])
+    condition     = alltrue([for a in aws_route_table_association.workload : a.route_table_id != aws_route_table.public[0].id]) && alltrue([for a in aws_route_table_association.database : a.route_table_id == aws_route_table.database[0].id])
     error_message = "workload and database subnets never use the public route table"
   }
   assert {
-    condition     = alltrue([for r in aws_route.workload_egress : r.route_table_id != aws_route_table.database.id])
+    condition     = alltrue([for r in aws_route.workload_egress : r.route_table_id != aws_route_table.database[0].id])
     error_message = "the database subnets have no route out of the VPC"
   }
   assert {
@@ -448,11 +448,11 @@ run "no_public_routes_from_private_subnets" {
     error_message = "NAT gateways in the public subnets"
   }
   assert {
-    condition     = aws_flow_log.this.traffic_type == "ALL" && aws_flow_log.this.vpc_id == aws_vpc.this.id
+    condition     = aws_flow_log.this[0].traffic_type == "ALL" && aws_flow_log.this[0].vpc_id == aws_vpc.this[0].id
     error_message = "every flow logged"
   }
   assert {
-    condition     = length(aws_default_security_group.this.ingress) == 0 && length(aws_default_security_group.this.egress) == 0
+    condition     = length(aws_default_security_group.this[0].ingress) == 0 && length(aws_default_security_group.this[0].egress) == 0
     error_message = "the default security group allows nothing"
   }
 }
@@ -462,13 +462,13 @@ run "only_the_load_balancer_is_open_to_the_internet" {
 
   assert {
     condition = alltrue([for k, r in aws_security_group_rule.rule :
-      k == "alb_https_in" && r.security_group_id == aws_security_group.alb.id && r.from_port == 443 && r.to_port == 443 && r.protocol == "tcp"
+      k == "alb_https_in" && r.security_group_id == aws_security_group.alb[0].id && r.from_port == 443 && r.to_port == 443 && r.protocol == "tcp"
     if r.type == "ingress" && contains(coalesce(r.cidr_blocks, []), "0.0.0.0/0")])
     error_message = "the only ingress from anywhere: HTTPS to the public load balancer"
   }
   assert {
     condition = alltrue([for k, r in aws_security_group_rule.rule :
-      r.security_group_id == aws_security_group.nodes.id && r.protocol == "tcp" && r.from_port == r.to_port && contains([443, 465, 587], r.from_port)
+      r.security_group_id == aws_security_group.nodes[0].id && r.protocol == "tcp" && r.from_port == r.to_port && contains([443, 465, 587], r.from_port)
     if r.type == "egress" && contains(coalesce(r.cidr_blocks, []), "0.0.0.0/0")])
     error_message = "egress to anywhere: the nodes on HTTPS and SMTP submission only"
   }
@@ -477,19 +477,19 @@ run "only_the_load_balancer_is_open_to_the_internet" {
     error_message = "no rule names another network (no peer, no other instance)"
   }
   assert {
-    condition     = alltrue([for k, r in aws_security_group_rule.rule : contains([aws_security_group.alb.id, aws_security_group.nodes.id, aws_security_group.cluster.id, aws_security_group.database.id, aws_security_group.endpoints.id], r.source_security_group_id) if r.cidr_blocks == null && r.self != true])
+    condition     = alltrue([for k, r in aws_security_group_rule.rule : contains([aws_security_group.alb[0].id, aws_security_group.nodes[0].id, aws_security_group.cluster[0].id, aws_security_group.database[0].id, aws_security_group.endpoints[0].id], r.source_security_group_id) if r.cidr_blocks == null && r.self != true])
     error_message = "peer groups are the instance's own"
   }
   assert {
-    condition     = alltrue([for k, r in aws_security_group_rule.rule : r.from_port == 5432 if r.security_group_id == aws_security_group.database.id]) && alltrue([for k, r in aws_security_group_rule.rule : r.source_security_group_id == aws_security_group.nodes.id if r.security_group_id == aws_security_group.database.id])
+    condition     = alltrue([for k, r in aws_security_group_rule.rule : r.from_port == 5432 if r.security_group_id == aws_security_group.database[0].id]) && alltrue([for k, r in aws_security_group_rule.rule : r.source_security_group_id == aws_security_group.nodes[0].id if r.security_group_id == aws_security_group.database[0].id])
     error_message = "the database only from the nodes"
   }
   assert {
-    condition     = aws_lb_listener.https.port == 443 && aws_lb_listener.https.protocol == "HTTPS" && aws_lb_listener.https.ssl_policy == "ELBSecurityPolicy-TLS13-1-2-FIPS-2023-04"
+    condition     = aws_lb_listener.https[0].port == 443 && aws_lb_listener.https[0].protocol == "HTTPS" && aws_lb_listener.https[0].ssl_policy == "ELBSecurityPolicy-TLS13-1-2-FIPS-2023-04"
     error_message = "the listener is HTTPS with the FIPS TLS 1.2/1.3 policy"
   }
   assert {
-    condition     = aws_lb_target_group.gateway.protocol == "HTTPS" && aws_lb_target_group.gateway.health_check[0].protocol == "HTTPS" && aws_lb.public.drop_invalid_header_fields
+    condition     = aws_lb_target_group.gateway[0].protocol == "HTTPS" && aws_lb_target_group.gateway[0].health_check[0].protocol == "HTTPS" && aws_lb.public[0].drop_invalid_header_fields
     error_message = "HTTPS to the gateway pods too"
   }
 }
@@ -498,28 +498,28 @@ run "the_public_entry_is_behind_the_waf" {
   command = plan
 
   assert {
-    condition     = aws_wafv2_web_acl_association.public.resource_arn == aws_lb.public.arn && aws_wafv2_web_acl_association.public.web_acl_arn == aws_wafv2_web_acl.public.arn
+    condition     = aws_wafv2_web_acl_association.public[0].resource_arn == aws_lb.public[0].arn && aws_wafv2_web_acl_association.public[0].web_acl_arn == aws_wafv2_web_acl.public[0].arn
     error_message = "the web ACL protects the load balancer"
   }
   assert {
     condition = alltrue([for g in ["AWSManagedRulesAmazonIpReputationList", "AWSManagedRulesCommonRuleSet", "AWSManagedRulesKnownBadInputsRuleSet", "AWSManagedRulesSQLiRuleSet", "AWSManagedRulesAnonymousIpList"] :
-    contains([for r in aws_wafv2_web_acl.public.rule : r.name], g)]) && contains([for r in aws_wafv2_web_acl.public.rule : r.name], "RateLimitPerAddress")
+    contains([for r in aws_wafv2_web_acl.public[0].rule : r.name], g)]) && contains([for r in aws_wafv2_web_acl.public[0].rule : r.name], "RateLimitPerAddress")
     error_message = "managed rule groups and a rate limit"
   }
   assert {
-    condition     = toset([for f in aws_wafv2_web_acl_logging_configuration.public.redacted_fields : f.single_header[0].name]) == toset(["authorization", "cookie"])
+    condition     = toset([for f in aws_wafv2_web_acl_logging_configuration.public[0].redacted_fields : f.single_header[0].name]) == toset(["authorization", "cookie"])
     error_message = "WAF logs never carry the session cookie or bearer tokens"
   }
   assert {
-    condition     = aws_acm_certificate.public.domain_name == var.domain && aws_acm_certificate.public.key_algorithm == "EC_prime256v1" && aws_acm_certificate.public.validation_method == "DNS"
+    condition     = aws_acm_certificate.public[0].domain_name == var.domain && aws_acm_certificate.public[0].key_algorithm == "EC_prime256v1" && aws_acm_certificate.public[0].validation_method == "DNS"
     error_message = "an ECDSA certificate for the instance's name, DNS-validated"
   }
   assert {
-    condition     = aws_route53_hosted_zone_dnssec.public.signing_status == "SIGNING" && aws_kms_key.dnssec.customer_master_key_spec == "ECC_NIST_P256"
+    condition     = aws_route53_hosted_zone_dnssec.public[0].signing_status == "SIGNING" && aws_kms_key.dnssec[0].customer_master_key_spec == "ECC_NIST_P256"
     error_message = "the public zone is DNSSEC-signed"
   }
   assert {
-    condition     = aws_acmpca_certificate_authority.internal.key_storage_security_standard == "FIPS_140_2_LEVEL_3_OR_HIGHER" && aws_acmpca_certificate_authority.internal.usage_mode == "SHORT_LIVED_CERTIFICATE"
+    condition     = aws_acmpca_certificate_authority.internal[0].key_storage_security_standard == "FIPS_140_2_LEVEL_3_OR_HIGHER" && aws_acmpca_certificate_authority.internal[0].usage_mode == "SHORT_LIVED_CERTIFICATE"
     error_message = "internal TLS from the instance's own Private CA, keys in FIPS HSMs"
   }
 }
@@ -534,7 +534,7 @@ run "isolation" {
       s.Effect != "Allow" || !can(s.Principal) || anytrue([
         can(s.Principal.Service) && !can(s.Principal.AWS) && !can(s.Principal.Federated),
         can(s.Principal.AWS) && alltrue([for a in try(flatten([s.Principal.AWS]), ["*"]) : strcontains(a, ":777777777777:")]),
-        try(s.Principal.Federated, "") == aws_iam_openid_connect_provider.cluster.arn,
+        try(s.Principal.Federated, "") == aws_iam_openid_connect_provider.cluster[0].arn,
         try(s.Principal == "*", false) && try(s.Condition.StringEquals["aws:PrincipalAccount"], "") == "777777777777",
     ])]]))
     error_message = "no policy allows another account or an unbound wildcard principal"
@@ -649,7 +649,7 @@ run "telemetry_through_privatelink" {
     error_message = "the Collector reaches the ops account through its endpoint"
   }
   assert {
-    condition     = alltrue([for k, r in aws_security_group_rule.rule : r.source_security_group_id == aws_security_group.nodes.id if r.security_group_id == aws_security_group.telemetry[0].id])
+    condition     = alltrue([for k, r in aws_security_group_rule.rule : r.source_security_group_id == aws_security_group.nodes[0].id if r.security_group_id == aws_security_group.telemetry[0].id])
     error_message = "the endpoint only from the nodes"
   }
 }
@@ -692,4 +692,129 @@ run "secret_readers_of_another_account_refused" {
     secret_reader_role_arns = ["arn:aws-us-gov:iam::888888888888:role/somebody"]
   }
   expect_failures = [var.secret_reader_role_arns]
+}
+
+# F-012 T-14 (F-012-AC-17; design §3.5): decommissioning. Retiring lifts
+# only the database's and load balancer's deletion protection; retired
+# removes the workloads and keeps every retained store, key and log group
+# as they were (the module's buckets, keys and log groups carry
+# prevent_destroy, so a plan that would remove one fails).
+run "active_instances_are_deletion_protected" {
+  command = plan
+
+  assert {
+    condition     = aws_db_instance.this[0].deletion_protection && aws_lb.public[0].enable_deletion_protection
+    error_message = "an active instance's database and load balancer are deletion protected"
+  }
+  assert {
+    condition     = output.status == "active" && length(output.retained.buckets) == 8
+    error_message = "the retained set is reported"
+  }
+}
+
+run "retiring_lifts_only_the_workloads_deletion_protection" {
+  command = plan
+  variables {
+    status = "retiring"
+  }
+
+  assert {
+    condition     = !aws_db_instance.this[0].deletion_protection && !aws_lb.public[0].enable_deletion_protection
+    error_message = "retiring lifts the database's and the load balancer's deletion protection (retired removes them)"
+  }
+  assert {
+    condition     = !aws_db_instance.this[0].skip_final_snapshot && aws_db_instance.this[0].final_snapshot_identifier == "fair-acme-final" && !aws_db_instance.this[0].delete_automated_backups
+    error_message = "the database still leaves its final snapshot and keeps its automated backups"
+  }
+  assert {
+    condition     = length(aws_eks_cluster.this) == 1 && length(aws_secretsmanager_secret.this) == 25 && length(aws_iam_role.irsa) == 6
+    error_message = "a retiring instance still runs (its exports are taken)"
+  }
+  assert {
+    condition     = module.audit_worm.object_lock.mode == "COMPLIANCE" && module.audit_worm.object_lock.days == 2557
+    error_message = "the audit WORM's Object Lock is unchanged"
+  }
+}
+
+run "retired_removes_the_workloads" {
+  command = plan
+  variables {
+    status = "retired"
+  }
+
+  assert {
+    condition = alltrue([
+      length(aws_vpc.this) == 0, length(aws_subnet.workload) == 0, length(aws_nat_gateway.this) == 0, length(aws_vpc_endpoint.interface) == 0,
+      length(aws_security_group_rule.rule) == 0, length(aws_flow_log.this) == 0,
+      length(aws_eks_cluster.this) == 0, length(aws_eks_node_group.this) == 0, length(aws_eks_addon.this) == 0, length(aws_launch_template.nodes) == 0,
+      length(aws_db_instance.this) == 0, length(aws_db_instance_automated_backups_replication.this) == 0,
+      length(aws_lb.public) == 0, length(aws_wafv2_web_acl.public) == 0, length(aws_acm_certificate.public) == 0,
+      length(aws_route53_zone.public) == 0, length(aws_route53_zone.private) == 0, length(aws_kms_key.dnssec) == 0,
+      length(aws_acmpca_certificate_authority.internal) == 0, length(aws_secretsmanager_secret.this) == 0,
+      length(aws_iam_role.irsa) == 0, length(aws_iam_openid_connect_provider.cluster) == 0,
+    ])
+    error_message = "retired: no network, cluster, database, load balancer, WAF, DNS, Private CA, secrets or workload roles"
+  }
+  assert {
+    condition     = keys(aws_iam_role.service) == ["replication"] && keys(aws_iam_role_policy.service) == ["replication"]
+    error_message = "the replication role alone stays (the retained buckets' replication names it)"
+  }
+  assert {
+    condition     = output.vpc_id == null && output.cluster == null && output.database == null && output.dns == null && output.gateway_target_group_arn == null
+    error_message = "the workloads' outputs are null"
+  }
+}
+
+run "retired_keeps_every_retained_store" {
+  command = plan
+  variables {
+    status = "retired"
+  }
+
+  assert {
+    condition = alltrue([for b in [module.audit_worm, module.audit_store, module.report_store, module.access, module.audit_worm_replica, module.audit_store_replica, module.report_store_replica, module.access_replica] :
+    b.id != null && b.versioned && b.public_access_blocked])
+    error_message = "every bucket and replica stays, versioned and private"
+  }
+  assert {
+    condition     = module.audit_worm.object_lock.enabled && module.audit_worm.object_lock.mode == "COMPLIANCE" && module.audit_worm.object_lock.days == 2557 && module.audit_worm_replica.object_lock.mode == "COMPLIANCE"
+    error_message = "the audit WORM and its replica keep Object Lock in compliance mode for the retention"
+  }
+  assert {
+    condition     = module.audit_store.object_lock_enabled && module.audit_store_replica.object_lock_enabled && module.audit_worm_replica.expiration_days == 2557 && module.audit_store_replica.expiration_days == 2557
+    error_message = "the audit store keeps Object Lock; the replicas keep the audit retention"
+  }
+  assert {
+    condition = alltrue([
+      module.audit_worm.replication.role_arn == aws_iam_role.service["replication"].arn,
+      module.audit_worm.replication.destination_bucket_arn == module.audit_worm_replica.arn,
+      module.audit_store.replication.destination_bucket_arn == module.audit_store_replica.arn,
+    ])
+    error_message = "replication to the second region stays"
+  }
+  assert {
+    condition     = length(aws_kms_key.home) == 8 && length(aws_kms_key.replica) == 5 && alltrue([for k in aws_kms_key.home : k.deletion_window_in_days == 30])
+    error_message = "every key stays: the retained stores, logs, the final snapshot and the backups stay readable"
+  }
+  assert {
+    condition     = length(aws_cloudwatch_log_group.database) == 3 && length(output.retained.log_groups) == 7 && alltrue([for g in output.retained.log_groups : g != null])
+    error_message = "the log groups (flow, cluster, database, DNS, WAF) stay for their retention"
+  }
+  assert {
+    condition     = output.retained.database_snapshot == "fair-acme-final"
+    error_message = "the final snapshot is named"
+  }
+  assert {
+    condition = alltrue([for name, doc in output.policy_documents : anytrue([for s in jsondecode(doc).Statement : s.Sid == "DenyOutsideTheInstance" && s.Effect == "Deny"])
+    if startswith(name, "s3/") || startswith(name, "kms")])
+    error_message = "the retained buckets and keys still deny every other account"
+  }
+}
+
+run "unknown_status_refused" {
+  command = plan
+  variables {
+    status = "deleted"
+  }
+  expect_failures = [var.status]
 }

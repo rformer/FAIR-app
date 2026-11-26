@@ -1,0 +1,4 @@
+## example: drift
+### instance (drift)
+- update `module.instance.aws_security_group_rule.rule["alb_https_in"]`
+Changed outside OpenTofu:

@@ -1,0 +1,280 @@
+# F-012 T-14 (F-012-AC-14, AC-16, AC-17; design §3.5, §6 "T: infrastructure
+# drifts from code"; ADR-016): customer instances from infra/instances/*.tfvars.
+#
+#   - Pull requests (onboarding, changes, decommissioning): the roots' tests
+#     and every spec without AWS, then each touched instance planned
+#     read-only (GitHub OIDC to fair-instances-plan, then fair-instance-plan
+#     in the instance's account) and the plan posted to the pull request.
+#   - main, after merge: planned again; the apply job runs in the protected
+#     environment "instances" (required reviewers, main only; infra/github),
+#     so it waits for an approval, and applies only plans whose digest equals
+#     the plan shown before the approval (scripts/infra-instance.sh).
+#   - Daily: every instance planned read-only with -detailed-exitcode; drift
+#     (or an instance that could not be checked) opens or updates the
+#     "drift" issue (scripts/infra-drift.sh; its decision is exercised
+#     without AWS by ci.yml's infra-drift job).
+#
+# The roles' trust (infra/modules/instance-pipeline) names this file at
+# refs/heads/main or refs/pull/*/merge, through the repository's OIDC
+# subject template (infra/github). Repository variable FAIR_INSTANCES_CONFIG
+# holds the pipeline's configuration (docs/operations/onboarding.md); until
+# it is set, only the checks without AWS run.
+name: infra-instances
+
+on:
+  pull_request:
+    paths:
+      - "infra/instances/**"
+      - "infra/instance/**"
+      - "infra/instance-account/**"
+      - "infra/modules/**"
+      - "scripts/infra-instance.sh"
+      - "cmd/infraplan/**"
+      - "internal/infraplan/**"
+      - ".github/workflows/infra-instances.yml"
+  push:
+    branches: [main]
+    paths:
+      - "infra/instances/**"
+      - "infra/instance/**"
+      - "infra/instance-account/**"
+      - "infra/modules/**"
+      - "scripts/infra-instance.sh"
+      - ".github/workflows/infra-instances.yml"
+  schedule:
+    - cron: "41 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run at a time per pull request, and one on main (applies and drift
+# plans never overlap; a queued run is never cancelled mid-apply).
+concurrency:
+  group: infra-instances-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+  cancel-in-progress: false
+
+env:
+  GOFIPS140: v1.0.0
+  CGO_ENABLED: "0"
+  FAIR_INSTANCES_CONFIG: ${{ vars.FAIR_INSTANCES_CONFIG }}
+
+jobs:
+  instances:
+    runs-on: ubuntu-latest
+    outputs:
+      names: ${{ steps.names.outputs.names }}
+      configured: ${{ steps.names.outputs.configured }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: names
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          case "$EVENT" in
+            pull_request) names="$(bash scripts/infra-instance.sh changed "$(git merge-base "origin/$BASE_REF" HEAD)")" ;;
+            push) names="$(bash scripts/infra-instance.sh changed "$BEFORE")" ;;
+            *) names="$(bash scripts/infra-instance.sh list)" ;;
+          esac
+          echo "names=$(printf '%s\n' $names | jq -R . | jq -sc 'map(select(length > 0))')" >> "$GITHUB_OUTPUT"
+          echo "configured=$([ -n "$FAIR_INSTANCES_CONFIG" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+  # Without AWS: the roots' and modules' tests, every spec file against
+  # every validation (scripts/infra-check.sh), the drift decision.
+  check:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        env:
+          GOFIPS140: ""
+        with:
+          go-version-file: go.mod
+      - name: OpenTofu validate and test, every spec
+        env:
+          INFRA_SKIP_CHECKOV: "1"
+        run: bash scripts/infra-check.sh instance instance-account modules/instance modules/instance-pipeline modules/parent-zone
+      - name: Drift decision (dry run)
+        run: bash scripts/infra-drift.sh -dry-run
+
+  plan:
+    needs: [instances, check]
+    if: github.event_name != 'schedule' && needs.instances.outputs.names != '[]' && needs.instances.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        instance: ${{ fromJSON(needs.instances.outputs.names) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        env:
+          GOFIPS140: ""
+        with:
+          go-version-file: go.mod
+      - name: Plan (read-only)
+        run: bash scripts/infra-instance.sh plan "${{ matrix.instance }}" "plans/${{ matrix.instance }}"
+      - name: Plan details
+        if: always()
+        run: |
+          for f in plans/"${{ matrix.instance }}"/*.txt plans/"${{ matrix.instance }}"/*.skipped; do
+            [ -e "$f" ] || continue
+            echo "::group::$f"; cat "$f"; echo "::endgroup::"
+          done
+      - name: Summary
+        run: |
+          d="plans/${{ matrix.instance }}"
+          {
+            for r in account instance; do
+              if [ -f "$d/$r.json" ]; then go run ./cmd/infraplan summary -title "${{ matrix.instance }}: $r" "$d/$r.json"; fi
+              if [ -f "$d/$r.skipped" ]; then echo "### ${{ matrix.instance }}: $r"; echo; cat "$d/$r.skipped"; fi
+              echo
+            done
+          } > "$d/summary.md"
+          cat "$d/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          rm -f "$d"/*.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: plan-${{ matrix.instance }}
+          path: plans/${{ matrix.instance }}/
+          retention-days: 7
+
+  # One comment on the pull request with every instance's plan.
+  comment:
+    needs: [plan]
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: plan-*
+          path: plans
+      - name: Post the plans
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "## Instance plans (read-only)"
+            echo
+            echo "Applied after merge, in the protected environment, only if main's plan has the same digests. Details: $RUN"
+            echo
+            cat plans/*/summary.md
+          } > comment.md
+          gh pr comment "$PR" -R "${{ github.repository }}" --edit-last --create-if-none --body-file comment.md
+
+  apply:
+    needs: [instances, plan]
+    if: github.event_name == 'push' && needs.instances.outputs.names != '[]' && needs.instances.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    environment: instances
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        instance: ${{ fromJSON(needs.instances.outputs.names) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        env:
+          GOFIPS140: ""
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: plan-${{ matrix.instance }}
+          path: approved
+      - name: Apply the approved plan
+        run: bash scripts/infra-instance.sh apply "${{ matrix.instance }}" approved
+
+  drift:
+    needs: [instances]
+    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.instances.outputs.names != '[]' && needs.instances.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        instance: ${{ fromJSON(needs.instances.outputs.names) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        env:
+          GOFIPS140: ""
+        with:
+          go-version-file: go.mod
+      # A failed plan is recorded (exit code 1), not fatal: the report
+      # alerts on it like on drift.
+      - name: Plan (read-only, detailed exit code)
+        run: |
+          mkdir -p "plans/${{ matrix.instance }}"
+          bash scripts/infra-instance.sh plan "${{ matrix.instance }}" "plans/${{ matrix.instance }}" || echo 1 > "plans/${{ matrix.instance }}/run.exitcode"
+          rm -f plans/"${{ matrix.instance }}"/*.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: drift-${{ matrix.instance }}
+          path: plans/${{ matrix.instance }}/
+          retention-days: 30
+
+  report:
+    needs: [drift]
+    if: always() && needs.drift.result != 'skipped'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        env:
+          GOFIPS140: ""
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: drift-*
+          path: drift
+      - name: Decide and alert
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mkdir -p plans
+          for d in drift/drift-*; do
+            [ -d "$d" ] || continue
+            mv "$d" "plans/${d#drift/drift-}"
+          done
+          code=0
+          bash scripts/infra-drift.sh -plans plans -issue issue.md -run "$RUN" || code=$?
+          [ "$code" = 0 ] && exit 0
+          [ "$code" = 2 ] || exit "$code"
+          gh label create drift -R "${{ github.repository }}" --color D93F0B --description "Infrastructure drift (F-012-AC-16)" --force >/dev/null
+          title="Infrastructure drift: instances differ from their code"
+          n="$(gh issue list -R "${{ github.repository }}" --state open --label drift --search "in:title \"$title\"" --json number -q '.[0].number')"
+          if [ -n "$n" ]; then
+            gh issue comment "$n" -R "${{ github.repository }}" --body-file issue.md
+          else
+            gh issue create -R "${{ github.repository }}" --title "$title" --label drift --body-file issue.md
+          fi
+          exit 1

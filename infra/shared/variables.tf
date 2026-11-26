@@ -64,3 +64,13 @@ variable "publisher_role_arns" {
   type        = list(string)
   default     = []
 }
+
+variable "parent_zone" {
+  description = "The SaaS parent zone (F-012 T-14): its domain and the instance pipeline's roles (organization root output instances_pipeline: plan, apply); null for none."
+  type = object({
+    domain         = string
+    plan_role_arn  = string
+    apply_role_arn = string
+  })
+  default = null
+}

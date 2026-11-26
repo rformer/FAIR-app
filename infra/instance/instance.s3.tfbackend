@@ -1,0 +1,11 @@
+# Partial S3 backend configuration (nothing secret); the bucket and the
+# instance's key are given at init by scripts/infra-instance.sh:
+#   -backend-config="bucket=fair-tofu-state-<management account id>"
+#   -backend-config="key=instances/<name>/terraform.tfstate"
+# The backend uses the pipeline's management-account credentials (the
+# state stays in the management account).
+region            = "us-gov-west-1"
+encrypt           = true
+kms_key_id        = "alias/fair-tofu-state"
+use_lockfile      = true
+use_fips_endpoint = true
