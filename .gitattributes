@@ -15,3 +15,6 @@ third_party/** -text
 # must have the same bytes.
 bindings/** text eol=lf
 profiles/** text eol=lf
+
+# Infrastructure code (F-012 T-12): one form on every checkout.
+infra/** text eol=lf

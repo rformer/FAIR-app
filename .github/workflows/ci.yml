@@ -450,22 +450,19 @@ jobs:
       - name: Dependency audit (runtime dependencies, fail on high/critical)
         run: npm audit --omit=dev --audit-level=high
 
-  # F-012 T-02, T-12 (AC-01, AC-14): the infrastructure code: formatted,
-  # valid, and its invariants tested with mock providers (no cloud or GitHub
-  # call).
+  # F-012 T-02, T-12 (AC-01, AC-14, AC-15; design §3.5): the infrastructure
+  # code, every root and module under infra/: formatted, valid against the
+  # committed lock files, its invariants tested with mock providers (no
+  # cloud or GitHub call), FIPS endpoints on every AWS provider, and
+  # Checkov clean (every Terraform check; suppressions inline with a
+  # reason). scripts/infra-check.sh, as run locally.
   infra:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: OpenTofu fmt, validate and test
-        run: |
-          for d in infra/github; do
-            run() { docker run --rm -v "$PWD/$d:/w" -w /w ghcr.io/opentofu/opentofu:1.13.9@sha256:f5aef7f2632b490e3c289a239d7974497d0583f3df6bfa35e8eb31a367ee5ec0 "$@"; }
-            run fmt -check -recursive
-            run init -input=false -lockfile=readonly >/dev/null
-            run validate -no-color
-            run test -no-color
-          done
+      - name: OpenTofu fmt, validate and test; Checkov
+        run: bash scripts/infra-check.sh
 
   # F-015 T-32, F-012 T-02 (AC-01): every page end to end against the real
   # services, database and simulation engine, with axe WCAG 2.1 AA scans:

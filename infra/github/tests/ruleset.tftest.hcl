@@ -69,3 +69,18 @@ run "empty_checks_refused" {
   }
   expect_failures = [var.required_checks]
 }
+
+# F-012 T-12: the sub claim names the reusable workflow, as the release
+# key's sign-only role expects (infra/modules/release-signing).
+run "oidc_subject_names_the_workflow" {
+  command = plan
+
+  assert {
+    condition     = !github_actions_repository_oidc_subject_claim_customization_template.repository.use_default
+    error_message = "the repository uses its own subject template"
+  }
+  assert {
+    condition     = github_actions_repository_oidc_subject_claim_customization_template.repository.include_claim_keys == tolist(["repo", "context", "job_workflow_ref"])
+    error_message = "sub is repo:<repo>:<context>:job_workflow_ref:<workflow>, in that order"
+  }
+}

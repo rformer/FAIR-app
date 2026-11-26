@@ -6,3 +6,10 @@ coverage.out
 *.key
 secrets/
 tools/spectral/node_modules/
+
+# F-012 T-12: OpenTofu working directories, the local plugin cache, state
+.terraform/
+infra/.plugin-cache/
+*.tfstate
+*.tfstate.*
+*.tfplan

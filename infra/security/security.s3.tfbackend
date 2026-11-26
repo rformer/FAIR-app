@@ -1,0 +1,8 @@
+# Partial S3 backend configuration (nothing secret); the bucket is given at
+# init: -backend-config="bucket=fair-tofu-state-<management account id>".
+key               = "security/terraform.tfstate"
+region            = "us-gov-west-1"
+encrypt           = true
+kms_key_id        = "alias/fair-tofu-state"
+use_lockfile      = true
+use_fips_endpoint = true
