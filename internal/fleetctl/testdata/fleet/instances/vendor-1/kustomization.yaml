@@ -1,0 +1,13 @@
+# A fixture instance.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../flux
+patches:
+  # The release pin.
+  - target: { kind: OCIRepository, name: fair-release }
+    patch: |
+      - { op: replace, path: /spec/ref, value: { tag: v0.1.0, digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111" } }
+  - target: { kind: Alert, name: fair-deployments }
+    patch: |
+      - { op: replace, path: /spec/eventMetadata/instance, value: vendor-1 }

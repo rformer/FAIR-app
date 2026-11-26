@@ -1,0 +1,7 @@
+# F-012 T-16 (F-012-AC-20; design §3.6): a ring of the rollout. cmd/fleetctl
+# promotes ring by ring in order; the next ring starts only when every
+# instance of this one has run the release, healthy, for the soak time.
+# A few customer instances that agreed to take releases early.
+ring: canary
+order: 2
+soak: 72h

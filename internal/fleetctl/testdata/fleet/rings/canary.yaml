@@ -1,0 +1,3 @@
+ring: canary
+order: 2
+soak: 72h

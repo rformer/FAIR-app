@@ -1,0 +1,4 @@
+# The fixture fleet of internal/fleetctl and cmd/fleetctl tests.
+ring: vendor
+order: 1
+soak: 24h

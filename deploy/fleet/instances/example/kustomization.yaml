@@ -2,7 +2,8 @@
 # repository, instances/<id>/ (the path its Flux bootstrap reconciles). It
 # pins the release, carries the instance's values and includes the fleet's
 # bases. Every change here is an approved pull request; promotion and
-# rollback change only the release pin (cmd/fleetctl, T-16).
+# rollback change only the release pin (cmd/fleetctl, T-16) and
+# rollout.yaml's record of the previous release.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -15,10 +16,13 @@ configMapGenerator:
     namespace: flux-system
     envs: [instance.env]
 patches:
-  # The release pin.
+  # The release pin: the tag and the fleet artifact's digest from the
+  # release's fleet.json. Flux pulls by the digest (it takes precedence
+  # over the tag), so a re-pushed tag changes nothing. Keep it on one line:
+  # fleetctl rewrites it.
   - target: { kind: OCIRepository, name: fair-release }
     patch: |
-      - { op: replace, path: /spec/ref/tag, value: v0.1.0 }
+      - { op: replace, path: /spec/ref, value: { tag: v0.1.0, digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000" } }
   # Flux's events to the operations account (deploy/fleet/flux/notifications.yaml).
   - target: { kind: Provider, name: fair-ops }
     patch: |

@@ -1,0 +1,11 @@
+# A fixture instance.
+ring: canary
+maintenance_window:
+  timezone: America/New_York
+  days: [sat]
+  start: "02:00"
+  duration: 4h
+health:
+  kubernetes_api: https://canary-1.k8s.example.test
+  readyz:
+    - https://canary-1.fair.example.test/readyz

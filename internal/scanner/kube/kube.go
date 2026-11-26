@@ -107,6 +107,7 @@ type Config struct {
 	TokenFile string
 	CAFile    string
 	Timeout   time.Duration // per list request; default 30 s
+	UserAgent string        // default fair-posture-scanner (fleetctl names itself)
 }
 
 // InCluster returns the in-cluster configuration.
@@ -125,6 +126,7 @@ type Client struct {
 	http    *http.Client
 	watcher *http.Client // no overall timeout: watches stream
 	timeout time.Duration
+	agent   string
 }
 
 // New returns a Client for c.
@@ -141,6 +143,9 @@ func New(c Config) (*Client, error) {
 	if !pool.AppendCertsFromPEM(ca) {
 		return nil, fmt.Errorf("kube: no certificates in %s", c.CAFile)
 	}
+	if c.UserAgent == "" {
+		c.UserAgent = "fair-posture-scanner"
+	}
 	if c.Timeout <= 0 {
 		c.Timeout = 30 * time.Second
 	}
@@ -151,7 +156,7 @@ func New(c Config) (*Client, error) {
 		IdleConnTimeout:       90 * time.Second,
 	}
 	return &Client{host: u, token: c.TokenFile, http: &http.Client{Transport: tr, Timeout: c.Timeout},
-		watcher: &http.Client{Transport: tr}, timeout: c.Timeout}, nil
+		watcher: &http.Client{Transport: tr}, timeout: c.Timeout, agent: c.UserAgent}, nil
 }
 
 func (c *Client) path(r Resource, namespace string) (string, error) {
@@ -185,7 +190,7 @@ func (c *Client) get(ctx context.Context, hc *http.Client, path string, q url.Va
 	}
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(tok)))
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "fair-posture-scanner")
+	req.Header.Set("User-Agent", c.agent)
 	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("kube: GET %s: %w", path, err)

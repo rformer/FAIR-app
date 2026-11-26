@@ -27,11 +27,11 @@ The fleet repository has the layout of `deploy/fleet`. It starts as a copy of `d
 | `addons/` | Cluster add-ons as HelmReleases: the policy-controller, External Secrets, cert-manager with the AWS Private CA issuer, the AWS Load Balancer Controller. Charts are pinned by exact version and images by digest. |
 | `addons-config/` | The add-ons' instance configuration: the cluster issuer `fair-internal`, the External Secrets account, the gateway's TargetGroupBinding, and the RDS CA bundle (`rds-ca.pem`, AWS's public GovCloud bundle) |
 | `policy/` | The admission policies |
-| `instances/<id>/` | One instance: its release pin, its values (`instance.env`) and its overlay. Its Flux bootstrap reconciles this path. |
-| `rings/` | Rings and soak times (T-16) |
+| `instances/<id>/` | One instance: its release pin (tag and digest), its values (`instance.env`) and its overlay. Its Flux bootstrap reconciles this path. `rollout.yaml` (not a Kubernetes object) holds its ring, maintenance window, health endpoints and previous release for `cmd/fleetctl`. |
+| `rings/` | The rollout's rings in order, with their soak times: `vendor` (24 h), `canary` (72 h), `general` |
 
 ## Adding an instance
-After `infra/instance` has been applied (`docs/operations/onboarding.md`), copy `instances/example/` to `instances/<id>/`. Fill in `instance.env` from the root's outputs:
+After `infra/instance` has been applied (`docs/operations/onboarding.md`), copy `instances/example/` to `instances/<id>/`. Set the ring, the customer's maintenance window and the health endpoints in `rollout.yaml` (below), and remove `previous` if it was copied. Fill in `instance.env` from the root's outputs:
 
 | Variable | From |
 |---|---|
@@ -48,7 +48,7 @@ After `infra/instance` has been applied (`docs/operations/onboarding.md`), copy 
 | `FAIR_RELEASE_IMAGES`, `FAIR_MIRROR_IMAGES` | globs of where the instance pulls the release's images and the mirrored third-party images (`ghcr.io/rformer/fair-*` and `ghcr.io/rformer/mirror/*`, or the shared ECR mirror's copies) |
 | `FAIR_OPS_*`, `FAIR_KSM_TARGET`, `FAIR_CERT_MANAGER_TARGET` | the operations account's endpoints and the scrape targets |
 
-`internal/fleet`'s tests check that the example sets every variable the release and the templates use. Set the release pin and the operations receiver in `kustomization.yaml`, then open a pull request. Bootstrap Flux on the cluster from the pipeline's runner, because the API endpoint is private:
+`internal/fleet`'s tests check that the example sets every variable the release and the templates use. Set the release pin (the tag and the digest from the release's `fleet.json`) and the operations receiver in `kustomization.yaml`, then open a pull request. Bootstrap Flux on the cluster from the pipeline's runner, because the API endpoint is private:
 - path `instances/<id>`;
 - the controllers by digest;
 - the kustomize-controller with `--feature-gates=StrictPostBuildSubstitutions=true`, so a missing value fails a step instead of applying an empty string.
@@ -90,9 +90,87 @@ If a migration fails, the rollout stops at step 6, and the services keep running
 `scripts/admission-e2e.sh` (CI `admission-e2e`) checks all of this on kind against a stand-in release. Flux reconciles the stand-in in order, and an unsigned or other-key artifact is refused. The signed image is admitted; unsigned, other-key, other-source, provenance-less and other-repository images are refused. It also builds the real release's every step with the example instance, with every placeholder filled. `scripts/fleet-check.sh` (CI `fleet`) validates every template and the rendered release with kubeconform.
 
 ## Promotion and rollback
-A release reaches an instance when the pull request changing `instances/<id>/kustomization.yaml`'s release pin (`spec.ref.tag`) is merged. `cmd/fleetctl` (T-16) opens these pull requests ring by ring, after health gates and inside maintenance windows.
+F-012 T-16 (F-012-AC-20, AC-21; design §3.6). A release reaches an instance when the pull request changing its release pin is merged. The pin is one line of `instances/<id>/kustomization.yaml`:
 
-To roll back, open a pull request that pins the previous release. The previous release's services run on the upgraded schema: migrations follow expandâ€“contract, and the upgrade test checks this (AC-21). There are no down migrations. Pinning an older release does not undo its successor's migrations, and its own migration Job runs again and applies nothing.
+```yaml
+- { op: replace, path: /spec/ref, value: { tag: v0.2.0, digest: "sha256:…" } }
+```
+
+Flux pulls by the digest, which takes precedence over the tag, so a tag pushed again changes nothing. The digest is the fleet artifact's, from the release's `fleet.json`. Keep the line as it is: `cmd/fleetctl` rewrites it. It also reads T-15's tag-only form and replaces it on the first promotion.
+
+### What fleetctl reads
+`cmd/fleetctl` (`internal/fleetctl`) runs on the pipeline's runner against a checkout of the fleet repository. It reads the fleet at a git revision (`-base`, default `HEAD`), so what it checks is what its branches start from.
+
+`rings/<ring>.yaml` holds `ring`, `order` and `soak`. Each instance's `instances/<id>/rollout.yaml` holds:
+
+| Key | What it is |
+|---|---|
+| `ring` | One of `rings/` |
+| `maintenance_window` | `timezone` (IANA), `days` (`sun` … `sat`), `start` (`HH:MM`, local time) and `duration` (at most 24h). A window may cross midnight. The vendor instance's window is every day from 00:00 for 24h. |
+| `health.kubernetes_api` | The cluster's private API endpoint (the instance root's cluster endpoint) |
+| `health.readyz` | The gateway's readiness URLs through the load balancer |
+| `previous` | The release before the pinned one. promote writes it, and rollback pins it. |
+| `rolled_back_from` | The release a rollback left. promote refuses it for this instance. |
+
+Credentials never go in the fleet repository. Health is read with:
+- `-credentials DIR`: `DIR/<id>/token` and `DIR/<id>/ca.crt`, a read-only token for Flux's objects in `flux-system`;
+- `-prometheus URL` (https), with `-prometheus-token FILE` and `-prometheus-ca FILE`: the operations account's query endpoint;
+- `-readyz-ca FILE`: an optional CA for the readiness URLs.
+
+Every connection uses TLS 1.2 or later. An error from any source fails the gate.
+
+### The gates
+An instance passes when every one of these holds:
+1. **pin**: it is pinned to the release, tag and digest.
+2. **flux**: OCIRepository `fair-release` is Ready with the release's revision. Every fleet step (`fair-addons`, `fair-policy`, `fair-addons-config`) is Ready. Every release step (`fair-namespaces`, `fair-secrets`, `fair-migrate`, `fair-platform`, `fair-observability`) is Ready, applied the release, and has observed its current generation without being suspended. `fair-migrate` Ready on the release means the migration Job succeeded, because the step waits for it.
+3. **soak**: the source stored the release's artifact at least the ring's soak time ago. The artifact's `lastUpdateTime` starts the clock, and a re-fetch restarts it, which errs on the side of waiting.
+4. **readyz**: every readiness URL answers 200.
+5. **slo**: no SLO alert fired for the instance at any time since the soak started. These are the alerts with an `slo` label in `deploy/observability/alerts`: availability, latency and jobs, including `ServiceUnavailable`. fleetctl queries `max_over_time(ALERTS{alertstate="firing",slo!="",fair_instance="<id>"}[…])`. A silenced alert still counts.
+
+### Status
+```sh
+fleetctl status -repo ../fleet -credentials /run/fleet -prometheus https://prometheus.ops.fair.internal [-json]
+```
+`status` prints each instance's ring, pinned release, the release `fair-platform` last applied, its health now (the gates without the soak), and its maintenance window.
+
+### Promote
+```sh
+fleetctl promote -repo ../fleet -release v0.2.0 -fleet-json release/fleet.json [-ring canary] [health flags]
+```
+Without `-ring`, promote takes the first ring in which some instance is not on the release.
+1. It checks every instance of the closest earlier ring that has instances, with that ring's soak time. The first ring has no gates.
+2. The first failing instance stops the rollout. fleetctl writes nothing, does not read the instances after the one that failed, and leaves later rings untouched. It exits with status 3, the pipeline job fails, and the failure alerts.
+3. Otherwise it creates one local branch per instance of the ring that is not yet on the release: `fleet/promote/<release>/<id>`. Each branch is one commit over the base that changes only the instance's pin and records the old pin as `previous`.
+
+fleetctl never pushes. Its commit message names the instance's next maintenance window (`Fleet-Merge-After`, `Fleet-Merge-Before`). Push the branches and open one pull request per instance. promote refuses:
+- a release without its digest;
+- a tag older than the pin (that is a rollback);
+- the pinned tag with another digest;
+- a release the instance was rolled back from;
+- a branch that already exists.
+
+Promote one ring at a time. The next ring's gates need this ring's soak.
+
+### Merge
+After a human approves an instance's pull request, the bot merges it only when this passes:
+
+```sh
+fleetctl merge-check -repo ../fleet -branch fleet/promote/v0.2.0/<id> [-base main] [health flags]
+```
+
+merge-check requires exactly one instance's pin to change between base and branch.
+- **A promotion** needs the time to be inside that instance's maintenance window, and the earlier ring's gates to pass again on the release. Health may have changed since promote.
+- **A rollback** may merge at once.
+
+Exit status 3 means wait: the window is closed, or a gate is failing.
+
+### Roll back
+```sh
+fleetctl rollback -repo ../fleet -instance <id>[,<id>…]   # or -ring <ring>
+```
+rollback creates `fleet/rollback/<release>/<id>`, which pins each instance's `previous` release, records `rolled_back_from`, and clears `previous` (a rollback goes back one release). It checks no gates and no window, because the instance is failing. If any named instance has no previous release, rollback writes nothing.
+
+The previous release's services run on the upgraded schema. Migrations follow expand–contract, and T-08's upgrade test checks this (AC-21). There are no down migrations, so nothing is lost. Pinning an older release does not undo its successor's migrations; its own migration Job runs again and applies nothing. To move on, promote a fixed release.
 
 ## Updating an add-on
 Change the chart version and image digests in `addons/` in this repository, at least two weeks after their release. Run `scripts/fleet-check.sh` and `scripts/admission-e2e.sh`, then copy the change to the fleet repository by pull request. If the image comes through the ECR mirror, mirror it first (`infra/modules/ecr-mirror`).

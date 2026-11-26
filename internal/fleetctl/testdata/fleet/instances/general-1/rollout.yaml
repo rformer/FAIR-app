@@ -1,0 +1,11 @@
+# A fixture instance.
+ring: general
+maintenance_window:
+  timezone: UTC
+  days: [sun]
+  start: "03:00"
+  duration: 2h
+health:
+  kubernetes_api: https://general-1.k8s.example.test
+  readyz:
+    - https://general-1.fair.example.test/readyz

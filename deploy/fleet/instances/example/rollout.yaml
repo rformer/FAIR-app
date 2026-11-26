@@ -1,0 +1,24 @@
+# F-012 T-16 (F-012-AC-20, AC-21; design §3.6): how cmd/fleetctl rolls
+# releases out to this instance. Not a Kubernetes object: Flux reconciles
+# kustomization.yaml, which does not include this file.
+#
+# ring: one of rings/ (vendor, canary, general).
+# maintenance_window: when a promotion may merge, weekly, in the
+#   customer's time zone (an IANA name); days are sun, mon, … sat; the
+#   window opens at start and lasts duration (at most 24h).
+# health: where fleetctl reads the instance's health. kubernetes_api is the
+#   cluster's private API endpoint (the instance root's cluster.endpoint);
+#   its token and CA are files on the pipeline's runner, never here.
+#   readyz is the gateway's readiness through the load balancer.
+# previous: the release before the pinned one, written by fleetctl promote;
+#   fleetctl rollback pins it. rolled_back_from: written by rollback.
+ring: general
+maintenance_window:
+  timezone: America/New_York
+  days: [sat, sun]
+  start: "02:00"
+  duration: 4h
+health:
+  kubernetes_api: https://0123456789ABCDEF0123456789ABCDEF.gr7.us-gov-west-1.eks.amazonaws.com
+  readyz:
+    - https://example.fair.example.gov/readyz

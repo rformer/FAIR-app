@@ -1,0 +1,11 @@
+# A fixture instance.
+ring: vendor
+maintenance_window:
+  timezone: UTC
+  days: [sun,mon,tue,wed,thu,fri,sat]
+  start: "00:00"
+  duration: 24h
+health:
+  kubernetes_api: https://vendor-1.k8s.example.test
+  readyz:
+    - https://vendor-1.fair.example.test/readyz
