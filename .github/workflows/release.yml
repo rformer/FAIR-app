@@ -320,7 +320,14 @@ jobs:
           for c in $(jq -r 'keys[]' release/staging.json); do
             src="$(jq -r --arg c "$c" '.[$c]' release/staging.json)"
             dst="$(jq -r --arg c "$c" '.[$c]' release/images.json)"
-            cosign copy --force "$src" "${dst%@*}:$VERSION"
+            # GHCR can refuse writes for a moment to a package the copy has just
+            # created (seen on the v0.0.0-test dry run); copying again is safe.
+            for attempt in 1 2 3 4; do
+              cosign copy --force "$src" "${dst%@*}:$VERSION" && break
+              [ "$attempt" = 4 ] && exit 1
+              echo "copy of $c refused; retrying in $((attempt * 20)) s"
+              sleep $((attempt * 20))
+            done
             echo "$src -> ${dst%@*}:$VERSION"
           done
       - name: GitHub release
