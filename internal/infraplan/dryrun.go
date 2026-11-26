@@ -41,7 +41,7 @@ func DryRun(dir string, w io.Writer) error {
 			return fmt.Errorf("%s: %w", name, err)
 		}
 		got := Overall(results)
-		fmt.Fprintf(w, "== %s: %s\n", name, got)
+		_, _ = fmt.Fprintf(w, "== %s: %s\n", name, got)
 		if string(got) != strings.TrimSpace(string(want)) {
 			return fmt.Errorf("%s: verdict %s, want %s", name, got, strings.TrimSpace(string(want)))
 		}
@@ -49,7 +49,7 @@ func DryRun(dir string, w io.Writer) error {
 			continue
 		}
 		body := IssueBody(results, "https://github.example/run/0")
-		fmt.Fprintf(w, "-- issue %q\n%s\n", IssueTitle, body)
+		_, _ = fmt.Fprintf(w, "-- issue %q\n%s\n", IssueTitle, body)
 		lines, err := os.ReadFile(filepath.Join(run, "expect.issue")) // #nosec G304 -- the repository's fixtures
 		if err != nil {
 			return fmt.Errorf("%s: %w", name, err)

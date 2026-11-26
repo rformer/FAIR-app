@@ -113,7 +113,7 @@ func (p *Plan) Drifted() []Item { return items(p.ResourceDrift) }
 func (p *Plan) Digest() string {
 	h := sha256.New()
 	for _, it := range p.Changes() {
-		fmt.Fprintf(h, "%s %s\n", it.Action, it.Address)
+		_, _ = fmt.Fprintf(h, "%s %s\n", it.Action, it.Address)
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
