@@ -8,6 +8,7 @@ resources:
   - issuer.yaml
   - external-secrets-account.yaml
   - target-group-binding.yaml
+  - operator-access.yaml
 generatorOptions:
   disableNameSuffixHash: true
 # The database's CA (PGSSLROOTCERT=/db-ca/ca.crt): the RDS certificate

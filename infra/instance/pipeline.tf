@@ -74,6 +74,20 @@ variable "ops_telemetry" {
   }
 }
 
+variable "access_controller_role_arn" {
+  description = "accessctl's role in the operations account (infra/ops output operator_access.controller_role_arn): the only principal that assumes fair-access-eks here (access.tf, F-012 T-18). Null until just-in-time access is configured."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.access_controller_role_arn == null || can(regex("^arn:aws-us-gov:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_-]+$", var.access_controller_role_arn))
+    error_message = "A GovCloud role ARN, no path or wildcard."
+  }
+  validation {
+    condition     = var.access_controller_role_arn == null || !strcontains(coalesce(var.access_controller_role_arn, "-"), ":${var.account_id}:")
+    error_message = "accessctl's role is in the operations account, not the instance's."
+  }
+}
+
 variable "infrastructure_role_name" {
   description = "The instance account's infrastructure role (applies)."
   type        = string

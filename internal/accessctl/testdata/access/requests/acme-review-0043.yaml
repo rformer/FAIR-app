@@ -1,0 +1,9 @@
+format: fair.access-request.v1
+operator: carol
+approver: alice
+instance: acme
+role: operator
+reason: Watch the rollout of the risk service with the incident lead
+ticket: OPS-42
+start: 2026-11-26T11:00:00Z
+duration: 2h

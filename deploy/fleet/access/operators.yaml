@@ -1,0 +1,13 @@
+# F-012 T-18 (design §3.9): the people who may hold or approve operator
+# access: a name (used in requests), their GitHub login (the approval of
+# the request's pull request) and their IAM Identity Center user id (the
+# assignment's principal). One entry per person. Adding someone is a pull
+# request approved by a code owner. These two are fictional.
+format: fair.access-operators.v1
+operators:
+  - name: example-a
+    github: example-operator-a
+    user_id: 0000000000-00000000-0000-0000-0000-00000000000a
+  - name: example-b
+    github: example-operator-b
+    user_id: 0000000000-00000000-0000-0000-0000-00000000000b

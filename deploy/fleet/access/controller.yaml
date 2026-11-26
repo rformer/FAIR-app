@@ -1,0 +1,18 @@
+# F-012 T-18 (design §3.9): accessctl's configuration, from the operations
+# root's output operator_access (infra/ops): the IAM Identity Center
+# instance, the two permission sets (infra/modules/operator-access) and the
+# role accessctl assumes in each instance account (infra/instance:
+# fair-access-eks). None is a secret. These values are placeholders until
+# the operations root is applied (docs/operations/access.md).
+format: fair.access-controller.v1
+partition: aws-us-gov
+region: us-gov-west-1
+instance_arn: arn:aws-us-gov:sso:::instance/ssoins-0000000000000000
+permission_sets:
+  read-only:
+    arn: arn:aws-us-gov:sso:::permissionSet/ssoins-0000000000000000/ps-0000000000000001
+    name: FairReadOnly
+  operator:
+    arn: arn:aws-us-gov:sso:::permissionSet/ssoins-0000000000000000/ps-0000000000000002
+    name: FairOperator
+eks_role: fair-access-eks

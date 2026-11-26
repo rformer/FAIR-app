@@ -326,3 +326,77 @@ run "a_bad_email_refused" {
   }
   expect_failures = [var.account_email]
 }
+
+# F-012 T-18 (F-012-AC-27; design §3.9, §6 "E: operators hold standing
+# access"): fair-access-eks, accessctl's role in the instance account.
+run "no_access_role_until_configured" {
+  command = plan
+
+  assert {
+    condition     = length(aws_iam_role.access_eks) == 0 && output.access == null
+    error_message = "no access role before just-in-time access is configured"
+  }
+}
+
+run "the_access_role_manages_only_operator_entries" {
+  command = plan
+  variables {
+    access_controller_role_arn = "arn:aws-us-gov:iam::555555555555:role/fair-access-controller"
+  }
+
+  assert {
+    condition = (aws_iam_role.access_eks[0].name == "fair-access-eks" && aws_iam_role.access_eks[0].max_session_duration == 3600
+      && length(jsondecode(output.access.trust).Statement) == 1
+      && jsondecode(output.access.trust).Statement[0].Principal.AWS == "arn:aws-us-gov:iam::555555555555:role/fair-access-controller"
+    && jsondecode(output.access.trust).Statement[0].Action == "sts:AssumeRole")
+    error_message = "only accessctl's role in the operations account assumes it"
+  }
+  assert {
+    condition = alltrue([for s in jsondecode(output.access.policy).Statement :
+      alltrue([for a in flatten([s.Action]) : contains(["eks:ListAccessEntries", "eks:DescribeAccessEntry", "eks:ListAssociatedAccessPolicies", "eks:CreateAccessEntry", "eks:AssociateAccessPolicy", "eks:DeleteAccessEntry", "iam:ListRoles"], a)])
+    if s.Effect == "Allow"])
+    error_message = "it allows access-entry calls and listing roles, nothing else (no cluster change, no secret, no data)"
+  }
+  assert {
+    condition = alltrue([for s in jsondecode(output.access.policy).Statement :
+      s.Condition.ArnLike["eks:principalArn"] == ["arn:aws-us-gov:iam::777777777777:role/AWSReservedSSO_FairReadOnly_*", "arn:aws-us-gov:iam::777777777777:role/AWSReservedSSO_FairOperator_*"]
+    if s.Effect == "Allow" && length(setintersection(flatten([s.Action]), ["eks:CreateAccessEntry", "eks:AssociateAccessPolicy", "eks:DeleteAccessEntry"])) > 0])
+    error_message = "entries are created, given a policy or removed only for the FAIR permission sets' roles in this account"
+  }
+  assert {
+    condition = anytrue([for s in jsondecode(output.access.policy).Statement :
+      s.Effect == "Allow" && s.Action == "eks:AssociateAccessPolicy"
+      && s.Condition.StringEquals["eks:policyArn"] == "arn:aws-us-gov:eks::aws:cluster-access-policy/AmazonEKSViewPolicy"
+    && s.Condition.StringEquals["eks:accessScope"] == "cluster"])
+    error_message = "the one access policy it may associate is the view policy"
+  }
+  assert {
+    condition = anytrue([for s in jsondecode(output.access.policy).Statement :
+    s.Effect == "Deny" && s.Action == "eks:AssociateAccessPolicy" && s.Resource == "*" && s.Condition.StringNotEquals["eks:policyArn"] == "arn:aws-us-gov:eks::aws:cluster-access-policy/AmazonEKSViewPolicy"])
+    error_message = "any other access policy (cluster admin, admin, edit) is denied"
+  }
+  assert {
+    condition = anytrue([for s in jsondecode(output.access.policy).Statement :
+    s.Effect == "Deny" && contains(s.Action, "eks:CreateAccessEntry") && contains(s.Action, "eks:UpdateAccessEntry") && s.Resource == "*" && can(s.Condition.ArnNotLike["eks:principalArn"])])
+    error_message = "access entries for any other principal are denied"
+  }
+  assert {
+    condition = anytrue([for s in jsondecode(output.access.policy).Statement :
+    s.Action == "eks:CreateAccessEntry" && s.Effect == "Allow" && s.Condition["ForAllValues:StringEquals"]["eks:kubernetesGroups"] == ["fair:operator"]])
+    error_message = "the only Kubernetes group an entry may carry is fair:operator (deploy/fleet/addons-config/operator-access.yaml)"
+  }
+  assert {
+    condition = alltrue([for s in jsondecode(output.access.policy).Statement :
+      alltrue([for r in flatten([s.Resource]) : r == "*" || startswith(r, "arn:aws-us-gov:eks:us-gov-west-1:777777777777:cluster/fair-example") || startswith(r, "arn:aws-us-gov:eks:us-gov-west-1:777777777777:access-entry/fair-example/")])
+    if s.Effect == "Allow"])
+    error_message = "only this instance's cluster"
+  }
+}
+
+run "the_access_controller_is_not_in_the_instance_account" {
+  command = plan
+  variables {
+    access_controller_role_arn = "arn:aws-us-gov:iam::777777777777:role/fair-access-controller"
+  }
+  expect_failures = [var.access_controller_role_arn]
+}

@@ -29,6 +29,7 @@ The fleet repository has the layout of `deploy/fleet`. It starts as a copy of `d
 | `policy/` | The admission policies |
 | `instances/<id>/` | One instance: its release pin (tag and digest), its values (`instance.env`) and its overlay. Its Flux bootstrap reconciles this path. `rollout.yaml` (not a Kubernetes object) holds its ring, maintenance window, health endpoints and previous release for `cmd/fleetctl`. |
 | `rings/` | The rollout's rings in order, with their soak times: `vendor` (24 h), `canary` (72 h), `general` |
+| `access/`, `.github/workflows/access.yml` | Just-in-time operator access: requests, operators, instances, accessctl's configuration, and the workflow that grants and expires them (T-18, `docs/operations/access.md`) |
 
 ## Adding an instance
 After `infra/instance` has been applied (`docs/operations/onboarding.md`), copy `instances/example/` to `instances/<id>/`. Set the ring, the customer's maintenance window and the health endpoints in `rollout.yaml` (below), and remove `previous` if it was copied. Fill in `instance.env` from the root's outputs:

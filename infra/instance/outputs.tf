@@ -21,6 +21,15 @@ output "pipeline" {
   }
 }
 
+output "access" {
+  description = "fair-access-eks (just-in-time operator access entries, F-012 T-18): its ARN, trust and policy; null until access_controller_role_arn is given, and once retired."
+  value = !local.access_enabled ? null : {
+    eks_role_arn = aws_iam_role.access_eks[0].arn
+    trust        = local.access_trust
+    policy       = local.access_policy
+  }
+}
+
 output "delegation" {
   description = "The zone's NS and DS records in the parent zone (null once retired)."
   value = !local.live ? null : {

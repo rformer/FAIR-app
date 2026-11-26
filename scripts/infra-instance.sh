@@ -29,7 +29,8 @@
 #                          {plan, apply, commercial_plan, commercial_apply},
 #                          log_archive {bucket, kms_key_arn}, dns
 #                          {account_id, zone_id, domain, read_role_arn,
-#                          delegate_role_arn}, ops_telemetry (or null)
+#                          delegate_role_arn}, ops_telemetry (or null),
+#                          access_controller_role_arn (or absent; T-18)
 #   ACTIONS_ID_TOKEN_REQUEST_URL, ACTIONS_ID_TOKEN_REQUEST_TOKEN
 #                          GitHub's OIDC token request (id-token: write);
 #                          or FAIR_OIDC_TOKEN_FILE, a token file kept fresh
@@ -257,6 +258,9 @@ STACK_VARS=(
   -e "TF_VAR_dns=$(cfg_json .dns)"
   -e "TF_VAR_ops_telemetry=$(jq -c '.ops_telemetry // null' <<<"$FAIR_INSTANCES_CONFIG")"
 )
+# accessctl's role (T-18), once just-in-time access is configured.
+ACCESS_ROLE="$(jq -r '.access_controller_role_arn // empty' <<<"$FAIR_INSTANCES_CONFIG")"
+[ -z "$ACCESS_ROLE" ] || STACK_VARS+=(-e "TF_VAR_access_controller_role_arn=$ACCESS_ROLE")
 init instance terraform.tfstate
 VARFILE="-var-file=/src/infra/instances/$NAME.tfvars"
 

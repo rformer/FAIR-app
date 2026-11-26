@@ -9,7 +9,10 @@ godebug fips140=on
 require (
 	github.com/aws/aws-sdk-go-v2 v1.47.7
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.15
+	github.com/aws/aws-sdk-go-v2/service/eks v1.105.4
+	github.com/aws/aws-sdk-go-v2/service/iam v1.64.8
 	github.com/aws/aws-sdk-go-v2/service/kms v1.62.4
+	github.com/aws/aws-sdk-go-v2/service/ssoadmin v1.52.4
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.8
 	github.com/beevik/etree v1.7.0
 	github.com/coreos/go-oidc/v3 v3.21.0

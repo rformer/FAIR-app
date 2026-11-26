@@ -42,4 +42,7 @@ docker run --rm -v "$TMP/built:/built:ro" "$KUBECONFORM_IMAGE" -strict -summary 
   -schema-location default \
   -schema-location "$CRDS_CATALOG/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
   /built
+# F-012 T-18 (design §3.9): the access directory's format (the fleet
+# repository's access workflow runs the same check on its pull requests).
+GOFIPS140=v1.0.0 go run ./cmd/accessctl check -dir deploy/fleet/access
 echo "fleet check: PASS"

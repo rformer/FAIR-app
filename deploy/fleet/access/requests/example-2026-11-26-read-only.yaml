@@ -1,0 +1,9 @@
+format: fair.access-request.v1
+operator: example-a
+approver: example-b
+instance: example
+role: read-only
+reason: An example request (fictional; its window is over)
+ticket: OPS-1
+start: 2026-11-26T09:00:00Z
+duration: 1h

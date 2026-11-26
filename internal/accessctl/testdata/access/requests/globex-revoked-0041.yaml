@@ -1,0 +1,13 @@
+format: fair.access-request.v1
+operator: carol
+approver: bob
+instance: globex
+role: read-only
+reason: Look at the load balancer's target health
+ticket: CHG-41
+start: 2026-11-26T09:00:00Z
+duration: 8h
+revoked:
+  at: 2026-11-26T09:30:00Z
+  by: bob
+  reason: The target group recovered on its own, access no longer needed

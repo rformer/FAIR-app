@@ -1,0 +1,10 @@
+format: fair.access-instances.v1
+instances:
+  acme:
+    account_id: "777777777777"
+    region: us-gov-west-1
+    cluster: fair-acme
+  globex:
+    account_id: "888888888888"
+    region: us-gov-west-1
+    cluster: fair-globex

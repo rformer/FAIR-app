@@ -1,0 +1,11 @@
+# F-012 T-18 (design §3.9): where each instance runs, from its instance
+# root's outputs (infra/instance: account_id, the spec's region,
+# cluster.name). Add an instance here when it is onboarded
+# (docs/operations/onboarding.md). An account missing here gets no access:
+# accessctl expire removes every FAIR assignment in it.
+format: fair.access-instances.v1
+instances:
+  example:
+    account_id: "000000000000"
+    region: us-gov-west-1
+    cluster: fair-example

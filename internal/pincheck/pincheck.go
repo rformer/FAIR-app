@@ -6,7 +6,9 @@
 // local and need no digest.
 //
 // What it reads:
-//   - .github/workflows/*.yml and .github/actions/*/action.yml (F-012 T-07):
+//   - .github/workflows/*.yml and .github/actions/*/action.yml (F-012 T-07),
+//     and the fleet repository's template workflows,
+//     deploy/fleet/.github/workflows/*.yml (F-012 T-18):
 //     every "uses:", "image:" and image on a
 //     docker run, pull or create line;
 //   - every Dockerfile*: FROM, with ARG defaults resolved;
@@ -88,7 +90,7 @@ func Check(root string) ([]Problem, error) {
 		rel, _ := filepath.Rel(root, path)
 		rel = filepath.ToSlash(rel)
 		switch {
-		case (strings.HasPrefix(rel, ".github/workflows/") || strings.HasPrefix(rel, ".github/actions/")) && (strings.HasSuffix(name, ".yml") || strings.HasSuffix(name, ".yaml")):
+		case (strings.HasPrefix(rel, ".github/workflows/") || strings.HasPrefix(rel, ".github/actions/") || strings.HasPrefix(rel, "deploy/fleet/.github/workflows/")) && (strings.HasSuffix(name, ".yml") || strings.HasSuffix(name, ".yaml")):
 			return scanText(path, true, add)
 		case strings.HasPrefix(name, "Dockerfile"):
 			return scanDockerfile(path, add)

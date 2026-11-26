@@ -1,0 +1,9 @@
+format: fair.access-request.v1
+operator: alice
+approver: bob
+instance: acme
+role: operator
+reason: Restart the risk service after the engine certificate rotation (incident 42)
+ticket: OPS-42
+start: 2026-11-26T10:00:00Z
+duration: 4h

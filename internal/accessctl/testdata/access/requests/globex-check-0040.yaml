@@ -1,0 +1,9 @@
+format: fair.access-request.v1
+operator: bob
+approver: carol
+instance: globex
+role: read-only
+reason: Check the node group's scaling after the maintenance window
+ticket: CHG-40
+start: 2026-11-25T08:00:00Z
+duration: 90m

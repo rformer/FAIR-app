@@ -66,6 +66,10 @@ run "core_accounts_are_govcloud_accounts" {
     error_message = "nothing is delegated before the security account has joined"
   }
   assert {
+    condition     = length(aws_organizations_delegated_administrator.ops_sso) == 0
+    error_message = "IAM Identity Center is delegated only once the ops account has joined"
+  }
+  assert {
     condition     = length(module.baseline) == 0
     error_message = "the management account's Config waits for the log archive"
   }
@@ -92,6 +96,10 @@ run "joined_accounts_are_placed_and_security_delegated" {
   assert {
     condition     = aws_guardduty_organization_admin_account.security[0].admin_account_id == "444444444444"
     error_message = "GuardDuty is administered by the security account"
+  }
+  assert {
+    condition     = aws_organizations_delegated_administrator.ops_sso[0].account_id == "555555555555" && aws_organizations_delegated_administrator.ops_sso[0].service_principal == "sso.amazonaws.com" && contains(aws_organizations_organization.this.aws_service_access_principals, "sso.amazonaws.com")
+    error_message = "IAM Identity Center is administered from the ops account (just-in-time access, T-18)"
   }
   assert {
     condition     = length(module.baseline) == 1

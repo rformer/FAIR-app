@@ -49,3 +49,13 @@ variable "workload_role_arns" {
   type        = list(string)
   default     = []
 }
+
+variable "operator_access" {
+  description = "Just-in-time operator access (design §3.9): the IAM Identity Center instance, the fleet repository (owner/name) and the instances OU's organization path (organization root output instances_ou_path); null until Identity Center is enabled."
+  type = object({
+    sso_instance_arn  = string
+    fleet_repository  = string
+    instances_ou_path = string
+  })
+  default = null
+}

@@ -21,3 +21,7 @@ infra/** text eol=lf
 
 # Change-evidence golden files are compared byte for byte (F-012 T-17).
 internal/changeevidence/testdata/** text eol=lf
+
+# Access requests and their schema (F-012 T-18): one form on every checkout.
+deploy/fleet/access/** text eol=lf
+internal/accessctl/testdata/** text eol=lf

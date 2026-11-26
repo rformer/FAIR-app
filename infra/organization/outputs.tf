@@ -8,6 +8,11 @@ output "root_id" {
   value       = aws_organizations_organization.this.roots[0].id
 }
 
+output "instances_ou_path" {
+  description = "The instances OU's organization path (infra/ops operator_access.instances_ou_path: accessctl reaches only these accounts)."
+  value       = "${aws_organizations_organization.this.id}/${aws_organizations_organization.this.roots[0].id}/${aws_organizations_organizational_unit.instances.id}/"
+}
+
 output "ou_ids" {
   description = "The OUs."
   value = {

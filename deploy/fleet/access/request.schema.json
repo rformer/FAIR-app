@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fair-risk.example/schemas/fair.access-request.v1.json",
+  "title": "FAIR just-in-time operator access request (fair.access-request.v1)",
+  "description": "One request for time-bound access to one SaaS instance (F-012 T-18, design §3.9). A pull request adds it as access/requests/<id>.yaml; a second operator approves the pull request; accessctl grants it from start until start + duration (at most 8 hours) and removes it at expiry. The file's name (without .yaml) is the request's id.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "operator", "approver", "instance", "role", "reason", "ticket", "start", "duration"],
+  "properties": {
+    "format": { "const": "fair.access-request.v1" },
+    "operator": {
+      "description": "Who gets the access: a name in access/operators.yaml.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,38}$"
+    },
+    "approver": {
+      "description": "The second operator who approves the pull request: a name in access/operators.yaml, never the operator.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,38}$"
+    },
+    "instance": {
+      "description": "The instance: a name in access/instances.yaml.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,19}[a-z0-9]$"
+    },
+    "role": {
+      "description": "read-only: view the account and the cluster (no Secrets). operator: also manage workloads (scale, restart, cordon). Neither reads customer data (design §3.9).",
+      "enum": ["read-only", "operator"]
+    },
+    "reason": {
+      "description": "Why the access is needed.",
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 500,
+      "pattern": "^[^\\n\\r]+$"
+    },
+    "ticket": {
+      "description": "The change or incident ticket.",
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9]{1,9}-[0-9]{1,9}$"
+    },
+    "start": {
+      "description": "When the access begins (RFC 3339, UTC).",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "duration": {
+      "description": "How long it lasts: minutes or hours (such as 90m or 4h), at most 8h.",
+      "type": "string",
+      "pattern": "^([1-9][0-9]{0,2}m|[1-8]h)$"
+    },
+    "revoked": {
+      "description": "Added by a later pull request to end the access early; nothing else in a merged request may change.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["at", "by", "reason"],
+      "properties": {
+        "at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+        },
+        "by": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,38}$" },
+        "reason": { "type": "string", "minLength": 10, "maxLength": 500, "pattern": "^[^\\n\\r]+$" }
+      }
+    }
+  }
+}

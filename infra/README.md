@@ -14,11 +14,11 @@ OpenTofu for the AWS GovCloud (US) organization that runs the SaaS offering, and
 | `security/` | security | the log archive (Object Lock, compliance mode), the organization trail, GuardDuty and Config for the organization |
 | `shared/` | shared | the KMS release key and its sign-only role (release-sign.yml), the ECR release mirror, the SaaS parent zone and its delegation roles (`modules/parent-zone`, T-14) |
 | `instance-account/` | both management accounts | one instance's account: created through the commercial pair, joined, placed under `instances` (T-14; state `instances/<name>/account.tfstate`) |
-| `instance/` | the instance's | one instance's stack: `account-baseline`, `instance`, its zone's delegation, the read-only `fair-instance-plan` (T-14; state `instances/<name>/terraform.tfstate`) |
+| `instance/` | the instance's | one instance's stack: `account-baseline`, `instance`, its zone's delegation, the read-only `fair-instance-plan` (T-14; state `instances/<name>/terraform.tfstate`), `fair-access-eks` for accessctl's access entries (T-18) |
 | `instances/` | — | the instances' specs, `<name>.tfvars` (one per customer; `examples/` is never applied) |
-| `ops/` | ops | evidence, Loki and Tempo storage; the ops cluster is still to come (T-13 built the instance module only) |
+| `ops/` | ops | evidence, Loki and Tempo storage; just-in-time operator access (`modules/operator-access`, T-18: the FairReadOnly and FairOperator permission sets and accessctl's role); the ops cluster is still to come (T-13 built the instance module only) |
 | `github/` | — | branch protection and the repository's OIDC subject template (F-012 T-02, T-12) |
-| `modules/` | — | `secure-bucket`, `guardrails`, `account-baseline`, `org-security`, `release-signing`, `ecr-mirror`, `observability`, `instance`, `instance-pipeline`, `parent-zone` |
+| `modules/` | — | `secure-bucket`, `guardrails`, `account-baseline`, `org-security`, `release-signing`, `ecr-mirror`, `observability`, `instance`, `instance-pipeline`, `parent-zone`, `operator-access` |
 
 Customer instances (one account each, under the `instances` OU) are built by `modules/instance` (T-13) through the roots `instance-account` and `instance`, from `infra/instances/<name>.tfvars` pull requests: planned in the pull request, applied after approval in the protected environment `instances`, checked for drift daily (`.github/workflows/infra-instances.yml`, `scripts/infra-instance.sh`, `scripts/infra-drift.sh`; T-14). Runbooks: `docs/operations/onboarding.md`, `docs/operations/decommissioning.md`; the first sandbox apply: `docs/operations/sandbox-apply.md` (not yet performed).
 

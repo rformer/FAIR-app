@@ -1,0 +1,40 @@
+# F-012 T-18 (F-012-AC-27; design §3.9): what the just-in-time operator role
+# may do in an instance's cluster beyond viewing. accessctl gives the role's
+# EKS access entry the view policy (AmazonEKSViewPolicy: no Secrets) and,
+# for operators, the group fair:operator bound here. Operators restart
+# (delete pods, evict), scale and cordon; they never read Secrets, exec,
+# attach, port-forward or proxy into a pod, create or change workloads, or
+# change RBAC: changes go through the fleet repository. internal/accessctl's
+# tests hold these rules.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fair-operator
+  labels: { app.kubernetes.io/part-of: fair-platform }
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [delete]
+  - apiGroups: [""]
+    resources: [pods/eviction]
+    verbs: [create]
+  - apiGroups: [apps]
+    resources: [deployments/scale, statefulsets/scale]
+    verbs: [get, patch, update]
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list, watch, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fair-operator
+  labels: { app.kubernetes.io/part-of: fair-platform }
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: fair-operator
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: fair:operator

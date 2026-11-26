@@ -67,10 +67,11 @@ OK_IMAGE=${OK_IMAGE:-busybox:1.36` + digest + `}
 docker run -d -p 8099:8099 -u 65532:65532 nats:2.10 -js
 kubectl debug pod --image=busybox:1.36 -- sleep 1
 `,
-		"scripts/e2e/fixture.yaml": "spec:\n  containers:\n    - image: busybox:1.36\n",
-		"engine/requirements.lock": "numpy==2.0.0 \\\n    --hash=sha256:" + strings.Repeat("a", 64) + "\nscipy==1.14.0\n",
-		"web/package.json":         "{}",
-		"mod/go.mod":               "module x\n",
+		"scripts/e2e/fixture.yaml":                  "spec:\n  containers:\n    - image: busybox:1.36\n",
+		"deploy/fleet/.github/workflows/access.yml": "jobs:\n  a:\n    steps:\n      - uses: actions/checkout@v7\n",
+		"engine/requirements.lock":                  "numpy==2.0.0 \\\n    --hash=sha256:" + strings.Repeat("a", 64) + "\nscipy==1.14.0\n",
+		"web/package.json":                          "{}",
+		"mod/go.mod":                                "module x\n",
 	})
 	got, err := Check(root)
 	if err != nil {
@@ -93,6 +94,7 @@ kubectl debug pod --image=busybox:1.36 -- sleep 1
 		"Dockerfile:3: FROM golang:1.26-bookworm is not pinned by digest",
 		"Dockerfile:6: FROM python:3.12 is not pinned by digest",
 		"Dockerfile:7: FROM ${NOPE}: the variable has no pinned default",
+		"deploy/fleet/.github/workflows/access.yml:4: action actions/checkout@v7 is not pinned to a full commit",
 		"engine/requirements.lock:3: requirement scipy==1.14.0 has no --hash",
 		"mod/go.mod: go.mod without go.sum",
 		"scripts/e2e/fixture.yaml:3: image busybox:1.36 is not pinned by digest (@sha256:...)",

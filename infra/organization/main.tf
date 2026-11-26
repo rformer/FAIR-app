@@ -7,7 +7,8 @@
 #     customer instance: T-13, T-14; empty here);
 #   - the guardrails (SCPs) on the root: they bind every member account;
 #   - the security account as delegated administrator of CloudTrail, Config
-#     and GuardDuty;
+#     and GuardDuty; the ops account as IAM Identity Center's (just-in-time
+#     operator access, T-18: modules/operator-access in infra/ops);
 #   - the management account's own baseline (Config to the log archive,
 #     no public S3, EBS encryption), once the log archive exists.
 #
@@ -29,6 +30,7 @@ locals {
     "config.amazonaws.com",
     "guardduty.amazonaws.com",
     "malware-protection.guardduty.amazonaws.com",
+    "sso.amazonaws.com",
   ]
 
   # Delegated to the security account (once it has joined).
@@ -114,6 +116,16 @@ resource "aws_organizations_delegated_administrator" "security" {
   for_each          = local.delegated_services
   account_id        = var.govcloud_account_ids["security"]
   service_principal = each.key
+  depends_on        = [aws_organizations_account.member]
+}
+
+# F-012 T-18 (design §3.9): IAM Identity Center (enabled in this account) is
+# administered from the ops account, where the operator permission sets and
+# accessctl live; nothing assigns a permission set from here.
+resource "aws_organizations_delegated_administrator" "ops_sso" {
+  count             = contains(keys(var.govcloud_account_ids), "ops") ? 1 : 0
+  account_id        = var.govcloud_account_ids["ops"]
+  service_principal = "sso.amazonaws.com"
   depends_on        = [aws_organizations_account.member]
 }
 

@@ -1,0 +1,166 @@
+# F-012 T-18 (F-012-AC-27; design §3.9, §6 "E: operators hold standing
+# access"): just-in-time operator access, in the fleet repository
+# (docs/operations/access.md). This file is the template; the fleet
+# repository's copy runs.
+#
+#   - Pull requests: accessctl check (the request format, at most 8 hours, a
+#     second operator as approver, known names) and, against the base, that
+#     merged requests only gain a revocation. The approval itself is the
+#     code owners' review, never by the requester (branch protection).
+#   - main, after merge: the added requests are granted (an IAM Identity
+#     Center assignment and the role's EKS access entry), then expire runs.
+#   - Every 15 minutes: expire removes everything no active request backs
+#     (expired, revoked, unrequested), so access ends at its end time.
+#   - By hand (workflow_dispatch): revoke a request now, with a reason (also
+#     record the revocation in the request by pull request).
+#
+# The AWS jobs run in the environment "access" (main only), whose OIDC
+# token is the only one fair-access-controller trusts
+# (infra/modules/operator-access). accessctl is built from the platform
+# repository at the commit FAIR_PLATFORM_REF (a full commit of a release).
+# Every change is a JSON line in the job log and in the uploaded record;
+# CloudTrail records the calls.
+name: access
+
+on:
+  pull_request:
+    paths: ["access/**", ".github/workflows/access.yml"]
+  push:
+    branches: [main]
+    paths: ["access/**"]
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      revoke:
+        description: "A request id to revoke now (empty: only expire)"
+        required: false
+        default: ""
+      reason:
+        description: "Why the access ends now (with revoke)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+# One run at a time; a queued run is never cancelled mid-change.
+concurrency:
+  group: access-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+  cancel-in-progress: false
+
+env:
+  GOFIPS140: v1.0.0
+  CGO_ENABLED: "0"
+  PLATFORM_REPOSITORY: ${{ vars.FAIR_PLATFORM_REPOSITORY }}
+  PLATFORM_REF: ${{ vars.FAIR_PLATFORM_REF }}
+
+jobs:
+  check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          path: fleet
+      - name: The platform commit
+        run: |
+          [[ "$PLATFORM_REF" =~ ^[0-9a-f]{40}$ ]] || { echo "FAIR_PLATFORM_REF must be a full commit"; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ vars.FAIR_PLATFORM_REPOSITORY }}
+          ref: ${{ vars.FAIR_PLATFORM_REF }}
+          token: ${{ secrets.FAIR_PLATFORM_READ_TOKEN || github.token }}
+          path: platform
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        env:
+          GOFIPS140: ""
+        with:
+          go-version-file: platform/go.mod
+      - name: accessctl
+        working-directory: platform
+        run: go build -o "$RUNNER_TEMP/accessctl" ./cmd/accessctl
+      - name: Check the requests
+        working-directory: fleet
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/base"
+          git archive "origin/$BASE_REF" access | tar -x -C "$RUNNER_TEMP/base"
+          "$RUNNER_TEMP/accessctl" check -dir access -base "$RUNNER_TEMP/base/access"
+
+  apply:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: access
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_ROLE_ARN: ${{ vars.FAIR_ACCESS_ROLE_ARN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          path: fleet
+      - name: The platform commit
+        run: |
+          [[ "$PLATFORM_REF" =~ ^[0-9a-f]{40}$ ]] || { echo "FAIR_PLATFORM_REF must be a full commit"; exit 1; }
+          [ -n "$AWS_ROLE_ARN" ] || { echo "FAIR_ACCESS_ROLE_ARN (infra/ops output operator_access.controller_role_arn) is required"; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ vars.FAIR_PLATFORM_REPOSITORY }}
+          ref: ${{ vars.FAIR_PLATFORM_REF }}
+          token: ${{ secrets.FAIR_PLATFORM_READ_TOKEN || github.token }}
+          path: platform
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        env:
+          GOFIPS140: ""
+        with:
+          go-version-file: platform/go.mod
+      - name: accessctl
+        working-directory: platform
+        run: go build -o "$RUNNER_TEMP/accessctl" ./cmd/accessctl
+      - name: The workflow's OIDC token (the only credential)
+        run: |
+          install -d -m 0700 "$RUNNER_TEMP/oidc"
+          curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value > "$RUNNER_TEMP/oidc/token"
+          chmod 0600 "$RUNNER_TEMP/oidc/token"
+          echo "AWS_WEB_IDENTITY_TOKEN_FILE=$RUNNER_TEMP/oidc/token" >> "$GITHUB_ENV"
+      - name: Grant the merged requests
+        if: github.event_name == 'push'
+        working-directory: fleet
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          ids=()
+          while IFS= read -r f; do
+            [ -n "$f" ] && ids+=("$(basename "$f" .yaml)")
+          done < <(git diff --name-only --diff-filter=A "$BEFORE" HEAD -- 'access/requests/*.yaml')
+          if [ "${#ids[@]}" -gt 0 ]; then
+            "$RUNNER_TEMP/accessctl" grant -dir access -record "$RUNNER_TEMP/access-record.jsonl" "${ids[@]}"
+          fi
+      - name: Revoke
+        if: github.event_name == 'workflow_dispatch' && inputs.revoke != ''
+        working-directory: fleet
+        env:
+          ID: ${{ inputs.revoke }}
+          REASON: ${{ inputs.reason }}
+        run: '"$RUNNER_TEMP/accessctl" revoke -dir access -record "$RUNNER_TEMP/access-record.jsonl" -reason "$REASON" "$ID"'
+      - name: Expire
+        if: always()
+        working-directory: fleet
+        run: '"$RUNNER_TEMP/accessctl" expire -dir access -record "$RUNNER_TEMP/access-record.jsonl"'
+      - name: What is granted now
+        if: always()
+        working-directory: fleet
+        run: '"$RUNNER_TEMP/accessctl" list -dir access'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: access-record-${{ github.run_id }}
+          path: ${{ runner.temp }}/access-record.jsonl
+          if-no-files-found: ignore
+          retention-days: 90
