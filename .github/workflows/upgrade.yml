@@ -54,7 +54,8 @@ jobs:
         run: |
           docker build --load --target engine -t fair-engine:upgrade .
           install -d -m 0777 "$RUNNER_TEMP/engine"
-          docker run -d --name engine --network none --read-only --cap-drop ALL -v "$RUNNER_TEMP/engine:/run/engine" \
+          # As the runner user, so the socket it creates is one the test may connect to.
+          docker run -d --name engine --network none --read-only --cap-drop ALL --user "$(id -u):$(id -g)" -v "$RUNNER_TEMP/engine:/run/engine" \
             fair-engine:upgrade serve --socket /run/engine/engine.sock --workers "$(nproc)"
           for _ in $(seq 1 60); do [ -S "$RUNNER_TEMP/engine/engine.sock" ] && break; sleep 2; done
           [ -S "$RUNNER_TEMP/engine/engine.sock" ] || { docker logs engine; exit 1; }
