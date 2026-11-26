@@ -3,6 +3,8 @@ coverage.out
 *.test
 .env
 *.pem
+# A public CA placeholder the fleet ships (F-012 T-15), never a key.
+!deploy/fleet/addons-config/rds-ca.pem
 *.key
 secrets/
 tools/spectral/node_modules/
