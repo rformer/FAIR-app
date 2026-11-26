@@ -45,7 +45,7 @@ After `infra/instance` has been applied (`docs/operations/onboarding.md`), copy 
 | `FAIR_GATEWAY_TARGET_GROUP_ARN` | `gateway_target_group_arn` |
 | `FAIR_PRIVATE_CA_ARN` | `private_ca_arn` |
 | `FAIR_PLATFORM_HOST`, `FAIR_INGRESS_HOST`, `FAIR_INGRESS_CIDR` | the spec's `domain`, the public subnets' range |
-| `FAIR_RELEASE_IMAGES`, `FAIR_COLLECTOR_IMAGES` | where the instance pulls the release's images and the Collector (the release repository, or the shared ECR mirror) |
+| `FAIR_RELEASE_IMAGES`, `FAIR_MIRROR_IMAGES` | globs of where the instance pulls the release's images and the mirrored third-party images (`ghcr.io/rformer/fair-*` and `ghcr.io/rformer/mirror/*`, or the shared ECR mirror's copies) |
 | `FAIR_OPS_*`, `FAIR_KSM_TARGET`, `FAIR_CERT_MANAGER_TARGET` | the operations account's endpoints and the scrape targets |
 
 `internal/fleet`'s tests check that the example sets every variable the release and the templates use. Set the release pin and the operations receiver in `kustomization.yaml`, then open a pull request. Bootstrap Flux on the cluster from the pipeline's runner, because the API endpoint is private:
@@ -78,7 +78,14 @@ If a migration fails, the rollout stops at step 6, and the services keep running
   - a SLSA provenance attestation signed by that key, whose builder is the SLSA generator's container workflow at a tag and whose source is this repository's `release.yml` at a `v*` tag.
 
   An image that no policy matches is refused (`no-match-policy: deny`), and the webhooks fail closed.
-- **The Collector** is the one third-party image in the release's namespaces. `policy/collector.yaml` names its publisher's keyless identity, but runs in `warn` mode for now: the OpenTelemetry project signs only in the Sigstore bundle format, which the policy-controller cannot verify yet. The Collector is admitted with a warning and stays pinned by digest. Every other image that no policy matches is refused.
+- **Third-party images** (design §3.6, amended 2026-11-26) run only as the release's mirrored copies. Today that is the OpenTelemetry Collector. Each one is listed in `deploy/third-party-images.json` with its publisher's exact certificate identity and issuer. The release then:
+  1. verifies the image against that identity with cosign 2.6.4, which reads the publishers' Sigstore bundles (the policy-controller cannot);
+  2. copies it by digest to `<release repository>/mirror/<name>`;
+  3. signs the copy with the release key.
+
+  `releasegen fleet` names only the copy, and refuses any image that is neither the release's nor listed. `policy/mirror.yaml` (`fair-mirror`) requires the release key for the copies. The publisher's original, an unsigned copy and a copy signed by another key are refused.
+
+  To add or update a third-party image, change its digest in the manifest and its entry in the list together (`internal/fleet` `TestThirdPartyList`). Take the identity from the publisher's release workflow at that version.
 
 `scripts/admission-e2e.sh` (CI `admission-e2e`) checks all of this on kind against a stand-in release. Flux reconciles the stand-in in order, and an unsigned or other-key artifact is refused. The signed image is admitted; unsigned, other-key, other-source, provenance-less and other-repository images are refused. It also builds the real release's every step with the example instance, with every placeholder filled. `scripts/fleet-check.sh` (CI `fleet`) validates every template and the rendered release with kubeconform.
 

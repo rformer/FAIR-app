@@ -21,6 +21,7 @@
 # FAIR_RELEASE_IMAGES is the glob of the release's images where this
 # instance pulls them: ghcr.io/rformer/fair-* (the release repository), or
 # the shared ECR mirror's <registry>/fair/* (same digests, signatures copied).
+# Third-party images: mirror.yaml.
 apiVersion: policy.sigstore.dev/v1beta1
 kind: ClusterImagePolicy
 metadata:

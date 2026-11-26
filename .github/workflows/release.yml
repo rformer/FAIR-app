@@ -11,14 +11,17 @@
 #                 engine's validation record), the OSCAL component definition,
 #                 the OpenAPI bundle, fair-audit-verify, the SBOMs; the
 #                 fleet's per-release manifests (releasegen fleet, F-012
-#                 T-15) pushed to staging as an OCI artifact, keyless-signed
+#                 T-15) pushed to staging as an OCI artifact, keyless-signed;
+#                 the third-party images verified against their publishers'
+#                 identities and copied by digest to staging's mirror/
 #   release-checklist  profilegen release-check (F-015 T-07)
 #   bench         the benchmark gate (bench.yml)
 #   upgrade       the upgrade test from earlier releases (upgrade.yml, AC-13)
 #   notes         releasegen notes since the previous release
 #   sign          the release key: images, attestations, the fleet artifact,
-#                 profile packages, manifest, SHA256SUMS (release-sign.yml)
-#   publish       images and the fleet artifact copied from staging to the
+#                 the mirrored third-party images, profile packages,
+#                 manifest, SHA256SUMS (release-sign.yml)
+#   publish       images, mirrored images and the fleet artifact copied from staging to the
 #                 release repository with their signatures, then the GitHub
 #                 release with every file
 #   verify        scripts/verify-release.sh on what was published, online and
@@ -205,13 +208,42 @@ jobs:
       # repository by digest; pushed to staging and keyless-signed like the
       # images, signed with the release key by release-sign.yml and copied
       # to the release repository by publish. fleet.json names it in both.
+      # F-012 T-15 (AC-19; design §3.6, amended 2026-11-26): each third-party
+      # image (deploy/third-party-images.json) is verified against its
+      # publisher's exact identity (with cosign 2.6.4 by digest, which reads
+      # the publishers' Sigstore bundles; 2.5 does not), then copied by digest
+      # to staging's mirror/<name>; release-sign.yml signs the copy with the
+      # release key. mirror.json names each copy in staging and in the
+      # release repository.
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+      - name: Third-party images (verified, mirrored)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STAGING: ${{ needs.plan.outputs.staging }}
+          RELEASE: ${{ needs.plan.outputs.release }}
+        run: |
+          echo "$GH_TOKEN" | cosign login ghcr.io -u "${{ github.actor }}" --password-stdin
+          echo '{}' > release/mirror.json
+          jq -c '.images[]' deploy/third-party-images.json | while read -r i; do
+            name="$(jq -r .name <<<"$i")"; image="$(jq -r .image <<<"$i")"
+            repo="${image%@*}"; repo="${repo%:*}"; digest="${image#*@}"
+            docker run --rm ghcr.io/sigstore/cosign/cosign:v2.6.4@sha256:278d0b6c728608731d8fa2123c00c8b8dd6207aa53f079b195dea906b29ab0b2 verify \
+              --certificate-identity "$(jq -r .certificate_identity <<<"$i")" \
+              --certificate-oidc-issuer "$(jq -r .certificate_oidc_issuer <<<"$i")" "$repo@$digest" >/dev/null
+            cosign copy --force "$repo@$digest" "$STAGING/mirror/$name:$VERSION"
+            jq --arg n "$name" --arg src "$repo@$digest" --arg s "$STAGING/mirror/$name@$digest" --arg r "$RELEASE/mirror/$name@$digest" \
+              '.[$n] = {source: $src, staging: $s, release: $r}' release/mirror.json > release/mirror.json.new
+            mv release/mirror.json.new release/mirror.json
+            echo "verified $image as its publisher's; mirrored to $STAGING/mirror/$name@$digest"
+          done
+          cat release/mirror.json
       - name: Fleet manifests (OCI artifact)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           STAGING: ${{ needs.plan.outputs.staging }}
           RELEASE: ${{ needs.plan.outputs.release }}
         run: |
-          go run ./cmd/releasegen fleet -release "$VERSION" -images release/images.json -out "$RUNNER_TEMP/fleet"
+          go run ./cmd/releasegen fleet -release "$VERSION" -images release/images.json -mirror-prefix "$RELEASE/mirror" -out "$RUNNER_TEMP/fleet"
           tar --sort=name --mtime="@$(git log -1 --format=%ct)" --owner=0 --group=0 --numeric-owner \
             -C "$RUNNER_TEMP/fleet" -czf "release/fair-fleet-$VERSION.tar.gz" .
           out="$(docker run --rm -v "$RUNNER_TEMP/fleet:/fleet:ro" "$FLUX_CLI_IMAGE" push artifact \
@@ -224,7 +256,6 @@ jobs:
           jq -n --arg s "$STAGING/fair-manifests@$digest" --arg r "$RELEASE/fair-manifests@$digest" \
             '{staging: $s, release: $r}' > release/fleet.json
           cat release/fleet.json
-      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
       - name: Keyless signature of the fleet manifests
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -367,6 +398,18 @@ jobs:
             done
             echo "$src -> ${dst%@*}:$VERSION"
           done
+          # The mirrored third-party images (F-012 T-15), signed with the release key.
+          for n in $(jq -r 'keys[]' release/mirror.json); do
+            src="$(jq -r --arg n "$n" '.[$n].staging' release/mirror.json)"
+            dst="$(jq -r --arg n "$n" '.[$n].release' release/mirror.json)"
+            for attempt in 1 2 3 4; do
+              cosign copy --force "$src" "${dst%@*}:$VERSION" && break
+              [ "$attempt" = 4 ] && exit 1
+              echo "copy of $n refused; retrying in $((attempt * 20)) s"
+              sleep $((attempt * 20))
+            done
+            echo "$src -> ${dst%@*}:$VERSION"
+          done
           # The fleet's manifests (F-012 T-15): Flux pulls them by this tag.
           src="$(jq -r .staging release/fleet.json)"
           dst="$(jq -r .release release/fleet.json)"
@@ -422,6 +465,11 @@ jobs:
           cosign verify --certificate-identity-regexp "^https://github\.com/${{ github.repository }}/\.github/workflows/release\.yml@refs/tags/v" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com "$ref" >/dev/null
           echo "ok - fleet manifests $ref: release key and keyless signatures"
+          for n in $(jq -r 'keys[]' release/mirror.json); do
+            ref="$(jq -r --arg n "$n" '.[$n].release' release/mirror.json)"
+            cosign verify --key release/cosign.pub "$ref" >/dev/null
+            echo "ok - mirrored $n $ref: release key"
+          done
       - name: Verify it as an air-gapped bundle carries it (offline)
         run: |
           for c in $(jq -r 'keys[]' release/images.json); do

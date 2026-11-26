@@ -7,7 +7,10 @@
 #     image signed with a throwaway release key and attested with SLSA
 #     provenance from this repository's release workflow, and copies of it
 #     that are unsigned, signed by another key, attested from another
-#     source, without provenance, or in another repository; the release's
+#     source, without provenance, or in another repository; the Collector
+#     (deploy/third-party-images.json) verified against its publisher's
+#     exact identity, mirrored and re-signed with the release key, beside an
+#     unsigned and an other-key copy; the release's
 #     manifests rendered by releasegen fleet (internal/fleet/testdata/e2e)
 #     and pushed as a signed OCI artifact, plus an unsigned and an
 #     other-key copy;
@@ -18,7 +21,8 @@
 #   * asserts: every step reconciles in order (policy before namespaces,
 #     the migration Job complete before the services), the release
 #     artifact's signature verified, instance values substituted; the
-#     signed image admitted and every other one refused; an unsigned or
+#     signed image and the re-signed mirrored Collector admitted, every
+#     other one (the publisher's original included) refused; an unsigned or
 #     other-key artifact refused by Flux, and the instance keeps its release
 #     when its pin moves to one;
 #   * the real deploy/k8s rendered as a release and built by
@@ -33,15 +37,22 @@ NODE_IMAGE=${NODE_IMAGE:-kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977bae
 REGISTRY_IMAGE=registry:3.0.0@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e
 CRANE_IMAGE=gcr.io/go-containerregistry/crane:v0.22.1@sha256:1f968817b95790bed063f71175aa6b8ff879fa17064020415f3e18bb6e6a36e1
 COSIGN_IMAGE=ghcr.io/sigstore/cosign/cosign:v2.5.2@sha256:23d07b53d59a1233e1ab5e7d082cf4182fc90067d2f86a662ba3003215cb0c95
+# Reads publishers' Sigstore bundle signatures (2.5 does not), as release.yml.
+COSIGN26_IMAGE=ghcr.io/sigstore/cosign/cosign:v2.6.4@sha256:278d0b6c728608731d8fa2123c00c8b8dd6207aa53f079b195dea906b29ab0b2
 FLUX_IMAGE=ghcr.io/fluxcd/flux-cli:v2.10.0@sha256:1a5178b1770052d6e88ab1c7c8434c5ac9bca8a8ab984dcaf6b9df31814ce9f2
 # The controllers `flux install` of that CLI names, by digest.
 SOURCE_CONTROLLER_IMAGE=ghcr.io/fluxcd/source-controller:v1.10.1@sha256:611b6bca3eae95bcff471414d1fb14a4ab83d7f14e609cccef2bd389c121f37e
 KUSTOMIZE_CONTROLLER_IMAGE=ghcr.io/fluxcd/kustomize-controller:v1.10.1@sha256:37db29b25dae35b881a5e064acedb0cc954442da453a39eaa0eab7a90dbecc4e
 NOTIFICATION_CONTROLLER_IMAGE=ghcr.io/fluxcd/notification-controller:v1.10.0@sha256:9f58b9532ec9d3ccf539cd3ccdf283477a5dcb7777b922db5477d8bbd4d3767c
 HELM_CONTROLLER_IMAGE=ghcr.io/fluxcd/helm-controller:v1.7.1@sha256:54526cc6ed1202d71d44c310676448065664f3255ad671d9a69ac26f904e617a
-# The fixture image (one manifest of it, linux/amd64) and the Collector.
+# The fixture image (one manifest of it, linux/amd64).
 FIXTURE_IMAGE=busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
-COLLECTOR_IMAGE=otel/opentelemetry-collector-contrib:0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea
+# The third-party image and its publisher, as the release mirrors them.
+third() { sed -n "s/.*\"$1\": \"\([^\"]*\)\".*/\1/p" deploy/third-party-images.json | head -1; }
+COLLECTOR_IMAGE=$(third image)
+COLLECTOR_NAME=$(third name)
+PUBLISHER_ID=$(third certificate_identity)
+PUBLISHER_ISSUER=$(third certificate_oidc_issuer)
 REG_NAME=$CLUSTER-registry
 K="kubectl --context kind-$CLUSTER"
 TMP=$(mktemp -d)
@@ -60,6 +71,7 @@ trap cleanup EXIT
 # Tools run pinned, in containers on kind's network, with $TMP as /work.
 run() { docker run --rm --network kind -v "$TMP:/work" -w /work "$@"; }
 cosign() { run -e COSIGN_PASSWORD= -e COSIGN_YES=true --entrypoint cosign "$COSIGN_IMAGE" "$@"; }
+cosign26() { run --entrypoint cosign "$COSIGN26_IMAGE" "$@"; }
 crane() { run --entrypoint crane "$CRANE_IMAGE" "$@"; }
 flux() { run -e KUBECONFIG=/work/kubeconfig --entrypoint flux "$FLUX_IMAGE" "$@"; }
 wait_ready() { # kind name timeout
@@ -120,11 +132,28 @@ sign release "$(img fair/fair-noprovenance)"
 sign release "$(img other/fair-iam)" slsa.json
 cosign verify --key release.pub --insecure-ignore-tlog "$(img fair/fair-iam)" >/dev/null 2>&1 && echo "signed $(img fair/fair-iam)"
 
+echo "== the third-party image: publisher verified, mirrored by digest, re-signed (as release.yml)"
+src="${COLLECTOR_IMAGE%@*}"; src="${src%:*}@${COLLECTOR_IMAGE#*@}"
+if cosign26 verify --certificate-identity "$PUBLISHER_ID" --certificate-oidc-issuer "$PUBLISHER_ISSUER" "$src" >/dev/null 2>&1; then
+  pass "$COLLECTOR_IMAGE verified against its publisher ($PUBLISHER_ID)"
+else bad "$COLLECTOR_IMAGE does not verify against $PUBLISHER_ID"; fi
+if cosign26 verify --certificate-identity "${PUBLISHER_ID/v0./v9.}" --certificate-oidc-issuer "$PUBLISHER_ISSUER" "$src" >/dev/null 2>&1; then
+  bad "the publisher check accepts another identity"
+else pass "control: the publisher check refuses another identity"; fi
+# One platform here (the release copies the whole index by digest).
+for repo in "mirror/$COLLECTOR_NAME" mirror/otel-unsigned mirror/otel-otherkey; do
+  crane copy --platform linux/amd64 "$src" "$REG/$repo:e2e" >/dev/null
+done
+MIRROR_DIGEST=$(crane digest "$REG/mirror/$COLLECTOR_NAME:e2e" | tr -d '\r')
+mirrored() { echo "$REG/$1@$MIRROR_DIGEST"; }
+sign release "$(mirrored "mirror/$COLLECTOR_NAME")"
+sign other "$(mirrored mirror/otel-otherkey)"
+
 echo "== the release's manifests: rendered, pushed, signed"
 printf '{"iam": "%s"}\n' "$(img fair/fair-iam)" > "$TMP/images.json"
 GOFIPS140=v1.0.0 go run ./cmd/releasegen fleet -release v0.0.1-e2e -images "$TMP/images.json" \
   -deploy internal/fleet/testdata/e2e/k8s -keys internal/fleet/testdata/e2e/keys \
-  -observability internal/fleet/testdata/e2e/observability -out "$TMP/artifact"
+  -observability internal/fleet/testdata/e2e/observability -third-party "" -out "$TMP/artifact"
 push() { # dir tag revision -> digest
   flux push artifact "oci://$REG/fair/fair-manifests:$2" --path="/work/$1" --source=https://github.com/rformer/FAIR-app \
     --revision="$3" --reproducible --insecure-registry 2>&1 | sed -n 's/.*@\(sha256:[0-9a-f]*\).*/\1/p' | tail -1
@@ -164,7 +193,7 @@ flux push artifact "oci://$REG/fair-e2e/fleet:e2e" --path=/work/fleet --source=h
 mkdir -p "$TMP/fleet/instances/e2e"
 sed -e "s#^FAIR_INSTANCE=.*#FAIR_INSTANCE=e2e#" -e "s#^FAIR_DB_HOST=.*#FAIR_DB_HOST=db.e2e.invalid#" \
     -e "s#^FAIR_RELEASE_IMAGES=.*#FAIR_RELEASE_IMAGES=$REG/fair/fair-*#" \
-    -e "s#^FAIR_COLLECTOR_IMAGES=.*#FAIR_COLLECTOR_IMAGES=index.docker.io/otel/opentelemetry-collector-contrib*#" \
+    -e "s#^FAIR_MIRROR_IMAGES=.*#FAIR_MIRROR_IMAGES=$REG/mirror/*#" \
     deploy/fleet/instances/example/instance.env > "$TMP/fleet/instances/e2e/instance.env"
 cat > "$TMP/fleet/instances/e2e/kustomization.yaml" <<EOF
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -285,12 +314,13 @@ refused "provenance from another source" fair-platform "$(img fair/fair-wrongsou
 refused "a signed image without provenance" fair-platform "$(img fair/fair-noprovenance)"
 refused "a signed, attested image from another repository" fair-platform "$(img other/fair-iam)"
 refused "an image by tag from a public registry" fair-platform "$FIXTURE_IMAGE"
-# The Collector: admitted with fair-collector's warning (interim, see
-# deploy/fleet/policy/collector.yaml); its publisher's bundle signatures are
-# not yet verifiable by the policy-controller.
-if out=$(pod fair-observability "$COLLECTOR_IMAGE") && echo "$out" | grep -q 'failed policy: fair-collector'; then
-  pass "the Collector: admitted with the fair-collector warning (interim)"
-else bad "the Collector: $out"; fi
+# Third-party images run only as mirrored, release-key-signed copies
+# (deploy/fleet/policy/mirror.yaml).
+admitted "the mirrored Collector, re-signed with the release key" fair-platform "$(mirrored "mirror/$COLLECTOR_NAME")"
+admitted "the mirrored Collector in the log agent's namespace" fair-observability "$(mirrored "mirror/$COLLECTOR_NAME")"
+refused "the publisher's original Collector (not re-signed)" fair-platform "$COLLECTOR_IMAGE"
+refused "a mirrored copy left unsigned" fair-platform "$(mirrored mirror/otel-unsigned)"
+refused "a mirrored copy signed by another key" fair-platform "$(mirrored mirror/otel-otherkey)"
 refused "another third-party image in the Collector's namespace" fair-observability "$FIXTURE_IMAGE"
 $K create namespace fair-e2e-unenforced >/dev/null
 admitted "control: an unsigned image outside the platform's namespaces" fair-e2e-unenforced "$(img fair/fair-unsigned)"
@@ -340,7 +370,7 @@ for c in gateway posture posture-scanner fips-probe audit risk notify integrate 
   real_images="$real_images, $(printf '"%s": "ghcr.io/rformer/fair-%s@sha256:%064d"' "$c" "$c" 0)"
 done
 echo "{$real_images}" > "$TMP/real-images.json"
-GOFIPS140=v1.0.0 go run ./cmd/releasegen fleet -release v0.0.0-e2e -images "$TMP/real-images.json" -out "$TMP/real"
+GOFIPS140=v1.0.0 go run ./cmd/releasegen fleet -release v0.0.0-e2e -images "$TMP/real-images.json" -mirror-prefix ghcr.io/rformer/mirror -out "$TMP/real"
 $K create namespace fair-e2e-build >/dev/null
 $K -n fair-e2e-build create configmap fair-instance --from-env-file=deploy/fleet/instances/example/instance.env >/dev/null
 $K kustomize deploy/fleet/flux > "$TMP/flux-objects.yaml"
@@ -361,6 +391,9 @@ done
 [ $build_ok = 1 ] && pass "every step of the real release builds with every placeholder filled"
 grep -q 'FAIR_AUDIT_STORE_CREDENTIALS' "$TMP/built-fair-platform.yaml" && ! grep -q 'FAIR_AUDIT_STORE_ACCESS_KEY_FILE' "$TMP/built-fair-platform.yaml" \
   && pass "SaaS stores: web-identity credentials, no key files" || bad "SaaS store patches"
+grep -q "image: ghcr.io/rformer/mirror/$COLLECTOR_NAME@${COLLECTOR_IMAGE#*@}" "$TMP/built-fair-observability.yaml" \
+  && ! grep -q "image: ${COLLECTOR_IMAGE%%:*}" "$TMP/built-fair-observability.yaml" \
+  && pass "the release runs the Collector's mirrored copy" || bad "the Collector's image in the real release"
 grep -q 'eks.amazonaws.com/role-arn: arn:aws-us-gov:iam::111122223333:role/fair-example-audit' "$TMP/built-fair-platform.yaml" \
   && pass "IRSA annotations from the instance" || bad "IRSA annotations"
 

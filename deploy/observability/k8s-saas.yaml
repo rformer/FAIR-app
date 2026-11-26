@@ -13,10 +13,12 @@
 # enforcing privileged and holding nothing else (as fips-probe).
 #
 # Image: otel/opentelemetry-collector-contrib 0.165.0, the version
-# scripts/observability-check.sh validates these configurations with,
-# mirrored to the shared ECR by digest (the instance overlay maps the
-# registry); admitted by its publisher's keyless signature
-# (deploy/fleet/policy/collector.yaml).
+# scripts/observability-check.sh validates these configurations with. It is
+# listed in deploy/third-party-images.json: the release verifies it against
+# the OpenTelemetry project's release workflow, copies it by digest to the
+# release repository's mirror/ and signs the copy with the release key;
+# `releasegen fleet` names the copy, and admission requires the release key
+# for it (deploy/fleet/policy/mirror.yaml).
 apiVersion: v1
 kind: Namespace
 metadata:

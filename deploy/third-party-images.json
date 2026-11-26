@@ -1,0 +1,11 @@
+{
+  "format": "fair.third-party-images.v1",
+  "images": [
+    {
+      "name": "opentelemetry-collector-contrib",
+      "image": "otel/opentelemetry-collector-contrib:0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea",
+      "certificate_identity": "https://github.com/open-telemetry/opentelemetry-collector-releases/.github/workflows/base-release.yaml@refs/tags/v0.165.0",
+      "certificate_oidc_issuer": "https://token.actions.githubusercontent.com"
+    }
+  ]
+}

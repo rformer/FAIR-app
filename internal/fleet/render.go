@@ -91,6 +91,9 @@ type Options struct {
 	Deploy        string            // deploy/k8s
 	Keys          string            // deploy/k8s/keys
 	Observability string            // deploy/observability ("" for none)
+	// Mirror maps each third-party image, as the manifests name it, to the
+	// release-key-signed copy the release runs (ThirdPartyList.Mirror).
+	Mirror map[string]string
 }
 
 // Release is release.json.
@@ -98,6 +101,7 @@ type Release struct {
 	Format  string            `json:"format"`
 	Release string            `json:"release"`
 	Images  map[string]string `json:"images"`
+	Mirror  map[string]string `json:"mirror,omitempty"`
 }
 
 // Format is release.json's format.
@@ -276,6 +280,9 @@ func Render(o Options, out string) error {
 	// Substitute, then check nothing unknown is left.
 	for i := range outFiles {
 		t, err := substitute(outFiles[i].text, o.Images)
+		if err == nil {
+			t, err = mirrorImages(t, o.Images, o.Mirror)
+		}
 		if err != nil {
 			return fmt.Errorf("%s/%s: %w", outFiles[i].dir, outFiles[i].name, err)
 		}
@@ -302,11 +309,39 @@ func Render(o Options, out string) error {
 			return err
 		}
 	}
-	rel, err := json.MarshalIndent(Release{Format: Format, Release: o.Release, Images: o.Images}, "", "  ")
+	rel, err := json.MarshalIndent(Release{Format: Format, Release: o.Release, Images: o.Images, Mirror: o.Mirror}, "", "  ")
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(out, "release.json"), append(rel, '\n'), 0o644) // #nosec G306 -- a public release artifact
+}
+
+var imageLineRE = regexp.MustCompile(`(?m)^(\s*(?:-\s*)?image:\s*)["']?([^\s"'#]+)["']?`)
+
+// mirrorImages names every third-party image by its mirrored copy and
+// refuses any image that is neither the release's nor a mirrored copy: the
+// release runs nothing admission would not admit.
+func mirrorImages(text string, images, mirror map[string]string) (string, error) {
+	allowed := map[string]bool{}
+	for _, v := range images {
+		allowed[v] = true
+	}
+	for _, v := range mirror {
+		allowed[v] = true
+	}
+	var errs []error
+	text = imageLineRE.ReplaceAllStringFunc(text, func(line string) string {
+		m := imageLineRE.FindStringSubmatch(line)
+		ref := m[2]
+		if to, ok := mirror[ref]; ok {
+			return m[1] + to
+		}
+		if !allowed[ref] && !strings.HasPrefix(strings.TrimSpace(m[1]), "#") {
+			errs = append(errs, fmt.Errorf("image %s is neither the release's nor in deploy/third-party-images.json", ref))
+		}
+		return line
+	})
+	return text, errors.Join(errs...)
 }
 
 func patchesFor(dir string, deployments []string) []string {

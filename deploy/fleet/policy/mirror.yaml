@@ -1,0 +1,28 @@
+# F-012 T-15 (F-012-AC-19; design §3.6, amended 2026-11-26): third-party
+# images in the release's namespaces (deploy/third-party-images.json: today
+# the OpenTelemetry Collector). The release verifies each against its
+# publisher's exact signing identity, copies it by digest to the release
+# repository's mirror/<name> and signs the copy with the release key
+# (release.yml, release-sign.yml); the release's manifests name only the
+# copy. Admission requires the release key for it, as for the platform's
+# own images: the publisher's original, an unsigned copy and a copy signed
+# by another key are refused (scripts/admission-e2e.sh).
+#
+# FAIR_MIRROR_IMAGES is the glob of the mirrored copies where this instance
+# pulls them: ghcr.io/rformer/mirror/* (the release repository), or the
+# shared ECR mirror's copy of it (same digests, signatures copied).
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: fair-mirror
+  labels: { app.kubernetes.io/part-of: fair-platform }
+spec:
+  mode: enforce
+  images:
+    - glob: "${FAIR_MIRROR_IMAGES}"
+  authorities:
+    - name: release-key
+      key:
+        secretRef:
+          name: fair-release-key
+        hashAlgorithm: sha256

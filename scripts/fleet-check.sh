@@ -29,7 +29,7 @@ first=1
   done
   printf '}\n'
 } > "$TMP/images.json"
-GOFIPS140=v1.0.0 go run ./cmd/releasegen fleet -release v0.0.0-check -images "$TMP/images.json" -out "$TMP/release"
+GOFIPS140=v1.0.0 go run ./cmd/releasegen fleet -release v0.0.0-check -images "$TMP/images.json" -mirror-prefix ghcr.io/rformer/mirror -out "$TMP/release"
 
 mkdir -p "$TMP/built"
 for d in namespaces secrets migrate platform observability; do

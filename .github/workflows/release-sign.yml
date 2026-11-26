@@ -135,6 +135,17 @@ jobs:
           cosign verify --certificate-identity-regexp "$release_id" --certificate-oidc-issuer https://token.actions.githubusercontent.com "$ref" >/dev/null
           cosign sign --yes --key "$RELEASE_SIGNING_KEY" "$RELEASE_TLOG" "$ref"
           echo "signed $ref"
+      # F-012 T-15 (AC-19; design §3.6, amended 2026-11-26): the third-party
+      # images the manifest job verified against their publishers and
+      # mirrored by digest (mirror.json); admission requires the release key
+      # for them.
+      - name: Sign the mirrored third-party images with the release key
+        if: ${{ hashFiles('release/mirror.json') != '' }}
+        run: |
+          for ref in $(jq -r '.[].staging' release/mirror.json); do
+            cosign sign --yes --key "$RELEASE_SIGNING_KEY" "$RELEASE_TLOG" "$ref"
+            echo "signed $ref"
+          done
       - name: Sign the profile packages, the release manifest and SHA256SUMS
         run: |
           # shellcheck disable=SC2086 # RELEASEGEN_KEY is two flags

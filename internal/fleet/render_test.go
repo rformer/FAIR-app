@@ -15,6 +15,8 @@ import (
 
 const root = "../.."
 
+const mirrorPrefix = "ghcr.io/rformer/mirror"
+
 var components = []string{"iam", "gateway", "posture", "posture-scanner", "fips-probe", "audit", "risk", "notify", "integrate", "engine-gate", "engine"}
 
 func images() map[string]string {
@@ -28,8 +30,13 @@ func images() map[string]string {
 func render(t *testing.T) string {
 	t.Helper()
 	out := filepath.Join(t.TempDir(), "artifact")
-	err := Render(Options{Release: "v0.0.0-test", Images: images(), Deploy: filepath.Join(root, "deploy/k8s"),
-		Keys: filepath.Join(root, "deploy/k8s/keys"), Observability: filepath.Join(root, "deploy/observability")}, out)
+	l, err := LoadThirdParty(filepath.Join(root, "deploy/third-party-images.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = Render(Options{Release: "v0.0.0-test", Images: images(), Deploy: filepath.Join(root, "deploy/k8s"),
+		Keys: filepath.Join(root, "deploy/k8s/keys"), Observability: filepath.Join(root, "deploy/observability"),
+		Mirror: l.Mirror(mirrorPrefix)}, out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,6 +128,9 @@ func TestRenderRelease(t *testing.T) {
 		for _, m := range regexp.MustCompile(`image: (\S+)`).FindAllStringSubmatch(body, -1) {
 			if !strings.Contains(m[1], "@sha256:") {
 				t.Errorf("%s: image %s not by digest", name, m[1])
+			}
+			if !strings.HasPrefix(m[1], "ghcr.io/rformer/fair-") && !strings.HasPrefix(m[1], mirrorPrefix+"/") {
+				t.Errorf("%s: image %s is neither the release's nor a mirrored copy", name, m[1])
 			}
 		}
 		for _, m := range placeholderRE.FindAllString(body, -1) {
@@ -321,6 +331,20 @@ func TestAdmissionPolicy(t *testing.T) {
 			t.Errorf("provenance policy lacks %s", want)
 		}
 	}
+	// Third-party images run only as mirrored copies signed with the
+	// release key (design §3.6, amended 2026-11-26); no warn mode anywhere.
+	m := named(ds, "ClusterImagePolicy", "fair-mirror")
+	if m == nil || dig(m, "spec", "mode") != "enforce" || dig(asList(dig(m, "spec", "images"))[0], "glob") != "${FAIR_MIRROR_IMAGES}" {
+		t.Fatalf("no enforcing fair-mirror policy: %v", m)
+	}
+	if ma := asList(dig(m, "spec", "authorities")); len(ma) != 1 || dig(ma[0], "key", "secretRef", "name") != "fair-release-key" || dig(ma[0], "keyless") != nil {
+		t.Errorf("fair-mirror authorities %v: want the release key alone", ma)
+	}
+	for _, d := range ds {
+		if dig(d, "spec", "mode") != "enforce" {
+			t.Errorf("%v is not enforcing", dig(d, "metadata", "name"))
+		}
+	}
 	pc := named(fleetDocs(t, "addons"), "HelmRelease", "policy-controller")
 	if dig(pc, "spec", "values", "webhook", "failurePolicy") != "Fail" || dig(pc, "spec", "values", "webhook", "configData", "no-match-policy") != "deny" {
 		t.Errorf("the policy-controller does not fail closed: %v", dig(pc, "spec", "values"))
@@ -360,6 +384,49 @@ func TestRenderRefuses(t *testing.T) {
 		o.Images = imgs
 		if err := Render(o, filepath.Join(t.TempDir(), "a")); err == nil {
 			t.Errorf("%s: rendered", name)
+		}
+	}
+}
+
+// TestThirdPartyList: deploy/third-party-images.json is well formed, and
+// lists exactly the third-party images the reference manifests name.
+func TestThirdPartyList(t *testing.T) {
+	l, err := LoadThirdParty(filepath.Join(root, "deploy/third-party-images.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	named := map[string]bool{}
+	for _, dir := range []string{"deploy/k8s", "deploy/observability"} {
+		for name, text := range readAll(t, filepath.Join(root, dir)) {
+			if !strings.HasSuffix(name, ".yaml") || strings.Contains(name, "/") {
+				continue
+			}
+			for _, m := range imageLineRE.FindAllStringSubmatch(noComments(text), -1) {
+				if !strings.HasPrefix(m[2], "ghcr.io/rformer/fair-") {
+					named[m[2]] = true
+				}
+			}
+		}
+	}
+	for _, i := range l.Images {
+		if !named[i.Image] {
+			t.Errorf("%s is listed but no manifest runs it", i.Image)
+		}
+		delete(named, i.Image)
+		if got := i.Mirrored(mirrorPrefix); got != mirrorPrefix+"/"+i.Name+"@"+i.Digest() {
+			t.Errorf("mirrored as %s", got)
+		}
+	}
+	for ref := range named {
+		t.Errorf("%s runs in the release but is not in deploy/third-party-images.json", ref)
+	}
+	for _, bad := range []ThirdPartyList{
+		{Format: "x"},
+		{Format: ThirdPartyFormat, Images: []ThirdParty{{Name: "a", Image: "a:1", Identity: "https://x", Issuer: "https://y"}}},
+		{Format: ThirdPartyFormat, Images: []ThirdParty{{Name: "a", Image: "a@sha256:" + strings.Repeat("0", 64), Identity: "^https://x.*", Issuer: "https://y"}}},
+	} {
+		if bad.Check() == nil {
+			t.Errorf("accepted %+v", bad)
 		}
 	}
 }

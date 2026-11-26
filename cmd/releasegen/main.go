@@ -21,6 +21,7 @@
 //	    signature of any file (SHA256SUMS) without reading it as a manifest.
 //	releasegen fleet -release VERSION -images FILE -out DIR [-deploy deploy/k8s]
 //	    [-keys deploy/k8s/keys] [-observability deploy/observability]
+//	    [-third-party deploy/third-party-images.json -mirror-prefix REPO/mirror]
 //	    the per-release platform manifests Flux reconciles (F-012 T-15,
 //	    internal/fleet): published as a signed OCI artifact by release.yml.
 //	releasegen permissions [-out deploy/k8s/permission-manifest.json]
@@ -209,6 +210,8 @@ func run(args []string) error {
 		deploy := fs.String("deploy", "deploy/k8s", "reference manifests")
 		keys := fs.String("keys", "deploy/k8s/keys", "key store manifests")
 		obs := fs.String("observability", "deploy/observability", "Collector configurations and objects (\"\": none)")
+		third := fs.String("third-party", "deploy/third-party-images.json", "third-party images (\"\": none)")
+		mirrorPrefix := fs.String("mirror-prefix", "", "where the release mirrors them: <release repository>/mirror")
 		out := fs.String("out", "", "output directory (must not exist)")
 		_ = fs.Parse(args[1:])
 		b, err := os.ReadFile(*images) // #nosec G304 G703 -- release-pipeline operator input
@@ -219,7 +222,18 @@ func run(args []string) error {
 		if err := json.Unmarshal(b, &imgs); err != nil {
 			return fmt.Errorf("%s: %w", *images, err)
 		}
-		return fleet.Render(fleet.Options{Release: *release, Images: imgs, Deploy: *deploy, Keys: *keys, Observability: *obs}, *out)
+		o := fleet.Options{Release: *release, Images: imgs, Deploy: *deploy, Keys: *keys, Observability: *obs}
+		if *third != "" {
+			l, err := fleet.LoadThirdParty(*third)
+			if err != nil {
+				return err
+			}
+			if len(l.Images) > 0 && *mirrorPrefix == "" {
+				return errors.New("fleet: -mirror-prefix is required for the third-party images")
+			}
+			o.Mirror = l.Mirror(*mirrorPrefix)
+		}
+		return fleet.Render(o, *out)
 	case "notes":
 		return notes(args[1:])
 	case "profiles":
