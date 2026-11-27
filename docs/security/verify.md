@@ -36,6 +36,15 @@ RELEASEGEN=./releasegen scripts/verify-release.sh -offline RELEASE_DIR
 
 Offline, the script reads only `RELEASE_DIR` and never contacts a registry or the transparency log (`--offline --insecure-ignore-tlog`). The release key's signature takes the place of the log.
 
+## With fairctl (air-gap packages)
+`fairctl verify` (F-014 T-11) does what `verify-release.sh -offline` does, in Go with the standard library, so it needs neither `cosign` nor `releasegen` and makes no network call:
+
+```sh
+fairctl verify -key release.pub PACKAGE_DIR
+```
+
+`-key` is the release key you obtained and checked apart from the package (its fingerprint, as above); the package's own `cosign.pub` must be that key. On top of the script's checks, `fairctl verify` requires `package-manifest.json` (`fair.airgap-package.v1`) and its signature, every file and image it lists, nothing in the directory it does not list, each image's content against its digest, and each image's SLSA provenance naming the SLSA generator's container workflow and this repository's release workflow at a `v*` tag (the same rule as F-012's admission policy). It prints the script's `ok - …` and `FAIL - …` lines, or one JSON document with `-output json` (`docs/formats/fairctl-verify.schema.json`); exit code 0 verified, 1 refused, 2 usage.
+
 ## What each step checks
 1. **Release manifest:** `release-manifest.json.sig` verifies with `cosign.pub` (`releasegen verify`). This proves the list of images, digests and RBAC objects is the one the vendor released.
 2. **`SHA256SUMS`:** its signature verifies, and every file it lists has the listed digest (`sha256sum -c`).
@@ -53,6 +62,8 @@ The script prints `ok - …` for each check. It stops at the first failure with 
 - an edited manifest;
 - an image signed by another key;
 - a missing manifest signature.
+
+`TestVerifyMatchesVerifyRelease` (`internal/releaseverify`, in the same CI job) runs the script and `fairctl`'s verifier over the fixture release, further tampered copies of it and synthetic releases, and requires the same verdict and the same messages from both.
 
 ## Verifying provenance with slsa-verifier (optional)
 Online, the SLSA generator's keyless provenance can also be checked with `slsa-verifier`:

@@ -454,7 +454,9 @@ jobs:
   # F-012 T-06 (F-012-AC-09; design §3.3): offline release verification
   # passes a fixture release signed with a test key and refuses tampered
   # copies (another key, an edited manifest, an image signed by another
-  # key, a missing signature).
+  # key, a missing signature). F-014 T-11 (F-014-AC-07; design §3.5): fairctl's
+  # verifier (internal/releaseverify, standard library only) gives the same
+  # verdicts and messages on the fixture and its tampered variants.
   release-verify:
     runs-on: ubuntu-latest
     steps:
@@ -469,6 +471,10 @@ jobs:
         run: go build -o "$RUNNER_TEMP/bin/releasegen" ./cmd/releasegen && echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - name: verify-release.sh -offline on a fixture release
         run: bash scripts/verify-release-test.sh
+      - name: releaseverify gives verify-release.sh's verdicts
+        env:
+          FAIR_TEST_RELEASE_FIXTURE: "1"
+        run: RELEASEGEN="$RUNNER_TEMP/bin/releasegen" go test -count=1 -v -run '^TestVerifyMatchesVerifyRelease$' ./internal/releaseverify/
 
   # F-015 T-32: the web UI (ADR-003: React + TypeScript, Vite).
   web:

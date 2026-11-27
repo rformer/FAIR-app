@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fairctl-verify.schema.json",
+  "title": "fairctl verify -output json",
+  "description": "F-014 T-11 (design §3.4, §3.5): the one JSON document `fairctl verify -output json` prints. internal/releaseverify's Report is the authority; cmd/fairctl's tests check its output against this schema.",
+  "type": "object",
+  "required": ["command", "dir", "verified", "steps"],
+  "additionalProperties": false,
+  "properties": {
+    "command": { "const": "verify" },
+    "dir": { "type": "string", "description": "The package directory, as given." },
+    "release": { "type": "string", "description": "The release the verified release manifest names (absent when the manifest did not verify)." },
+    "verified": { "type": "boolean" },
+    "steps": { "type": "array", "items": { "$ref": "#/$defs/step" }, "description": "Each passed check, in order." },
+    "refusal": { "$ref": "#/$defs/step", "description": "The failed check; present exactly when verified is false." },
+    "images": {
+      "type": "array",
+      "description": "The images verified: the release manifest's, then the package's others.",
+      "items": {
+        "type": "object",
+        "required": ["component", "image"],
+        "additionalProperties": false,
+        "properties": {
+          "component": { "type": "string" },
+          "image": { "type": "string", "pattern": "^[a-z0-9.\\-/:]+@sha256:[0-9a-f]{64}$" }
+        }
+      }
+    }
+  },
+  "if": { "properties": { "verified": { "const": false } } },
+  "then": { "required": ["refusal"] },
+  "else": { "not": { "required": ["refusal"] } },
+  "$defs": {
+    "step": {
+      "type": "object",
+      "required": ["check", "ok", "message"],
+      "additionalProperties": false,
+      "properties": {
+        "check": {
+          "enum": ["release_key", "release_manifest", "checksums", "package_manifest", "release", "image_signature", "image_digest", "image_content", "sbom_attestation", "provenance_attestation", "provenance_policy"]
+        },
+        "subject": { "type": "string", "description": "The file or image component the check is about." },
+        "ok": { "type": "boolean" },
+        "message": { "type": "string", "description": "The line the text output prints after \"ok - \" or \"FAIL - \"." },
+        "detail": { "type": "string", "description": "Why a check failed, when more is known." }
+      }
+    }
+  }
+}
