@@ -45,6 +45,7 @@ type Server struct {
 	srv    *http.Server
 	mu     sync.RWMutex
 	checks []ReadinessCheck
+	gate   installGate // F-014 T-05: the installation's state
 }
 
 // New builds a Server. Register handlers on Mux() before calling Run.
@@ -58,7 +59,7 @@ func New(opts Options) *Server {
 
 	s.srv = &http.Server{
 		Addr:              opts.Addr,
-		Handler:           SecurityHeaders(telemetry.HTTP(s.mux)), // F-012 T-09: spans and durations by route pattern
+		Handler:           SecurityHeaders(telemetry.HTTP(s.gate.wrap(s.mux))), // F-012 T-09: spans and durations by route pattern; F-014 T-05: the installation's state
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

@@ -33,6 +33,7 @@ import (
 	"github.com/rformer/fair-app/internal/config"
 	"github.com/rformer/fair-app/internal/dbconn"
 	"github.com/rformer/fair-app/internal/iamapi"
+	"github.com/rformer/fair-app/internal/install"
 	"github.com/rformer/fair-app/internal/keys"
 	"github.com/rformer/fair-app/internal/scim"
 	"github.com/rformer/fair-app/internal/server"
@@ -128,6 +129,7 @@ func run() error {
 			return fmt.Errorf("database: %w", err)
 		}
 		defer pool.Close()
+		srv.UseInstallState(install.StateReader(pool), server.InstallStateTTL) // F-014 T-05 (D-OQ13)
 		// F-002 T-06: iam's own events go to the audit trail first.
 		emitter = audit.WithTrail(emitter, audit.Trail{DB: pool})
 		// Whether a login must show MFA evidence (T-18), read as every service

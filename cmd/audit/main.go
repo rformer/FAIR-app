@@ -76,6 +76,7 @@ import (
 	"github.com/rformer/fair-app/internal/auditapi"
 	"github.com/rformer/fair-app/internal/config"
 	"github.com/rformer/fair-app/internal/dbconn"
+	"github.com/rformer/fair-app/internal/install"
 	"github.com/rformer/fair-app/internal/keys"
 	"github.com/rformer/fair-app/internal/natspub"
 	"github.com/rformer/fair-app/internal/objstore"
@@ -382,6 +383,7 @@ func run() error {
 		Plaintext:   cfg.AllowPlaintext,
 		Logger:      logger,
 	})
+	srv.UseInstallState(install.StateReader(pool), server.InstallStateTTL) // F-014 T-05 (D-OQ13)
 	srv.AddReadinessCheck(server.ReadinessCheck{Name: "database", Check: func(ctx context.Context) error {
 		return schemaReady(ctx, pool)
 	}})

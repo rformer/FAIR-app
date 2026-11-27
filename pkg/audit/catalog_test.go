@@ -41,6 +41,7 @@ var sqlHelpers = map[string]int{
 	"integration.emit":           0, // F-011 T-07
 	"integration.decision_event": 0, // F-011 T-10a
 	"framework.emit":             0, // F-013 T-05
+	"install.emit":               0, // F-014 T-05
 }
 
 // dynamicTypes are types built at run time from a fixed set of parts.

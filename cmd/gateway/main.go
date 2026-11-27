@@ -73,6 +73,7 @@ import (
 	"github.com/rformer/fair-app/internal/config"
 	"github.com/rformer/fair-app/internal/dbconn"
 	"github.com/rformer/fair-app/internal/gateway"
+	"github.com/rformer/fair-app/internal/install"
 	"github.com/rformer/fair-app/internal/keys"
 	"github.com/rformer/fair-app/internal/server"
 	"github.com/rformer/fair-app/pkg/authz"
@@ -240,6 +241,7 @@ func run() error {
 
 	srv := server.New(server.Options{Addr: cfg.ListenAddr, TLSCertFile: cfg.TLSCertFile, TLSKeyFile: cfg.TLSKeyFile,
 		Plaintext: cfg.AllowPlaintext, Logger: logger})
+	srv.UseInstallState(install.StateReader(pool), server.InstallStateTTL) // F-014 T-05 (D-OQ13)
 	srv.Mux().Handle("/", g.Handler())
 	srv.AddReadinessCheck(server.KeyFiles(os.Getenv, "FAIR_JWT_KEYS_DIR", "FAIR_LOGIN_TICKET_KEYS_DIR", "FAIR_SESSION_PEPPER_FILE", "FAIR_TOKEN_PEPPER_FILE", "FAIR_DB_CONTEXT_KEY_FILE", "FAIR_DB_CONTEXT_KEY_ID_FILE")) // F-012 T-09 (AC-22)
 	srv.AddReadinessCheck(server.ReadinessCheck{Name: "database", Check: func(ctx context.Context) error { return pool.Ping(ctx) }})
@@ -253,6 +255,7 @@ func run() error {
 	}
 	mtls := server.New(server.Options{Addr: mtlsAddr, TLSCertFile: cfg.TLSCertFile, TLSKeyFile: cfg.TLSKeyFile,
 		ClientAuth: tls.RequestClientCert, Logger: logger})
+	mtls.UseInstallState(install.StateReader(pool), server.InstallStateTTL)
 	mtls.Mux().Handle("/", g.Handler())
 	errs := make(chan error, 2)
 	go func() { errs <- srv.Run(ctx, cfg.ShutdownTimeout) }()

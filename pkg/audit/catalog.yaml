@@ -748,6 +748,12 @@ events:
     severities: [high]
     attributes: [email_domains, enabled, kind, metadata_source, name]
     description: "An identity provider's settings changed"
+  - type: install.decision_recorded
+    category: configuration
+    severities: [high]
+    requires: [target]
+    attributes: [attested, key]
+    description: "An installer decision or attestation was recorded at install (F-014 T-05, AC-09, AC-12); the value is in the install records"
   - type: integration.changed
     category: configuration
     severities: [high]

@@ -48,6 +48,7 @@ import (
 	auditsvc "github.com/rformer/fair-app/internal/audit"
 	"github.com/rformer/fair-app/internal/config"
 	"github.com/rformer/fair-app/internal/dbconn"
+	"github.com/rformer/fair-app/internal/install"
 	"github.com/rformer/fair-app/internal/keys"
 	"github.com/rformer/fair-app/internal/notify"
 	"github.com/rformer/fair-app/internal/notifyapi"
@@ -266,6 +267,7 @@ func run() error {
 		Plaintext:   cfg.AllowPlaintext,
 		Logger:      logger,
 	})
+	srv.UseInstallState(install.StateReader(pool), server.InstallStateTTL)                            // F-014 T-05 (D-OQ13)
 	srv.AddReadinessCheck(server.KeyFiles(os.Getenv, "FAIR_JWT_KEYS_DIR", "FAIR_NOTIFY_SECRETS_DIR")) // F-012 T-09 (AC-22)
 	srv.AddReadinessCheck(server.ReadinessCheck{Name: "database", Check: func(ctx context.Context) error {
 		return schemaReady(ctx, pool)

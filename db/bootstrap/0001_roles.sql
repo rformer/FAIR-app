@@ -60,6 +60,9 @@
 --                           T-02): frameworks, requirements, baselines,
 --                           crosswalks; keeps the control-mapping projection
 --                           (ADR-007 amendments 3 and 5)
+--   install_definer NOLOGIN owns the install schema's functions (F-014
+--                           T-05): the installation, its state, decisions,
+--                           releases, preflight runs and install reports
 --
 -- Required psql variables: dbname, migrator_password, rw_password,
 -- engine_password, posture_password, gateway_password, audit_password,
@@ -71,7 +74,7 @@ DO $$
 DECLARE
   r text;
 BEGIN
-  FOREACH r IN ARRAY ARRAY['fair_owner', 'authz_definer', 'posture_definer', 'rollup_definer', 'bu_guard_definer', 'audit_definer', 'risk_definer', 'estimate_definer', 'analysis_definer', 'register_definer', 'acceptance_definer', 'notify_definer', 'report_definer', 'integration_definer', 'framework_definer'] LOOP
+  FOREACH r IN ARRAY ARRAY['fair_owner', 'authz_definer', 'posture_definer', 'rollup_definer', 'bu_guard_definer', 'audit_definer', 'risk_definer', 'estimate_definer', 'analysis_definer', 'register_definer', 'acceptance_definer', 'notify_definer', 'report_definer', 'integration_definer', 'framework_definer', 'install_definer'] LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
       EXECUTE format('CREATE ROLE %I NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS', r);
     END IF;
@@ -138,6 +141,7 @@ GRANT report_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
 GRANT integration_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
 -- And for control frameworks (F-013 T-02).
 GRANT framework_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
+GRANT install_definer TO fair_owner WITH INHERIT FALSE, SET TRUE;
 
 -- Lock down the database: nobody connects unless granted.
 REVOKE ALL ON DATABASE :"dbname" FROM PUBLIC;
