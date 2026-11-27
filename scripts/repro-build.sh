@@ -18,7 +18,7 @@ OUT=${1:?out dir}
 shift
 COMPONENTS=("$@")
 if [ ${#COMPONENTS[@]} -eq 0 ]; then
-  COMPONENTS=(iam gateway posture posture-scanner fips-probe audit risk notify integrate engine-gate engine
+  COMPONENTS=(iam gateway posture posture-scanner fips-probe audit risk notify integrate engine-gate engine fairctl
     postgres nats openbao versitygw) # bundled dependencies (F-014 T-07); keycloak is not
   # reproducible: its Quarkus build generates bytecode that varies between runs
 fi

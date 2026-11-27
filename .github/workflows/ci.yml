@@ -327,7 +327,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [iam, gateway, posture, posture-scanner, fips-probe, audit, risk, notify, integrate, engine-gate, engine, postgres, nats, openbao, versitygw, keycloak]
+        component: [iam, gateway, posture, posture-scanner, fips-probe, audit, risk, notify, integrate, engine-gate, engine, fairctl, postgres, nats, openbao, versitygw, keycloak]
     permissions:
       contents: read
       packages: write   # push to GHCR (main only)
@@ -348,6 +348,7 @@ jobs:
       digest-integrate: ${{ steps.push.outputs.digest-integrate }}
       digest-engine-gate: ${{ steps.push.outputs.digest-engine-gate }}
       digest-engine: ${{ steps.push.outputs.digest-engine }}
+      digest-fairctl: ${{ steps.push.outputs.digest-fairctl }}
       digest-postgres: ${{ steps.push.outputs.digest-postgres }}
       digest-nats: ${{ steps.push.outputs.digest-nats }}
       digest-openbao: ${{ steps.push.outputs.digest-openbao }}
@@ -409,7 +410,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [iam, gateway, posture, posture-scanner, fips-probe, audit, risk, notify, integrate, engine-gate, engine, postgres, nats, openbao, versitygw, keycloak]
+        component: [iam, gateway, posture, posture-scanner, fips-probe, audit, risk, notify, integrate, engine-gate, engine, fairctl, postgres, nats, openbao, versitygw, keycloak]
     permissions:
       actions: read
       id-token: write
@@ -429,7 +430,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [iam, gateway, posture, posture-scanner, fips-probe, audit, risk, notify, integrate, engine-gate, engine, postgres, nats, openbao, versitygw, keycloak]
+        component: [iam, gateway, posture, posture-scanner, fips-probe, audit, risk, notify, integrate, engine-gate, engine, fairctl, postgres, nats, openbao, versitygw, keycloak]
     permissions:
       contents: read
       packages: read
@@ -475,6 +476,11 @@ jobs:
         env:
           FAIR_TEST_RELEASE_FIXTURE: "1"
         run: RELEASEGEN="$RUNNER_TEMP/bin/releasegen" go test -count=1 -v -run '^TestVerifyMatchesVerifyRelease$' ./internal/releaseverify/
+      # F-014 T-12 (design §3.4): fairctl for Linux, macOS and Windows on
+      # amd64 and arm64, with the FIPS 140 module, static, -trimpath, and the
+      # same bytes from two builds.
+      - name: fairctl builds for every platform, reproducibly
+        run: bash scripts/fairctl-dist.sh -check ci "$RUNNER_TEMP/fairctl"
 
   # F-015 T-32: the web UI (ADR-003: React + TypeScript, Vite).
   web:

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fair-install-log-v1.schema.json",
+  "title": "fair.install-log.v1: one line of fair-install.log",
+  "description": "F-014 T-12 (design §3.4): each line of fairctl's local install log is one JSON object: a step's new state, or an event for the audit trail in the shape install.submit_events accepts. internal/installer.Entry is the authority; see fair-install-log-v1.md.",
+  "type": "object",
+  "required": ["format", "time", "kind"],
+  "additionalProperties": false,
+  "properties": {
+    "format": { "const": "fair.install-log.v1" },
+    "time": { "type": "string", "format": "date-time" },
+    "kind": { "enum": ["step", "event"] },
+    "step": { "enum": ["verify", "decisions", "preflight", "credentials", "database", "provision", "chart", "record", "events", "report"] },
+    "state": { "enum": ["pending", "running", "done", "failed"] },
+    "event": {
+      "type": "object",
+      "required": ["id", "time", "type", "severity", "actor"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "time": { "type": "string", "format": "date-time" },
+        "type": { "type": "string", "pattern": "^(?:install|license)\\.|^posture\\.deployment_exception_" },
+        "severity": { "enum": ["info", "low", "high", "critical"] },
+        "actor": { "type": "string", "pattern": "^operator:\\S" },
+        "target": { "type": "string" },
+        "reason": { "type": "string" },
+        "attributes": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    }
+  },
+  "oneOf": [
+    { "properties": { "kind": { "const": "step" } }, "required": ["step", "state"], "not": { "required": ["event"] } },
+    { "properties": { "kind": { "const": "event" } }, "required": ["event"], "not": { "anyOf": [{ "required": ["step"] }, { "required": ["state"] }] } }
+  ]
+}

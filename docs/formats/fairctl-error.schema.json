@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fairctl-error.schema.json",
+  "title": "fairctl -output json: a failure before the command's result",
+  "description": "F-014 T-12 (design §3.4, AC-54): the one JSON document a fairctl command prints with -output json when it stops before its own result exists: a usage error, a refused decisions file, a command not yet available in this build, an interruption or an unreachable environment. internal/installer.ErrorDocument is the authority; cmd/fairctl's TestFairctlOutput checks every command's output against this schema.",
+  "type": "object",
+  "required": ["command", "ok", "exit_code", "error"],
+  "additionalProperties": false,
+  "properties": {
+    "command": { "type": "string", "minLength": 1, "description": "The command as named, e.g. install or backup run." },
+    "ok": { "const": false },
+    "exit_code": { "enum": [1, 2, 3, 4], "description": "1 refused, 2 usage or invalid input (and commands not in this build), 3 interrupted (resumable), 4 environment unreachable." },
+    "error": {
+      "type": "object",
+      "required": ["code", "message"],
+      "additionalProperties": false,
+      "properties": {
+        "code": { "enum": ["usage", "not_available", "invalid_decisions", "refused", "interrupted", "unreachable"] },
+        "message": { "type": "string", "minLength": 1 },
+        "problems": {
+          "type": "array",
+          "description": "invalid_decisions: every problem with the decisions file, by field; never the value that looked secret.",
+          "items": {
+            "type": "object",
+            "required": ["field", "message"],
+            "additionalProperties": false,
+            "properties": {
+              "field": { "type": "string" },
+              "line": { "type": "integer", "minimum": 1 },
+              "message": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

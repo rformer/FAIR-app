@@ -38,6 +38,7 @@ variable "required_checks" {
     "images (integrate)",
     "images (engine-gate)",
     "images (engine)",
+    "images (fairctl)",
     "images (postgres)",
     "images (nats)",
     "images (openbao)",

@@ -5,6 +5,12 @@
 // It uses the in-cluster service-account token, re-read before each request
 // so projected-token rotation works, and verifies the API server with the
 // cluster CA over TLS 1.2 or later.
+//
+// fairctl (F-014 T-12, design §2) reads the administrator's kubeconfig with
+// FromKubeconfig: client certificates, bearer tokens, token files and exec
+// credential plugins, never insecure-skip-tls-verify. The client stays
+// read-only; fairctl's writes go only through the Helm SDK. The package
+// uses the standard library alone (TestStandardLibraryOnly).
 package kube
 
 import (
@@ -101,13 +107,22 @@ type Event struct {
 	Object Object
 }
 
-// Config locates the API server and credentials.
+// Config locates the API server and credentials. In-cluster clients set
+// TokenFile and CAFile; FromKubeconfig may set the others.
 type Config struct {
 	Host      string // https://host:port
-	TokenFile string
+	TokenFile string // a bearer token file, re-read before each request
 	CAFile    string
 	Timeout   time.Duration // per list request; default 30 s
 	UserAgent string        // default fair-posture-scanner (fleetctl names itself)
+
+	CAData      []byte // PEM, instead of CAFile
+	SystemRoots bool   // with neither CAFile nor CAData: verify with the system roots (a kubeconfig naming no CA)
+	ServerName  string // the name to verify the server's certificate for, when it differs from the host
+
+	Token      string           // a bearer token
+	ClientCert *tls.Certificate // a client certificate and its key
+	Exec       *ExecConfig      // an exec credential plugin (token or client certificate)
 }
 
 // InCluster returns the in-cluster configuration.
@@ -122,11 +137,58 @@ func InCluster() (Config, error) {
 // Client is a read-only API client.
 type Client struct {
 	host    *url.URL
-	token   string // file
+	creds   credentials
 	http    *http.Client
 	watcher *http.Client // no overall timeout: watches stream
 	timeout time.Duration
 	agent   string
+}
+
+// credentials supply a request's bearer token and the TLS client
+// certificate.
+type credentials struct {
+	tokenFile string
+	token     string
+	cert      *tls.Certificate
+	exec      *execCredentials
+}
+
+func (c *credentials) bearer(ctx context.Context) (string, error) {
+	switch {
+	case c.tokenFile != "":
+		tok, err := os.ReadFile(c.tokenFile)
+		if err != nil {
+			return "", fmt.Errorf("kube: token file: %w", err)
+		}
+		return strings.TrimSpace(string(tok)), nil
+	case c.token != "":
+		return c.token, nil
+	case c.exec != nil:
+		cr, err := c.exec.get(ctx)
+		if err != nil {
+			return "", err
+		}
+		return cr.token, nil
+	}
+	return "", nil
+}
+
+func (c *credentials) clientCertificate(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+	if c.cert != nil {
+		return c.cert, nil
+	}
+	if c.exec != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), c.exec.cfg.timeout())
+		defer cancel()
+		cr, err := c.exec.get(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if cr.cert != nil {
+			return cr.cert, nil
+		}
+	}
+	return &tls.Certificate{}, nil // none: the server may still accept a token
 }
 
 // New returns a Client for c.
@@ -135,13 +197,44 @@ func New(c Config) (*Client, error) {
 	if err != nil || u.Scheme != "https" || u.Host == "" {
 		return nil, fmt.Errorf("kube: API server %q must be an https URL", c.Host)
 	}
-	ca, err := os.ReadFile(c.CAFile)
-	if err != nil {
-		return nil, fmt.Errorf("kube: cluster CA: %w", err)
+	var pool *x509.CertPool // nil: the system roots
+	switch {
+	case c.CAFile != "" || len(c.CAData) > 0:
+		ca, name := c.CAData, "the certificate authority data"
+		if c.CAFile != "" {
+			if len(c.CAData) > 0 {
+				return nil, errors.New("kube: both a CA file and CA data")
+			}
+			if ca, err = os.ReadFile(c.CAFile); err != nil {
+				return nil, fmt.Errorf("kube: cluster CA: %w", err)
+			}
+			name = c.CAFile
+		}
+		pool = x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(ca) {
+			return nil, fmt.Errorf("kube: no certificates in %s", name)
+		}
+	case !c.SystemRoots:
+		return nil, errors.New("kube: cluster CA: none named")
 	}
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(ca) {
-		return nil, fmt.Errorf("kube: no certificates in %s", c.CAFile)
+	n := 0
+	for _, set := range []bool{c.TokenFile != "", c.Token != "", c.Exec != nil} {
+		if set {
+			n++
+		}
+	}
+	if n > 1 {
+		return nil, errors.New("kube: more than one of a token file, a token and an exec plugin")
+	}
+	if n == 0 && c.ClientCert == nil {
+		return nil, errors.New("kube: no credentials (a token, a token file, a client certificate or an exec plugin)")
+	}
+	creds := credentials{tokenFile: c.TokenFile, token: c.Token, cert: c.ClientCert}
+	if c.Exec != nil {
+		if err := c.Exec.check(); err != nil {
+			return nil, err
+		}
+		creds.exec = &execCredentials{cfg: *c.Exec, now: time.Now}
 	}
 	if c.UserAgent == "" {
 		c.UserAgent = "fair-posture-scanner"
@@ -149,14 +242,20 @@ func New(c Config) (*Client, error) {
 	if c.Timeout <= 0 {
 		c.Timeout = 30 * time.Second
 	}
+	cl := &Client{host: u, creds: creds, timeout: c.Timeout, agent: c.UserAgent}
+	tlsc := &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: pool, ServerName: c.ServerName}
+	if c.ClientCert != nil || c.Exec != nil {
+		tlsc.GetClientCertificate = cl.creds.clientCertificate
+	}
 	tr := &http.Transport{
-		TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: pool},
+		TLSClientConfig:       tlsc,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: c.Timeout,
 		IdleConnTimeout:       90 * time.Second,
 	}
-	return &Client{host: u, token: c.TokenFile, http: &http.Client{Transport: tr, Timeout: c.Timeout},
-		watcher: &http.Client{Transport: tr}, timeout: c.Timeout, agent: c.UserAgent}, nil
+	cl.http = &http.Client{Transport: tr, Timeout: c.Timeout}
+	cl.watcher = &http.Client{Transport: tr}
+	return cl, nil
 }
 
 func (c *Client) path(r Resource, namespace string) (string, error) {
@@ -178,22 +277,16 @@ func (c *Client) path(r Resource, namespace string) (string, error) {
 
 // get issues the only kind of request this client makes.
 func (c *Client) get(ctx context.Context, hc *http.Client, path string, q url.Values) (*http.Response, error) {
-	tok, err := os.ReadFile(c.token)
-	if err != nil {
-		return nil, fmt.Errorf("kube: service-account token: %w", err)
+	resp, err := c.do(ctx, hc, path, q)
+	if err == nil && resp.StatusCode == http.StatusUnauthorized && c.creds.exec != nil {
+		// The plugin's credential was refused before its expiry (revoked or
+		// rotated): ask the plugin again, once.
+		_ = resp.Body.Close()
+		c.creds.exec.forget()
+		resp, err = c.do(ctx, hc, path, q)
 	}
-	u := *c.host
-	u.Path, u.RawQuery = path, q.Encode()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(tok)))
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", c.agent)
-	resp, err := hc.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("kube: GET %s: %w", path, err)
 	}
 	switch resp.StatusCode {
 	case http.StatusOK:
@@ -209,6 +302,29 @@ func (c *Client) get(ctx context.Context, hc *http.Client, path string, q url.Va
 		_ = resp.Body.Close()
 		return nil, fmt.Errorf("kube: GET %s: %d %s", path, resp.StatusCode, strings.TrimSpace(string(b)))
 	}
+}
+
+func (c *Client) do(ctx context.Context, hc *http.Client, path string, q url.Values) (*http.Response, error) {
+	tok, err := c.creds.bearer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	u := *c.host
+	u.Path, u.RawQuery = path, q.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	if tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", c.agent)
+	resp, err := hc.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("kube: GET %s: %w", path, err)
+	}
+	return resp, nil
 }
 
 // List returns every object of r in namespace ("" = all namespaces, or a

@@ -39,7 +39,7 @@ COPY profiles/packages ./profiles/packages
 COPY third_party/oscal/oscal.go third_party/oscal/MANIFEST.json ./third_party/oscal/
 COPY third_party/oscal/schemas/oscal_complete_schema.json ./third_party/oscal/schemas/
 ARG VERSION=dev
-RUN for c in iam posture posture-scanner fips-probe gateway audit risk notify integrate engine-gate; do \
+RUN for c in iam posture posture-scanner fips-probe gateway audit risk notify integrate engine-gate fairctl; do \
       go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/$c ./cmd/$c || exit 1; \
     done && \
     go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/fair-audit-verify ./cmd/audit-verify
@@ -98,6 +98,14 @@ COPY --from=build /out/gateway /gateway
 USER 65532:65532
 EXPOSE 8443
 ENTRYPOINT ["/gateway"]
+
+# The installer (F-014 T-12; design §3.4, ADR-019) for the chart's hooks
+# (the in-cluster preflight) and the backup jobs; the same binary as the
+# release's fairctl-<os>-<arch> builds (scripts/fairctl-dist.sh).
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab AS fairctl
+COPY --from=build /out/fairctl /fairctl
+USER 65532:65532
+ENTRYPOINT ["/fairctl"]
 
 # The simulation engine (F-005 T-04, ADR-013): Python 3.12 with the locked
 # dependencies (hashes required) on distroless static, with exactly the

@@ -275,6 +275,12 @@ jobs:
           bash scripts/audit-verify-dist.sh "$VERSION" "$RUNNER_TEMP/audit-verify"
           rm "$RUNNER_TEMP/audit-verify/SHA256SUMS"
           cp "$RUNNER_TEMP/audit-verify"/fair-audit-verify-* release/
+      # F-014 T-12 (design §3.4): the installer for each platform.
+      - name: fairctl
+        run: |
+          bash scripts/fairctl-dist.sh "$VERSION" "$RUNNER_TEMP/fairctl"
+          rm "$RUNNER_TEMP/fairctl/SHA256SUMS"
+          cp "$RUNNER_TEMP/fairctl"/fairctl-* release/
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-files

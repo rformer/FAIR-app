@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fairctl-version.schema.json",
+  "title": "fairctl version -output json",
+  "description": "F-014 T-12 (design §3.4): the one JSON document `fairctl version -output json` prints.",
+  "type": "object",
+  "required": ["command", "version", "fips140"],
+  "additionalProperties": false,
+  "properties": {
+    "command": { "const": "version" },
+    "version": { "type": "string", "minLength": 1, "description": "The release (dev for a local build)." },
+    "fips140": { "type": "boolean", "description": "Whether the FIPS 140 module is enabled (crypto/fips140.Enabled)." }
+  }
+}
