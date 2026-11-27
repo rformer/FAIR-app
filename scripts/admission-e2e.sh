@@ -68,8 +68,10 @@ cleanup() {
   rm -rf "$TMP"
 }
 trap cleanup EXIT
-# Tools run pinned, in containers on kind's network, with $TMP as /work.
-run() { docker run --rm --network kind -v "$TMP:/work" -w /work "$@"; }
+# Tools run pinned, in containers on kind's network, with $TMP as /work, as
+# this user (the images run as non-root users that cannot read mktemp's
+# private directory) with /work as their home.
+run() { docker run --rm --network kind --user "$(id -u):$(id -g)" -e HOME=/work -v "$TMP:/work" -w /work "$@"; }
 cosign() { run -e COSIGN_PASSWORD= -e COSIGN_YES=true --entrypoint cosign "$COSIGN_IMAGE" "$@"; }
 cosign26() { run --entrypoint cosign "$COSIGN26_IMAGE" "$@"; }
 crane() { run --entrypoint crane "$CRANE_IMAGE" "$@"; }
