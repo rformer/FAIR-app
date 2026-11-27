@@ -351,9 +351,12 @@ for tag in unsigned otherkey; do
     sleep 2
   done
   art=$($K -n flux-system get "ocirepository/e2e-$tag" -o jsonpath='{.status.artifact.digest}')
-  if [ "$(cond "ocirepository/e2e-$tag" Ready status)" = False ] && [ -z "$art" ]; then
+  st=$(cond "ocirepository/e2e-$tag" Ready status)
+  # Refused: no artifact stored, and Ready false or a verification error
+  # (the reason can be set before the status turns False).
+  if [ -z "$art" ] && { [ "$st" = False ] || [ "$r" = VerificationError ]; }; then
     pass "Flux refused the $tag artifact ($r: $(cond "ocirepository/e2e-$tag" Ready message | cut -c1-120))"
-  else bad "Flux accepted the $tag artifact ($r)"; fi
+  else bad "Flux accepted the $tag artifact (Ready $st, $r, artifact ${art:-none})"; fi
 done
 # The instance's pin moved to the unsigned artifact: nothing changes.
 $K -n flux-system patch ocirepository fair-release --type=merge -p '{"spec":{"ref":{"tag":"unsigned"}}}' >/dev/null
