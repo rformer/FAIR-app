@@ -1,5 +1,5 @@
 # ADR-005 Bundled distribution: vendor-operated SaaS and customer self-hosted
-Status: Accepted
+Status: Accepted. Amended 2026-11-26 (see Amendment 2).
 Date: 2026-10-24
 
 ## Context
@@ -48,7 +48,7 @@ One artifact set serves both deployment modes:
 - CI must test the full install matrix: bundled versus bring-your-own, and connected versus air-gapped.
 
 ## Amendment 2 (2026-11-26, F-014 T-03)
-Status: Proposed (pending acceptance by Robert Former; with the F-014 design approved 2026-11-26, §10 items 1 to 3)
+Status: Accepted (Robert Former, 2026-11-26; with the F-014 design approved 2026-11-26, §10 items 1 to 3)
 
 **Context.** F-014's design found three statements in this ADR overtaken by later decisions:
 - the upgrade policy says "an N-1 → N upgrade path", but F-012 OQ9 (2026-11-19) supports upgrades from each of the two previous minor releases, and `TestUpgradeFromPreviousReleases` tests that window; F-014 OQ10 follows F-012;

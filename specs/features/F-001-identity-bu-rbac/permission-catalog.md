@@ -144,3 +144,4 @@ Checked mechanically when this draft was generated:
 - 2026-11-18: Catalog version 7 (F-013 T-01, approved task; F-013 OQ3): `framework.view` (read, not privileged, not risk data; Platform Admin, Auditor and Risk Analyst gain it). Needs re-signing.
 - 2026-11-19: Catalog version 7 re-signed by Robert Former.
 - 2026-11-26: Catalog version 8 (F-014 T-01, approved task; F-014 OQ15): `license.manage` (resource type `license`, admin, privileged, not risk data; Platform Admin gains it). Needs re-signing.
+- 2026-11-26: Catalog version 8 re-signed by Robert Former.

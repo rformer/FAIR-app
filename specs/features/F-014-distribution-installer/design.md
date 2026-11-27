@@ -303,7 +303,7 @@ Conventions as before: operationId = handler, `x-permission`, `x-audit-events`, 
 
 ## 14. Risks & open questions
 - D-OQ1 (resolved 2026-11-26: as proposed): How does `fairctl` install? Proposed: the Helm SDK (the newest release at least two weeks old when T-06 starts), linked only into `fairctl` and `releasegen`/`profilegen` (render), using its OCI client for registry loads; no `helm` or `cosign` binary required.
-- D-OQ2 (resolved 2026-11-26: as proposed): Bundled PostgreSQL: CloudNativePG (ADR-005) or a plain StatefulSet? Proposed: CloudNativePG, operator namespace-scoped, our FIPS PostgreSQL image, backups through our CNPG-I plugin (`cmd/pgbackup`); if CNPG-I cannot carry encrypted WAL archiving in T-25, fall back to an `archive_command` tool in our image and record the change in ADR-022.
+- D-OQ2 (resolved 2026-11-26: as proposed): Bundled PostgreSQL: CloudNativePG (ADR-005) or a plain StatefulSet? Proposed: CloudNativePG, operator namespace-scoped, our FIPS PostgreSQL image, backups through our CNPG-I plugin (`cmd/pgbackup`); if CNPG-I cannot carry encrypted WAL archiving in T-24, fall back to an `archive_command` tool in our image and record the change in ADR-022.
 - D-OQ3 (resolved 2026-11-26: as proposed): FIPS for bundled third parties? Proposed: rebuild NATS, OpenBao and versitygw from pinned source with `GOFIPS140=v1.0.0`; PostgreSQL with OpenSSL 3's FIPS provider at a validated version (self-test at start); Keycloak in its documented FIPS mode with BC-FIPS; the CloudNativePG operator (no data-path cryptography of its own beyond the API client) mirrored and re-signed (F-012 design §3.6 amendment).
 - D-OQ4 (resolved 2026-11-26: as proposed): Images once or twice in the package? Proposed: once, in Zarf's OCI layout, which `fairctl` reads directly.
 - D-OQ5 (resolved 2026-11-26: as proposed): In the limited state, are new versions of existing items and register aggregates allowed? Proposed: yes; only the creations OQ9 lists are refused, so governance and evidence never stop.
@@ -322,3 +322,4 @@ Conventions as before: operationId = handler, `x-permission`, `x-audit-events`, 
 ## Change Log
 - 2026-11-26: Initial draft, In Review.
 - 2026-11-26: Approved by Robert Former; D-OQ1 to D-OQ15 resolved as proposed; ADR-019 to ADR-022 and the ADR-005, ADR-006, ADR-011 and ADR-018 amendments accepted with the design (written by T-03, T-20 and T-27).
+- 2026-11-26: D-OQ2's task reference corrected to T-24 (`cmd/pgbackup`); ADR-019 to ADR-022 and the ADR-005 and ADR-006 amendments 2 accepted by Robert Former (T-03).

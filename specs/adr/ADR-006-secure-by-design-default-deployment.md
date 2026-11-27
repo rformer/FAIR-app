@@ -1,5 +1,5 @@
 # ADR-006 Secure by design, secure by default, secure by deployment
-Status: Accepted. Amended 2026-10-24 (see Amendment 1).
+Status: Accepted. Amended 2026-10-24 (see Amendment 1) and 2026-11-26 (see Amendment 2).
 Date: 2026-10-24
 
 ## Context
@@ -49,7 +49,7 @@ Robert set a product-wide mandate: secure by design, secure by default, and secu
 - **Profiles are generated from OSCAL.** v1 generates them at build time.
 
 ## Amendment 2 (2026-11-26, F-014 T-03)
-Status: Proposed (pending acceptance by Robert Former; with the F-014 design approved 2026-11-26, §10 item 10)
+Status: Accepted (Robert Former, 2026-11-26; with the F-014 design approved 2026-11-26, §10 item 10)
 
 **Context.** "Secure by deployment" says the installer refuses insecure installs "unless an explicit, logged override is given", while constitution S0 says the installer refuses insecure deployments. Amendment 1 made every setting exception expire, but an installer override had no lifecycle: once given, it would hold for good and stay invisible on the Posture page. F-014 OQ4 and OQ5 resolved how overrides work.
 

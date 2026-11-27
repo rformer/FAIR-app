@@ -1,5 +1,5 @@
 # ADR-021 Licences: signed files, a dedicated KMS key, offline verification, a limited state that never touches security
-Status: Proposed (pending acceptance by Robert Former; F-014 T-03, with the F-014 design approved 2026-11-26)
+Status: Accepted (Robert Former, 2026-11-26; F-014 T-03, with the F-014 design approved 2026-11-26)
 Date: 2026-11-26
 
 ## Context

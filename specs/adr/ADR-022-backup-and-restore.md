@@ -1,5 +1,5 @@
 # ADR-022 Backup and restore: point-in-time PostgreSQL through our CloudNativePG plugin, object copies keeping retention, separate key snapshots, a declared restore gap
-Status: Proposed (pending acceptance by Robert Former; F-014 T-03, with the F-014 design approved 2026-11-26)
+Status: Accepted (Robert Former, 2026-11-26; F-014 T-03, with the F-014 design approved 2026-11-26)
 Date: 2026-11-26
 
 ## Context
