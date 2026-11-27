@@ -142,7 +142,12 @@ func TestRenderRelease(t *testing.T) {
 	for dir, want := range map[string][]string{
 		DirNamespaces:    {"Namespace/fair-platform", "Namespace/fair-fips-probe", "Namespace/fair-observability", "NetworkPolicy/default-deny"},
 		DirMigrate:       {"Job/iam-migrate", "ServiceAccount/iam", "NetworkPolicy/iam-migrate-egress"},
-		DirPlatform:      {"Deployment/iam", "Deployment/iam-worker", "Deployment/audit", "Deployment/risk", "Deployment/posture-scanner", "DaemonSet/fips-probe"},
+		DirPlatform: {"Deployment/iam", "Deployment/iam-worker", "Deployment/audit", "Deployment/risk", "Deployment/posture-scanner", "DaemonSet/fips-probe",
+			// F-014 T-04: the gateway and posture, the scanner's release
+			// manifest and the JetStream streams.
+			"Deployment/gateway", "Service/gateway", "NetworkPolicy/gateway-ingress", "NetworkPolicy/gateway-egress",
+			"Deployment/posture", "Service/posture", "NetworkPolicy/posture-ingress-from-gateway", "NetworkPolicy/posture-egress",
+			"ConfigMap/fair-release-manifest", "ConfigMap/fair-nats-streams"},
 		DirSecrets:       {"SecretStore/fair-instance-keys", "ExternalSecret/fair-iam-jwt", "ExternalSecret/iam-db-migrator", "Certificate/iam-tls"},
 		DirObservability: {"Deployment/otelcol", "DaemonSet/otelcol-agent", "ConfigMap/otelcol-saas", "ConfigMap/otelcol-agent"},
 	} {
@@ -157,6 +162,49 @@ func TestRenderRelease(t *testing.T) {
 			t.Errorf("platform holds %s", k)
 		}
 	}
+	// A SaaS instance's entry is the TargetGroupBinding; the self-hosted
+	// Ingress is not in the release.
+	for dir, ks := range kinds {
+		for _, k := range ks {
+			if strings.HasPrefix(k, "Ingress/") {
+				t.Errorf("%s holds %s", dir, k)
+			}
+		}
+	}
+	// Every Deployment the key store patches is in the release and patched
+	// (the gateway's and posture's were missing before F-014 T-04).
+	var kust struct {
+		Patches []struct {
+			Path   string `yaml:"path"`
+			Target struct{ Kind, Name string }
+		} `yaml:"patches"`
+	}
+	if err := yaml.Unmarshal([]byte(files["platform/kustomization.yaml"]), &kust); err != nil {
+		t.Fatal(err)
+	}
+	patched := map[string]bool{}
+	for _, p := range kust.Patches {
+		if p.Target.Kind == "Deployment" && p.Path == "keys/"+p.Target.Name+".yaml" {
+			patched[p.Target.Name] = true
+		}
+	}
+	mounts, err := readDocs(filepath.Join(root, "deploy/k8s/keys/secret-mounts.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range mounts {
+		if d.kind != "Deployment" {
+			continue
+		}
+		if !slices.Contains(kinds[DirPlatform], "Deployment/"+d.name) || !patched[d.name] {
+			t.Errorf("secret-mounts.yaml patches Deployment %s, which the release lacks or does not patch (patched: %v)", d.name, patched)
+		}
+	}
+	for _, name := range []string{"gateway", "posture"} {
+		if !patched[name] {
+			t.Errorf("the %s Deployment's key mounts are not patched in", name)
+		}
+	}
 	if _, ok := files["platform/breakglass-emergency.yaml"]; ok || strings.Contains(noComments(strings.Join(slices.Collect(mapValues(files)), "")), "-emergency") {
 		t.Error("the emergency break-glass Job is in the release")
 	}
@@ -165,6 +213,38 @@ func TestRenderRelease(t *testing.T) {
 	}
 	if !strings.Contains(files["observability/k8s-saas.yaml"], "kustomize.toolkit.fluxcd.io/substitute: disabled") {
 		t.Error("the Collector configurations are not exempt from substitution")
+	}
+}
+
+// TestGatewayEntry (F-014 T-04, design §3.2): the gateway's Ingress and
+// its OpenShift Route variant send the platform host to the gateway's
+// HTTPS port only, with TLS on both legs and plain HTTP redirected.
+func TestGatewayEntry(t *testing.T) {
+	read := func(p string) []map[string]any {
+		b, err := os.ReadFile(filepath.Join(root, p)) // #nosec G304 -- the repository's own files
+		if err != nil {
+			t.Fatal(err)
+		}
+		return yamlDocs(t, string(b))
+	}
+	gw := read("deploy/k8s/gateway.yaml")
+	if svc := named(gw, "Service", "gateway"); dig(svc, "spec", "ports") == nil {
+		t.Fatal("no gateway Service")
+	}
+	ing := named(gw, "Ingress", "gateway")
+	tls, _ := dig(ing, "spec", "tls").([]any)
+	rules, _ := dig(ing, "spec", "rules").([]any)
+	if len(tls) != 1 || len(rules) != 1 || dig(ing, "metadata", "annotations", "nginx.ingress.kubernetes.io/backend-protocol") != "HTTPS" {
+		t.Fatalf("Ingress: %v", ing)
+	}
+	paths, _ := dig(rules[0], "http", "paths").([]any)
+	if len(paths) != 1 || dig(paths[0], "backend", "service", "name") != "gateway" || dig(paths[0], "backend", "service", "port", "name") != "https" {
+		t.Errorf("Ingress backend: %v", paths)
+	}
+	route := named(read("deploy/k8s/openshift/gateway-route.yaml"), "Route", "gateway")
+	if dig(route, "spec", "to", "name") != "gateway" || dig(route, "spec", "port", "targetPort") != "https" ||
+		dig(route, "spec", "tls", "termination") != "reencrypt" || dig(route, "spec", "tls", "insecureEdgeTerminationPolicy") != "Redirect" {
+		t.Errorf("Route: %v", route)
 	}
 }
 

@@ -1,0 +1,184 @@
+# Reference manifest for the gateway (F-001 T-13, design §2, §5.8; F-014
+# T-04, design §3.2). The supported install path is the Helm/Zarf bundle from
+# F-014; this file documents the hardening every chart must preserve. Key
+# material comes from the mode's key store (deploy/k8s/keys: secret-mounts.yaml,
+# saas/, openbao/).
+# The gateway is the platform's only entry from outside the namespace:
+# browser sessions, CSRF protection, the session APIs, service-account
+# tokens, and the authenticated proxy to the services (FAIR_UPSTREAMS), which
+# accept traffic from the gateway only. Stateless (A5): two replicas; the
+# sessions are in the database (app_gateway, definer functions only).
+# The public entry is the Ingress below on most clusters, the Route in
+# deploy/k8s/openshift/gateway-route.yaml on OpenShift, and in SaaS the
+# load balancer's TargetGroupBinding (deploy/fleet/addons-config), so the
+# fleet's release leaves the Ingress out (internal/fleet ExcludedKinds).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gateway
+  namespace: fair-platform
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: gateway, app.kubernetes.io/part-of: fair-platform }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app.kubernetes.io/name: gateway }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: gateway, app.kubernetes.io/part-of: fair-platform }
+    spec:
+      serviceAccountName: gateway
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: gateway
+          image: ghcr.io/rformer/fair-gateway:REPLACE_WITH_DIGEST
+          ports: [{ name: https, containerPort: 8443 }]
+          env:
+            - { name: FAIR_ENV, value: production }
+            - { name: FAIR_DEPLOYMENT_MODE, value: self-hosted } # saas or air-gapped as installed (ADR-005)
+            - { name: FAIR_TLS_CERT_FILE, value: /tls/tls.crt }
+            - { name: FAIR_TLS_KEY_FILE, value: /tls/tls.key }
+            - { name: PGHOST, value: REPLACE_WITH_DB_HOST }
+            - { name: PGDATABASE, value: fair }
+            - { name: PGSSLMODE, value: verify-full }
+            - { name: PGSSLROOTCERT, value: /db-ca/ca.crt }
+            # app_gateway's password: sessions only through their definer functions.
+            - { name: FAIR_DB_PASSWORD_FILE, value: /secrets/db/password }
+            # The platform's origin: CSRF origin checks and the cookies' scope.
+            - { name: FAIR_PUBLIC_ORIGIN, value: https://REPLACE_WITH_PLATFORM_HOST }
+            # /api/v1/<name>/ and the resource segments of gateway.Segments go
+            # to these services, over TLS 1.2+ checked against the CA below.
+            - name: FAIR_UPSTREAMS
+              value: iam=https://iam.fair-platform.svc,posture=https://posture.fair-platform.svc,audit=https://audit.fair-platform.svc,risk=https://risk.fair-platform.svc,notify=https://notify.fair-platform.svc,integrate=https://integrate.fair-platform.svc
+            # The CA of the services' certificates (each TLS Secret carries it).
+            - { name: FAIR_UPSTREAM_CA_FILE, value: /tls/ca.crt }
+            # Session network binding (F-001 T-20): the client address from the
+            # ingress's header, believed only from the ingress's addresses.
+            - { name: FAIR_CLIENT_IP_HEADER, value: X-Forwarded-For }
+            - { name: FAIR_TRUSTED_PROXIES, value: REPLACE_WITH_INGRESS_CIDR }
+            # Optional: iptoasn.com's tables for the ASN check (else prefixes only).
+            # - { name: FAIR_ASN_DB_DIR, value: /asn }
+            # Optional: mTLS service accounts on a second listener (F-001 T-33),
+            # or the client certificate in a header from a TLS-terminating ingress.
+            # - { name: FAIR_MTLS_LISTEN_ADDR, value: ":9444" }
+            # - { name: FAIR_CLIENT_CERT_HEADER, value: ssl-client-cert }
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          livenessProbe:
+            httpGet: { path: /healthz, port: https, scheme: HTTPS }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /readyz, port: https, scheme: HTTPS }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          volumeMounts:
+            - { name: tls, mountPath: /tls, readOnly: true }
+            - { name: db, mountPath: /secrets/db, readOnly: true }
+            - { name: db-ca, mountPath: /db-ca, readOnly: true }
+      volumes:
+        - name: tls
+          secret: { secretName: gateway-tls }
+        - name: db
+          secret: { secretName: gateway-db-app, defaultMode: 0400 }
+        - name: db-ca
+          secret: { secretName: db-ca }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: fair-platform
+spec:
+  selector: { app.kubernetes.io/name: gateway }
+  ports: [{ name: https, port: 443, targetPort: https }]
+---
+# Ingress: the ingress controller or load balancer (REPLACE_WITH_INGRESS_CIDR,
+# its addresses; the chart uses a namespaceSelector for an in-cluster
+# controller) and the integrate service, whose connectors submit batches
+# through the gateway as their service accounts (F-011 design §3.3). Nothing
+# else in or outside the cluster reaches a platform service.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gateway-ingress
+  namespace: fair-platform
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: gateway }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - ipBlock: { cidr: REPLACE_WITH_INGRESS_CIDR }
+      ports: [{ port: 8443, protocol: TCP }]
+    - from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: integrate }
+      ports: [{ port: 8443, protocol: TCP }]
+---
+# Egress: PostgreSQL, DNS and the upstream services (pod port 8443). The
+# gateway makes no other connection in any mode: identity providers are
+# iam's to reach.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gateway-egress
+  namespace: fair-platform
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: gateway }
+  policyTypes: [Egress]
+  egress:
+    - ports: [{ port: 5432, protocol: TCP }]
+    - ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]
+    - to:
+        - podSelector:
+            matchExpressions:
+              - { key: app.kubernetes.io/name, operator: In, values: [iam, posture, audit, risk, notify, integrate] }
+      ports: [{ port: 8443, protocol: TCP }]
+---
+# The public entry on clusters with an ingress controller. TLS from the
+# client to the controller with the platform host's certificate (the
+# customer's Secret gateway-public-tls), and TLS again to the gateway: the
+# backend protocol annotation is ingress-nginx's; other controllers have
+# their own (the chart sets the class and annotations). The controller must
+# set X-Forwarded-For (FAIR_CLIENT_IP_HEADER) and serve TLS 1.2 or later only.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gateway
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: gateway, app.kubernetes.io/part-of: fair-platform }
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  tls:
+    - hosts: [REPLACE_WITH_PLATFORM_HOST]
+      secretName: gateway-public-tls
+  rules:
+    - host: REPLACE_WITH_PLATFORM_HOST
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway
+                port: { name: https }

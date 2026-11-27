@@ -129,3 +129,45 @@ spec:
       remoteRef:
         key: fair/REPLACE_WITH_INSTANCE/database/app_integrate
         property: password
+---
+# gateway: sessions only through their definer functions (F-014 T-04)
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: gateway-db-app
+  namespace: fair-platform
+spec:
+  refreshInterval: 5m
+  secretStoreRef: { kind: SecretStore, name: fair-instance-keys }
+  target:
+    name: gateway-db-app
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      type: Opaque
+  data:
+    - secretKey: password
+      remoteRef:
+        key: fair/REPLACE_WITH_INSTANCE/database/app_gateway
+        property: password
+---
+# posture: no table privileges, definer functions only (F-014 T-04)
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: posture-db-app
+  namespace: fair-platform
+spec:
+  refreshInterval: 5m
+  secretStoreRef: { kind: SecretStore, name: fair-instance-keys }
+  target:
+    name: posture-db-app
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    template:
+      type: Opaque
+  data:
+    - secretKey: password
+      remoteRef:
+        key: fair/REPLACE_WITH_INSTANCE/database/app_posture
+        property: password

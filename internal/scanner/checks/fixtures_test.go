@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math/big"
 	"net"
 	"os"
@@ -118,6 +119,13 @@ func loadFixture(t *testing.T, distro, variant string) *fixtureReader {
 	for _, d := range yamlDocs(t, filepath.Join("testdata", distro, variant+".yaml")) {
 		add(d)
 	}
+	// F-014 T-04: a compliant cluster runs the reference gateway and posture
+	// as deploy/k8s describes them; they must pass every check.
+	if variant == "pass" {
+		for _, d := range referenceWorkloads(t) {
+			add(d)
+		}
+	}
 	f := &fixtureReader{objs: map[string][]kube.Object{}, served: map[string]bool{}}
 	for _, p := range plurals {
 		f.served[p] = true
@@ -149,6 +157,64 @@ func loadFixture(t *testing.T, distro, variant string) *fixtureReader {
 		f.objs[p] = append(f.objs[p], o)
 	}
 	return f
+}
+
+// referenceDigests are the fixtures' release digests of the reference
+// workloads' images.
+var referenceDigests = map[string]string{
+	"gateway": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+	"posture": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+}
+
+// referenceWorkloads are deploy/k8s/gateway.yaml's and posture.yaml's
+// objects as a cluster serves them: each Deployment as a running pod of its
+// template (images by the release's digests), its Services answering with
+// good TLS, its NetworkPolicies.
+func referenceWorkloads(t *testing.T) []map[string]any {
+	t.Helper()
+	var out []map[string]any
+	for _, c := range slices.Sorted(maps.Keys(referenceDigests)) {
+		for _, d := range yamlDocs(t, "../../../deploy/k8s/"+c+".yaml") {
+			md, _ := d["metadata"].(map[string]any)
+			switch d["kind"] {
+			case "NetworkPolicy":
+				out = append(out, d)
+			case "Service":
+				md["annotations"] = map[string]any{"fixture/tls": "good"}
+				out = append(out, d)
+			case "Deployment":
+				name := fmt.Sprint(md["name"])
+				tmpl, _ := d["spec"].(map[string]any)["template"].(map[string]any)
+				tmd, _ := tmpl["metadata"].(map[string]any)
+				labels, _ := tmd["labels"].(map[string]any)
+				labels["pod-template-hash"] = "5f6d7c8b9"
+				spec, _ := tmpl["spec"].(map[string]any)
+				var statuses []any
+				for _, x := range spec["containers"].([]any) {
+					ctr := x.(map[string]any)
+					img := strings.Replace(fmt.Sprint(ctr["image"]), ":REPLACE_WITH_DIGEST", "@"+referenceDigests[c], 1)
+					if img == ctr["image"] {
+						t.Fatalf("%s: container %v is not the release's image placeholder", c, ctr["name"])
+					}
+					ctr["image"] = img
+					statuses = append(statuses, map[string]any{"name": ctr["name"], "image": img, "imageID": img})
+				}
+				out = append(out, map[string]any{
+					"apiVersion": "v1", "kind": "Pod",
+					"metadata": map[string]any{
+						"name": name + "-5f6d7c8b9-ref00", "namespace": md["namespace"], "labels": labels,
+						"ownerReferences": []any{map[string]any{"apiVersion": "apps/v1", "kind": "ReplicaSet", "name": name + "-5f6d7c8b9", "uid": "ref-" + name}},
+					},
+					"spec":   spec,
+					"status": map[string]any{"containerStatuses": statuses},
+				})
+			}
+		}
+	}
+	if len(out) == 0 {
+		t.Fatal("no reference workloads")
+	}
+	return out
 }
 
 // --- test TLS endpoints -----------------------------------------------------
@@ -302,6 +368,9 @@ func releaseFor(t *testing.T) (string, *ecdsa.PublicKey) {
 	}
 	m := &releasemanifest.Manifest{Format: releasemanifest.Format, Release: "1.0.0", RBAC: rbac, Images: map[string]string{
 		"iam": "ghcr.io/rformer/fair-iam@" + iamDigest, "posture-scanner": "ghcr.io/rformer/fair-posture-scanner@" + scannerDigest}}
+	for c, d := range referenceDigests {
+		m.Images[c] = "ghcr.io/rformer/fair-" + c + "@" + d
+	}
 	b, err := releasemanifest.Encode(m)
 	if err != nil {
 		t.Fatal(err)

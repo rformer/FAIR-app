@@ -94,6 +94,23 @@ spec:
   privateKey: { algorithm: ECDSA, size: 256, rotationPolicy: Always }
   issuerRef: { group: awspca.cert-manager.io, kind: AWSPCAClusterIssuer, name: fair-internal }
 ---
+# The gateway's own certificate (F-014 T-04): the load balancer's and the
+# integrate service's connections to it.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: gateway-tls
+  namespace: fair-platform
+spec:
+  secretName: gateway-tls
+  commonName: gateway.fair-platform.svc
+  dnsNames: [gateway.fair-platform.svc]
+  usages: [digital signature, server auth]
+  duration: 720h
+  renewBefore: 240h
+  privateKey: { algorithm: ECDSA, size: 256, rotationPolicy: Always }
+  issuerRef: { group: awspca.cert-manager.io, kind: AWSPCAClusterIssuer, name: fair-internal }
+---
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:

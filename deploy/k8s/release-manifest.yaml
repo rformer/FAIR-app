@@ -1,0 +1,25 @@
+# The signed release manifest the deployment scanner verifies on every scan
+# (F-015 T-28, design §6.8; F-014 T-04, design §3.2, §3.6): every image by
+# digest and the RBAC hashes of deploy/k8s (releasegen manifest), its
+# signature (releasegen sign) and the release public key. posture-scanner
+# mounts it at /release (deploy/k8s/posture-scanner.yaml).
+# The values are the release's, written by the installer (fairctl, design
+# §3.6 step "the release manifest ConfigMap") or by hand:
+#   kubectl -n fair-platform create configmap fair-release-manifest \
+#     --from-file=release-manifest.json --from-file=release-manifest.json.sig \
+#     --from-file=release-signing.pub=cosign.pub --dry-run=client -o yaml | kubectl apply -f -
+# Empty here: an empty or unsigned manifest makes the image and RBAC checks
+# report errors, never "passed". Flux creates the object only where it does
+# not exist (ssa: IfNotPresent) and never overwrites the values written.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fair-release-manifest
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: fair-release-manifest, app.kubernetes.io/part-of: fair-platform }
+  annotations:
+    kustomize.toolkit.fluxcd.io/ssa: IfNotPresent
+data:
+  release-manifest.json: ""
+  release-manifest.json.sig: ""
+  release-signing.pub: ""

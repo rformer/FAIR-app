@@ -11,7 +11,7 @@
 //	secrets/        the SaaS key store's ExternalSecrets and the services'
 //	                certificates (deploy/k8s/keys/saas)
 //	migrate/        the iam migration Job, its ServiceAccount and egress
-//	platform/       every other object of deploy/k8s, with the key mounts of
+//	platform/       every other object of deploy/k8s (but ExcludedKinds), with the key mounts of
 //	                deploy/k8s/keys/secret-mounts.yaml as patches
 //	observability/  the Collector and its log agent (deploy/observability)
 //	release.json    the release and its images
@@ -54,6 +54,12 @@ var Dirs = []string{DirNamespaces, DirSecrets, DirMigrate, DirPlatform, DirObser
 // Excluded are deploy/k8s files that are not part of a running instance:
 // the emergency break-glass Job is run by an operator, by hand (F-001 T-35).
 var Excluded = []string{"breakglass-emergency.yaml"}
+
+// ExcludedKinds are kinds of deploy/k8s objects the fleet's instances do not
+// run: a SaaS instance's public entry is the load balancer's
+// TargetGroupBinding (deploy/fleet/addons-config), not the gateway's
+// Ingress, which is for self-hosted clusters (F-014 T-04).
+var ExcludedKinds = []string{"Ingress"}
 
 // Variables maps the reference manifests' instance placeholders to the
 // Flux post-build variables of the instance (deploy/fleet/instances).
@@ -180,6 +186,8 @@ func Render(o Options, out string) error {
 		var plat, mig []string
 		for _, d := range ds {
 			switch {
+			case slices.Contains(ExcludedKinds, d.kind):
+				continue
 			case d.kind == "Namespace", d.kind == "NetworkPolicy" && d.name == "default-deny":
 				namespaces = append(namespaces, d.text)
 			case d.kind == "Job" && strings.HasSuffix(d.name, "-migrate"):

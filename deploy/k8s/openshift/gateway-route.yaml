@@ -1,0 +1,41 @@
+# F-014 T-04 (design §3.2): OpenShift only, in place of the gateway's Ingress
+# (deploy/k8s/gateway.yaml). The router terminates the client's TLS with the
+# platform host's certificate and re-encrypts to the gateway, checking the
+# gateway's certificate against destinationCACertificate: the installation
+# CA (the chart fills it), or, where gateway-tls comes from OpenShift's
+# service CA (Service annotation service.beta.openshift.io/serving-cert-secret-name:
+# gateway-tls), left out. Plain HTTP is redirected, never served. The router
+# sets X-Forwarded-For (the gateway's FAIR_CLIENT_IP_HEADER); its addresses
+# are FAIR_TRUSTED_PROXIES. The router's TLS 1.2 floor is the cluster's
+# IngressController tlsSecurityProfile (Intermediate or Modern).
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: gateway
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: gateway, app.kubernetes.io/part-of: fair-platform }
+spec:
+  host: REPLACE_WITH_PLATFORM_HOST
+  to: { kind: Service, name: gateway, weight: 100 }
+  port: { targetPort: https }
+  tls:
+    termination: reencrypt
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None
+---
+# The router's pods reach the gateway (their namespaces carry the policy
+# group label), in place of the ipBlock rule of gateway-ingress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gateway-ingress-from-router
+  namespace: fair-platform
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: gateway }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { policy-group.network.openshift.io/ingress: "" }
+      ports: [{ port: 8443, protocol: TCP }]

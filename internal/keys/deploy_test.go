@@ -126,7 +126,95 @@ func checkEnv(t *testing.T, file string, d map[string]any, svc string) {
 // TestDeployManifests ties deploy/k8s/keys to the layout (F-001 T-41):
 // every mode delivers the same directories at the same paths.
 func TestDeployManifests(t *testing.T) {
-	services := []string{Gateway, IAM, Posture, Audit, Risk, Integrate, EngineGate}
+	services := []string{Gateway, IAM, Posture, Audit, Risk, Notify, Integrate, EngineGate}
+
+	// F-014 T-04: every Deployment the key stores patch is a reference
+	// manifest of deploy/k8s, hardened alike, and takes its keys only from
+	// the store (the patches add the key environment).
+	t.Run("reference workloads", func(t *testing.T) {
+		var ref []map[string]any
+		files, err := filepath.Glob(filepath.Join(deployDir, "..", "*.yaml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range files {
+			ref = append(ref, docs(t, filepath.Join("..", filepath.Base(f)))...)
+		}
+		keyEnv := map[string]bool{}
+		for _, m := range Mounts {
+			for k := range m.Env {
+				keyEnv[k] = true
+			}
+		}
+		for _, svc := range services {
+			d := deployment(t, ref, svc)
+			spec := at(d, "spec", "template", "spec")
+			psc := at(spec, "securityContext")
+			if at(spec, "automountServiceAccountToken") != false || at(psc, "runAsNonRoot") != true || at(psc, "runAsUser") != 65532 ||
+				at(psc, "seccompProfile", "type") != "RuntimeDefault" {
+				t.Errorf("%s: pod security %v, token automount %v", svc, psc, at(spec, "automountServiceAccountToken"))
+			}
+			sa, _ := at(spec, "serviceAccountName").(string)
+			if !slices.ContainsFunc(ref, func(o map[string]any) bool {
+				return o["kind"] == "ServiceAccount" && at(o, "metadata", "name") == sa && at(o, "automountServiceAccountToken") == false
+			}) {
+				t.Errorf("%s: ServiceAccount %q missing or mounting its token", svc, sa)
+			}
+			c := named(at(spec, "containers"), svc)
+			if c == nil {
+				t.Errorf("%s: no container %s in Deployment %s", svc, svc, deploymentOf(svc))
+				continue
+			}
+			sc := at(c, "securityContext")
+			if at(sc, "allowPrivilegeEscalation") != false || at(sc, "readOnlyRootFilesystem") != true || fmt.Sprint(at(sc, "capabilities", "drop")) != "[ALL]" {
+				t.Errorf("%s: container security %v", svc, sc)
+			}
+			if img, _ := at(c, "image").(string); img != "ghcr.io/rformer/fair-"+svc+":REPLACE_WITH_DIGEST" {
+				t.Errorf("%s: image %q is not the release's placeholder", svc, img)
+			}
+			if at(c, "livenessProbe", "httpGet", "path") != "/healthz" || at(c, "readinessProbe", "httpGet", "path") != "/readyz" {
+				t.Errorf("%s: probes %v %v", svc, at(c, "livenessProbe"), at(c, "readinessProbe"))
+			}
+			if at(c, "resources", "limits", "memory") == nil {
+				t.Errorf("%s: no memory limit", svc)
+			}
+			env, _ := at(c, "env").([]any)
+			for _, e := range env {
+				if n, _ := at(e, "name").(string); keyEnv[n] {
+					t.Errorf("%s: the reference manifest sets %s, which the key store provides", svc, n)
+				}
+			}
+			if svc == EngineGate {
+				continue
+			}
+			for _, e := range []string{"FAIR_ENV", "FAIR_DEPLOYMENT_MODE", "FAIR_TLS_CERT_FILE", "FAIR_TLS_KEY_FILE"} {
+				if named(env, e) == nil {
+					t.Errorf("%s: no %s", svc, e)
+				}
+			}
+			// Only the gateway is reached from outside the namespace; every
+			// other service from the gateway (and, for posture, its scanner).
+			for _, np := range ref {
+				if np["kind"] != "NetworkPolicy" || at(np, "spec", "podSelector", "matchLabels", "app.kubernetes.io/name") != svc {
+					continue
+				}
+				rules, _ := at(np, "spec", "ingress").([]any)
+				for _, r := range rules {
+					from, _ := at(r, "from").([]any)
+					for _, f := range from {
+						peer := at(f, "podSelector", "matchLabels", "app.kubernetes.io/name")
+						switch {
+						case svc == Gateway && (at(f, "ipBlock") != nil || peer == Integrate):
+						case svc == Posture && peer == "posture-scanner":
+						case svc != Gateway && peer == Gateway:
+						default:
+							t.Errorf("%s: NetworkPolicy %v admits %v", svc, at(np, "metadata", "name"), f)
+						}
+					}
+				}
+			}
+		}
+	})
 
 	t.Run("secret-mounts", func(t *testing.T) {
 		ds := docs(t, "secret-mounts.yaml")

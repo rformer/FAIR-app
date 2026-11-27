@@ -1,0 +1,56 @@
+# The JetStream streams of the platform (F-014 T-04, design §3.2, §3.6), as
+# data for the installer, which creates or updates each one before the
+# services start (fairctl; by hand: `nats stream add --config` per entry).
+# streams.json is a list of JetStream stream configurations in the server's
+# own JSON form (jetstream.StreamConfig; durations in nanoseconds). Together
+# they capture exactly the subjects published with an acknowledgement:
+#   FAIR_IAM      scope.Subjects (internal/scope): iam's outbox topics. The
+#                 scope worker refuses to start unless a stream captures each
+#                 one, since an event it cannot publish holds back every later
+#                 one, audit events included.
+#   FAIR_POSTURE  settings.SubjectChanged (pkg/settings): settings changes.
+# Settings heartbeats (posture.settings.heartbeat) are core NATS, never
+# stored. Messages are de-duplicated by id within the duplicate window (the
+# outbox's redeliveries) and kept for 7 days. A test keeps this file equal to
+# the code (internal/scope TestNATSStreams). num_replicas is the NATS
+# cluster's size, at most 3 (the bundled NATS: 1).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fair-nats-streams
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: fair-nats-streams, app.kubernetes.io/part-of: fair-platform }
+data:
+  streams.json: |
+    [
+      {
+        "name": "FAIR_IAM",
+        "description": "iam's outbox topics: scope changes, revoked sessions, deactivated users, break-glass sign-ins",
+        "subjects": ["iam.scope.changed", "iam.session.revoked", "iam.user.deactivated", "iam.breakglass.login"],
+        "retention": "limits",
+        "storage": "file",
+        "discard": "old",
+        "max_consumers": -1,
+        "max_msgs": -1,
+        "max_bytes": -1,
+        "max_msgs_per_subject": -1,
+        "max_age": 604800000000000,
+        "duplicate_window": 120000000000,
+        "num_replicas": 1
+      },
+      {
+        "name": "FAIR_POSTURE",
+        "description": "Settings changes: every service refreshes its effective settings",
+        "subjects": ["posture.setting.changed"],
+        "retention": "limits",
+        "storage": "file",
+        "discard": "old",
+        "max_consumers": -1,
+        "max_msgs": -1,
+        "max_bytes": -1,
+        "max_msgs_per_subject": -1,
+        "max_age": 604800000000000,
+        "duplicate_window": 120000000000,
+        "num_replicas": 1
+      }
+    ]
