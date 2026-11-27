@@ -80,14 +80,25 @@ func TestCatalogVersion3Upgrade(t *testing.T) {
 	}
 }
 
+// catalogVersion7 is the shipped catalog as it was at version 7: without
+// version 8's license.manage (F-014 T-01).
+func catalogVersion7(t *testing.T) (*catalog.Catalog, *catalog.BuiltinRoles) {
+	t.Helper()
+	c, br := release(t)
+	if c.Version != 8 {
+		t.Fatalf("the shipped catalog is version %d", c.Version)
+	}
+	c7, br7 := cloneRelease(c, br)
+	c7.Version, br7.CatalogVersion = 7, 7
+	dropPermission(c7, br7, "license.manage")
+	return c7, br7
+}
+
 // catalogVersion6 is the shipped catalog as it was at version 6: without
 // version 7's framework.view (F-013 T-01).
 func catalogVersion6(t *testing.T) (*catalog.Catalog, *catalog.BuiltinRoles) {
 	t.Helper()
-	c, br := release(t)
-	if c.Version != 7 {
-		t.Fatalf("the shipped catalog is version %d", c.Version)
-	}
+	c, br := catalogVersion7(t)
 	c6, br6 := cloneRelease(c, br)
 	c6.Version, br6.CatalogVersion = 6, 6
 	dropPermission(c6, br6, "framework.view")
@@ -289,7 +300,7 @@ func TestCatalogVersion6Upgrade(t *testing.T) {
 // data; Platform Admin, Auditor and Risk Analyst gain it) arrives with a
 // notice; custom roles are untouched.
 func TestCatalogVersion7Upgrade(t *testing.T) {
-	c7, br7 := release(t)
+	c7, br7 := catalogVersion7(t)
 	c6, br6 := catalogVersion6(t)
 	e := setupWith(t, func() (*catalog.Catalog, *catalog.BuiltinRoles, error) { return c6, br6, nil })
 	for _, u := range []string{"platform", "aud", "ana", "rita", "owen"} {
@@ -325,6 +336,49 @@ func TestCatalogVersion7Upgrade(t *testing.T) {
 		}
 	}
 	if again := e.sync(t, c7, br7); again.PreviousVersion != 7 || len(again.AddedPermissions) != 0 || len(again.VersionedRoles) != 0 {
+		t.Fatalf("second sync %+v", again)
+	}
+}
+
+// F-014 T-01 (F-014 OQ15, design §4): permission catalog version 8 on an
+// installation at version 7: license.manage (admin, privileged, not risk
+// data; Platform Admin gains it) arrives with a notice; custom roles are
+// untouched; Auditor and BU Admin do not hold it.
+func TestCatalogVersion8Upgrade(t *testing.T) {
+	c8, br8 := release(t)
+	c7, br7 := catalogVersion7(t)
+	e := setupWith(t, func() (*catalog.Catalog, *catalog.BuiltinRoles, error) { return c7, br7, nil })
+	for _, u := range []string{"platform", "aud", "bua", "rita"} {
+		e.mustOwner("INSERT INTO iam.app_user (email, display_name) VALUES ('" + u + "@example.test', '" + u + "')")
+	}
+	e.mustOwner("SELECT iam.bootstrap_platform_admin(" + uid("platform") + ")")
+	e.mustOwner(`WITH r AS (INSERT INTO iam.role (name) VALUES ('Posture Keeper') RETURNING id)
+		INSERT INTO iam.role_version (role_id, version, permissions, change_reason) SELECT id, 1, ARRAY['posture.view', 'settings.change'], 'test' FROM r`)
+	e.mustOwner(grant("platform", "user:rita", "Posture Keeper", "ENTERPRISE"))
+	e.mustOwner(grant("platform", "user:aud", "Auditor", "ENTERPRISE"))
+	e.mustOwner(grant("platform", "user:bua", "BU Admin", "ENTERPRISE"))
+
+	r := e.sync(t, c8, br8)
+	if r.PreviousVersion != 7 || r.Version != 8 || strings.Join(r.AddedPermissions, ",") != "license.manage" || len(r.CreatedRoles) != 0 ||
+		strings.Join(r.VersionedRoles, ",") != "Platform Admin" || len(r.CustomRolesChanged) != 0 {
+		t.Fatalf("sync result %+v", r)
+	}
+	if got := e.mustOwner("SELECT string_agg(subject, ',') FROM iam.catalog_notice WHERE catalog_version = 8 AND kind = 'added'"); got != "license.manage" {
+		t.Fatalf("added notices %s", got)
+	}
+	if got := e.mustOwner("SELECT resource_type || ':' || action || ':' || privileged || ':' || risk_data FROM iam.permission WHERE key = 'license.manage'"); got != "license:admin:true:false" {
+		t.Errorf("license.manage %s", got)
+	}
+	if v, perms := e.rolePerms("Posture Keeper"); v != 1 || strings.Join(perms, ",") != "posture.view,settings.change" {
+		t.Fatalf("custom role v%d %v", v, perms)
+	}
+	e.drain()
+	for _, c := range []struct{ user, want string }{{"platform", "t"}, {"aud", "f"}, {"bua", "f"}, {"rita", "f"}} {
+		if got := e.adminQuery("SELECT iam.user_has_permission(" + uid(c.user) + ", 'license.manage', " + buID("ENTERPRISE") + ")"); got != c.want {
+			t.Errorf("%s holds license.manage: %s", c.user, got)
+		}
+	}
+	if again := e.sync(t, c8, br8); again.PreviousVersion != 8 || len(again.AddedPermissions) != 0 || len(again.VersionedRoles) != 0 {
 		t.Fatalf("second sync %+v", again)
 	}
 }

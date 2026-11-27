@@ -10,7 +10,7 @@ This is the first shipped permission catalog. T-06 commits it as the catalog JSO
 - **Privileged** (AC-54): every `approve`, `admin` and `export` permission is privileged, and the loader enforces this. `audit.view` (audit-log access) and `entitlement.view` are also marked privileged.
 - **Admin permissions** (AC-22, AC-30) are the ones with action `admin`.
 - **Risk data** (AC-30, AC-44): each permission carries a required `risk_data` flag (PC-1). It is true exactly for the "Risk data" table below. An `admin` permission can never be risk data, and the loader enforces this.
-- **Version:** keys are `introduced_in: 1` unless their row names a later catalog version. The catalog was at version 1 until the first addition. Every change follows the T-03 upgrade rules: the version is bumped, and new keys are never added to existing custom roles (AC-57). Version 2 adds `audit.hold` (F-002 T-19). Version 3 adds the estimate and calibration keys and the Estimator role (F-004 T-01). Version 4 adds `notification.view` (F-009 T-01). Version 5 adds the Report Publisher role and gives Auditor `report.export` (F-010 T-01). Version 6 adds `integration.view` and `integration.push` (F-011 T-01). Version 7 adds `framework.view` (F-013 T-01).
+- **Version:** keys are `introduced_in: 1` unless their row names a later catalog version. The catalog was at version 1 until the first addition. Every change follows the T-03 upgrade rules: the version is bumped, and new keys are never added to existing custom roles (AC-57). Version 2 adds `audit.hold` (F-002 T-19). Version 3 adds the estimate and calibration keys and the Estimator role (F-004 T-01). Version 4 adds `notification.view` (F-009 T-01). Version 5 adds the Report Publisher role and gives Auditor `report.export` (F-010 T-01). Version 6 adds `integration.view` and `integration.push` (F-011 T-01). Version 7 adds `framework.view` (F-013 T-01). Version 8 adds `license.manage` (F-014 T-01).
 - **Scope:** permissions are checked at a BU (`authz.Check(principal, permission, buID)`). Instance-wide administration is checked at the Enterprise root.
 - **Restricted BUs:** AC-22's "explicitly granted that right there" needs no extra permission. `access.assign` held at an ancestor does not inherit into a restricted BU (AC-60), so assigning roles there requires an assignment at or below that BU.
 
@@ -51,6 +51,7 @@ This is the first shipped permission catalog. T-06 commits it as the catalog JSO
 |---|---|---|---|---|
 | `posture.view` | read | no | F-015 | View the Security Posture page |
 | `posture.export` | export | **yes** | F-015 | Export OSCAL Assessment Results and POA&M |
+| `license.manage` | admin | **yes** | F-014 | Install a renewed licence file (verified offline; never gates security) (catalog version 8) |
 | `settings.change` | write | no | F-015 | Request a security setting change through settings.Set |
 | `settings.approve` | approve | **yes** | F-015 | Second approval for loosening a setting |
 | `profile.manage` | admin | **yes** | F-015 | Create and edit custom profiles; request a profile switch |
@@ -104,7 +105,7 @@ This is the first shipped permission catalog. T-06 commits it as the catalog JSO
 ## Built-in role templates (input to T-06)
 | Role | Permissions |
 |---|---|
-| Platform Admin | `idp.view`, `idp.manage`, `scim.manage`, `user.view`, `user.manage`, `bu.view`, `bu.manage`, `bu.restrict`, `role.view`, `role.manage`, `access.view`, `access.assign`, `access.map_groups`, `access.approve`, `sod.manage`, `session.view`, `session.revoke`, `banner.manage`, `service_account.manage`, `breakglass.manage`, `access_review.manage`, `entitlement.view`, `entitlement.export`, `posture.view`, `posture.export`, `settings.change`, `settings.approve`, `profile.manage`, `profile.approve`, `exception.renew`, `drift.acknowledge`, `notification.manage`, `notification.view`, `integration.manage`, `integration.view`, `framework.manage`, `framework.view`, `audit.hold`, `calibration.take`, `calibration.manage` |
+| Platform Admin | `idp.view`, `idp.manage`, `scim.manage`, `user.view`, `user.manage`, `bu.view`, `bu.manage`, `bu.restrict`, `role.view`, `role.manage`, `access.view`, `access.assign`, `access.map_groups`, `access.approve`, `sod.manage`, `session.view`, `session.revoke`, `banner.manage`, `service_account.manage`, `breakglass.manage`, `access_review.manage`, `entitlement.view`, `entitlement.export`, `posture.view`, `posture.export`, `settings.change`, `settings.approve`, `profile.manage`, `profile.approve`, `exception.renew`, `drift.acknowledge`, `notification.manage`, `notification.view`, `integration.manage`, `integration.view`, `framework.manage`, `framework.view`, `license.manage`, `audit.hold`, `calibration.take`, `calibration.manage` |
 | BU Admin | `bu.view`, `user.view`, `role.view`, `access.view`, `access.assign`, `calibration.take` |
 | Risk Analyst | `scenario.view`, `library.view`, `analysis.view`, `control.view`, `register.view`, `treatment.view`, `acceptance.view`, `report.view`, `library.edit`, `scenario.edit`, `analysis.edit`, `analysis.run`, `control.edit`, `framework.view`, `estimate.request`, `calibration.take` |
 | Risk Owner | `scenario.view`, `library.view`, `analysis.view`, `control.view`, `register.view`, `treatment.view`, `acceptance.view`, `report.view`, `register.edit`, `treatment.edit`, `acceptance.request`, `calibration.take` |
@@ -142,3 +143,4 @@ Checked mechanically when this draft was generated:
 - 2026-11-17: Catalog version 6 re-signed by Robert Former.
 - 2026-11-18: Catalog version 7 (F-013 T-01, approved task; F-013 OQ3): `framework.view` (read, not privileged, not risk data; Platform Admin, Auditor and Risk Analyst gain it). Needs re-signing.
 - 2026-11-19: Catalog version 7 re-signed by Robert Former.
+- 2026-11-26: Catalog version 8 (F-014 T-01, approved task; F-014 OQ15): `license.manage` (resource type `license`, admin, privileged, not risk data; Platform Admin gains it). Needs re-signing.

@@ -16,7 +16,7 @@ Rules for every task:
 ## Phase A — Foundations
 | # | Task | Traces to | Verification | Size | Status |
 |---|---|---|---|---|---|
-| T-01 | Permission catalog version 8: `license.manage` (resource type `license`, admin, privileged, not risk data; Platform Admin); `permission-catalog.md`; re-sign-off | OQ15; §4 | `TestCatalogVersion8Upgrade` (previous catalog built for the earlier upgrade tests); catalog tests; sign-off recorded | S | Not started |
+| T-01 | Permission catalog version 8: `license.manage` (resource type `license`, admin, privileged, not risk data; Platform Admin); `permission-catalog.md`; re-sign-off | OQ15; §4 | `TestCatalogVersion8Upgrade` (previous catalog built for the earlier upgrade tests); catalog tests; sign-off recorded | S | Done |
 | T-02 | `settings.F014Defs()`: `backup.max_age_hours` (int, lower is stricter, default 24, bound 168); binding in `bindings/`; packages 1.11.0 with 60 settings; the posture service registers it | AC-41; §4; D-OQ10 | Settings and binding tests; `profilegen packages` reproduces the pinned digests; `profilegen release-check` passes | S | Not started |
 | T-03 | ADR-019 (distribution and installer), ADR-020 (bundled object store, with versitygw's licence and capabilities rechecked against `internal/objstore` at the pinned version), ADR-021 (licences), ADR-022 (backup and restore); ADR-005 amendment 2 (upgrade window, Flux and OpenTofu, bundled store), ADR-006 amendment 2 (overrides as expiring exceptions) | §10, §13; OQ3, OQ10 | ADRs reviewed and Accepted by Robert Former | M | Not started |
 | T-04 | Reference manifests completed: `deploy/k8s/gateway.yaml` (Deployment, Service, policies, Ingress and OpenShift Route), `posture.yaml`, the `fair-release-manifest` ConfigMap, `nats-streams.yaml`; the fleet artifact picks them up | AC-03, AC-11; §3.2, §10 item 4 | `TestDeployManifests`, `TestCatalogFixtures` with the new workloads, `TestRenderRelease` (gateway and posture patched) | M | Not started |
@@ -84,3 +84,4 @@ Rules for every task:
 ## Change Log
 - 2026-11-26: Initial draft, In Review.
 - 2026-11-26: Approved by Robert Former.
+- 2026-11-26: T-01 done: catalog version 8 (`license.manage`; `TestCatalogVersion8Upgrade`, `catalogVersion7` builds the previous release). Needs re-signing.
