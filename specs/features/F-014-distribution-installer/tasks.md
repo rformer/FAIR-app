@@ -1,5 +1,5 @@
 # F-014 Distribution, installer & licensing — Tasks
-Status: In Review | Design: In Review (2026-11-26)
+Status: **Approved** (Robert Former, 2026-11-26) | Design: Approved 2026-11-26
 
 Sizing: S ≤ 1 day · M = 2–3 days · L = up to 1 week (split when picked up).
 Prerequisites:
@@ -83,3 +83,4 @@ Rules for every task:
 
 ## Change Log
 - 2026-11-26: Initial draft, In Review.
+- 2026-11-26: Approved by Robert Former.
