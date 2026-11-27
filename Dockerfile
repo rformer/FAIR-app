@@ -22,7 +22,7 @@
 
 ARG PYTHON_IMAGE=python:3.12.16-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df
 
-FROM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS build
+FROM golang:1.27.3-bookworm@sha256:dc0963f32053e4bc451d24d87e3892d42d01021b61f093e98eb95c0352bb84b0 AS build
 WORKDIR /src
 ENV CGO_ENABLED=0 GOFIPS140=v1.0.0 GOFLAGS="-trimpath -buildvcs=false"
 COPY go.mod go.sum ./
@@ -168,7 +168,7 @@ CMD ["info"]
 
 # The SPDX document of a component's pinned sources, for images whose
 # sources a scanner cannot recognise in the binaries (the FIPS provider).
-FROM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS bundled-sbom
+FROM golang:1.27.3-bookworm@sha256:dc0963f32053e4bc451d24d87e3892d42d01021b61f093e98eb95c0352bb84b0 AS bundled-sbom
 ENV CGO_ENABLED=0 GOFIPS140=v1.0.0 GOFLAGS="-trimpath -buildvcs=false" GOTOOLCHAIN=local
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -177,7 +177,7 @@ COPY internal/pincheck ./internal/pincheck
 COPY deploy/bundled/sources.json ./deploy/bundled/
 RUN mkdir /out && go run ./cmd/pincheck -spdx postgres > /out/postgres.spdx.json
 
-FROM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS nats-build
+FROM golang:1.27.3-bookworm@sha256:dc0963f32053e4bc451d24d87e3892d42d01021b61f093e98eb95c0352bb84b0 AS nats-build
 ENV CGO_ENABLED=0 GOFIPS140=v1.0.0 GOFLAGS="-trimpath -buildvcs=false" GOTOOLCHAIN=local
 ADD --checksum=sha256:034a2a7535d67ae6f28962976a530dad1bd912dd2d9af05a3990f3b7e674008e https://github.com/nats-io/nats-server/archive/refs/tags/v2.15.3.tar.gz /tmp/src.tar.gz
 WORKDIR /src
@@ -187,7 +187,7 @@ RUN tar -xzf /tmp/src.tar.gz --strip-components=1 \
  && go build -ldflags "-s -w -X github.com/nats-io/nats-server/v2/server.gitCommit=2a9066eb57ff -X github.com/nats-io/nats-server/v2/server.serverVersion=v2.15.3" -o /out/nats-server . \
  && mkdir -p /out/licenses/nats-server && cp LICENSE /out/licenses/nats-server/
 
-FROM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS openbao-build
+FROM golang:1.27.3-bookworm@sha256:dc0963f32053e4bc451d24d87e3892d42d01021b61f093e98eb95c0352bb84b0 AS openbao-build
 ENV CGO_ENABLED=0 GOFIPS140=v1.0.0 GOFLAGS="-trimpath -buildvcs=false" GOTOOLCHAIN=local
 ADD --checksum=sha256:610a4630e85fa754e6f3d5753a2c9122a575c043ad05165ab86126d4a556ef2f https://github.com/openbao/openbao/archive/refs/tags/v2.6.6.tar.gz /tmp/src.tar.gz
 WORKDIR /src
@@ -202,7 +202,7 @@ RUN tar -xzf /tmp/src.tar.gz --strip-components=1 \
  && go build -ldflags "-s -w -X github.com/openbao/openbao/version.fullVersion=2.6.6 -X github.com/openbao/openbao/version.GitCommit=f8b155203a250347dc0866a3b615d44dbfec111f" -o /out/bao . \
  && mkdir -p /out/licenses/openbao && cp LICENSE /out/licenses/openbao/
 
-FROM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS versitygw-build
+FROM golang:1.27.3-bookworm@sha256:dc0963f32053e4bc451d24d87e3892d42d01021b61f093e98eb95c0352bb84b0 AS versitygw-build
 ENV CGO_ENABLED=0 GOFIPS140=v1.0.0 GOFLAGS="-trimpath -buildvcs=false" GOTOOLCHAIN=local
 ADD --checksum=sha256:97d35b99ce46c23c56723dbc46526de17b3b23e33b00e8044e9e3f420a3927c4 https://github.com/versity/versitygw/archive/refs/tags/v1.11.0.tar.gz /tmp/src.tar.gz
 WORKDIR /src
@@ -254,7 +254,7 @@ CMD ["posix", "--versioning-dir", "/var/lib/versitygw/versions", "/var/lib/versi
 # ICU, readline or zlib, so glibc is the only other library. PostgreSQL's
 # initdb, pg_ctl and archive_command run through /bin/sh, so the image keeps
 # dash as /bin/sh (and nothing else of a shell or package manager).
-FROM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS postgres-build
+FROM golang:1.27.3-bookworm@sha256:dc0963f32053e4bc451d24d87e3892d42d01021b61f093e98eb95c0352bb84b0 AS postgres-build
 ARG SOURCE_DATE_EPOCH
 ADD --checksum=sha256:603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz /tmp/openssl.tar.gz
 ADD --checksum=sha256:a0ce69b8b97ea6a35b96875235aa453b966ba3cba8af2de23657d8b6767d6539 https://github.com/openssl/openssl/releases/download/openssl-3.1.2/openssl-3.1.2.tar.gz /tmp/openssl-fips.tar.gz
