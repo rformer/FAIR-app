@@ -175,7 +175,9 @@ func TestExpireAndList(t *testing.T) {
 
 // ADR-018: the AWS SDK's Identity Center, EKS and IAM clients are linked
 // into accessctl only, and the SDK into no service: the services' images,
-// SBOMs and scans stay without it.
+// SBOMs and scans stay without it. ADR-019 (F-014 T-06): the Helm SDK, and
+// the Kubernetes and kustomize modules it brings, likewise reach only the
+// release tools and the installer (releasegen, profilegen, fairctl).
 func TestSDKLinkedOnlyIntoTools(t *testing.T) {
 	g, err := exec.LookPath("go")
 	if err != nil {
@@ -189,18 +191,29 @@ func TestSDKLinkedOnlyIntoTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("go list: %v\n%s", err, out)
 	}
+	const mod = "github.com/rformer/fair-app/cmd/"
 	const sdk = "github.com/aws/aws-sdk-go-v2"
-	tools := map[string]bool{"github.com/rformer/fair-app/cmd/accessctl": true, "github.com/rformer/fair-app/cmd/releasegen": true}
+	awsTools := map[string]bool{mod + "accessctl": true, mod + "releasegen": true}
+	helmTools := map[string]bool{mod + "releasegen": true, mod + "profilegen": true, mod + "fairctl": true}
+	helmLinked := false
 	for _, l := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		pkg, deps, _ := strings.Cut(l, " ")
 		for _, d := range strings.Fields(deps) {
 			switch {
+			case strings.HasPrefix(d, "helm.sh/helm/"), strings.HasPrefix(d, "k8s.io/"), strings.HasPrefix(d, "sigs.k8s.io/"):
+				if !helmTools[pkg] {
+					t.Errorf("%s links %s (ADR-019: tools only)", pkg, d)
+				}
+				helmLinked = helmLinked || pkg == mod+"releasegen" && strings.HasPrefix(d, "helm.sh/helm/v4/pkg/chart")
 			case !strings.HasPrefix(d, sdk):
-			case !tools[pkg]:
+			case !awsTools[pkg]:
 				t.Errorf("%s links %s", pkg, d)
-			case pkg != "github.com/rformer/fair-app/cmd/accessctl" && (strings.HasPrefix(d, sdk+"/service/ssoadmin") || strings.HasPrefix(d, sdk+"/service/eks") || strings.HasPrefix(d, sdk+"/service/iam")):
+			case pkg != mod+"accessctl" && (strings.HasPrefix(d, sdk+"/service/ssoadmin") || strings.HasPrefix(d, sdk+"/service/eks") || strings.HasPrefix(d, sdk+"/service/iam")):
 				t.Errorf("%s links %s (accessctl's clients)", pkg, d)
 			}
 		}
+	}
+	if !helmLinked {
+		t.Error("releasegen does not link the Helm SDK's chart packages (the check would prove nothing)")
 	}
 }

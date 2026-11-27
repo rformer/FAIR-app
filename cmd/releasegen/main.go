@@ -24,6 +24,9 @@
 //	    [-third-party deploy/third-party-images.json -mirror-prefix REPO/mirror]
 //	    the per-release platform manifests Flux reconciles (F-012 T-15,
 //	    internal/fleet): published as a signed OCI artifact by release.yml.
+//	releasegen chart -release VERSION -images FILE -out DIR [-package DIR]
+//	    the fair-platform Helm chart rendered from the same reference
+//	    manifests (F-014 T-06, internal/fleet RenderChart; see chart.go).
 //	releasegen permissions [-out deploy/k8s/permission-manifest.json]
 //	    the scanner's permission manifest for consent (T-30); a test keeps
 //	    the committed file current.
@@ -55,7 +58,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: releasegen manifest | fleet | sign | verify | public | permissions | notes | profiles | component-definition (see the command documentation)")
+		return errors.New("usage: releasegen manifest | fleet | chart | sign | verify | public | permissions | notes | profiles | component-definition (see the command documentation)")
 	}
 	fs := flag.NewFlagSet(args[0], flag.ExitOnError)
 	switch args[0] {
@@ -234,6 +237,8 @@ func run(args []string) error {
 			o.Mirror = l.Mirror(*mirrorPrefix)
 		}
 		return fleet.Render(o, *out)
+	case "chart":
+		return chart(args[1:])
 	case "notes":
 		return notes(args[1:])
 	case "profiles":

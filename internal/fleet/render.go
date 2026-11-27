@@ -121,7 +121,9 @@ var (
 	// A placeholder in a flow mapping ("{ name: X, value: REPLACE_WITH_Y }")
 	// is quoted first: a plain scalar there cannot hold the variable's braces.
 	flowRE = regexp.MustCompile(`(:[ \t]+)([^\s,{}\[\]"']*REPLACE_WITH_[A-Z_]+[^\s,{}\[\]"']*)([ \t]*[,}])`)
-	modeRE = regexp.MustCompile(`(name: FAIR_DEPLOYMENT_MODE, value: )[a-z-]+`)
+	// The same in a flow sequence ("hosts: [REPLACE_WITH_Y]").
+	flowSeqRE = regexp.MustCompile(`([\[,][ \t]*)([^\s,{}\[\]"']*REPLACE_WITH_[A-Z_]+[^\s,{}\[\]"']*)([ \t]*[,\]])`)
+	modeRE    = regexp.MustCompile(`(name: FAIR_DEPLOYMENT_MODE, value: )[a-z-]+`)
 )
 
 // ModeVariable is the deployment mode's variable: the reference manifests'
@@ -138,8 +140,33 @@ type doc struct {
 	obj       map[string]any
 }
 
-// Render writes the artifact into out (created; must not exist).
-func Render(o Options, out string) error {
+// srcDoc is one substituted document of the release and the deploy/k8s (or
+// deploy/observability) file it came from.
+type srcDoc struct{ source, text string }
+
+// outFile is one file of the artifact: its directory, name and documents.
+type outFile struct {
+	dir, name string
+	docs      []srcDoc
+}
+
+// artifact is a rendered release before it is written: the fleet's
+// directories (Render) or the chart's templates (RenderChart) come from it.
+type artifact struct {
+	files   []outFile
+	byDir   map[string][]string // dir -> its files
+	patches []string            // Deployments patched with the key mounts
+}
+
+func (a *artifact) add(dir, name string, docs []srcDoc) {
+	if len(docs) == 0 {
+		return
+	}
+	a.files = append(a.files, outFile{dir, name, docs})
+	a.byDir[dir] = append(a.byDir[dir], name)
+}
+
+func checkOptions(o Options, out string) error {
 	if o.Release == "" {
 		return errors.New("fleet: a release version is required")
 	}
@@ -154,22 +181,59 @@ func Render(o Options, out string) error {
 	if _, err := os.Stat(out); err == nil {
 		return fmt.Errorf("fleet: %s exists", out)
 	}
-	files := map[string][]string{} // dir -> its files
-	type file struct{ dir, name, text string }
-	var outFiles []file
-	var namespaces []string
-	add := func(dir, name string, docs []string) {
-		if len(docs) == 0 {
-			return
-		}
-		outFiles = append(outFiles, file{dir, name, strings.Join(docs, "---\n")})
-		files[dir] = append(files[dir], name)
+	return nil
+}
+
+// Render writes the artifact into out (created; must not exist).
+func Render(o Options, out string) error {
+	if err := checkOptions(o, out); err != nil {
+		return err
 	}
+	a, err := build(o, false)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(out, 0o755); err != nil { // #nosec G301 -- a public release artifact
+		return err
+	}
+	for _, f := range a.files {
+		p := filepath.Join(out, f.dir, f.name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil { // #nosec G301 -- a public release artifact
+			return err
+		}
+		texts := make([]string, len(f.docs))
+		for i, d := range f.docs {
+			texts[i] = d.text
+		}
+		if err := os.WriteFile(p, []byte(strings.Join(texts, "---\n")), 0o644); err != nil { // #nosec G306 -- a public release artifact
+			return err
+		}
+	}
+	for _, dir := range Dirs {
+		if len(a.byDir[dir]) == 0 {
+			continue
+		}
+		if err := writeKustomization(filepath.Join(out, dir), a.byDir[dir], patchesFor(dir, a.patches)); err != nil {
+			return err
+		}
+	}
+	rel, err := json.MarshalIndent(Release{Format: Format, Release: o.Release, Images: o.Images, Mirror: o.Mirror}, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(out, "release.json"), append(rel, '\n'), 0o644) // #nosec G306 -- a public release artifact
+}
+
+// build loads and substitutes the release's objects. For the chart
+// (F-014 T-06) the self-hosted entry (ExcludedKinds) stays in.
+func build(o Options, chart bool) (*artifact, error) {
+	a := &artifact{byDir: map[string][]string{}}
+	var namespaces []srcDoc
 
 	// deploy/k8s: namespaces, migrate, platform.
 	srcs, err := filepath.Glob(filepath.Join(o.Deploy, "*.yaml"))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	sort.Strings(srcs)
 	var deployments []string
@@ -180,72 +244,73 @@ func Render(o Options, out string) error {
 		}
 		ds, err := readDocs(src)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		migrateSA, migrateApps := migrationParts(ds)
-		var plat, mig []string
+		var plat, mig []srcDoc
 		for _, d := range ds {
+			sd := srcDoc{base, d.text}
 			switch {
-			case slices.Contains(ExcludedKinds, d.kind):
+			case !chart && slices.Contains(ExcludedKinds, d.kind):
 				continue
 			case d.kind == "Namespace", d.kind == "NetworkPolicy" && d.name == "default-deny":
-				namespaces = append(namespaces, d.text)
+				namespaces = append(namespaces, sd)
 			case d.kind == "Job" && strings.HasSuffix(d.name, "-migrate"):
-				mig = append(mig, ttlRE.ReplaceAllString(d.text, ""))
+				mig = append(mig, srcDoc{base, ttlRE.ReplaceAllString(d.text, "")})
 			case d.kind == "ServiceAccount" && migrateSA[d.namespace+"/"+d.name]:
-				mig = append(mig, d.text)
+				mig = append(mig, sd)
 			case d.kind == "NetworkPolicy" && migrateApps[podSelectorName(d.obj)]:
-				mig = append(mig, d.text)
+				mig = append(mig, sd)
 			default:
 				if d.kind == "Deployment" {
 					deployments = append(deployments, d.name)
 				}
-				plat = append(plat, d.text)
+				plat = append(plat, sd)
 			}
 		}
-		add(DirMigrate, base, mig)
-		add(DirPlatform, base, plat)
+		a.add(DirMigrate, base, mig)
+		a.add(DirPlatform, base, plat)
 	}
-	if len(files[DirMigrate]) == 0 {
-		return fmt.Errorf("fleet: %s has no migration Job (*-migrate)", o.Deploy)
+	if len(a.byDir[DirMigrate]) == 0 {
+		return nil, fmt.Errorf("fleet: %s has no migration Job (*-migrate)", o.Deploy)
 	}
 
 	// deploy/k8s/keys: the SaaS store's objects, and the key mounts as
 	// patches of the Deployments the release has.
-	var patches []string
 	if o.Keys != "" {
 		saas, err := filepath.Glob(filepath.Join(o.Keys, "saas", "*.yaml"))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		sort.Strings(saas)
 		for _, src := range saas {
 			ds, err := readDocs(src)
 			if err != nil {
-				return err
+				return nil, err
 			}
-			var texts []string
+			var texts []srcDoc
 			for _, d := range ds {
+				sd := srcDoc{filepath.Base(src), d.text}
 				if d.kind == "Namespace" {
-					namespaces = append(namespaces, d.text)
+					namespaces = append(namespaces, sd)
 					continue
 				}
-				texts = append(texts, d.text)
+				texts = append(texts, sd)
 			}
-			add(DirSecrets, filepath.Base(src), texts)
+			a.add(DirSecrets, filepath.Base(src), texts)
 		}
 		mounts := filepath.Join(o.Keys, "secret-mounts.yaml")
 		if _, err := os.Stat(mounts); err == nil {
 			ds, err := readDocs(mounts)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			for _, d := range ds {
 				if d.kind != "Deployment" || !slices.Contains(deployments, d.name) {
 					continue
 				}
-				add(DirPlatform, filepath.Join("keys", d.name+".yaml"), []string{d.text})
-				patches = append(patches, d.name)
+				a.add(DirPlatform, filepath.Join("keys", d.name+".yaml"), []srcDoc{{"secret-mounts.yaml", d.text}})
+				a.patches = append(a.patches, d.name)
 			}
 		}
 	}
@@ -255,15 +320,16 @@ func Render(o Options, out string) error {
 		w := filepath.Join(o.Observability, ObservabilityWorkloads)
 		ds, err := readDocs(w)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		var texts []string
+		var texts []srcDoc
 		for _, d := range ds {
+			sd := srcDoc{ObservabilityWorkloads, d.text}
 			if d.kind == "Namespace" || d.kind == "NetworkPolicy" && d.name == "default-deny" {
-				namespaces = append(namespaces, d.text)
+				namespaces = append(namespaces, sd)
 				continue
 			}
-			texts = append(texts, d.text)
+			texts = append(texts, sd)
 		}
 		names := make([]string, 0, len(Collectors))
 		for f := range Collectors {
@@ -273,55 +339,32 @@ func Render(o Options, out string) error {
 		for _, f := range names {
 			b, err := os.ReadFile(filepath.Join(o.Observability, f)) // #nosec G304 -- the repository's own files
 			if err != nil {
-				return err
+				return nil, err
 			}
 			cm, err := configMap(Collectors[f].Name, Collectors[f].Namespace, string(b))
 			if err != nil {
-				return err
+				return nil, err
 			}
-			texts = append(texts, cm)
+			texts = append(texts, srcDoc{f, cm})
 		}
-		add(DirObservability, ObservabilityWorkloads, texts)
+		a.add(DirObservability, ObservabilityWorkloads, texts)
 	}
-	add(DirNamespaces, "namespaces.yaml", namespaces)
+	a.add(DirNamespaces, "namespaces.yaml", namespaces)
 
 	// Substitute, then check nothing unknown is left.
-	for i := range outFiles {
-		t, err := substitute(outFiles[i].text, o.Images)
-		if err == nil {
-			t, err = mirrorImages(t, o.Images, o.Mirror)
-		}
-		if err != nil {
-			return fmt.Errorf("%s/%s: %w", outFiles[i].dir, outFiles[i].name, err)
-		}
-		outFiles[i].text = t
-	}
-
-	if err := os.MkdirAll(out, 0o755); err != nil { // #nosec G301 -- a public release artifact
-		return err
-	}
-	for _, f := range outFiles {
-		p := filepath.Join(out, f.dir, f.name)
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil { // #nosec G301 -- a public release artifact
-			return err
-		}
-		if err := os.WriteFile(p, []byte(f.text), 0o644); err != nil { // #nosec G306 -- a public release artifact
-			return err
+	for i := range a.files {
+		for j := range a.files[i].docs {
+			t, err := substitute(a.files[i].docs[j].text, o.Images)
+			if err == nil {
+				t, err = mirrorImages(t, o.Images, o.Mirror)
+			}
+			if err != nil {
+				return nil, fmt.Errorf("%s/%s: %w", a.files[i].dir, a.files[i].name, err)
+			}
+			a.files[i].docs[j].text = t
 		}
 	}
-	for _, dir := range Dirs {
-		if len(files[dir]) == 0 {
-			continue
-		}
-		if err := writeKustomization(filepath.Join(out, dir), files[dir], patchesFor(dir, patches)); err != nil {
-			return err
-		}
-	}
-	rel, err := json.MarshalIndent(Release{Format: Format, Release: o.Release, Images: o.Images, Mirror: o.Mirror}, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(out, "release.json"), append(rel, '\n'), 0o644) // #nosec G306 -- a public release artifact
+	return a, nil
 }
 
 var imageLineRE = regexp.MustCompile(`(?m)^(\s*(?:-\s*)?image:\s*)["']?([^\s"'#]+)["']?`)
@@ -382,6 +425,7 @@ func substitute(text string, images map[string]string) (string, error) {
 		}
 	}
 	text = flowRE.ReplaceAllString(text, `${1}"${2}"${3}`)
+	text = flowSeqRE.ReplaceAllString(text, `${1}"${2}"${3}`)
 	text = modeRE.ReplaceAllString(text, `${1}"$${`+ModeVariable+`}"`)
 	text = placeholderRE.ReplaceAllStringFunc(text, func(m string) string {
 		if v, ok := Variables[m]; ok {

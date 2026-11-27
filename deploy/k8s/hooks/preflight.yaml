@@ -1,0 +1,142 @@
+# F-014 T-06 (AC-03; design §3.2, OQ2): the in-cluster preflight, run by the
+# fair-platform chart before every install and upgrade (Helm hooks, weight
+# -10, before the iam-migrate hook at weight 0), so that a bare
+# `helm install` also refuses an insecure cluster. fairctl runs the same
+# checks from outside before it installs (design §3.7); T-19 settles the
+# in-cluster check set and its permissions. The hook's read-only RBAC is
+# created before the Job and deleted with it; it never reads Secrets.
+#
+# Chart-only: internal/fleet's RenderChart reads this directory (the fleet
+# artifact and the release manifest's RBAC do not). Same hardening as every
+# other workload: non-root, read-only root, no capabilities, a short-lived
+# projected token, default deny with egress to the API server and DNS only.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fair-preflight
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: fair-preflight, app.kubernetes.io/part-of: fair-platform }
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-15"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded,hook-failed
+automountServiceAccountToken: false # the Job projects a short-lived token explicitly
+---
+# What the cluster checks read: namespace labels (pod security admission),
+# nodes (FIPS), storage classes (encryption), the network plugin's
+# DaemonSet, cluster RBAC and admission policies. Never Secrets.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fair-preflight
+  labels: { app.kubernetes.io/name: fair-preflight, app.kubernetes.io/part-of: fair-platform }
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-15"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded,hook-failed
+rules:
+  - apiGroups: [""]
+    resources: [namespaces, nodes]
+    verbs: [get, list, watch]
+  - apiGroups: [storage.k8s.io]
+    resources: [storageclasses]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [daemonsets]
+    verbs: [get, list, watch]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles, clusterrolebindings]
+    verbs: [get, list, watch]
+  - apiGroups: [admissionregistration.k8s.io]
+    resources: [validatingadmissionpolicies, validatingwebhookconfigurations]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fair-preflight
+  labels: { app.kubernetes.io/name: fair-preflight, app.kubernetes.io/part-of: fair-platform }
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-15"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded,hook-failed
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: fair-preflight }
+subjects:
+  - { kind: ServiceAccount, name: fair-preflight, namespace: fair-platform }
+---
+# Egress: the Kubernetes API server and DNS only (REPLACE_WITH_APISERVER_CIDR
+# as for the scanner). No ingress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: fair-preflight
+  namespace: fair-platform
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-15"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded,hook-failed
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: fair-preflight }
+  policyTypes: [Ingress, Egress]
+  egress:
+    - to:
+        - ipBlock: { cidr: REPLACE_WITH_APISERVER_CIDR }
+      ports: [{ port: 443, protocol: TCP }, { port: 6443, protocol: TCP }]
+    - ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]
+---
+# The preflight itself. A failed check fails the Job and so the install or
+# upgrade before anything else is applied; the failed Job is kept for its
+# report (kubectl logs job/fair-preflight -n fair-platform).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fair-preflight
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: fair-preflight, app.kubernetes.io/part-of: fair-platform }
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 0           # a refused cluster needs an operator, not a retry
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: fair-preflight, app.kubernetes.io/part-of: fair-platform }
+    spec:
+      restartPolicy: Never
+      serviceAccountName: fair-preflight
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: preflight
+          image: ghcr.io/rformer/fair-fairctl:REPLACE_WITH_DIGEST
+          command: ["fairctl", "preflight", "-in-cluster"]
+          env:
+            - { name: FAIR_DEPLOYMENT_MODE, value: self-hosted }
+            - { name: FAIR_PLATFORM_NAMESPACES, value: fair-platform }
+            - { name: FAIR_FIPS_PROBE_NAMESPACE, value: fair-fips-probe }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          volumeMounts:
+            - { name: kube-api-access, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true }
+      volumes:
+        - name: kube-api-access
+          projected:
+            defaultMode: 0444
+            sources:
+              - serviceAccountToken: { path: token, expirationSeconds: 600 }
+              - configMap:
+                  name: kube-root-ca.crt
+                  items: [{ key: ca.crt, path: ca.crt }]
