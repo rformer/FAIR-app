@@ -59,7 +59,7 @@ type BundledSource struct {
 	// Overrides are Go modules raised above the upstream go.mod for a
 	// security fix not yet released upstream (module@version).
 	Overrides []string `json:"overrides,omitempty"`
-	FIPS       string `json:"fips"`         // what is and is not FIPS 140 validated
+	FIPS      string   `json:"fips"` // what is and is not FIPS 140 validated
 }
 
 var (

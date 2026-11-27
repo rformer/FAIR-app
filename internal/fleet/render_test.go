@@ -140,8 +140,8 @@ func TestRenderRelease(t *testing.T) {
 		}
 	}
 	for dir, want := range map[string][]string{
-		DirNamespaces:    {"Namespace/fair-platform", "Namespace/fair-fips-probe", "Namespace/fair-observability", "NetworkPolicy/default-deny"},
-		DirMigrate:       {"Job/iam-migrate", "ServiceAccount/iam", "NetworkPolicy/iam-migrate-egress"},
+		DirNamespaces: {"Namespace/fair-platform", "Namespace/fair-fips-probe", "Namespace/fair-observability", "NetworkPolicy/default-deny"},
+		DirMigrate:    {"Job/iam-migrate", "ServiceAccount/iam", "NetworkPolicy/iam-migrate-egress"},
 		DirPlatform: {"Deployment/iam", "Deployment/iam-worker", "Deployment/audit", "Deployment/risk", "Deployment/posture-scanner", "DaemonSet/fips-probe",
 			// F-014 T-04: the gateway and posture, the scanner's release
 			// manifest and the JetStream streams.
