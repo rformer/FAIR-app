@@ -13,4 +13,17 @@
 #     reason: Not reachable ...    # why it is accepted, and what was checked
 #     expires: 2027-02-01          # YYYY-MM-DD, at most 90 days after review
 #     reviewed: 2026-11-03         # YYYY-MM-DD
-exceptions: []
+exceptions:
+  - id: CVE-2026-102554
+    package: com.google.guava:guava
+    images: [keycloak]
+    reason: >-
+      Guava 33.6.0 is Keycloak 26.8.2's own dependency (lib/lib/main) and is
+      replaced only by a Keycloak release; the flaw is memory exhaustion when
+      Java-deserializing crafted Guava collections, and Keycloak accepts no
+      Java-serialized input from clients (its caches use ProtoStream). The
+      bundled Keycloak serves sign-in only, inside the cluster's default-deny
+      network policy. Remove when a Keycloak release ships Guava 33.7.2 or
+      later (F-014 T-07).
+    expires: 2027-02-23
+    reviewed: 2026-11-26

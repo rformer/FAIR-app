@@ -38,8 +38,13 @@ runs:
     - name: Hardening checks
       shell: bash
       run: bash scripts/image-check.sh "${{ inputs.image }}:${{ inputs.tag }}" "${{ inputs.component }}"
+    # The SBOM cataloger also reads the SPDX documents an image carries for
+    # sources no other cataloger recognises (F-014 T-07: the PostgreSQL
+    # image's OpenSSL FIPS provider, /usr/share/doc/fair/sbom/).
     - name: SBOM (SPDX)
       uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+      env:
+        SYFT_SELECT_CATALOGERS: +sbom-cataloger
       with:
         image: ${{ inputs.image }}:${{ inputs.tag }}
         format: spdx-json

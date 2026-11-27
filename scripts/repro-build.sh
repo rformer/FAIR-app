@@ -18,7 +18,9 @@ OUT=${1:?out dir}
 shift
 COMPONENTS=("$@")
 if [ ${#COMPONENTS[@]} -eq 0 ]; then
-  COMPONENTS=(iam gateway posture posture-scanner fips-probe audit risk notify integrate engine-gate engine)
+  COMPONENTS=(iam gateway posture posture-scanner fips-probe audit risk notify integrate engine-gate engine
+    postgres nats openbao versitygw) # bundled dependencies (F-014 T-07); keycloak is not
+  # reproducible: its Quarkus build generates bytecode that varies between runs
 fi
 BUILDKIT=moby/buildkit:v0.34.2@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe
 BUILDER=${FAIR_REPRO_BUILDER:-fair-repro}

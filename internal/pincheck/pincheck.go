@@ -11,7 +11,10 @@
 //     deploy/fleet/.github/workflows/*.yml (F-012 T-18):
 //     every "uses:", "image:" and image on a
 //     docker run, pull or create line;
-//   - every Dockerfile*: FROM, with ARG defaults resolved;
+//   - every Dockerfile*: FROM, with ARG defaults resolved, and ADD of a URL,
+//     which needs --checksum=sha256 and an entry of
+//     deploy/bundled/sources.json with the same checksum (F-014 T-07,
+//     bundled.go), whose every entry is used;
 //   - scripts/**/*.sh and scripts/**/*.yaml: "image:", docker run, pull and
 //     create lines, kubectl --image=, and *IMAGE*= assignments with their
 //     ${VAR:-default};
@@ -76,6 +79,7 @@ func Check(root string) ([]Problem, error) {
 		rel, _ := filepath.Rel(root, file)
 		out = append(out, Problem{File: filepath.ToSlash(rel), Line: line, Message: fmt.Sprintf(format, a...)})
 	}
+	b := &bundled{froms: map[string]bool{}}
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -93,7 +97,7 @@ func Check(root string) ([]Problem, error) {
 		case (strings.HasPrefix(rel, ".github/workflows/") || strings.HasPrefix(rel, ".github/actions/") || strings.HasPrefix(rel, "deploy/fleet/.github/workflows/")) && (strings.HasSuffix(name, ".yml") || strings.HasSuffix(name, ".yaml")):
 			return scanText(path, true, add)
 		case strings.HasPrefix(name, "Dockerfile"):
-			return scanDockerfile(path, add)
+			return scanDockerfile(path, b, add)
 		case strings.HasPrefix(rel, "scripts/") && (strings.HasSuffix(name, ".sh") || strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml")):
 			return scanText(path, false, add)
 		case name == "go.mod":
@@ -109,6 +113,9 @@ func Check(root string) ([]Problem, error) {
 		}
 		return nil
 	})
+	if err == nil {
+		err = b.check(root, add)
+	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].File != out[j].File {
 			return out[i].File < out[j].File
@@ -227,7 +234,7 @@ func usesRef(ref, cmt string, add adder, path string, n int) {
 	}
 }
 
-func scanDockerfile(path string, add adder) error {
+func scanDockerfile(path string, b *bundled, add adder) error {
 	ls, err := lines(path)
 	if err != nil {
 		return err
@@ -243,6 +250,7 @@ func scanDockerfile(path string, add adder) error {
 			args[m[1]] = strings.Trim(m[2], `"'`)
 			continue
 		}
+		b.scanAdd(path, n, l, add)
 		m := fromRE.FindStringSubmatch(l)
 		if m == nil {
 			continue
@@ -256,6 +264,7 @@ func scanDockerfile(path string, add adder) error {
 		if m[2] != "" {
 			stages[strings.ToLower(m[2])] = true
 		}
+		b.froms[ref] = true
 		switch {
 		case stages[strings.ToLower(ref)] && !strings.EqualFold(ref, m[2]), ref == "scratch":
 			continue

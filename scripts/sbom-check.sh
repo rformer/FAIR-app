@@ -7,8 +7,14 @@
 # Go images: the main module, every module linked into the binary (its build
 # information, "go version -m") and the standard library are in the SBOM, by
 # module path. The engine: every package
-# of engine/requirements.lock is in the SBOM, by name. Needs docker and
-# python3.
+# of engine/requirements.lock is in the SBOM, by name.
+# F-014 T-07, the bundled dependency images: the Go ones (nats, openbao,
+# versitygw) as above; postgres: every source pinned for it in
+# deploy/bundled/sources.json (PostgreSQL, OpenSSL, the FIPS provider, which
+# the image's own SPDX document names) and every Debian package it carries;
+# keycloak: every jar in the image (but Quarkus's generated ones) by the
+# path the SBOM found it at, and every BC-FIPS artifact pinned for it.
+# Needs docker and python3.
 set -euo pipefail
 export MSYS_NO_PATHCONV=1
 
@@ -28,9 +34,34 @@ for p in d.get("packages", []):
 PY
 tr -d '\r' < "$W/names" > "$W/names.lf" && mv "$W/names.lf" "$W/names" # Python on Windows writes CRLF
 
+pinned() { # names deploy/bundled/sources.json pins for the component, by kind
+  python3 - "$(host deploy/bundled/sources.json)" "$1" "$2" <<'PY' | tr -d '\r'
+import json, sys
+for e in json.load(open(sys.argv[1], encoding="utf-8"))["sources"]:
+    if e["component"] == sys.argv[2] and e["kind"] in sys.argv[3].split(","):
+        print(e["name"].lower())
+PY
+}
+
 if [ "$COMPONENT" = engine ]; then
   grep -oE '^[A-Za-z0-9_.-]+==' engine/requirements.lock | tr -d '=' | tr 'A-Z_' 'a-z-' > "$W/want"
   tr '_' '-' < "$W/names" > "$W/have"
+elif [ "$COMPONENT" = postgres ]; then
+  pinned postgres source > "$W/want"
+  docker create --name "fair-sbom-$$" "$IMAGE" >/dev/null
+  docker export "fair-sbom-$$" | tar -t | sed -n 's#^var/lib/dpkg/status.d/\([^/]*\)$#\1#p' | sed 's/\.md5sums$//' | sort -u >> "$W/want"
+  cp "$W/names" "$W/have"
+elif [ "$COMPONENT" = keycloak ]; then
+  pinned keycloak artifact > "$W/want"
+  docker create --name "fair-sbom-$$" "$IMAGE" >/dev/null
+  docker export "fair-sbom-$$" | tar -t | grep -E '\.jar$' | grep -v '^opt/keycloak/lib/quarkus/' | sed 's#^#jar:/#' >> "$W/want"
+  python3 - "$(host "$SBOM")" <<'PY' | tr -d '\r' > "$W/paths"
+import json, re, sys
+for p in json.load(open(sys.argv[1], encoding="utf-8")).get("packages", []):
+    for m in re.findall(r"(/\S+\.jar)", p.get("sourceInfo", "")):
+        print("jar:" + m)
+PY
+  cat "$W/names" "$W/paths" > "$W/have"
 else
   docker create --name "fair-sbom-$$" "$IMAGE" >/dev/null
   entry="$(docker inspect -f '{{index .Config.Entrypoint 0}}' "$IMAGE")"
@@ -40,6 +71,7 @@ else
   cp "$W/names" "$W/have"
 fi
 
+sed -i '/^$/d' "$W/want"
 [ -s "$W/want" ] || { echo "FAIL - $COMPONENT: nothing to look for in the image" >&2; exit 1; }
 missing="$(sort -u "$W/want" | comm -23 - <(sort -u "$W/have"))"
 if [ -n "$missing" ]; then

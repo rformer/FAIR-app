@@ -55,5 +55,5 @@ jobs:
         run: |
           { echo '| image | build a | build b |'; echo '|---|---|---|'
             join a/digests b/digests | awk '{ print "| " $1 " | `" $2 "` | `" $3 "` |" }'; } >> "$GITHUB_STEP_SUMMARY"
-          [ "$(wc -l < a/digests)" -eq 11 ] || { echo "expected 11 images, got $(wc -l < a/digests)"; exit 1; }
+          [ "$(wc -l < a/digests)" -eq 15 ] || { echo "expected 15 images, got $(wc -l < a/digests)"; exit 1; } # all but keycloak (scripts/repro-build.sh)
           diff a/digests b/digests && echo "all $(wc -l < a/digests) images reproduce"

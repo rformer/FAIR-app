@@ -2,6 +2,8 @@
 bin
 specs
 deploy
+# The bundled images' pinned sources (F-014 T-07) are read by the build.
+!deploy/bundled/sources.json
 db/tests
 **/*_test.go
 coverage.out

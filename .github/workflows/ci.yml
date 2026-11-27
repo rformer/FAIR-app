@@ -318,14 +318,16 @@ jobs:
   # engine's own checks), with an SBOM, a scan that fails on fixable high or
   # critical findings unless security/vuln-exceptions.yaml accepts them until
   # an expiry, and, on main, pushed, signed and attested. The matrix lists
-  # every Dockerfile target (internal/cicheck TestImageMatrixCoversDockerfile).
+  # every Dockerfile target (internal/cicheck TestImageMatrixCoversDockerfile),
+  # the bundled dependency images included (F-014 T-07: postgres, nats,
+  # openbao, versitygw, keycloak; their own FIPS checks in image-check.sh).
   images:
     needs: [test, lint, engine]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        component: [iam, gateway, posture, posture-scanner, fips-probe, audit, risk, notify, integrate, engine-gate, engine]
+        component: [iam, gateway, posture, posture-scanner, fips-probe, audit, risk, notify, integrate, engine-gate, engine, postgres, nats, openbao, versitygw, keycloak]
     permissions:
       contents: read
       packages: write   # push to GHCR (main only)
@@ -346,6 +348,11 @@ jobs:
       digest-integrate: ${{ steps.push.outputs.digest-integrate }}
       digest-engine-gate: ${{ steps.push.outputs.digest-engine-gate }}
       digest-engine: ${{ steps.push.outputs.digest-engine }}
+      digest-postgres: ${{ steps.push.outputs.digest-postgres }}
+      digest-nats: ${{ steps.push.outputs.digest-nats }}
+      digest-openbao: ${{ steps.push.outputs.digest-openbao }}
+      digest-versitygw: ${{ steps.push.outputs.digest-versitygw }}
+      digest-keycloak: ${{ steps.push.outputs.digest-keycloak }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
@@ -402,7 +409,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [iam, gateway, posture, posture-scanner, fips-probe, audit, risk, notify, integrate, engine-gate, engine]
+        component: [iam, gateway, posture, posture-scanner, fips-probe, audit, risk, notify, integrate, engine-gate, engine, postgres, nats, openbao, versitygw, keycloak]
     permissions:
       actions: read
       id-token: write
@@ -422,7 +429,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [iam, gateway, posture, posture-scanner, fips-probe, audit, risk, notify, integrate, engine-gate, engine]
+        component: [iam, gateway, posture, posture-scanner, fips-probe, audit, risk, notify, integrate, engine-gate, engine, postgres, nats, openbao, versitygw, keycloak]
     permissions:
       contents: read
       packages: read
