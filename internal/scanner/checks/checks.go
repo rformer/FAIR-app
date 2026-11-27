@@ -50,8 +50,12 @@ type Config struct {
 	// (releasemanifest.Load); the image and RBAC checks fail without it.
 	ReleaseManifest string
 	ReleaseKey      *ecdsa.PublicKey
-	Dial            func(ctx context.Context, addr string) (net.Conn, error) // default: TCP, 5 s timeout
-	Now             func() time.Time
+	// Manifest, when set, is a release manifest the caller has already
+	// verified (the release gate, F-014 T-09; the preflight, which verified
+	// the package, T-13); it takes the place of ReleaseManifest.
+	Manifest *releasemanifest.Manifest
+	Dial     func(ctx context.Context, addr string) (net.Conn, error) // default: TCP, 5 s timeout
+	Now      func() time.Time
 }
 
 func (c Config) now() time.Time {
@@ -70,6 +74,9 @@ func (c Config) dial(ctx context.Context, addr string) (net.Conn, error) {
 }
 
 func (c Config) release() (*releasemanifest.Manifest, error) {
+	if c.Manifest != nil {
+		return c.Manifest, c.Manifest.Validate()
+	}
 	if c.ReleaseManifest == "" || c.ReleaseKey == nil {
 		return nil, fmt.Errorf("no release manifest configured")
 	}

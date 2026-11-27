@@ -1,0 +1,31 @@
+# F-014 T-09 (design §3.17): the compliant cluster the release gate applies
+# every render of the fair-platform chart to. Only what the cluster brings
+# and the deployment checks read: a node in FIPS mode (attested by the
+# installer's label, F-015 T-29), an encrypted default StorageClass
+# (attested, as the installer records it) and an admission policy that
+# verifies image signatures and fails closed. The chart brings everything
+# else; the External Secrets API is not served (self-hosted).
+apiVersion: v1
+kind: Node
+metadata:
+  name: node-0
+  labels:
+    fair-platform.io/fips: attested
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: encrypted
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+    fair-platform.io/encrypted-at-rest: "true"
+provisioner: example.com/csi
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: image-signatures
+  annotations:
+    fair-platform.io/verifies-image-signatures: "true"
+spec:
+  failurePolicy: Fail

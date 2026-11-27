@@ -508,3 +508,53 @@ func TestReleaseManifestRequired(t *testing.T) {
 		}
 	}
 }
+
+// F-014 T-09: a verified manifest can be passed directly (Config.Manifest),
+// and an optional RBAC entry (a hook's, an option's) is never reported
+// missing, while a required one is; a present optional object that differs
+// is still reported.
+func TestOptionalRBAC(t *testing.T) {
+	f := loadFixture(t, "kind", "pass")
+	rbac, err := releasemanifest.RBACFromDir("../../../deploy/k8s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	extra := releasemanifest.RBACEntry{Kind: "ClusterRole", Name: "fair-preflight", SHA256: strings.Repeat("a", 64)}
+	run := func(entries []releasemanifest.RBACEntry) []string {
+		m := &releasemanifest.Manifest{Format: releasemanifest.Format, Release: "1.0.0", RBAC: entries,
+			Images: map[string]string{"iam": "ghcr.io/rformer/fair-iam@" + iamDigest}}
+		for _, c := range Catalog(Config{Manifest: m}) {
+			if c.ID() != "platform_rbac" {
+				continue
+			}
+			res, err := c.Run(context.Background(), f, scanner.Scope{Namespaces: []string{"fair-platform"}, ProbeNamespace: "fair-fips-probe"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return subjects(res.Findings)
+		}
+		t.Fatal("no platform_rbac check")
+		return nil
+	}
+	if got := run(rbac); len(got) != 0 {
+		t.Errorf("deploy/k8s's RBAC: %v", got)
+	}
+	opt := extra
+	opt.Optional = releasemanifest.OptionalHook
+	if got := run(append(slices.Clone(rbac), opt)); len(got) != 0 {
+		t.Errorf("an absent hook's RBAC was reported: %v", got)
+	}
+	if got := run(append(slices.Clone(rbac), extra)); !slices.Equal(got, []string{"rbac/ClusterRole/fair-preflight"}) {
+		t.Errorf("an absent required entry: %v", got)
+	}
+	changed := slices.Clone(rbac)
+	for i := range changed {
+		changed[i].Optional = "scanner.enabled"
+		if changed[i].Key() == "Role/fair-platform/posture-scanner" {
+			changed[i].SHA256 = strings.Repeat("b", 64)
+		}
+	}
+	if got := run(changed); !slices.Equal(got, []string{"rbac/Role/fair-platform/posture-scanner"}) {
+		t.Errorf("a changed optional object: %v", got)
+	}
+}

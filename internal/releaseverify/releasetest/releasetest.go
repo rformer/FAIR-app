@@ -98,12 +98,17 @@ type Release struct {
 	// Layout, when set, writes every image into one layout at this path
 	// relative to the release directory in place of images/<component>/.
 	Layout string
+	// Amend, when set, changes the release manifest before it is signed
+	// (its RBAC, the engine's validation record: F-014 T-09's package
+	// fixture).
+	Amend func(m *releasemanifest.Manifest)
 }
 
 // Written is what Build wrote.
 type Written struct {
 	Dir     string
 	Images  map[string]string // component -> repository@sha256:<digest>
+	Extra   map[string]string // the Extra images, likewise
 	Package *releaseverify.PackageManifest
 }
 
@@ -130,7 +135,7 @@ func Build(t testing.TB, dir string, r Release) *Written {
 	if r.Images == nil {
 		r.Images = []Image{{Component: "fixture"}}
 	}
-	w := &Written{Dir: dir, Images: map[string]string{}}
+	w := &Written{Dir: dir, Images: map[string]string{}, Extra: map[string]string{}}
 	write(t, filepath.Join(dir, releaseverify.ReleaseKeyFile), PublicPEM(t, r.Key))
 	all := map[string]string{}
 	for i, img := range slices.Concat(r.Images, r.Extra) {
@@ -151,9 +156,14 @@ func Build(t testing.TB, dir string, r Release) *Written {
 		all[img.Component] = img.Repository + "@" + d
 		if i < len(r.Images) {
 			w.Images[img.Component] = img.Repository + "@" + d
+		} else {
+			w.Extra[img.Component] = img.Repository + "@" + d
 		}
 	}
 	m := &releasemanifest.Manifest{Format: releasemanifest.Format, Release: r.Release, Images: w.Images, RBAC: []releasemanifest.RBACEntry{}}
+	if r.Amend != nil {
+		r.Amend(m)
+	}
 	mb, err := releasemanifest.Encode(m)
 	if err != nil {
 		t.Fatal(err)

@@ -65,19 +65,21 @@ func TestManifestMatchesReleasemanifest(t *testing.T) {
 	engine := `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"engine":"` + img + `"},"rbac":[]}`
 	engineOK := `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"engine":"` + img + `"},"rbac":[],"engine_validation":{"image":"` + img + `","suite_version":"1","engine_version":"1","architecture":"amd64","passed":false,"run_at_unix_ms":1,"record_sha256":"` + strings.Repeat("b", 64) + `"}}`
 	cases := map[string]string{
-		"encoded":          string(enc),
-		"unknown field":    strings.Replace(string(enc), `"format"`, `"extra": 1, "format"`, 1),
-		"other format":     strings.Replace(string(enc), releasemanifest.Format, "fair-platform-release-manifest/v2", 1),
-		"no images":        `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{},"rbac":[]}`,
-		"no release":       `{"format":"fair-platform-release-manifest/v1","release":"","images":{"x":"` + img + `"}}`,
-		"tagged image":     `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"x":"registry.invalid/x:1"}}`,
-		"rbac namespace":   `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"x":"` + img + `"},"rbac":[{"kind":"Role","name":"r","sha256":"` + strings.Repeat("c", 64) + `"}]}`,
-		"rbac duplicate":   `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"x":"` + img + `"},"rbac":[{"kind":"ClusterRole","name":"r","sha256":"` + strings.Repeat("c", 64) + `"},{"kind":"ClusterRole","name":"r","sha256":"` + strings.Repeat("d", 64) + `"}]}`,
-		"rbac kind":        `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"x":"` + img + `"},"rbac":[{"kind":"Secret","name":"r","sha256":"` + strings.Repeat("c", 64) + `"}]}`,
-		"engine no record": engine,
-		"engine record":    engineOK,
-		"trailing data":    string(enc) + "{}",
-		"not json":         "release",
+		"encoded":           string(enc),
+		"unknown field":     strings.Replace(string(enc), `"format"`, `"extra": 1, "format"`, 1),
+		"other format":      strings.Replace(string(enc), releasemanifest.Format, "fair-platform-release-manifest/v2", 1),
+		"no images":         `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{},"rbac":[]}`,
+		"no release":        `{"format":"fair-platform-release-manifest/v1","release":"","images":{"x":"` + img + `"}}`,
+		"tagged image":      `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"x":"registry.invalid/x:1"}}`,
+		"rbac namespace":    `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"x":"` + img + `"},"rbac":[{"kind":"Role","name":"r","sha256":"` + strings.Repeat("c", 64) + `"}]}`,
+		"rbac duplicate":    `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"x":"` + img + `"},"rbac":[{"kind":"ClusterRole","name":"r","sha256":"` + strings.Repeat("c", 64) + `"},{"kind":"ClusterRole","name":"r","sha256":"` + strings.Repeat("d", 64) + `"}]}`,
+		"rbac kind":         `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"x":"` + img + `"},"rbac":[{"kind":"Secret","name":"r","sha256":"` + strings.Repeat("c", 64) + `"}]}`,
+		"rbac optional":     `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"x":"` + img + `"},"rbac":[{"kind":"ClusterRole","name":"r","sha256":"` + strings.Repeat("c", 64) + `","optional":"hook"},{"kind":"Role","namespace":"n","name":"r","sha256":"` + strings.Repeat("c", 64) + `","optional":"postgres.bundled"}]}`,
+		"rbac optional bad": `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"x":"` + img + `"},"rbac":[{"kind":"ClusterRole","name":"r","sha256":"` + strings.Repeat("c", 64) + `","optional":"always"}]}`,
+		"engine no record":  engine,
+		"engine record":     engineOK,
+		"trailing data":     string(enc) + "{}",
+		"not json":          "release",
 	}
 	for name, body := range cases {
 		b := []byte(body)

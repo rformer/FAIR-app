@@ -10,6 +10,9 @@
 //	profilegen release-check [-online] [-report FILE] [-manifest FILE]
 //	                                       release checklist gate (T-07): pins, generated
 //	                                       files, CMMC rule revision (online: against the eCFR)
+//	    [-chart DIR|TGZ] [-package DIR|TAR -key FILE] [-third-party FILE] [-bundled DIR]
+//	                                       F-014 T-09: the chart in every option combination
+//	                                       and the air-gap package (see chart.go)
 //
 // Signing keys are read from files (a mounted secret), never from flags or
 // environment values.
@@ -67,9 +70,17 @@ func main() {
 		fs := flag.NewFlagSet("release-check", flag.ExitOnError)
 		online := fs.Bool("online", false, "re-check the CMMC rule against the eCFR (release pipeline)")
 		report := fs.String("report", "", "write the report (Markdown) to this file")
-		manifest := fs.String("manifest", "", "the release manifest (unsigned), for the engine validation record (F-005 T-09)")
+		manifest := fs.String("manifest", "", "the release manifest (unsigned), for the engine validation record (F-005 T-09) and -chart")
+		var g gateInputs
+		fs.StringVar(&g.chart, "chart", "", "the fair-platform chart (directory or .tgz): the chart release gate (F-014 T-09)")
+		fs.StringVar(&g.pkg, "package", "", "the air-gap package (directory or .tar): verified with -key, its chart gated (F-014 T-09)")
+		fs.StringVar(&g.key, "key", "", "the pinned release public key (PEM), for -package")
+		fs.StringVar(&g.layout, "layout", "", "the package's OCI image layout, relative to it (\"\": images/<component>/)")
+		fs.StringVar(&g.thirdParty, "third-party", "deploy/third-party-images.json", "the release's third-party images (mirrored copies)")
+		fs.StringVar(&g.bundled, "bundled", "deploy/bundled", "the bundled dependencies (what fairctl applies at cluster scope for each)")
 		_ = fs.Parse(os.Args[2:])
-		err = releaseCheck(*online, *report, *manifest)
+		g.manifest = *manifest
+		err = releaseCheck(*online, *report, *manifest, g)
 	default:
 		usage()
 	}
@@ -80,7 +91,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: profilegen profiles | packages | sign -key FILE -out DIR | verify -pub FILE -dir DIR | release-check [-online] [-report FILE] [-manifest FILE]   (run from the repository root)")
+	fmt.Fprintln(os.Stderr, "usage: profilegen profiles | packages | sign -key FILE -out DIR | verify -pub FILE -dir DIR | release-check [-online] [-report FILE] [-manifest FILE] [-chart DIR|TGZ] [-package DIR|TAR -key FILE]   (run from the repository root)")
 	os.Exit(2)
 }
 
@@ -178,7 +189,7 @@ func verify(pubFile, dir string) error {
 	return nil
 }
 
-func releaseCheck(online bool, reportFile, manifestFile string) error {
+func releaseCheck(online bool, reportFile, manifestFile string, g gateInputs) error {
 	var ecfr *profilegen.ECFR
 	if online {
 		ecfr = profilegen.NewECFR()
@@ -204,6 +215,8 @@ func releaseCheck(online bool, reportFile, manifestFile string) error {
 		detail = err.Error()
 	}
 	r.Checks = append(r.Checks, profilegen.Check{Name: "The engine image passed its validation suite", OK: err == nil, Detail: detail})
+	// F-014 T-09 (AC-02, AC-03): the chart and the air-gap package.
+	r.Checks = append(r.Checks, chartChecks(ctx, g)...)
 	md := r.Markdown()
 	fmt.Print(md)
 	if reportFile != "" {

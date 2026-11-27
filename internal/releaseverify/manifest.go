@@ -38,6 +38,7 @@ type RBACEntry struct {
 	Namespace string `json:"namespace,omitempty"`
 	Name      string `json:"name"`
 	SHA256    string `json:"sha256"`
+	Optional  string `json:"optional,omitempty"` // "hook" or the chart value that switches it on
 }
 
 // EngineValidation is the engine image's validation record (F-005 T-09).
@@ -56,6 +57,7 @@ const engineComponent = "engine"
 var (
 	imageRE   = regexp.MustCompile(`^[a-z0-9.\-/:]+@sha256:[0-9a-f]{64}$`)
 	hex64     = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	optional  = regexp.MustCompile(`^(hook|[a-z][A-Za-z0-9]*(\.[a-z][A-Za-z0-9]*)+)$`)
 	rbacKinds = []string{"Role", "ClusterRole", "RoleBinding", "ClusterRoleBinding"}
 )
 
@@ -80,6 +82,9 @@ func (m *Manifest) Validate() error {
 		}
 		if (e.Kind == "Role" || e.Kind == "RoleBinding") != (e.Namespace != "") {
 			return fmt.Errorf("%s %s: namespace mismatch", e.Kind, e.Name)
+		}
+		if e.Optional != "" && !optional.MatchString(e.Optional) {
+			return fmt.Errorf("%s %s: optional %q is neither \"hook\" nor a chart value", e.Kind, e.Name, e.Optional)
 		}
 		seen[key] = true
 	}

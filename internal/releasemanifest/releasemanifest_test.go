@@ -134,3 +134,26 @@ func TestImageReferenceHelpers(t *testing.T) {
 		t.Error("Digest")
 	}
 }
+
+// F-014 T-09: an RBAC entry is optional for a hook or a chart value, or not
+// at all.
+func TestOptionalRBACEntry(t *testing.T) {
+	img := "ghcr.io/rformer/fair-iam@sha256:" + strings.Repeat("e", 64)
+	for opt, ok := range map[string]bool{"": true, OptionalHook: true, "scanner.enabled": true, "postgres.bundled": true,
+		"always": false, "scanner": false, "Scanner.enabled": false, "scanner.enabled ": false} {
+		m := &Manifest{Format: Format, Release: "v1", Images: map[string]string{"iam": img},
+			RBAC: []RBACEntry{{Kind: "ClusterRole", Name: "r", SHA256: strings.Repeat("c", 64), Optional: opt}}}
+		if err := m.Validate(); (err == nil) != ok {
+			t.Errorf("optional %q: %v", opt, err)
+		}
+	}
+	es, err := RBACFromFile("../../deploy/k8s/hooks/preflight.yaml", OptionalHook)
+	if err != nil || len(es) != 2 {
+		t.Fatalf("%v %v", es, err)
+	}
+	for _, e := range es {
+		if e.Optional != OptionalHook || e.Name != "fair-preflight" {
+			t.Errorf("%+v", e)
+		}
+	}
+}

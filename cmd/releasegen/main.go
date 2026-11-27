@@ -2,10 +2,14 @@
 // (F-015 T-28, design §6.8), the expected state posture-scanner compares the
 // cluster with.
 //
-//	releasegen manifest -release VERSION -images FILE [-deploy deploy/k8s] -out FILE
+//	releasegen manifest -release VERSION -images FILE [-deploy deploy/k8s]
+//	    [-hooks deploy/k8s/hooks] [-bundled deploy/bundled] -out FILE
 //	    images FILE is JSON {"component": "repository@sha256:<digest>"} from the
 //	    image builds; RBAC hashes come from the reference manifests in -deploy,
-//	    a comma-separated list (OpenShift releases: deploy/k8s,deploy/k8s/openshift).
+//	    a comma-separated list (OpenShift releases: deploy/k8s,deploy/k8s/openshift),
+//	    the chart's hooks and the bundled dependencies (with what fairctl
+//	    applies for them), each marked with when it exists (F-014 T-09,
+//	    fleet.ReleaseRBAC; "" leaves a source out).
 //	releasegen sign -key FILE -in FILE
 //	releasegen sign -kms KEY -region REGION -in FILE
 //	    writes FILE.sig with the release signing key: a PEM file (ECDSA
@@ -66,6 +70,8 @@ func run(args []string) error {
 		release := fs.String("release", "", "release version")
 		images := fs.String("images", "", "JSON file: component -> repository@sha256:<digest>")
 		deploy := fs.String("deploy", "deploy/k8s", "reference manifest directories, comma-separated")
+		hooks := fs.String("hooks", "deploy/k8s/hooks", "the chart's hook objects (\"\": none)")
+		bundled := fs.String("bundled", "deploy/bundled", "the bundled dependencies (\"\": none)")
 		out := fs.String("out", "", "output file")
 		engineRecord := fs.String("engine-validation", "", "the engine image's /engine/validation.json (required when -images names the engine)")
 		_ = fs.Parse(args[1:])
@@ -77,7 +83,7 @@ func run(args []string) error {
 		if err := json.Unmarshal(b, &m.Images); err != nil {
 			return fmt.Errorf("%s: %w", *images, err)
 		}
-		if m.RBAC, err = releasemanifest.RBACFromDir(strings.Split(*deploy, ",")...); err != nil {
+		if m.RBAC, err = fleet.ReleaseRBAC(fleet.RBACSources{Deploy: strings.Split(*deploy, ","), Hooks: *hooks, Bundled: *bundled}); err != nil {
 			return err
 		}
 		if *engineRecord != "" {

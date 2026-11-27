@@ -147,7 +147,9 @@ func signatureAdmission() check {
 // 10. The platform's own RBAC matches the signed release manifest: nothing
 // changed, missing or added (Roles and bindings in the platform namespaces,
 // platform-labelled cluster roles, and cluster bindings granting anything
-// to a platform ServiceAccount).
+// to a platform ServiceAccount). An entry the manifest marks optional (a
+// chart hook's, or one a chart switch includes: F-014 T-09) is reported when
+// it differs, never as missing.
 func platformRBAC(cfg Config) check {
 	c := check{Meta: Meta{ID: "platform_rbac", Title: "Platform RBAC unchanged from the release",
 		Controls:    []string{"AC-6", "CM-5"},
@@ -158,8 +160,10 @@ func platformRBAC(cfg Config) check {
 			return nil, wrapManifest(err)
 		}
 		expected := map[string]string{}
+		optional := map[string]bool{}
 		for _, e := range m.RBAC {
 			expected[e.Key()] = e.SHA256
+			optional[e.Key()] = e.Optional != ""
 		}
 		live := map[string]string{}
 		hash := func(kind string, o kube.Object) error {
@@ -215,6 +219,9 @@ func platformRBAC(cfg Config) check {
 		subject := func(key string) string { return "rbac/" + strings.TrimSuffix(strings.Replace(key, "//", "/", 1), "/") }
 		for _, key := range sortedKeys(expected) {
 			switch got, ok := live[key]; {
+			case !ok && optional[key]:
+				// A hook's RBAC (present while the hook runs) or an
+				// option's (F-014 T-09): absent is expected.
 			case !ok:
 				out = append(out, c.finding("medium", subject(key), map[string]any{"object": key, "state": "missing", "release": m.Release},
 					"Restore the missing RBAC object from the release bundle; the component it serves may be failing."))

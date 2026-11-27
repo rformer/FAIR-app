@@ -49,7 +49,20 @@ type RBACEntry struct {
 	Namespace string `json:"namespace,omitempty"`
 	Name      string `json:"name"`
 	SHA256    string `json:"sha256"`
+	// Optional is empty for an object every installation has. Otherwise it
+	// names when the object exists (F-014 T-09): OptionalHook for a chart
+	// hook's (present while the hook runs, deleted with it), or the chart
+	// value that switches it on (scanner.enabled, postgres.bundled). The
+	// scanner reports such an object when it differs or is unexpected,
+	// never as missing; the release gate requires it in every render that
+	// switches it on.
+	Optional string `json:"optional,omitempty"`
 }
+
+// OptionalHook marks the RBAC of the chart's hooks.
+const OptionalHook = "hook"
+
+var optionalRE = regexp.MustCompile(`^(hook|[a-z][A-Za-z0-9]*(\.[a-z][A-Za-z0-9]*)+)$`)
 
 // Key identifies an RBAC object.
 func (e RBACEntry) Key() string { return e.Kind + "/" + e.Namespace + "/" + e.Name }
@@ -79,6 +92,9 @@ func (m *Manifest) Validate() error {
 		}
 		if (e.Kind == "Role" || e.Kind == "RoleBinding") != (e.Namespace != "") {
 			return fmt.Errorf("releasemanifest: %s %s: namespace mismatch", e.Kind, e.Name)
+		}
+		if e.Optional != "" && !optionalRE.MatchString(e.Optional) {
+			return fmt.Errorf("releasemanifest: %s %s: optional %q is neither %q nor a chart value", e.Kind, e.Name, e.Optional, OptionalHook)
 		}
 		seen[e.Key()] = true
 	}
@@ -206,38 +222,55 @@ func RBACFromDir(dirs ...string) ([]RBACEntry, error) {
 	sort.Strings(files)
 	var out []RBACEntry
 	for _, f := range files {
-		b, err := os.ReadFile(f) // #nosec G304 -- build-time input directory
+		es, err := RBACFromFile(f, "")
 		if err != nil {
 			return nil, err
 		}
-		dec := yaml.NewDecoder(bytes.NewReader(b))
-		for {
-			var d map[string]any
-			if err := dec.Decode(&d); errors.Is(err, io.EOF) {
-				break
-			} else if err != nil {
-				return nil, fmt.Errorf("%s: %w", f, err)
-			}
-			kind, _ := d["kind"].(string)
-			if !slices.Contains(RBACKinds, kind) {
-				continue
-			}
-			meta, _ := d["metadata"].(map[string]any)
-			name, _ := meta["name"].(string)
-			ns, _ := meta["namespace"].(string)
-			j, err := json.Marshal(d)
-			if err != nil {
-				return nil, fmt.Errorf("%s: %s %s: %w", f, kind, name, err)
-			}
-			h, err := Hash(kind, j)
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, RBACEntry{Kind: kind, Namespace: ns, Name: name, SHA256: h})
-		}
+		out = append(out, es...)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Key() < out[j].Key() })
+	SortRBAC(out)
 	return out, nil
+}
+
+// RBACFromFile hashes every RBAC object of one YAML file, each entry marked
+// optional (RBACEntry.Optional; "" for none).
+func RBACFromFile(f, optional string) ([]RBACEntry, error) {
+	b, err := os.ReadFile(f) // #nosec G304 -- build-time input file
+	if err != nil {
+		return nil, err
+	}
+	var out []RBACEntry
+	dec := yaml.NewDecoder(bytes.NewReader(b))
+	for {
+		var d map[string]any
+		if err := dec.Decode(&d); errors.Is(err, io.EOF) {
+			break
+		} else if err != nil {
+			return nil, fmt.Errorf("%s: %w", f, err)
+		}
+		kind, _ := d["kind"].(string)
+		if !slices.Contains(RBACKinds, kind) {
+			continue
+		}
+		meta, _ := d["metadata"].(map[string]any)
+		name, _ := meta["name"].(string)
+		ns, _ := meta["namespace"].(string)
+		j, err := json.Marshal(d)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %s %s: %w", f, kind, name, err)
+		}
+		h, err := Hash(kind, j)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, RBACEntry{Kind: kind, Namespace: ns, Name: name, SHA256: h, Optional: optional})
+	}
+	return out, nil
+}
+
+// SortRBAC sorts entries by Key, the manifest's order.
+func SortRBAC(es []RBACEntry) {
+	sort.Slice(es, func(i, j int) bool { return es[i].Key() < es[j].Key() })
 }
 
 // Encode returns the manifest's canonical bytes (what is signed).
