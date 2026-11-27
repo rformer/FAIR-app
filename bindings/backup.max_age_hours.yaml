@@ -1,0 +1,18 @@
+# F-014 T-02: binding for backup.max_age_hours: CP-9, CP-10; hours after which the newest verified backup set is stale (F-014 design §3.11, §4).
+setting: backup.max_age_hours
+type: int
+direction: lower_is_stricter
+bu_scopable: false
+profiles:
+  fedramp-moderate:
+    default: 24
+    bound: { max: 168 }
+    platform_choice: "A verified backup at least daily, a week at most; upgrades always require one no older than 24 hours (F-014 design §3.10)"
+  cmmc-l2-r2:
+    default: 24
+    bound: { max: 168 }
+    platform_choice: "Matches FedRAMP Moderate"
+  enterprise-baseline:
+    default: 24
+    bound: { max: 168 }
+    platform_choice: "Matches FedRAMP Moderate"

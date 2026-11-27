@@ -142,6 +142,21 @@ func F010Defs() []Def {
 	}
 }
 
+// KeyBackupMaxAge is F-014's setting key (design §4).
+const KeyBackupMaxAge = "backup.max_age_hours"
+
+// F014Defs returns the F-014 (distribution, installer and licensing)
+// setting definitions, registered by the posture service: the age in hours
+// past which the newest verified backup set opens the backup_freshness
+// finding (design §3.11, D-OQ10). The service keeps the other limit (at
+// least 1 hour).
+func F014Defs() []Def {
+	return []Def{
+		{Key: KeyBackupMaxAge, Kind: KindInt, Direction: LowerIsStricter, Controls: []string{"CP-9", "CP-10"},
+			Description: "Hours after which the newest verified backup set is stale and opens a high finding (1 to 168)"},
+	}
+}
+
 // F-011 setting keys (design §4).
 const (
 	KeyIntegrationAllowedHosts    = "integration.allowed_hosts"
@@ -293,11 +308,11 @@ func F002Defs() []Def {
 }
 
 // ReleaseDefs are the setting definitions a release binds: F-001's,
-// F-002's, F-004's, F-005's, F-007's, F-008's and F-009's. Profile packages cover exactly these
+// F-002's, F-004's, F-005's, F-007's to F-011's and F-014's. Profile packages cover exactly these
 // (internal/profilegen).
 func ReleaseDefs() []Def {
 	defs := F001Defs()
-	for _, more := range [][]Def{F002Defs(), F004Defs(), F005Defs(), F007Defs(), F008Defs(), F009Defs(), F010Defs(), F011Defs()} {
+	for _, more := range [][]Def{F002Defs(), F004Defs(), F005Defs(), F007Defs(), F008Defs(), F009Defs(), F010Defs(), F011Defs(), F014Defs()} {
 		defs = append(defs, more...)
 	}
 	return defs
@@ -409,6 +424,8 @@ func BuiltinProfiles() []Profile {
 			// F-011 (design §4): the same in every family; no host until one is approved.
 			KeyIntegrationAllowedHosts:    {Default: []string{}, Weakest: []string{SetAll}},
 			KeyIntegrationRecordRetention: {Default: 30, Weakest: 365},
+			// F-014 (design §4, D-OQ10): the same in every family.
+			KeyBackupMaxAge: {Default: 24, Weakest: 168},
 		}
 	}
 

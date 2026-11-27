@@ -353,6 +353,12 @@ func run() error {
 			}
 		}
 	}
+	// F-014's setting (T-02; design §4): backup freshness, read by the
+	// drift engine's backup_freshness check (T-25).
+	if err := sc.Register(settings.F014Defs()...); err != nil {
+		return err
+	}
+	go registerF014(ctx, pool, logger)
 	// Before the install is seeded the read fails; Run retries, and until
 	// then the check denies (fail closed).
 	if err := sc.Refresh(ctx); err != nil {
@@ -592,4 +598,21 @@ func auditSink(db audit.Beginner) (audit.Emitter, error) {
 	}
 	// F-002 T-06: the audit trail first, then the logs.
 	return audit.WithTrail(e, audit.Trail{DB: db}), nil
+}
+
+// registerF014 registers F-014's setting definitions, retrying every 30
+// seconds until it succeeds (posture refuses before the install is seeded).
+func registerF014(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) {
+	for {
+		err := settings.DBRegistrar{DB: pool}.Register(ctx, "F-014", version, settings.F014Defs())
+		if err == nil {
+			return
+		}
+		logger.Warn("registering F-014 settings", "error", err.Error())
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(30 * time.Second):
+		}
+	}
 }
