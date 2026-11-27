@@ -29,6 +29,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -392,6 +393,11 @@ func mirrorImages(text string, images, mirror map[string]string) (string, error)
 		}
 		return line
 	})
+	// The same images named outside an image field (the CloudNativePG
+	// operator's own image, which it gives the pods it makes).
+	for _, from := range slices.Sorted(maps.Keys(mirror)) {
+		text = strings.ReplaceAll(text, from, mirror[from])
+	}
 	return text, errors.Join(errs...)
 }
 
@@ -429,6 +435,9 @@ func substitute(text string, images map[string]string) (string, error) {
 	text = modeRE.ReplaceAllString(text, `${1}"$${`+ModeVariable+`}"`)
 	text = placeholderRE.ReplaceAllStringFunc(text, func(m string) string {
 		if v, ok := Variables[m]; ok {
+			return "${" + v + "}"
+		}
+		if v, ok := BundledVariables[m]; ok { // deploy/bundled's (the chart's only)
 			return "${" + v + "}"
 		}
 		return m

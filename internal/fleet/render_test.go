@@ -476,7 +476,11 @@ func TestThirdPartyList(t *testing.T) {
 		t.Fatal(err)
 	}
 	named := map[string]bool{}
-	for _, dir := range []string{"deploy/k8s", "deploy/observability"} {
+	dirs := []string{"deploy/k8s", "deploy/observability"}
+	for _, b := range Bundled { // F-014 T-08: the chart's bundled dependencies
+		dirs = append(dirs, "deploy/bundled/"+b.Dir)
+	}
+	for _, dir := range dirs {
 		for name, text := range readAll(t, filepath.Join(root, dir)) {
 			if !strings.HasSuffix(name, ".yaml") || strings.Contains(name, "/") {
 				continue

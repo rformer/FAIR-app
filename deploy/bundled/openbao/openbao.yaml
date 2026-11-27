@@ -1,0 +1,201 @@
+# F-014 T-08 (F-014-AC-01, AC-03; design §3.3, D-OQ9): the bundled OpenBao,
+# three servers with raft storage in namespace openbao, our image rebuilt
+# from source with the Go FIPS module (Dockerfile target openbao). The
+# services' OpenBao Agents (deploy/k8s/keys/openbao, keyStore.kind openbao)
+# reach it at https://openbao.openbao.svc:8200 with the CA in ConfigMap
+# openbao-ca of fair-platform.
+#
+# Kubernetes access: none. fairctl mounts the agents' auth path
+# (auth/kubernetes) as a JWT auth method that validates their projected
+# ServiceAccount tokens (audience openbao) offline with the cluster's
+# service-account issuer keys, and binds each role to its service's
+# ServiceAccount (docs/install/keys.md's roles). OpenBao therefore needs no
+# TokenReview rights, the cluster-wide grant the kubernetes method would
+# need, and mounts no ServiceAccount token.
+#
+# Hardening as the platform's: non-root, read-only root filesystem (data on
+# the volume), capabilities dropped (OpenBao 2 no longer locks memory, so no
+# IPC_LOCK).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openbao
+  labels:
+    app.kubernetes.io/part-of: fair-platform
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: openbao
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: openbao
+  namespace: openbao
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: openbao
+  namespace: openbao
+  labels: { app.kubernetes.io/name: openbao, app.kubernetes.io/part-of: fair-platform }
+spec:
+  replicas: 3
+  serviceName: openbao-internal
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels: { app.kubernetes.io/name: openbao }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: openbao, app.kubernetes.io/part-of: fair-platform }
+    spec:
+      serviceAccountName: openbao
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: openbao
+          image: ghcr.io/rformer/fair-openbao:REPLACE_WITH_DIGEST
+          ports:
+            - { name: api, containerPort: 8200 }
+            - { name: cluster, containerPort: 8201 }
+          env:
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - { name: BAO_API_ADDR, value: "https://$(POD_NAME).openbao-internal.openbao.svc:8200" }
+            - { name: BAO_CLUSTER_ADDR, value: "https://$(POD_NAME).openbao-internal.openbao.svc:8201" }
+            - { name: BAO_RAFT_NODE_ID, value: "$(POD_NAME)" }
+            - { name: BAO_CACERT, value: /openbao/tls/ca.crt }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          # Sealed and uninitialized servers are alive (fairctl initializes
+          # and unseals them); only an unsealed one is ready.
+          livenessProbe:
+            httpGet: { path: "/v1/sys/health?standbyok=true&sealedcode=204&uninitcode=204", port: api, scheme: HTTPS }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: "/v1/sys/health?standbyok=true&perfstandbyok=true", port: api, scheme: HTTPS }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1Gi }
+          volumeMounts:
+            - { name: config, mountPath: /openbao/config, readOnly: true }
+            - { name: tls, mountPath: /openbao/tls, readOnly: true }
+            - { name: data, mountPath: /openbao/data }
+      volumes:
+        - name: config
+          configMap: { name: openbao-config }
+        - name: tls
+          secret: { secretName: openbao-tls, defaultMode: 0440 }
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels: { app.kubernetes.io/name: openbao, app.kubernetes.io/part-of: fair-platform }
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests: { storage: 10Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openbao
+  namespace: openbao
+  labels: { app.kubernetes.io/name: openbao, app.kubernetes.io/part-of: fair-platform }
+spec:
+  selector: { app.kubernetes.io/name: openbao }
+  ports: [{ name: api, port: 8200, targetPort: api }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openbao-internal
+  namespace: openbao
+  labels: { app.kubernetes.io/name: openbao, app.kubernetes.io/part-of: fair-platform }
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector: { app.kubernetes.io/name: openbao }
+  ports:
+    - { name: api, port: 8200, targetPort: api }
+    - { name: cluster, port: 8201, targetPort: cluster }
+---
+# Ingress: the API from the platform's pods (their agents) and the other
+# servers (raft join, request forwarding); the cluster port from the other
+# servers.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: openbao-ingress
+  namespace: openbao
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: openbao }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: fair-platform }
+          podSelector:
+            matchLabels: { app.kubernetes.io/part-of: fair-platform }
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: openbao }
+      ports: [{ port: 8200, protocol: TCP }]
+    - from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: openbao }
+      ports: [{ port: 8201, protocol: TCP }]
+---
+# Egress: the other servers, DNS. No KMS: a seal that needs one adds its
+# rule with it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: openbao-egress
+  namespace: openbao
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: openbao }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: openbao }
+      ports: [{ port: 8200, protocol: TCP }, { port: 8201, protocol: TCP }]
+    - ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]
+---
+# The platform's OpenBao Agents reach OpenBao (keyStore.kind openbao; the
+# engine's own rule is in deploy/k8s/keys/openbao/sidecars.yaml).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: openbao-agent-egress
+  namespace: fair-platform
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/part-of: fair-platform }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: openbao }
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: openbao }
+      ports: [{ port: 8200, protocol: TCP }]

@@ -1,0 +1,150 @@
+# F-014 T-08 (F-014-AC-01, AC-03; design §3.3): the bundled NATS JetStream,
+# three servers in fair-platform (the platform's clients reach
+# tls://nats.fair-platform:4222, and their egress policies already allow the
+# nats pods), our image rebuilt from source with the Go FIPS module
+# (Dockerfile target nats). Configuration nats.conf (ConfigMap nats-config);
+# fairctl provisions Secret nats-tls (tls.crt, tls.key, ca.crt: installation
+# CA, SANs nats.fair-platform.svc and *.nats-headless.fair-platform.svc),
+# Secret nats-auth (resolver.conf) and the JetStream streams of
+# deploy/k8s/nats-streams.yaml. JetStream data on one encrypted volume per
+# server (the cluster's default StorageClass, attested or checked by
+# storage_encryption). No ServiceAccount token, no Kubernetes access.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nats
+  namespace: fair-platform
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nats
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: nats, app.kubernetes.io/part-of: fair-platform }
+spec:
+  replicas: 3
+  serviceName: nats-headless
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels: { app.kubernetes.io/name: nats }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: nats, app.kubernetes.io/part-of: fair-platform }
+    spec:
+      serviceAccountName: nats
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: nats
+          image: ghcr.io/rformer/fair-nats:REPLACE_WITH_DIGEST
+          ports:
+            - { name: client, containerPort: 4222 }
+            - { name: cluster, containerPort: 6222 }
+            - { name: monitor, containerPort: 8222 }
+          env:
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          startupProbe:
+            httpGet: { path: /healthz, port: monitor, scheme: HTTPS }
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet: { path: "/healthz?js-enabled-only=true", port: monitor, scheme: HTTPS }
+            periodSeconds: 30
+          readinessProbe:
+            httpGet: { path: "/healthz?js-server-only=true", port: monitor, scheme: HTTPS }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1Gi }
+          volumeMounts:
+            - { name: config, mountPath: /etc/nats/nats.conf, subPath: nats.conf, readOnly: true }
+            - { name: auth, mountPath: /etc/nats/auth, readOnly: true }
+            - { name: tls, mountPath: /etc/nats/tls, readOnly: true }
+            - { name: data, mountPath: /data }
+      volumes:
+        - name: config
+          configMap: { name: nats-config }
+        - name: auth
+          secret: { secretName: nats-auth, defaultMode: 0440 }
+        - name: tls
+          secret: { secretName: nats-tls, defaultMode: 0440 }
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels: { app.kubernetes.io/name: nats, app.kubernetes.io/part-of: fair-platform }
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests: { storage: 10Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: nats, app.kubernetes.io/part-of: fair-platform }
+spec:
+  selector: { app.kubernetes.io/name: nats }
+  ports: [{ name: client, port: 4222, targetPort: client }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats-headless
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: nats, app.kubernetes.io/part-of: fair-platform }
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector: { app.kubernetes.io/name: nats }
+  ports: [{ name: cluster, port: 6222, targetPort: cluster }]
+---
+# Ingress: clients from the platform's pods; routes from the other servers.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nats-ingress
+  namespace: fair-platform
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: nats }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/part-of: fair-platform }
+      ports: [{ port: 4222, protocol: TCP }]
+    - from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: nats }
+      ports: [{ port: 6222, protocol: TCP }]
+---
+# Egress: routes to the other servers, DNS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nats-egress
+  namespace: fair-platform
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: nats }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: nats }
+      ports: [{ port: 6222, protocol: TCP }]
+    - ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]

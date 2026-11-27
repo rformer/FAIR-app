@@ -17,12 +17,16 @@ import (
 //
 //	releasegen chart -release VERSION -images FILE -out DIR [-deploy deploy/k8s]
 //	    [-keys deploy/k8s/keys] [-hooks deploy/k8s/hooks] [-manifest FILE]
+//	    [-bundled deploy/bundled] [-third-party deploy/third-party-images.json]
 //	    [-package DIR]
 //
 // images FILE is the release's {"component": "repository@sha256:<digest>"}
 // and must hold the OpenBao (agent sidecars) and fairctl (hooks) images;
 // -manifest names the signed release-manifest.json whose SHA-256 Chart.yaml
-// records; -package also writes fair-platform-<version>.tgz into DIR. The
+// records; -bundled adds the bundled dependencies (F-014 T-08), whose
+// images FILE must hold too (postgres, nats, versitygw, keycloak, openbao),
+// and whose third-party images are named by their mirrored copies under
+// <registry>/mirror; -package also writes fair-platform-<version>.tgz into DIR. The
 // Helm SDK only loads, checks and packages the chart here (ADR-019);
 // signing and the OCI push are the release's chart job (T-10).
 func chart(args []string) error {
@@ -33,6 +37,8 @@ func chart(args []string) error {
 	keys := fs.String("keys", "deploy/k8s/keys", "key store manifests")
 	hooks := fs.String("hooks", "deploy/k8s/hooks", "the chart's hook objects")
 	manifest := fs.String("manifest", "", "the signed release-manifest.json (\"\": none)")
+	bundled := fs.String("bundled", "deploy/bundled", "the bundled dependencies (\"\": none)")
+	third := fs.String("third-party", "deploy/third-party-images.json", "third-party images, named by their copies under "+fleet.DefaultRegistry+"/mirror (\"\": none)")
 	pkg := fs.String("package", "", "also write the packaged chart (.tgz) into this directory")
 	out := fs.String("out", "", "output directory (must not exist)")
 	_ = fs.Parse(args)
@@ -47,7 +53,14 @@ func chart(args []string) error {
 	if err := json.Unmarshal(b, &imgs); err != nil {
 		return fmt.Errorf("%s: %w", *images, err)
 	}
-	o := fleet.ChartOptions{Options: fleet.Options{Release: *release, Images: imgs, Deploy: *deploy, Keys: *keys}, Hooks: *hooks}
+	o := fleet.ChartOptions{Options: fleet.Options{Release: *release, Images: imgs, Deploy: *deploy, Keys: *keys}, Hooks: *hooks, Bundled: *bundled}
+	if *third != "" {
+		l, err := fleet.LoadThirdParty(*third)
+		if err != nil {
+			return err
+		}
+		o.Mirror = l.Mirror(fleet.DefaultRegistry + "/mirror")
+	}
 	if *manifest != "" {
 		if o.ManifestDigest, err = fleet.ManifestDigest(*manifest); err != nil {
 			return err

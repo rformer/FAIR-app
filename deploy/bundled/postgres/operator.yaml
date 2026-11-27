@@ -1,0 +1,249 @@
+# F-014 T-08 (F-014-AC-01, AC-03; design §3.3, D-OQ2; ADR-005 amendment 2):
+# the bundled PostgreSQL's operator, CloudNativePG 1.30.2, installed
+# namespace-scoped. It watches and writes only fair-data (WATCH_NAMESPACE);
+# its Role below is the upstream ClusterRole's namespaced rules, bound in
+# fair-data only. What it still needs at cluster scope is read-only (nodes,
+# clusterimagecatalogs) and, with the CRDs and the webhook configurations,
+# is installed by fairctl with cluster administration during install
+# (cluster/cluster-scoped.yaml; listed as residue in the responsibility
+# matrix). The chart holds no cluster-scoped object of the operator.
+#
+# The webhook certificate is fairctl's (installation CA): WEBHOOK_CERT_DIR
+# makes the operator use it and, with MANAGE_WEBHOOK_CONFIGURATIONS=false,
+# never patch the webhook configurations (a cluster-scoped write); fairctl
+# writes their caBundle. The operator injects its own image into every
+# PostgreSQL pod (the bootstrap-controller init container), so
+# OPERATOR_IMAGE_NAME names the same mirrored, release-key-signed copy as the
+# container (deploy/third-party-images.json; not rebuilt, D-OQ3).
+#
+# Hardening exception: the operator's ServiceAccount token is mounted (it
+# drives the Kubernetes API); its rights are the Role below.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fair-data
+  labels:
+    app.kubernetes.io/part-of: fair-platform
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: fair-data
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cnpg-manager
+  namespace: fair-data
+  labels: { app.kubernetes.io/name: cloudnative-pg, app.kubernetes.io/part-of: fair-platform }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cnpg-manager
+  namespace: fair-data
+  labels: { app.kubernetes.io/name: cloudnative-pg, app.kubernetes.io/part-of: fair-platform }
+rules:
+  - apiGroups: [""]
+    resources: [configmaps, secrets, services]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [""]
+    resources: [configmaps/status, secrets/status]
+    verbs: [get, patch, update]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims, pods, pods/exec]
+    verbs: [create, delete, get, list, patch, watch]
+  - apiGroups: [""]
+    resources: [pods/status]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [serviceaccounts]
+    verbs: [create, get, list, patch, update, watch]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [create, delete, get, list, patch, watch]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [create, delete, get, list, update, watch]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list, watch]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [postgresql.cnpg.io]
+    resources: [backups, clusters, databaseroles, databases, poolers, publications, scheduledbackups, subscriptions]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [postgresql.cnpg.io]
+    resources: [backups/status, databases/status, publications/status, scheduledbackups/status, subscriptions/status]
+    verbs: [get, patch, update]
+  - apiGroups: [postgresql.cnpg.io]
+    resources: [imagecatalogs]
+    verbs: [get, list, watch]
+  - apiGroups: [postgresql.cnpg.io]
+    resources: [clusters/finalizers, databaseroles/finalizers, poolers/finalizers]
+    verbs: [update]
+  - apiGroups: [postgresql.cnpg.io]
+    resources: [clusters/status, databaseroles/status, failoverquorums/status, poolers/status]
+    verbs: [get, patch, update, watch]
+  - apiGroups: [postgresql.cnpg.io]
+    resources: [failoverquorums]
+    verbs: [create, delete, get, list, watch]
+  # The per-Cluster Role and RoleBinding of the instance managers, in
+  # fair-data only.
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings, roles]
+    verbs: [create, get, list, patch, update, watch]
+  - apiGroups: [snapshot.storage.k8s.io]
+    resources: [volumesnapshots]
+    verbs: [create, get, list, patch, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cnpg-manager
+  namespace: fair-data
+  labels: { app.kubernetes.io/name: cloudnative-pg, app.kubernetes.io/part-of: fair-platform }
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cnpg-manager
+subjects:
+  - kind: ServiceAccount
+    name: cnpg-manager
+    namespace: fair-data
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cnpg-controller-manager
+  namespace: fair-data
+  labels: { app.kubernetes.io/name: cloudnative-pg, app.kubernetes.io/part-of: fair-platform }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: cloudnative-pg }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: cloudnative-pg, app.kubernetes.io/part-of: fair-platform }
+    spec:
+      serviceAccountName: cnpg-manager
+      automountServiceAccountToken: true # the operator drives the Kubernetes API (hardening exception)
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: manager
+          image: ghcr.io/cloudnative-pg/cloudnative-pg:1.30.2@sha256:f96f6be3d81ec93819b443c665c575c609342fca840df90d4d87dae314a5b913
+          command: ["/manager"]
+          args:
+            - controller
+            - --leader-elect
+            - --max-concurrent-reconciles=10
+            - --config-map-name=cnpg-controller-manager-config
+            - --secret-name=cnpg-controller-manager-config
+            - --webhook-port=9443
+          env:
+            - { name: OPERATOR_IMAGE_NAME, value: ghcr.io/cloudnative-pg/cloudnative-pg:1.30.2@sha256:f96f6be3d81ec93819b443c665c575c609342fca840df90d4d87dae314a5b913 }
+            - name: OPERATOR_NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+            - { name: WATCH_NAMESPACE, value: fair-data }
+            # The webhook's certificate from fairctl (apiserver.crt and
+            # apiserver.key, the names this mode reads); no CA injection.
+            - { name: WEBHOOK_CERT_DIR, value: /run/secrets/cnpg.io/webhook }
+            - { name: MANAGE_WEBHOOK_CONFIGURATIONS, value: "false" }
+          ports:
+            - { name: webhook-server, containerPort: 9443 }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          startupProbe:
+            httpGet: { path: /readyz, port: 9443, scheme: HTTPS }
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet: { path: /readyz, port: 9443, scheme: HTTPS }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /readyz, port: 9443, scheme: HTTPS }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 100Mi }
+            limits: { memory: 256Mi }
+          volumeMounts:
+            - { name: scratch, mountPath: /controller }
+            - { name: webhook-cert, mountPath: /run/secrets/cnpg.io/webhook, readOnly: true }
+      volumes:
+        - name: scratch
+          emptyDir: { sizeLimit: 64Mi }
+        - name: webhook-cert
+          secret:
+            secretName: cnpg-webhook-cert
+            defaultMode: 0440
+            items:
+              - { key: tls.crt, path: apiserver.crt }
+              - { key: tls.key, path: apiserver.key }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cnpg-webhook-service
+  namespace: fair-data
+  labels: { app.kubernetes.io/name: cloudnative-pg, app.kubernetes.io/part-of: fair-platform }
+spec:
+  selector: { app.kubernetes.io/name: cloudnative-pg }
+  ports: [{ name: webhook, port: 443, targetPort: 9443 }]
+---
+# Ingress: the API server calls the admission webhooks
+# (REPLACE_WITH_APISERVER_CIDR, its endpoint addresses).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cnpg-operator-ingress
+  namespace: fair-data
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: cloudnative-pg }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - ipBlock: { cidr: REPLACE_WITH_APISERVER_CIDR }
+      ports: [{ port: 9443, protocol: TCP }]
+---
+# Egress: the API server, the instance managers' status port (TLS, 8000) and
+# DNS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cnpg-operator-egress
+  namespace: fair-data
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: cloudnative-pg }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock: { cidr: REPLACE_WITH_APISERVER_CIDR }
+      ports: [{ port: 443, protocol: TCP }, { port: 6443, protocol: TCP }]
+    - to:
+        - podSelector:
+            matchLabels: { cnpg.io/cluster: fair-db }
+      ports: [{ port: 8000, protocol: TCP }]
+    - ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]

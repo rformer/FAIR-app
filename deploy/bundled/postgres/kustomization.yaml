@@ -1,0 +1,5 @@
+# F-014 T-08: the bundled PostgreSQL (chart switch postgres.bundled).
+# cluster/ is fairctl's (cluster-scoped, applied at install), not the chart's.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources: [operator.yaml, cluster.yaml]

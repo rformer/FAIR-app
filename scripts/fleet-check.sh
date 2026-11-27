@@ -5,8 +5,9 @@
 # every kustomization of deploy/fleet, and validates the objects with
 # kubeconform (strict: unknown fields fail) against the Kubernetes schemas
 # and the CRD schemas of Flux, the policy-controller, External Secrets,
-# cert-manager, the AWS Private CA issuer and the load balancer controller
-# (datreeio/CRDs-catalog, pinned by commit). internal/fleet's tests check
+# cert-manager, the AWS Private CA issuer, the load balancer controller and
+# CloudNativePG (datreeio/CRDs-catalog, pinned by commit), with the chart's
+# bundled dependencies (deploy/bundled, F-014 T-08). internal/fleet's tests check
 # the rest offline (order, verification, pins, variables); the live checks
 # are scripts/admission-e2e.sh's.
 # Needs docker, kubectl, go. Run from the repository root.
@@ -38,6 +39,14 @@ done
 for d in flux release-key addons addons-config policy instances/example; do
   kubectl kustomize "deploy/fleet/$d" > "$TMP/built/fleet-${d//\//-}.yaml"
 done
+# F-014 T-08: the chart's bundled dependencies (deploy/bundled; their
+# configMapGenerators read deploy/keycloak and deploy/observability) and the
+# CloudNativePG operator's cluster-scoped objects fairctl applies, against
+# the CloudNativePG CRD schemas too.
+for d in postgres nats object-store keycloak openbao collector; do
+  kubectl kustomize --load-restrictor LoadRestrictionsNone "deploy/bundled/$d" > "$TMP/built/bundled-$d.yaml"
+done
+cp deploy/bundled/postgres/cluster/cluster-scoped.yaml "$TMP/built/bundled-postgres-cluster.yaml"
 docker run --rm -v "$TMP/built:/built:ro" "$KUBECONFORM_IMAGE" -strict -summary -output text \
   -schema-location default \
   -schema-location "$CRDS_CATALOG/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \

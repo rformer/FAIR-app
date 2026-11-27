@@ -1,0 +1,227 @@
+# F-014 T-08 (F-014-AC-01, AC-03; design §3.3; F-001 AC-06): the bundled
+# Keycloak, our image in FIPS strict mode with BC-FIPS (Dockerfile target
+# keycloak), importing the realm deploy/keycloak/fair-realm.json at start
+# (ConfigMap keycloak-realm; Keycloak substitutes FAIR_PUBLIC_ORIGIN and
+# FAIR_KEYCLOAK_CLIENT_SECRET from its environment). Browsers reach it at its
+# own host (keycloak.host: a separate origin from the platform's) through
+# the ingress; its database is keycloak in the bundled PostgreSQL (so the
+# chart requires postgres.bundled with it; database.yaml).
+#
+# TLS only (no HTTP listener), TLS 1.2 or later, from a BCFKS key store
+# (Secret keycloak-tls, keystore.bcfks: strict mode's key store type). One
+# replica: the bundled IdP is not highly available.
+#
+# Credentials: Keycloak takes its database password, key store password and
+# bootstrap administrator password only from options or the environment, so
+# they come from Secrets fairctl generates (keycloak-db, keycloak-tls,
+# keycloak-admin, keycloak-client) by secretKeyRef, never as literals. The
+# bootstrap administrator is temporary (Keycloak asks for a permanent one).
+#
+# Hardening: non-root, read-only root filesystem (Keycloak writes only
+# /opt/keycloak/data and /tmp, both memory-limited emptyDirs), capabilities
+# dropped, no ServiceAccount token. Recorded exception: the image keeps the
+# bash that kc.sh needs (design §3.3 image decisions). Smart-card OCSP
+# responders need an egress rule the customer adds with their address.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fair-identity
+  labels:
+    app.kubernetes.io/part-of: fair-platform
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: fair-identity
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: keycloak
+  namespace: fair-identity
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: fair-identity
+  labels: { app.kubernetes.io/name: keycloak, app.kubernetes.io/part-of: fair-platform }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app.kubernetes.io/name: keycloak }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: keycloak, app.kubernetes.io/part-of: fair-platform }
+    spec:
+      serviceAccountName: keycloak
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: keycloak
+          image: ghcr.io/rformer/fair-keycloak:REPLACE_WITH_DIGEST
+          args: ["--import-realm"]
+          ports:
+            - { name: https, containerPort: 8443 }
+            - { name: management, containerPort: 9000 }
+          env:
+            - { name: KC_HOSTNAME, value: "https://REPLACE_WITH_IDENTITY_HOST" }
+            - { name: KC_HTTP_ENABLED, value: "false" }
+            - { name: KC_HTTPS_PORT, value: "8443" }
+            - { name: KC_HTTPS_PROTOCOLS, value: "TLSv1.3,TLSv1.2" }
+            - { name: KC_HTTPS_KEY_STORE_FILE, value: /opt/keycloak/conf/tls/keystore.bcfks }
+            - { name: KC_HTTPS_KEY_STORE_TYPE, value: bcfks }
+            - name: KC_HTTPS_KEY_STORE_PASSWORD
+              valueFrom: { secretKeyRef: { name: keycloak-tls, key: keystore-password } }
+            - { name: KC_HTTP_MANAGEMENT_PORT, value: "9000" }
+            - { name: KC_PROXY_HEADERS, value: xforwarded }
+            - { name: KC_DB_URL, value: "jdbc:postgresql://fair-db-rw.fair-data.svc:5432/keycloak?sslmode=verify-full&sslrootcert=/opt/keycloak/conf/db-ca/ca.crt" }
+            - { name: KC_DB_USERNAME, value: keycloak }
+            - name: KC_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: keycloak-db, key: password } }
+            - { name: KC_BOOTSTRAP_ADMIN_USERNAME, value: fair-bootstrap-admin }
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: keycloak-admin, key: password } }
+            - { name: KC_LOG_CONSOLE_OUTPUT, value: json }
+            # The realm's placeholders (deploy/keycloak/fair-realm.json).
+            - { name: FAIR_PUBLIC_ORIGIN, value: "https://REPLACE_WITH_PLATFORM_HOST" }
+            - name: FAIR_KEYCLOAK_CLIENT_SECRET
+              valueFrom: { secretKeyRef: { name: keycloak-client, key: client-secret } }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          startupProbe:
+            httpGet: { path: /health/started, port: management, scheme: HTTPS }
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet: { path: /health/live, port: management, scheme: HTTPS }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /health/ready, port: management, scheme: HTTPS }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 250m, memory: 768Mi }
+            limits: { memory: 2Gi }
+          volumeMounts:
+            - { name: data, mountPath: /opt/keycloak/data }
+            - { name: realm, mountPath: /opt/keycloak/data/import, readOnly: true }
+            - { name: tls, mountPath: /opt/keycloak/conf/tls, readOnly: true }
+            - { name: db-ca, mountPath: /opt/keycloak/conf/db-ca, readOnly: true }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: data
+          emptyDir: { medium: Memory, sizeLimit: 256Mi }
+        - name: realm
+          configMap: { name: keycloak-realm }
+        - name: tls
+          secret: { secretName: keycloak-tls, defaultMode: 0440, items: [{ key: keystore.bcfks, path: keystore.bcfks }] }
+        - name: db-ca
+          secret: { secretName: keycloak-db-ca, defaultMode: 0440 }
+        - name: tmp
+          emptyDir: { medium: Memory, sizeLimit: 128Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: fair-identity
+  labels: { app.kubernetes.io/name: keycloak, app.kubernetes.io/part-of: fair-platform }
+spec:
+  selector: { app.kubernetes.io/name: keycloak }
+  ports: [{ name: https, port: 443, targetPort: https }]
+---
+# Ingress: the ingress controller or load balancer only (browsers and the
+# iam service reach Keycloak at its public host).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-ingress
+  namespace: fair-identity
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: keycloak }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - ipBlock: { cidr: REPLACE_WITH_INGRESS_CIDR }
+      ports: [{ port: 8443, protocol: TCP }]
+---
+# Egress: its database in the bundled PostgreSQL, DNS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-egress
+  namespace: fair-identity
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: keycloak }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: fair-data }
+          podSelector:
+            matchLabels: { cnpg.io/cluster: fair-db }
+      ports: [{ port: 5432, protocol: TCP }]
+    - ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]
+---
+# The iam service reaches the realm (discovery, keys, tokens) at its public
+# host, through the ingress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: iam-egress-keycloak
+  namespace: fair-platform
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: iam }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock: { cidr: REPLACE_WITH_INGRESS_CIDR }
+      ports: [{ port: 443, protocol: TCP }]
+    - ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]
+---
+# The public entry, as the gateway's: TLS from the browser to the
+# controller with the identity host's certificate (the customer's Secret
+# keycloak-public-tls), and TLS again to Keycloak.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: keycloak
+  namespace: fair-identity
+  labels: { app.kubernetes.io/name: keycloak, app.kubernetes.io/part-of: fair-platform }
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  tls:
+    - hosts: [REPLACE_WITH_IDENTITY_HOST]
+      secretName: keycloak-public-tls
+  rules:
+    - host: REPLACE_WITH_IDENTITY_HOST
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: keycloak
+                port: { name: https }

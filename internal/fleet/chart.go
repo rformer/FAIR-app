@@ -18,7 +18,11 @@ package fleet
 //     time: Kubernetes Secrets (deploy/k8s/keys/secret-mounts.yaml) or
 //     OpenBao Agent sidecars (deploy/k8s/keys/openbao); the SaaS External
 //     Secrets stay in the fleet artifact only;
-//   - the scanner and fips-probe switches (whole files of objects).
+//   - the scanner and fips-probe switches (whole files of objects);
+//   - the bundled dependencies (F-014 T-08; design §3.3): one switch
+//     <dependency>.bundled per directory of deploy/bundled (Bundled), each
+//     including every object of that directory and nothing else, and the
+//     bundled Keycloak's public host (keycloak.host).
 //
 // values.schema.json is closed (additionalProperties: false everywhere) and
 // every value is a pattern-checked string, an enum, a bounded integer or a
@@ -70,6 +74,33 @@ var ChartVariables = map[string]string{
 	"FAIR_INGRESS_CIDR":   "ingress.cidr",
 	"FAIR_APISERVER_CIDR": "apiServer.cidr",
 	ModeVariable:          "mode",
+	"FAIR_IDENTITY_HOST":  "keycloak.host",
+}
+
+// BundledVariables are the placeholders only deploy/bundled uses (the
+// fleet runs no bundled dependency), each a chart variable.
+var BundledVariables = map[string]string{
+	"REPLACE_WITH_IDENTITY_HOST": "FAIR_IDENTITY_HOST",
+}
+
+// BundledDependency is one bundled dependency (F-014 T-08; design §3.3,
+// ADR-005's table): a directory of deploy/bundled, a kustomization whose
+// resources and generated ConfigMaps the switch <Value>.bundled includes.
+type BundledDependency struct {
+	Dir, Value, Doc string
+}
+
+// Bundled are the chart's bundled dependencies. Each is off by default
+// (brought); none holds a cluster-scoped object but its namespace
+// (RenderChart refuses one): what the CloudNativePG operator needs at
+// cluster scope is fairctl's (deploy/bundled/postgres/cluster).
+var Bundled = []BundledDependency{
+	{"postgres", "postgres", "Run the bundled PostgreSQL 16 (CloudNativePG, operator namespace-scoped in fair-data; set database.host to fair-db-rw.fair-data.svc). fairctl installs the operator's CRDs and cluster-scoped reads first."},
+	{"nats", "nats", "Run the bundled NATS JetStream (three servers in fair-platform, TLS)."},
+	{"object-store", "objectStore", "Run the bundled object store, versitygw (fair-objects, one replica, software WORM: ADR-020); set stores.*.endpoint to versitygw.fair-objects.svc:443."},
+	{"keycloak", "keycloak", "Run the bundled Keycloak with the FAIR realm (fair-identity); needs postgres.bundled and keycloak.host."},
+	{"openbao", "openbao", "Run the bundled OpenBao (namespace openbao, raft, TLS), the key store of keyStore.kind openbao."},
+	{"collector", "collector", "Run the bundled OpenTelemetry Collector with the self-hosted configuration (fair-platform; nothing leaves the installation)."},
 }
 
 // ChartEnv maps environment variables whose value is the instance's (the
@@ -105,6 +136,7 @@ const (
 	kindKeyStore = "key-store"
 	kindSwitch   = "switch"
 	kindReplicas = "replicas"
+	kindOptHost  = "optional-host" // a host, or "" while its dependency is not bundled
 )
 
 const (
@@ -117,6 +149,7 @@ const (
 // reference names and cannot open a rule to every address.
 var valueSchemas = map[string]map[string]any{
 	kindHost:     {"type": "string", "maxLength": 253, "pattern": "^" + hostPattern + "$"},
+	kindOptHost:  {"type": "string", "maxLength": 253, "pattern": "^(" + hostPattern + ")?$"},
 	kindCIDR:     {"type": "string", "pattern": `^(` + octet + `\.){3}` + octet + `/([89]|[12][0-9]|3[0-2])$`},
 	kindHostPort: {"type": "string", "maxLength": 259, "pattern": "^" + hostPattern + `:[1-9][0-9]{0,4}$`},
 	kindBucket:   {"type": "string", "pattern": `^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`},
@@ -154,6 +187,27 @@ var staticValues = []chartValue{
 	{"audit.storageQuota", kindSize, "Storage the audit trail may use in the database (FAIR_AUDIT_STORAGE_QUOTA; sizing guide).", nil},
 	{"scanner.enabled", kindSwitch, "Run posture-scanner: only when the administrator granted it Kubernetes access (consent, F-015 T-30).", true},
 	{"fipsProbe.enabled", kindSwitch, "Run fips-probe on every node (node FIPS evidence by probe; off when nodes are attested by label).", true},
+	{"keycloak.host", kindOptHost, "The bundled Keycloak's public host name (its own origin, not the platform's); required with keycloak.bundled.", ""},
+}
+
+// chartValues are the static values and a switch per bundled dependency.
+func chartValues() []chartValue {
+	vs := slices.Clone(staticValues)
+	for _, b := range Bundled {
+		vs = append(vs, chartValue{b.Value + ".bundled", kindSwitch, b.Doc, false})
+	}
+	return vs
+}
+
+// bundledRules are the schema's conditions between values: the bundled
+// Keycloak keeps its database in the bundled PostgreSQL and needs its host.
+func bundledRules() []any {
+	on := func(dep string) map[string]any {
+		return map[string]any{"properties": map[string]any{dep: map[string]any{"properties": map[string]any{"bundled": map[string]any{"const": true}}}}}
+	}
+	then := on("postgres")
+	then["properties"].(map[string]any)["keycloak"] = map[string]any{"properties": map[string]any{"host": map[string]any{"minLength": 1}}}
+	return []any{map[string]any{"if": on("keycloak"), "then": then}}
 }
 
 // ChartOptions are RenderChart's inputs.
@@ -161,6 +215,10 @@ type ChartOptions struct {
 	Options               // Observability is not used: the chart has no SaaS Collector
 	Hooks          string // deploy/k8s/hooks: the chart-only hook objects ("" for none)
 	ManifestDigest string // SHA-256 of the signed release-manifest.json ("" for none)
+	// Bundled is deploy/bundled ("" for none): the bundled dependencies'
+	// directories (Bundled). Their third-party images must be in
+	// Options.Mirror, mirrored under DefaultRegistry.
+	Bundled string
 }
 
 // ManifestDigest is the SHA-256 of a release manifest file, for
@@ -245,6 +303,13 @@ func RenderChart(o ChartOptions, out string) error {
 		}
 		docs = append(docs, hooks...)
 	}
+	if o.Bundled != "" {
+		bundled, err := readBundled(o)
+		if err != nil {
+			return err
+		}
+		docs = append(docs, bundled...)
+	}
 
 	// The key stores: each patched Deployment once per store, its patch
 	// merged in.
@@ -289,7 +354,7 @@ func RenderChart(o ChartOptions, out string) error {
 		}
 		files[d.file] = append(files[d.file], wrap(d.conds, text))
 	}
-	for _, v := range staticValues {
+	for _, v := range chartValues() {
 		if v.kind != kindSwitch && v.kind != kindKeyStore && !t.used[v.path] {
 			return fmt.Errorf("fleet: chart value %s fills no placeholder of the release", v.path)
 		}
@@ -434,6 +499,101 @@ func readHooks(o ChartOptions) ([]chartDoc, error) {
 				return nil, err
 			}
 			docs = append(docs, chartDoc{"hooks/" + filepath.Base(src), nil, n})
+		}
+	}
+	return docs, nil
+}
+
+// bundledKustomization is what RenderChart reads of a bundled dependency's
+// kustomization.yaml (the same file `kubectl kustomize` builds, so the
+// directory validates on its own: scripts/fleet-check.sh).
+type bundledKustomization struct {
+	Resources          []string `yaml:"resources"`
+	ConfigMapGenerator []struct {
+		Name      string   `yaml:"name"`
+		Namespace string   `yaml:"namespace"`
+		Files     []string `yaml:"files"`
+	} `yaml:"configMapGenerator"`
+}
+
+// bundledClusterScoped are the cluster-scoped kinds a bundled directory may
+// hold.
+var bundledClusterScoped = []string{"Namespace"}
+
+// readBundled reads every bundled dependency's objects, each under its
+// switch. Namespaces are kept on uninstall (they hold the dependencies'
+// data); any other cluster-scoped object is refused (the platform holds no
+// cluster-wide rights; fairctl installs what an operator needs there).
+func readBundled(o ChartOptions) ([]chartDoc, error) {
+	for c, to := range o.Mirror {
+		if !strings.HasPrefix(to, DefaultRegistry+"/") {
+			return nil, fmt.Errorf("fleet: the chart's copy of %s must be under %s (global.registry): %s", c, DefaultRegistry, to)
+		}
+	}
+	var docs []chartDoc
+	for _, b := range Bundled {
+		dir := filepath.Join(o.Bundled, b.Dir)
+		kb, err := os.ReadFile(filepath.Join(dir, "kustomization.yaml")) // #nosec G304 -- the repository's own files
+		if err != nil {
+			return nil, err
+		}
+		var k bundledKustomization
+		if err := yaml.Unmarshal(kb, &k); err != nil {
+			return nil, fmt.Errorf("%s/kustomization.yaml: %w", dir, err)
+		}
+		file := "bundled-" + b.Dir + ".yaml"
+		cond := []string{".Values." + b.Value + ".bundled"}
+		for _, r := range k.Resources {
+			ds, err := readDocs(filepath.Join(dir, filepath.FromSlash(r)))
+			if err != nil {
+				return nil, err
+			}
+			for _, d := range ds {
+				if d.namespace == "" && !slices.Contains(bundledClusterScoped, d.kind) {
+					return nil, fmt.Errorf("%s/%s: %s %s is cluster-scoped: the chart holds no cluster-scoped object of a bundled dependency", b.Dir, r, d.kind, d.name)
+				}
+				text, err := substitute(d.text, o.Images)
+				if err == nil {
+					text, err = mirrorImages(text, o.Images, o.Mirror)
+				}
+				if err != nil {
+					return nil, fmt.Errorf("%s/%s: %w", b.Dir, r, err)
+				}
+				n, err := parseNode(text)
+				if err != nil {
+					return nil, fmt.Errorf("%s/%s: %w", b.Dir, r, err)
+				}
+				if d.kind == "Namespace" {
+					setAnnotation(n, "helm.sh/resource-policy", "keep")
+				}
+				docs = append(docs, chartDoc{file, cond, n})
+			}
+		}
+		for _, g := range k.ConfigMapGenerator {
+			data := map[string]any{}
+			for _, f := range g.Files {
+				key, src, ok := strings.Cut(f, "=")
+				if !ok {
+					key, src = filepath.Base(f), f
+				}
+				c, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(src))) // #nosec G304 -- the repository's own files
+				if err != nil {
+					return nil, err
+				}
+				data[key] = strings.ReplaceAll(string(c), "\r\n", "\n")
+			}
+			cm := map[string]any{
+				"apiVersion": "v1",
+				"kind":       "ConfigMap",
+				"metadata":   map[string]any{"name": g.Name, "namespace": g.Namespace},
+				"data":       data,
+			}
+			var n yaml.Node
+			if err := n.Encode(cm); err != nil {
+				return nil, err
+			}
+			n.HeadComment = "Generated from deploy/bundled/" + b.Dir + " (its configMapGenerator)."
+			docs = append(docs, chartDoc{file, cond, &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{&n}}})
 		}
 	}
 	return docs, nil
@@ -642,12 +802,18 @@ func (t *templater) walk(n *yaml.Node, kind, name string, path []string) error {
 					}
 				}
 				continue
-			case k == "image" && v.Kind == yaml.ScalarNode:
-				m := releaseImgRE.FindStringSubmatch(v.Value)
-				if m == nil {
-					return fmt.Errorf("image %s is not the release's (%s/…@sha256:…)", v.Value, DefaultRegistry)
+			case kind == "ConfigMap" && len(path) == 0 && k == "data":
+				// Configuration files (the agents', the bundled servers',
+				// the realm, the Collector's) are literal: their ${...} are
+				// the software's own expansions, never values.
+				if err := literal(v, p); err != nil {
+					return err
 				}
-				setToken(v, t.token(fmt.Sprintf("{{ print .Values.global.registry %q | toJson }}", "/"+m[1]), "global.registry"))
+				continue
+			case (k == "image" || kind == "Cluster" && k == "imageName") && v.Kind == yaml.ScalarNode:
+				if err := t.image(v); err != nil {
+					return err
+				}
 				continue
 			case kind == "Deployment" && slices.Equal(p, []string{"spec", "replicas"}):
 				r, err := strconv.Atoi(v.Value)
@@ -677,12 +843,40 @@ func (t *templater) walk(n *yaml.Node, kind, name string, path []string) error {
 	return nil
 }
 
-// env templates an environment variable: one of ChartEnv by its name, any
-// other through its variables.
+// image templates a release image (or a mirrored copy) under
+// global.registry, by its digest.
+func (t *templater) image(v *yaml.Node) error {
+	m := releaseImgRE.FindStringSubmatch(v.Value)
+	if m == nil {
+		return fmt.Errorf("image %s is not the release's (%s/…@sha256:…)", v.Value, DefaultRegistry)
+	}
+	setToken(v, t.token(fmt.Sprintf("{{ print .Values.global.registry %q | toJson }}", "/"+m[1]), "global.registry"))
+	return nil
+}
+
+// literal refuses a placeholder anywhere under n.
+func literal(n *yaml.Node, path []string) error {
+	if n.Kind == yaml.ScalarNode && strings.Contains(n.Value, "REPLACE_WITH_") {
+		return fmt.Errorf("%s: placeholder in a literal configuration", strings.Join(path, "."))
+	}
+	for _, c := range n.Content {
+		if err := literal(c, path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// env templates an environment variable: one of ChartEnv by its name, an
+// image (the CloudNativePG operator names its own for the pods it makes)
+// as images are, any other through its variables.
 func (t *templater) env(item *yaml.Node, path []string) error {
 	nm, v := mapGet(item, "name"), mapGet(item, "value")
 	if nm == nil || v == nil || v.Kind != yaml.ScalarNode {
 		return t.walk(item, "", "", path)
+	}
+	if releaseImgRE.MatchString(v.Value) {
+		return t.image(v)
 	}
 	p, ok := ChartEnv[nm.Value]
 	if !ok {
@@ -759,13 +953,14 @@ func (t *templater) values() (map[string]any, map[string]any) {
 		s["properties"].(map[string]any)[leaf] = ls
 		s["required"] = append(s["required"].([]string), leaf)
 	}
+	schema["allOf"] = bundledRules()
 	return values, schema
 }
 
 // valueList is every value of the chart, with its default.
 func (t *templater) valueList() []chartValue {
 	var vs []chartValue
-	for _, v := range staticValues {
+	for _, v := range chartValues() {
 		if v.def == nil {
 			v.def = t.defaults[v.path]
 			if v.def == nil {
@@ -876,7 +1071,7 @@ func writeChart(o ChartOptions, out string, order []string, files map[string][]s
 // valuesYAML writes the defaults with each value's description.
 func valuesYAML(values map[string]any) ([]byte, error) {
 	docs := map[string]string{}
-	for _, v := range staticValues {
+	for _, v := range chartValues() {
 		docs[v.path] = v.doc
 	}
 	var node func(m map[string]any, prefix string) *yaml.Node

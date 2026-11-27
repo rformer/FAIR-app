@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -24,19 +25,33 @@ import (
 	yaml "go.yaml.in/yaml/v3"
 )
 
+// bundledComponents are the bundled dependencies' images the release builds
+// (F-014 T-07); OpenBao's is also the agent sidecars'.
+var bundledComponents = []string{"postgres", "nats", "versitygw", "keycloak"}
+
 func chartImages() map[string]string {
 	m := images()
-	for _, c := range []string{OpenBaoComponent, FairctlComponent} {
+	for _, c := range append([]string{OpenBaoComponent, FairctlComponent}, bundledComponents...) {
 		m[c] = "ghcr.io/rformer/fair-" + c + "@sha256:" + strings.Repeat("1", 64)
 	}
 	return m
+}
+
+func chartMirror(t *testing.T) map[string]string {
+	t.Helper()
+	l, err := LoadThirdParty(filepath.Join(root, "deploy/third-party-images.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return l.Mirror(DefaultRegistry + "/mirror")
 }
 
 func renderChart(t *testing.T) string {
 	t.Helper()
 	out := filepath.Join(t.TempDir(), "chart")
 	err := RenderChart(ChartOptions{Options: Options{Release: "v0.0.0-test", Images: chartImages(), Deploy: filepath.Join(root, "deploy/k8s"),
-		Keys: filepath.Join(root, "deploy/k8s/keys")}, Hooks: filepath.Join(root, "deploy/k8s/hooks"), ManifestDigest: strings.Repeat("a", 64)}, out)
+		Keys: filepath.Join(root, "deploy/k8s/keys"), Mirror: chartMirror(t)}, Hooks: filepath.Join(root, "deploy/k8s/hooks"),
+		ManifestDigest: strings.Repeat("a", 64), Bundled: filepath.Join(root, "deploy/bundled")}, out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,6 +205,9 @@ func exampleValues(t *testing.T) (map[string]any, map[string]string) {
 	env[ModeVariable] = "self-hosted"
 	vals := map[string]any{}
 	for v, p := range ChartVariables {
+		if slices.Contains(slices.Collect(maps.Values(BundledVariables)), v) {
+			continue // the bundled dependencies' (off in the example)
+		}
 		if env[v] == "" {
 			t.Fatalf("instance.env has no %s", v)
 		}
@@ -581,14 +599,16 @@ var forbiddenValueRE = regexp.MustCompile(`(?i)security|capabilit|privileg|root|
 // different values must be one of these placeholders (design §3.2).
 var allowedDiffs = []*regexp.Regexp{
 	regexp.MustCompile(`^Deployment/[^|]+\|\.spec\.replicas$`),
-	regexp.MustCompile(`^(Deployment|DaemonSet|Job)/[^|]+\|\.spec\.template\.spec\.(containers|initContainers)\[name=[^\]]+\]\.image$`),
-	regexp.MustCompile(`^(Deployment|DaemonSet|Job)/[^|]+\|\.spec\.template\.spec\.containers\[name=[^\]]+\]\.env\[name=(PGHOST|FAIR_PUBLIC_ORIGIN|FAIR_TRUSTED_PROXIES|FAIR_NOTIFY_BASE_URL|FAIR_INGRESS_ENDPOINTS|FAIR_DEPLOYMENT_MODE|FAIR_AUDIT_STORE_(BUCKET|ENDPOINT|REGION)|FAIR_REPORT_STORE_(BUCKET|ENDPOINT|REGION)|FAIR_AUDIT_STORAGE_QUOTA)\]\.value$`),
+	regexp.MustCompile(`^(Deployment|DaemonSet|Job|StatefulSet)/[^|]+\|\.spec\.template\.spec\.(containers|initContainers)\[name=[^\]]+\]\.image$`),
+	regexp.MustCompile(`^Cluster/[^|]+\|\.spec\.imageName$`),
+	regexp.MustCompile(`^(Deployment|DaemonSet|Job)/[^|]+\|\.spec\.template\.spec\.containers\[name=[^\]]+\]\.env\[name=(PGHOST|FAIR_PUBLIC_ORIGIN|FAIR_TRUSTED_PROXIES|FAIR_NOTIFY_BASE_URL|FAIR_INGRESS_ENDPOINTS|FAIR_DEPLOYMENT_MODE|FAIR_AUDIT_STORE_(BUCKET|ENDPOINT|REGION)|FAIR_REPORT_STORE_(BUCKET|ENDPOINT|REGION)|FAIR_AUDIT_STORAGE_QUOTA|KC_HOSTNAME|OPERATOR_IMAGE_NAME)\]\.value$`),
 	regexp.MustCompile(`^NetworkPolicy/[^|]+\|\.spec\.(ingress|egress)\[[0-9]+\]\.(from|to)\[[0-9]+\]\.ipBlock\.cidr$`),
 	regexp.MustCompile(`^Ingress/[^|]+\|\.spec\.(rules\[[0-9]+\]\.host|tls\[[0-9]+\]\.hosts\[[0-9]+\])$`),
 }
 
-// otherValues are valid values unlike every example value.
-func otherValues(t *testing.T, leaves map[string]map[string]any) map[string]any {
+// otherValues are valid values unlike every example value, with base's
+// switches and key store (which select objects rather than fill fields).
+func otherValues(t *testing.T, leaves map[string]map[string]any, base map[string]any) map[string]any {
 	t.Helper()
 	v := map[string]any{}
 	fixed := map[string]any{
@@ -607,11 +627,21 @@ func otherValues(t *testing.T, leaves map[string]map[string]any) map[string]any 
 		"stores.report.region":   "local",
 		"audit.storageQuota":     "2TiB",
 		"keyStore.kind":          KeyStoreSecrets,
-		"scanner.enabled":        true,
-		"fipsProbe.enabled":      true,
+	}
+	if getPath(base, "keycloak.bundled") == true {
+		fixed["keycloak.host"] = "login.customer.example"
 	}
 	for p, s := range leaves {
 		switch {
+		case s["type"] == "boolean":
+			b, ok := getPath(base, p).(bool)
+			if !ok { // the chart's default
+				i := slices.IndexFunc(chartValues(), func(c chartValue) bool { return c.path == p })
+				b = chartValues()[i].def.(bool)
+			}
+			setPath(v, p, b)
+		case p == "keycloak.host" && fixed[p] == nil:
+			setPath(v, p, "")
 		case fixed[p] != nil:
 			setPath(v, p, fixed[p])
 		case s["type"] == "integer":
@@ -664,6 +694,16 @@ func TestChartValuesSchema(t *testing.T) {
 		"key store":           func(m map[string]any) { setPath(m, "keyStore.kind", "none") },
 		"one replica":         func(m map[string]any) { setPath(m, "replicas.gateway", 1) },
 		"switch as string":    func(m map[string]any) { setPath(m, "scanner.enabled", "false") },
+		"bundled as string":   func(m map[string]any) { setPath(m, "nats.bundled", "true") },
+		"keycloak without postgres": func(m map[string]any) {
+			setPath(m, "keycloak.bundled", true)
+			setPath(m, "keycloak.host", "id.example.com")
+		},
+		"keycloak without host": func(m map[string]any) {
+			setPath(m, "keycloak.bundled", true)
+			setPath(m, "postgres.bundled", true)
+		},
+		"keycloak host template": func(m map[string]any) { setPath(m, "keycloak.host", "{{ .Release.Name }}") },
 	} {
 		m := cloneJSON(vals)
 		mutate(m)
@@ -677,8 +717,8 @@ func TestChartValuesSchema(t *testing.T) {
 	// value is read.
 	actionRE := regexp.MustCompile(`\{\{-?\s*(.*?)\s*-?\}\}`)
 	refRE := regexp.MustCompile(`\.Values\.([A-Za-z0-9.]+)`)
-	condRE := regexp.MustCompile(`^if (\.Values\.(scanner|fipsProbe)\.enabled|eq \.Values\.keyStore\.kind "(kubernetes-secrets|openbao)"|and( \((\.Values\.(scanner|fipsProbe)\.enabled|eq \.Values\.keyStore\.kind "(kubernetes-secrets|openbao)")\))+)$`)
-	lineRE := regexp.MustCompile(`(^|[\s{,\[-])(value|image|cidr|host|replicas): \{\{ |hosts: \[\{\{ `)
+	condRE := regexp.MustCompile(`^if (\.Values\.(scanner|fipsProbe)\.enabled|\.Values\.(postgres|nats|objectStore|keycloak|openbao|collector)\.bundled|eq \.Values\.keyStore\.kind "(kubernetes-secrets|openbao)"|and( \((\.Values\.(scanner|fipsProbe)\.enabled|eq \.Values\.keyStore\.kind "(kubernetes-secrets|openbao)")\))+)$`)
+	lineRE := regexp.MustCompile(`(^|[\s{,\[-])(value|image|imageName|cidr|host|replicas): \{\{ |hosts: \[\{\{ `)
 	exprRE := regexp.MustCompile(`^(\.Values\.[A-Za-z0-9.]+|print( (\.Values\.[A-Za-z0-9.]+|"[^"{}]*"))+) \| toJson$`)
 	read := map[string]bool{}
 	err = filepath.WalkDir(filepath.Join(chart, "templates"), func(p string, d os.DirEntry, err error) error {
@@ -728,42 +768,54 @@ func TestChartValuesSchema(t *testing.T) {
 	}
 
 	// Two renders with every value changed differ only in the
-	// placeholders' fields; images keep their digests.
-	a, bo := chartObjects(t, chart, vals), chartObjects(t, chart, otherValues(t, leaves))
-	if len(a) != len(bo) {
-		t.Fatalf("other values change the objects: %d, %d", len(a), len(bo))
-	}
-	changed := map[string]bool{}
-	for k, o := range a {
-		var diffs []string
-		diff(o, bo[k], "", &diffs)
-		for _, d := range diffs {
-			p := k[:strings.Index(k, "/")] + "/" + k[strings.Index(k, "/")+1:] + "|" + d
-			ok := false
-			for _, re := range allowedDiffs {
-				ok = ok || re.MatchString(p)
-			}
-			if !ok {
-				t.Errorf("a value reaches %s", p)
-			}
-			changed[strings.SplitN(p, "|", 2)[1]] = true
+	// placeholders' fields; images keep their digests. Once with the
+	// dependencies brought, once with every one bundled.
+	a := chartObjects(t, chart, vals)
+	for _, base := range []map[string]any{vals, allBundled(vals)} {
+		ao, bo := chartObjects(t, chart, base), chartObjects(t, chart, otherValues(t, leaves, base))
+		if len(ao) != len(bo) {
+			t.Fatalf("other values change the objects: %d, %d", len(ao), len(bo))
 		}
-		for _, cs := range []string{"containers", "initContainers"} {
-			ca, _ := dig(o, "spec", "template", "spec", cs).([]any)
-			cb, _ := dig(bo[k], "spec", "template", "spec", cs).([]any)
-			for i := range ca {
-				ia, _ := dig(ca[i], "image").(string)
-				ib, _ := dig(cb[i], "image").(string)
-				_, da, _ := strings.Cut(ia, "@")
-				_, db, _ := strings.Cut(ib, "@")
-				if da == "" || da != db || !strings.HasPrefix(ib, "registry.customer.example:5000/mirror/fair/") {
-					t.Errorf("%s: image %s became %s", k, ia, ib)
+		changed := map[string]bool{}
+		for k, o := range ao {
+			var diffs []string
+			diff(o, bo[k], "", &diffs)
+			for _, d := range diffs {
+				p := k[:strings.Index(k, "/")] + "/" + k[strings.Index(k, "/")+1:] + "|" + d
+				ok := false
+				for _, re := range allowedDiffs {
+					ok = ok || re.MatchString(p)
+				}
+				if !ok {
+					t.Errorf("a value reaches %s", p)
+				}
+				changed[strings.SplitN(p, "|", 2)[1]] = true
+			}
+			var imgs [][2]string
+			for _, cs := range []string{"containers", "initContainers"} {
+				ca, _ := dig(o, "spec", "template", "spec", cs).([]any)
+				cb, _ := dig(bo[k], "spec", "template", "spec", cs).([]any)
+				for i := range ca {
+					ia, _ := dig(ca[i], "image").(string)
+					ib, _ := dig(cb[i], "image").(string)
+					imgs = append(imgs, [2]string{ia, ib})
+				}
+			}
+			if ia, ok := dig(o, "spec", "imageName").(string); ok {
+				ib, _ := dig(bo[k], "spec", "imageName").(string)
+				imgs = append(imgs, [2]string{ia, ib})
+			}
+			for _, i := range imgs {
+				_, da, _ := strings.Cut(i[0], "@")
+				_, db, _ := strings.Cut(i[1], "@")
+				if da == "" || da != db || !strings.HasPrefix(i[1], "registry.customer.example:5000/mirror/fair/") {
+					t.Errorf("%s: image %s became %s", k, i[0], i[1])
 				}
 			}
 		}
-	}
-	if len(changed) == 0 {
-		t.Error("no value changed anything")
+		if len(changed) == 0 {
+			t.Error("no value changed anything")
+		}
 	}
 
 	// The switches remove whole files of objects (never a namespace or its

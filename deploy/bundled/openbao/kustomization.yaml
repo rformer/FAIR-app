@@ -1,0 +1,10 @@
+# F-014 T-08: the bundled OpenBao (chart switch openbao.bundled).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources: [openbao.yaml]
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+  - name: openbao-config
+    namespace: openbao
+    files: [openbao.hcl]

@@ -1,0 +1,38 @@
+# F-014 T-08: the bundled Keycloak's database in the bundled PostgreSQL
+# (fair-data, Cluster fair-db): a login role that is neither superuser nor
+# able to create roles or databases or bypass row-level security, and its own
+# database. pg_hba (postgres/cluster.yaml) lets the role reach only that
+# database, over TLS. The password is fairctl's (Secret keycloak-db in
+# fair-data, type kubernetes.io/basic-auth, and the same value in
+# fair-identity for Keycloak).
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: keycloak
+  namespace: fair-data
+  labels: { app.kubernetes.io/name: keycloak, app.kubernetes.io/part-of: fair-platform }
+spec:
+  cluster: { name: fair-db }
+  name: keycloak
+  ensure: present
+  login: true
+  superuser: false
+  createdb: false
+  createrole: false
+  replication: false
+  bypassrls: false
+  inherit: false
+  connectionLimit: 50
+  passwordSecret: { name: keycloak-db }
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: keycloak
+  namespace: fair-data
+  labels: { app.kubernetes.io/name: keycloak, app.kubernetes.io/part-of: fair-platform }
+spec:
+  cluster: { name: fair-db }
+  name: keycloak
+  owner: keycloak
+  ensure: present

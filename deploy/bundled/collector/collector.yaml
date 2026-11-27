@@ -1,0 +1,122 @@
+# F-014 T-08 (F-014-AC-01, AC-03; design §3.3; F-012 T-11, ADR-017): the
+# bundled OpenTelemetry Collector of a self-hosted or air-gapped
+# installation, running deploy/observability/collector-selfhosted.yaml
+# (ConfigMap otelcol-selfhosted; nothing leaves the installation). The image
+# is the release's mirrored, release-key-signed copy of
+# otel/opentelemetry-collector-contrib (deploy/third-party-images.json).
+#
+# It receives OTLP over TLS on 4317 from the platform's pods (FAIR_OTEL_ENDPOINT
+# otelcol.fair-platform.svc:4317, FAIR_OTEL_CA_FILE: the installation CA) and
+# serves its Prometheus endpoint over TLS on 8889 to pods of namespaces
+# labelled fair-platform.io/metrics-scraper=true (the installation's
+# Prometheus). TLS from Secret otelcol-tls (installation CA). Exception
+# recorded: the health_check extension's port (13133, the probes') is plain
+# HTTP, reachable from the kubelet only (no Service, no policy admits it).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otelcol
+  namespace: fair-platform
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otelcol
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: otelcol, app.kubernetes.io/part-of: fair-platform }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: otelcol }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: otelcol, app.kubernetes.io/part-of: fair-platform }
+    spec:
+      serviceAccountName: otelcol
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: otelcol
+          image: otel/opentelemetry-collector-contrib:0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea
+          args: ["--config=/conf/config.yaml"]
+          ports:
+            - { name: otlp-grpc, containerPort: 4317 }
+            - { name: metrics, containerPort: 8889 }
+            - { name: health, containerPort: 13133 }
+          env:
+            - { name: FAIR_INSTALLATION, value: fair }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          livenessProbe:
+            httpGet: { path: /, port: health }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /, port: health }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1Gi }
+          volumeMounts:
+            - { name: config, mountPath: /conf, readOnly: true }
+            - { name: tls, mountPath: /etc/otelcol/tls, readOnly: true }
+      volumes:
+        - name: config
+          configMap: { name: otelcol-selfhosted }
+        - name: tls
+          secret: { secretName: otelcol-tls, defaultMode: 0440 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otelcol
+  namespace: fair-platform
+  labels: { app.kubernetes.io/name: otelcol, app.kubernetes.io/part-of: fair-platform }
+spec:
+  selector: { app.kubernetes.io/name: otelcol }
+  ports:
+    - { name: otlp-grpc, port: 4317, targetPort: otlp-grpc }
+    - { name: metrics, port: 8889, targetPort: metrics }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: otelcol-ingress
+  namespace: fair-platform
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: otelcol }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/part-of: fair-platform }
+      ports: [{ port: 4317, protocol: TCP }]
+    - from:
+        - namespaceSelector:
+            matchLabels: { fair-platform.io/metrics-scraper: "true" }
+      ports: [{ port: 8889, protocol: TCP }]
+---
+# The platform's pods send OTLP to the Collector. The Collector itself needs
+# no egress (default deny).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: otel-egress
+  namespace: fair-platform
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/part-of: fair-platform }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: otelcol }
+      ports: [{ port: 4317, protocol: TCP }]

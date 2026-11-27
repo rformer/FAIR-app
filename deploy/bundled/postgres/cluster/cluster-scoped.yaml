@@ -1,0 +1,140 @@
+# F-014 T-08 (design §3.3, §10 item 3, D-OQ2; ADR-005 amendment 2): the
+# cluster-scoped objects of the namespace-scoped CloudNativePG operator.
+# Not part of the chart: fairctl applies them with cluster administration
+# during install, with the operator's CRDs of the pinned release (1.30.2),
+# and lists them as residue in the responsibility matrix; uninstall leaves
+# them for the administrator to remove. They grant nothing but reads, and
+# the webhook configurations point at the operator in fair-data with the
+# installation CA's bundle (fairctl writes caBundle; the operator never
+# patches them, MANAGE_WEBHOOK_CONFIGURATIONS=false).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fair-cnpg-manager-read
+  labels: { app.kubernetes.io/name: cloudnative-pg, app.kubernetes.io/part-of: fair-platform }
+rules:
+  # Node drains move instances (the operator's node watch).
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list, watch]
+  - apiGroups: [postgresql.cnpg.io]
+    resources: [clusterimagecatalogs]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fair-cnpg-manager-read
+  labels: { app.kubernetes.io/name: cloudnative-pg, app.kubernetes.io/part-of: fair-platform }
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: fair-cnpg-manager-read
+subjects:
+  - kind: ServiceAccount
+    name: cnpg-manager
+    namespace: fair-data
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: fair-cnpg-mutating-webhook-configuration
+  labels: { app.kubernetes.io/name: cloudnative-pg, app.kubernetes.io/part-of: fair-platform }
+webhooks:
+  - name: mbackup.cnpg.io
+    admissionReviewVersions: [v1]
+    clientConfig:
+      service: { name: cnpg-webhook-service, namespace: fair-data, path: /mutate-postgresql-cnpg-io-v1-backup }
+    failurePolicy: Fail
+    sideEffects: None
+    namespaceSelector:
+      matchLabels: { kubernetes.io/metadata.name: fair-data }
+    rules:
+      - { apiGroups: [postgresql.cnpg.io], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [backups] }
+  - name: mcluster.cnpg.io
+    admissionReviewVersions: [v1]
+    clientConfig:
+      service: { name: cnpg-webhook-service, namespace: fair-data, path: /mutate-postgresql-cnpg-io-v1-cluster }
+    failurePolicy: Fail
+    sideEffects: None
+    namespaceSelector:
+      matchLabels: { kubernetes.io/metadata.name: fair-data }
+    rules:
+      - { apiGroups: [postgresql.cnpg.io], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [clusters] }
+  - name: mdatabase.cnpg.io
+    admissionReviewVersions: [v1]
+    clientConfig:
+      service: { name: cnpg-webhook-service, namespace: fair-data, path: /mutate-postgresql-cnpg-io-v1-database }
+    failurePolicy: Fail
+    sideEffects: None
+    namespaceSelector:
+      matchLabels: { kubernetes.io/metadata.name: fair-data }
+    rules:
+      - { apiGroups: [postgresql.cnpg.io], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [databases] }
+  - name: mscheduledbackup.cnpg.io
+    admissionReviewVersions: [v1]
+    clientConfig:
+      service: { name: cnpg-webhook-service, namespace: fair-data, path: /mutate-postgresql-cnpg-io-v1-scheduledbackup }
+    failurePolicy: Fail
+    sideEffects: None
+    namespaceSelector:
+      matchLabels: { kubernetes.io/metadata.name: fair-data }
+    rules:
+      - { apiGroups: [postgresql.cnpg.io], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [scheduledbackups] }
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: fair-cnpg-validating-webhook-configuration
+  labels: { app.kubernetes.io/name: cloudnative-pg, app.kubernetes.io/part-of: fair-platform }
+webhooks:
+  - name: vbackup.cnpg.io
+    admissionReviewVersions: [v1]
+    clientConfig:
+      service: { name: cnpg-webhook-service, namespace: fair-data, path: /validate-postgresql-cnpg-io-v1-backup }
+    failurePolicy: Fail
+    sideEffects: None
+    namespaceSelector:
+      matchLabels: { kubernetes.io/metadata.name: fair-data }
+    rules:
+      - { apiGroups: [postgresql.cnpg.io], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [backups] }
+  - name: vcluster.cnpg.io
+    admissionReviewVersions: [v1]
+    clientConfig:
+      service: { name: cnpg-webhook-service, namespace: fair-data, path: /validate-postgresql-cnpg-io-v1-cluster }
+    failurePolicy: Fail
+    sideEffects: None
+    namespaceSelector:
+      matchLabels: { kubernetes.io/metadata.name: fair-data }
+    rules:
+      - { apiGroups: [postgresql.cnpg.io], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [clusters] }
+  - name: vdatabase.cnpg.io
+    admissionReviewVersions: [v1]
+    clientConfig:
+      service: { name: cnpg-webhook-service, namespace: fair-data, path: /validate-postgresql-cnpg-io-v1-database }
+    failurePolicy: Fail
+    sideEffects: None
+    namespaceSelector:
+      matchLabels: { kubernetes.io/metadata.name: fair-data }
+    rules:
+      - { apiGroups: [postgresql.cnpg.io], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [databases] }
+  - name: vpooler.cnpg.io
+    admissionReviewVersions: [v1]
+    clientConfig:
+      service: { name: cnpg-webhook-service, namespace: fair-data, path: /validate-postgresql-cnpg-io-v1-pooler }
+    failurePolicy: Fail
+    sideEffects: None
+    namespaceSelector:
+      matchLabels: { kubernetes.io/metadata.name: fair-data }
+    rules:
+      - { apiGroups: [postgresql.cnpg.io], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [poolers] }
+  - name: vscheduledbackup.cnpg.io
+    admissionReviewVersions: [v1]
+    clientConfig:
+      service: { name: cnpg-webhook-service, namespace: fair-data, path: /validate-postgresql-cnpg-io-v1-scheduledbackup }
+    failurePolicy: Fail
+    sideEffects: None
+    namespaceSelector:
+      matchLabels: { kubernetes.io/metadata.name: fair-data }
+    rules:
+      - { apiGroups: [postgresql.cnpg.io], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [scheduledbackups] }
