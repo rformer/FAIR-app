@@ -47,3 +47,18 @@ Robert set a product-wide mandate: secure by design, secure by default, and secu
 - **All exceptions expire** (default 90 days) and **automatically revert** unless renewed with dual approval.
 - **Profile switches** are gated until every conflict is resolved.
 - **Profiles are generated from OSCAL.** v1 generates them at build time.
+
+## Amendment 2 (2026-11-26, F-014 T-03)
+Status: Proposed (pending acceptance by Robert Former; with the F-014 design approved 2026-11-26, §10 item 10)
+
+**Context.** "Secure by deployment" says the installer refuses insecure installs "unless an explicit, logged override is given", while constitution S0 says the installer refuses insecure deployments. Amendment 1 made every setting exception expire, but an installer override had no lifecycle: once given, it would hold for good and stay invisible on the Posture page. F-014 OQ4 and OQ5 resolved how overrides work.
+
+**Decision.** "An explicit, logged override" now means an expiring **deployment exception**, and never below the hard floor:
+- **No override below the hard floor, in any mode.** A preflight finding on the hard floor (Amendment 1's floor as it applies to a deployment: plaintext or TLS below 1.2 on any platform connection; FIPS-enabled nodes or the database's FIPS mode missing under a FedRAMP- or CMMC-derived profile; an audit store without compliance-mode Object Lock; database roles that are superuser or bypass row-level security; plaintext secrets or key files readable by others; a release that fails verification) refuses the install or upgrade with no override (F-014-AC-19).
+- **No override in SaaS at all.** F-012's onboarding and promotion run the same preflight with overrides refused (OQ4).
+- **Any other failed check** proceeds only on an override naming the check, the subject and a reason. It is recorded at high severity (`install.preflight_override`, `posture.deployment_exception_created`) and becomes a deployment exception (`posture.deployment_exception`) that expires after the profile's `exception.max_duration` (90 days in every shipped profile), carries a row MAC like setting exceptions, is listed on the Posture page with them, appears in the POA&M, and is reported as "not satisfied, excepted" in the Assessment Results.
+- **Renewal** only in the application, with dual approval (`deployment_exception.renew`), for at most `exception.max_duration` again.
+- **At expiry** the check is re-run from the scanner's latest result (or marked unverified where Kubernetes access was declined); a still-failing check opens a high finding (`deployment_exception_expired`), and the next upgrade refuses until the check passes or the exception is renewed.
+- Admission verification of image signatures, optional for self-hosted per F-012, is such an overridable check.
+
+**Consequences.** Deployment exceptions share F-015's exception lifecycle (notices at 14, 7 and 1 days, MACs, audit) in their own table, since `posture.exception` is keyed by a setting (F-014 D-OQ14; F-015's design amended). An insecure deployment can never be accepted silently or permanently.

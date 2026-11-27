@@ -8,7 +8,7 @@ These are the approved specs for the FAIR Risk Platform. They are mirrored from 
 | `01-constitution.md` | Non-negotiable principles (approved baseline) |
 | `02-product-vision.md` | Problem, users, scope |
 | `03-feature-index.md` | Features, dependencies, status, build order, **current position** |
-| `adr/ADR-001…012` | Architecture decisions |
+| `adr/ADR-001…022` | Architecture decisions (ADR-019 to ADR-022 proposed with F-014) |
 | `features/F-001-identity-bu-rbac/` | Requirements, design, tasks, permission catalog v1 (all approved; done apart from T-25) |
 | `features/F-015-security-posture-profiles/` | Requirements, design, tasks (all approved; done) |
 | `features/F-002-audit-trail/` | Requirements, design, tasks (all approved; in progress) |
