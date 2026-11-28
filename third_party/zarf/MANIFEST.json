@@ -1,0 +1,10 @@
+{
+  "zarf_version": "v1.0.1",
+  "license": "Apache-2.0",
+  "package_api_version": "zarf.dev/v1beta1",
+  "note": "The package definition schema of the Zarf release the pipeline runs (ZARF_IMAGE in release-sign.yml, internal/airgap.ZarfVersion); internal/airgap checks releasegen's zarf.yaml against it. v1alpha1 is deprecated since Zarf v1.0.0.",
+  "files": [
+    {"path": "zarf.schema.json", "source": "https://raw.githubusercontent.com/zarf-dev/zarf/v1.0.1/zarf.schema.json", "sha256": "ffb43dc23c17491a48e081c2ea5fe763089cf746b4d2a7beb162dd82b2b9273d"},
+    {"path": "LICENSE", "source": "https://raw.githubusercontent.com/zarf-dev/zarf/v1.0.1/LICENSE", "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"}
+  ]
+}

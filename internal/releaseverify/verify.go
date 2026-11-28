@@ -16,7 +16,10 @@
 //     whose payload names the image's digest, the digest the manifests name,
 //     the image's content against its digest, and SPDX and SLSA provenance
 //     attestations (DSSE, in-toto, subject the image) signed by the release
-//     key; with a ProvenancePolicy, the provenance's builder and source.
+//     key; with a ProvenancePolicy, the provenance's builder and source;
+//   - for each mirrored third-party image (the manifest's mirrors, F-014
+//     T-10): the release key's signature, the digest and the content, no
+//     attestation (they carry none of the release's).
 //
 // The messages are the script's, word for word, so the two verifiers can be
 // compared (TestVerifyMatchesVerifyRelease); checks the script does not make
@@ -32,6 +35,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -223,13 +227,74 @@ func (v *run) verify() error {
 	if err != nil {
 		return err
 	}
-	images = append(images, extra...)
 	for _, img := range images {
 		if err := v.image(img); err != nil {
 			return err
 		}
 		v.r.Images = append(v.r.Images, img)
 	}
+	// The mirrored third-party images (design §3.17): the release key's
+	// signature, the digest and the content; no attestation.
+	for _, x := range m.Mirrors {
+		img := Image{Component: x.Component, Image: x.Image}
+		if err := v.mirror(img); err != nil {
+			return err
+		}
+		v.r.Images = append(v.r.Images, img)
+	}
+	for _, img := range extra {
+		if err := v.image(img); err != nil {
+			return err
+		}
+		v.r.Images = append(v.r.Images, img)
+	}
+	return nil
+}
+
+// openImage finds an image's layout and the digest its signatures name.
+func (v *run) openImage(img Image) (*layout, string, error) {
+	c := img.Component
+	want := img.Image[strings.Index(img.Image, "@")+1:]
+	dir := v.o.Layout
+	if dir == "" {
+		dir = v.path(ImagesDir + "/" + c)
+		if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+			return nil, "", v.fail(CheckImageSignature, c, c+": no images/"+c+" in the release", nil)
+		}
+	}
+	noSig := c + ": the release key's signature does not verify"
+	l, err := openLayout(dir)
+	if err != nil {
+		return nil, "", v.fail(CheckImageSignature, c, noSig, err)
+	}
+	got, saved, err := l.image()
+	switch {
+	case err != nil:
+		return nil, "", v.fail(CheckImageSignature, c, noSig, err)
+	case !saved && l.has(want):
+		got = want
+	case !saved:
+		return nil, "", v.fail(CheckImageSignature, c, noSig, fmt.Errorf("the layout holds no image %s", want))
+	}
+	if l.verifySignatures(v.o.Key, got) == 0 {
+		return nil, "", v.fail(CheckImageSignature, c, noSig, nil)
+	}
+	if got != want {
+		return nil, "", v.fail(CheckImageDigest, c, fmt.Sprintf("%s: verified %s, the manifest names %s", c, got, want), nil)
+	}
+	if err := l.checkContent(want, 0); err != nil {
+		return nil, "", v.fail(CheckImageContent, c, c+": the image's content does not match its digest", err)
+	}
+	return l, want, nil
+}
+
+// mirror verifies one mirrored third-party image.
+func (v *run) mirror(img Image) error {
+	_, want, err := v.openImage(img)
+	if err != nil {
+		return err
+	}
+	v.ok(CheckImageSignature, img.Component, fmt.Sprintf("%s %s: mirrored, signed by the release key", img.Component, want))
 	return nil
 }
 
@@ -368,17 +433,21 @@ func (v *run) packageManifest(m *Manifest) ([]Image, error) {
 	for _, i := range pm.Images {
 		byComp[i.Component] = i.Image
 	}
-	for _, c := range m.Components() {
+	named := maps.Clone(m.Images)
+	for _, x := range m.Mirrors {
+		named[x.Component] = x.Image
+	}
+	for _, c := range slices.Sorted(maps.Keys(named)) {
 		switch got := byComp[c]; {
 		case got == "":
-			return nil, v.fail(CheckPackageManifest, c, "package-manifest.json: does not list "+c+" "+m.Images[c], nil)
-		case got != m.Images[c]:
-			return nil, v.fail(CheckPackageManifest, c, fmt.Sprintf("package-manifest.json: %s is %s, the release manifest names %s", c, got, m.Images[c]), nil)
+			return nil, v.fail(CheckPackageManifest, c, "package-manifest.json: does not list "+c+" "+named[c], nil)
+		case got != named[c]:
+			return nil, v.fail(CheckPackageManifest, c, fmt.Sprintf("package-manifest.json: %s is %s, the release manifest names %s", c, got, named[c]), nil)
 		}
 	}
 	var extra []Image
 	for _, i := range pm.Images {
-		if _, ok := m.Images[i.Component]; !ok {
+		if _, ok := named[i.Component]; !ok {
 			extra = append(extra, Image(i))
 		}
 	}
@@ -390,36 +459,9 @@ func (v *run) packageManifest(m *Manifest) ([]Image, error) {
 // image verifies one image from its layout.
 func (v *run) image(img Image) error {
 	c := img.Component
-	want := img.Image[strings.Index(img.Image, "@")+1:]
-	dir := v.o.Layout
-	if dir == "" {
-		dir = v.path(ImagesDir + "/" + c)
-		if st, err := os.Stat(dir); err != nil || !st.IsDir() {
-			return v.fail(CheckImageSignature, c, c+": no images/"+c+" in the release", nil)
-		}
-	}
-	noSig := c + ": the release key's signature does not verify"
-	l, err := openLayout(dir)
+	l, want, err := v.openImage(img)
 	if err != nil {
-		return v.fail(CheckImageSignature, c, noSig, err)
-	}
-	got, saved, err := l.image()
-	switch {
-	case err != nil:
-		return v.fail(CheckImageSignature, c, noSig, err)
-	case !saved && l.has(want):
-		got = want
-	case !saved:
-		return v.fail(CheckImageSignature, c, noSig, fmt.Errorf("the layout holds no image %s", want))
-	}
-	if l.verifySignatures(v.o.Key, got) == 0 {
-		return v.fail(CheckImageSignature, c, noSig, nil)
-	}
-	if got != want {
-		return v.fail(CheckImageDigest, c, fmt.Sprintf("%s: verified %s, the manifest names %s", c, got, want), nil)
-	}
-	if err := l.checkContent(want, 0); err != nil {
-		return v.fail(CheckImageContent, c, c+": the image's content does not match its digest", err)
+		return err
 	}
 	if len(l.verifyAttestations(v.o.Key, want, PredicateSPDX)) == 0 {
 		return v.fail(CheckSBOM, c, c+": no spdxjson attestation verifies with the release key", nil)

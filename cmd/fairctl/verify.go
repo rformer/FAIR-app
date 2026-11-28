@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/rformer/fair-app/internal/airgap"
 	"github.com/rformer/fair-app/internal/installer"
 	"github.com/rformer/fair-app/internal/releaseverify"
 )
@@ -43,10 +44,20 @@ func verify(e *env, args []string) int {
 	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
 		return out.Fail("verify", exitUsage, installer.CodeUsage, dir+" is not a package directory")
 	}
+	// The images are in the package once, in its Zarf package's OCI layout
+	// (D-OQ4, T-10): read from the Zarf package after it is checked against
+	// the signed package manifest; a package without one is verified from
+	// images/<component>/, and any problem is releaseverify's to report.
+	layout := ""
+	if l, cleanup, err := airgap.Layout(dir, key, ""); err == nil {
+		defer cleanup()
+		layout = l
+	}
 	rep := releaseverify.Verify(dir, releaseverify.Options{
 		Key:        key,
 		Package:    true,
 		Provenance: releaseverify.ReleasePolicy(),
+		Layout:     layout,
 	})
 	if out.JSON {
 		if err := out.Document(verifyOutput{Command: "verify", Report: rep}); err != nil {

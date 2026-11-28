@@ -27,10 +27,9 @@ import (
 // signatures and attestations, the chart as chart/fair-platform-<v>.tgz.
 
 type pkgFixture struct {
-	dir   string
-	key   *ecdsa.PrivateKey
-	third fleet.ThirdPartyList // the fixture's mirrored copies
-	pm    *releaseverify.PackageManifest
+	dir string
+	key *ecdsa.PrivateKey
+	pm  *releaseverify.PackageManifest
 }
 
 // pkgEdits change a fixture package before its package manifest is written.
@@ -44,12 +43,12 @@ func buildPackage(t *testing.T, e pkgEdits) *pkgFixture {
 	t.Helper()
 	k := rt.NewKey(t)
 	published := thirdParty(t)
-	var imgs, extra []rt.Image
+	var imgs, mirrors []rt.Image
 	for _, c := range components {
 		imgs = append(imgs, rt.Image{Component: c, Repository: fleet.DefaultRegistry + "/fair-" + c})
 	}
 	for _, tp := range published.Images {
-		extra = append(extra, rt.Image{Component: "mirror-" + tp.Name, Repository: fleet.DefaultRegistry + "/mirror/" + tp.Name})
+		mirrors = append(mirrors, rt.Image{Component: tp.Name, Repository: fleet.DefaultRegistry + "/mirror/" + tp.Name})
 	}
 	rbac, err := fleet.ReleaseRBAC(fleet.RBACSources{Deploy: []string{filepath.Join(root, "deploy/k8s")},
 		Hooks: filepath.Join(root, "deploy/k8s/hooks"), Bundled: filepath.Join(root, "deploy/bundled")})
@@ -57,21 +56,21 @@ func buildPackage(t *testing.T, e pkgEdits) *pkgFixture {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(t.TempDir(), "fair-v1.2.3-airgap")
-	w := rt.Build(t, dir, rt.Release{Key: k, Release: "v1.2.3", Images: imgs, Extra: extra, Amend: func(m *releasemanifest.Manifest) {
+	w := rt.Build(t, dir, rt.Release{Key: k, Release: "v1.2.3", Images: imgs, Mirrors: mirrors, Amend: func(m *releasemanifest.Manifest) {
 		m.RBAC = rbac
 		m.EngineValidation = &releasemanifest.EngineValidation{Image: m.Images[releasemanifest.EngineComponent], SuiteVersion: "1",
 			EngineVersion: "1", Architecture: "amd64", Passed: true, RunAtUnixMS: 1, RecordSHA256: strings.Repeat("0", 64)}
 	}})
 	// The package's mirrored copies: the bundled manifests name the
-	// publishers' images, the chart their copies (here the fixture's).
+	// publishers' images, the chart their copies (here the fixture's,
+	// which the release manifest's mirrors name).
 	all := map[string]string{}
-	f := &pkgFixture{dir: dir, key: k, third: fleet.ThirdPartyList{Format: fleet.ThirdPartyFormat}}
+	f := &pkgFixture{dir: dir, key: k}
 	mirror := map[string]string{}
 	for _, tp := range published.Images {
-		copyRef := w.Extra["mirror-"+tp.Name]
-		all["mirror-"+tp.Name] = copyRef
+		copyRef := w.Mirrors[tp.Name]
+		all[tp.Name] = copyRef
 		mirror[tp.Image] = copyRef
-		f.third.Images = append(f.third.Images, fleet.ThirdParty{Name: tp.Name, Image: tp.Repository() + "@" + releasemanifest.Digest(copyRef)})
 	}
 	chartImgs := map[string]string{}
 	for c, ref := range w.Images {
@@ -118,7 +117,7 @@ func buildPackage(t *testing.T, e pkgEdits) *pkgFixture {
 
 func (f *pkgFixture) options(t *testing.T) PackageOptions {
 	t.Helper()
-	return PackageOptions{Path: f.dir, Key: &f.key.PublicKey, Chart: Options{ThirdParty: f.third, Residue: residue(t)}}
+	return PackageOptions{Path: f.dir, Key: &f.key.PublicKey, Chart: Options{Residue: residue(t)}}
 }
 
 // quick fixes every bundled switch off but one (the full matrix is
@@ -235,8 +234,8 @@ func TestPackageGateRefuses(t *testing.T) {
 		{name: "chart image differs", reason: ReasonImageDiffers, subject: "Deployment/fair-platform/iam", edits: pkgEdits{images: func(m map[string]string) {
 			m["iam"] = fleet.DefaultRegistry + "/fair-iam@sha256:" + strings.Repeat("e", 64)
 		}}},
-		{name: "mirrored image not listed", reason: ReasonImageUnlisted, subject: "mirror/cloudnative-pg@", edits: pkgEdits{pm: func(pm *releaseverify.PackageManifest) {
-			pm.Images = slices.DeleteFunc(pm.Images, func(i releaseverify.PackageImage) bool { return i.Component == "mirror-cloudnative-pg" })
+		{name: "mirrored image not listed", reason: ReasonPackageVerify, subject: "cloudnative-pg", edits: pkgEdits{pm: func(pm *releaseverify.PackageManifest) {
+			pm.Images = slices.DeleteFunc(pm.Images, func(i releaseverify.PackageImage) bool { return i.Component == "cloudnative-pg" })
 		}}},
 	}
 	for _, tc := range cases {

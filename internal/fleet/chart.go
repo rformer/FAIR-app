@@ -217,8 +217,25 @@ type ChartOptions struct {
 	ManifestDigest string // SHA-256 of the signed release-manifest.json ("" for none)
 	// Bundled is deploy/bundled ("" for none): the bundled dependencies'
 	// directories (Bundled). Their third-party images must be in
-	// Options.Mirror, mirrored under DefaultRegistry.
+	// Options.Mirror, mirrored under the registry.
 	Bundled string
+	// Registry is the release repository the images are named in (Images
+	// and Mirror), the default of global.registry ("": DefaultRegistry). A
+	// dry run's release repository is not the product's (F-014 T-10).
+	Registry string
+}
+
+func (o ChartOptions) registry() string {
+	if o.Registry == "" {
+		return DefaultRegistry
+	}
+	return strings.TrimSuffix(o.Registry, "/")
+}
+
+// releaseImageRE matches an image of the release (or a mirrored copy)
+// under registry, by digest.
+func releaseImageRE(registry string) *regexp.Regexp {
+	return regexp.MustCompile(`^` + regexp.QuoteMeta(registry) + `/([a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64})$`)
 }
 
 // ManifestDigest is the SHA-256 of a release manifest file, for
@@ -341,7 +358,7 @@ func RenderChart(o ChartOptions, out string) error {
 		}
 	}
 
-	t := &templater{defaults: map[string]any{}, replicas: map[string]int{}}
+	t := &templater{defaults: map[string]any{}, replicas: map[string]int{}, registry: o.registry(), imageRE: releaseImageRE(o.registry())}
 	files := map[string][]string{}
 	var order []string
 	for _, d := range expanded {
@@ -526,8 +543,8 @@ var bundledClusterScoped = []string{"Namespace"}
 // cluster-wide rights; fairctl installs what an operator needs there).
 func readBundled(o ChartOptions) ([]chartDoc, error) {
 	for c, to := range o.Mirror {
-		if !strings.HasPrefix(to, DefaultRegistry+"/") {
-			return nil, fmt.Errorf("fleet: the chart's copy of %s must be under %s (global.registry): %s", c, DefaultRegistry, to)
+		if !strings.HasPrefix(to, o.registry()+"/") {
+			return nil, fmt.Errorf("fleet: the chart's copy of %s must be under %s (global.registry): %s", c, o.registry(), to)
 		}
 	}
 	var docs []chartDoc
@@ -732,7 +749,6 @@ const tokenPrefix = "FAIRCHARTEXPR" // #nosec G101 -- a marker, not a credential
 
 var (
 	chartVarRE    = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
-	releaseImgRE  = regexp.MustCompile(`^` + regexp.QuoteMeta(DefaultRegistry) + `/([a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64})$`)
 	tokenRE       = regexp.MustCompile(tokenPrefix + `([0-9]{4})X`)
 	camelRE       = regexp.MustCompile(`-([a-z0-9])`)
 	escapeBraceRE = regexp.MustCompile(`\{\{`)
@@ -744,6 +760,8 @@ type templater struct {
 	used     map[string]bool
 	defaults map[string]any // value path -> the reference's literal
 	replicas map[string]int // replicas.<key> -> the reference's count
+	registry string         // the release repository (global.registry's default)
+	imageRE  *regexp.Regexp // the release's images under it
 }
 
 func (t *templater) token(expr string, paths ...string) string {
@@ -846,9 +864,9 @@ func (t *templater) walk(n *yaml.Node, kind, name string, path []string) error {
 // image templates a release image (or a mirrored copy) under
 // global.registry, by its digest.
 func (t *templater) image(v *yaml.Node) error {
-	m := releaseImgRE.FindStringSubmatch(v.Value)
+	m := t.imageRE.FindStringSubmatch(v.Value)
 	if m == nil {
-		return fmt.Errorf("image %s is not the release's (%s/…@sha256:…)", v.Value, DefaultRegistry)
+		return fmt.Errorf("image %s is not the release's (%s/…@sha256:…)", v.Value, t.registry)
 	}
 	setToken(v, t.token(fmt.Sprintf("{{ print .Values.global.registry %q | toJson }}", "/"+m[1]), "global.registry"))
 	return nil
@@ -875,7 +893,7 @@ func (t *templater) env(item *yaml.Node, path []string) error {
 	if nm == nil || v == nil || v.Kind != yaml.ScalarNode {
 		return t.walk(item, "", "", path)
 	}
-	if releaseImgRE.MatchString(v.Value) {
+	if t.imageRE.MatchString(v.Value) {
 		return t.image(v)
 	}
 	p, ok := ChartEnv[nm.Value]
@@ -961,6 +979,9 @@ func (t *templater) values() (map[string]any, map[string]any) {
 func (t *templater) valueList() []chartValue {
 	var vs []chartValue
 	for _, v := range chartValues() {
+		if v.path == "global.registry" {
+			v.def = t.registry
+		}
 		if v.def == nil {
 			v.def = t.defaults[v.path]
 			if v.def == nil {

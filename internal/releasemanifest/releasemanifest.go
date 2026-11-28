@@ -40,6 +40,60 @@ type Manifest struct {
 	RBAC    []RBACEntry       `json:"rbac"`
 	// EngineValidation is required when Images names the engine (F-005 T-09).
 	EngineValidation *EngineValidation `json:"engine_validation,omitempty"`
+	// Mirrors are the third-party images the release runs as its own
+	// copies (F-014 T-10; design §3.17): each verified against its
+	// publisher's identity at release, copied by digest and signed with
+	// the release key. They carry no attestation of the release's, so they
+	// are checked by that signature alone.
+	Mirrors []Mirror `json:"mirrors,omitempty"`
+}
+
+// Mirror is one mirrored third-party image.
+type Mirror struct {
+	// Component names it (deploy/third-party-images.json's name).
+	Component string `json:"component"`
+	// Image is the release's copy, repository@sha256:<digest>.
+	Image string `json:"image"`
+	// Source is the publisher's image the copy was made from, by the same
+	// digest (repository[:tag]@sha256:<digest>).
+	Source string `json:"source"`
+	// Identity and Issuer are the publisher's signing identity the release
+	// verified the source against.
+	Identity string `json:"certificate_identity"`
+	Issuer   string `json:"certificate_oidc_issuer"`
+}
+
+var (
+	componentRE  = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
+	identityMeta = regexp.MustCompile(`[\\^$*+?()\[\]{}|\s]`)
+)
+
+// Mirrored returns the mirror whose copy is ref.
+func (m *Manifest) Mirrored(ref string) (Mirror, bool) {
+	for _, x := range m.Mirrors {
+		if x.Image == ref {
+			return x, true
+		}
+	}
+	return Mirror{}, false
+}
+
+// ValidateMirror checks one mirror entry's shape (releaseverify holds the
+// same rules; TestManifestMatchesReleasemanifest).
+func ValidateMirror(x Mirror) error {
+	switch {
+	case !componentRE.MatchString(x.Component):
+		return fmt.Errorf("mirror %q: the component is not a lower-case name", x.Component)
+	case !imageRE.MatchString(x.Image) || !imageRE.MatchString(x.Source):
+		return fmt.Errorf("mirror %s: image and source must be repository@sha256:<digest>", x.Component)
+	case Digest(x.Image) != Digest(x.Source):
+		return fmt.Errorf("mirror %s: the copy is not the source's digest", x.Component)
+	case !strings.HasPrefix(x.Identity, "https://") || identityMeta.MatchString(x.Identity):
+		return fmt.Errorf("mirror %s: the publisher identity must be one exact https URI", x.Component)
+	case !strings.HasPrefix(x.Issuer, "https://") || identityMeta.MatchString(x.Issuer):
+		return fmt.Errorf("mirror %s: the OIDC issuer must be an https URI", x.Component)
+	}
+	return nil
 }
 
 // RBACEntry is one platform RBAC object and the hash of its normalized
@@ -97,6 +151,16 @@ func (m *Manifest) Validate() error {
 			return fmt.Errorf("releasemanifest: %s %s: optional %q is neither %q nor a chart value", e.Kind, e.Name, e.Optional, OptionalHook)
 		}
 		seen[e.Key()] = true
+	}
+	mirrors := map[string]bool{}
+	for _, x := range m.Mirrors {
+		if err := ValidateMirror(x); err != nil {
+			return fmt.Errorf("releasemanifest: %w", err)
+		}
+		if _, ok := m.Images[x.Component]; ok || mirrors[x.Component] {
+			return fmt.Errorf("releasemanifest: mirror %s: repeated, or also a release image", x.Component)
+		}
+		mirrors[x.Component] = true
 	}
 	if m.EngineValidation != nil {
 		if err := m.EngineValidation.validate(m.Images); err != nil {

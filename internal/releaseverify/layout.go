@@ -423,7 +423,7 @@ func (l *layout) verifyAttestations(pub *ecdsa.PublicKey, d, pt string) []Statem
 }
 
 func readLimited(file string, limit int64) ([]byte, error) {
-	f, err := os.Open(file) // #nosec G304 -- a file of the release directory being verified
+	f, err := os.Open(file) // #nosec G304 G703 -- a file of the release directory being verified
 	if err != nil {
 		return nil, err
 	}

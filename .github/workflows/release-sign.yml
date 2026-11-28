@@ -6,7 +6,13 @@
 # SBOM and provenance with the release key, so the release verifies offline
 # with cosign.pub alone (scripts/verify-release.sh -offline). It then signs
 # the profile packages, the release manifest and SHA256SUMS (over every
-# file of the release) with releasegen, and writes cosign.pub.
+# file of the release) with releasegen, and writes cosign.pub. With package
+# (F-014 T-10) it also signs the chart and then builds the air-gap package
+# (scripts/airgap-package.sh): the Zarf package from the images it has just
+# signed, signed with zarf package sign, the package manifest and
+# SHA256SUMS signed with releasegen, and the tarball with cosign sign-blob.
+# The package is built here because the release key is reachable only from
+# this workflow, and the dry run's throwaway key only from this job.
 #
 # The release key is the KMS key (internal/kmssign, ADR-018): the job's
 # GitHub OIDC token, written to a file, is exchanged by STS for the
@@ -30,6 +36,26 @@ on:
         description: Sign with a throwaway key (dry runs only)
         required: true
         type: boolean
+      package:
+        description: Sign the chart and build the air-gap package (F-014 T-10)
+        required: false
+        type: boolean
+        default: false
+      version:
+        description: The release version (with package)
+        required: false
+        type: string
+        default: ""
+      release-repository:
+        description: The release repository the package names images in (with package)
+        required: false
+        type: string
+        default: ""
+      staging-repository:
+        description: The staging repository the package pulls images from (with package)
+        required: false
+        type: string
+        default: ""
     outputs:
       artifact:
         description: The signed release's artifact
@@ -146,6 +172,16 @@ jobs:
             cosign sign --yes --key "$RELEASE_SIGNING_KEY" "$RELEASE_TLOG" "$ref"
             echo "signed $ref"
           done
+      # F-014 T-10 (AC-01; design §3.1): the chart's OCI artifact, keyless-
+      # signed by release.yml's chart job, signed with the release key.
+      - name: Sign the chart with the release key
+        if: ${{ hashFiles('release/chart.json') != '' }}
+        run: |
+          ref="$(jq -r .staging release/chart.json)"
+          release_id='^https://github\.com/${{ github.repository }}/\.github/workflows/release\.yml@refs/tags/v'
+          cosign verify --certificate-identity-regexp "$release_id" --certificate-oidc-issuer https://token.actions.githubusercontent.com "$ref" >/dev/null
+          cosign sign --yes --key "$RELEASE_SIGNING_KEY" "$RELEASE_TLOG" "$ref"
+          echo "signed $ref"
       - name: Sign the profile packages, the release manifest and SHA256SUMS
         run: |
           # shellcheck disable=SC2086 # RELEASEGEN_KEY is two flags
@@ -161,3 +197,26 @@ jobs:
         with:
           name: release-signed
           path: release/
+      # F-014 T-10 (AC-01, AC-02, AC-04; design §3.1, D-OQ4): the air-gap
+      # package, from the images just signed (Zarf pulls them from staging,
+      # named in the release repository), signed with this job's key.
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        if: ${{ inputs.package }}
+        with:
+          name: release-window
+          path: window
+      - name: The air-gap package
+        if: ${{ inputs.package }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          RELEASE: ${{ inputs.release-repository }}
+          STAGING: ${{ inputs.staging-repository }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          bash scripts/airgap-package.sh release window package
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ inputs.package }}
+        with:
+          name: release-package
+          path: package/

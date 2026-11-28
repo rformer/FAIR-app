@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -64,22 +65,48 @@ func TestManifestMatchesReleasemanifest(t *testing.T) {
 	}
 	engine := `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"engine":"` + img + `"},"rbac":[]}`
 	engineOK := `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"engine":"` + img + `"},"rbac":[],"engine_validation":{"image":"` + img + `","suite_version":"1","engine_version":"1","architecture":"amd64","passed":false,"run_at_unix_ms":1,"record_sha256":"` + strings.Repeat("b", 64) + `"}}`
+	mirror := func(c, image, source, id, iss string) string {
+		return `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"x":"` + img + `"},"rbac":[],"mirrors":[{"component":"` + c + `","image":"` + image +
+			`","source":"` + source + `","certificate_identity":"` + id + `","certificate_oidc_issuer":"` + iss + `"}]}`
+	}
+	mimg := "registry.invalid/mirror/m@sha256:" + strings.Repeat("e", 64)
+	msrc := "publisher.invalid/m:1.0@sha256:" + strings.Repeat("e", 64)
+	mid := "https://github.com/p/m/.github/workflows/release.yml@refs/tags/v1"
+	miss := "https://token.actions.githubusercontent.com"
+	withMirrors := *good
+	withMirrors.Mirrors = []releasemanifest.Mirror{rt.MirrorOf("m", mimg)}
+	encMirrors, err := releasemanifest.Encode(&withMirrors)
+	if err != nil {
+		t.Fatal(err)
+	}
 	cases := map[string]string{
-		"encoded":           string(enc),
-		"unknown field":     strings.Replace(string(enc), `"format"`, `"extra": 1, "format"`, 1),
-		"other format":      strings.Replace(string(enc), releasemanifest.Format, "fair-platform-release-manifest/v2", 1),
-		"no images":         `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{},"rbac":[]}`,
-		"no release":        `{"format":"fair-platform-release-manifest/v1","release":"","images":{"x":"` + img + `"}}`,
-		"tagged image":      `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"x":"registry.invalid/x:1"}}`,
-		"rbac namespace":    `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"x":"` + img + `"},"rbac":[{"kind":"Role","name":"r","sha256":"` + strings.Repeat("c", 64) + `"}]}`,
-		"rbac duplicate":    `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"x":"` + img + `"},"rbac":[{"kind":"ClusterRole","name":"r","sha256":"` + strings.Repeat("c", 64) + `"},{"kind":"ClusterRole","name":"r","sha256":"` + strings.Repeat("d", 64) + `"}]}`,
-		"rbac kind":         `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"x":"` + img + `"},"rbac":[{"kind":"Secret","name":"r","sha256":"` + strings.Repeat("c", 64) + `"}]}`,
-		"rbac optional":     `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"x":"` + img + `"},"rbac":[{"kind":"ClusterRole","name":"r","sha256":"` + strings.Repeat("c", 64) + `","optional":"hook"},{"kind":"Role","namespace":"n","name":"r","sha256":"` + strings.Repeat("c", 64) + `","optional":"postgres.bundled"}]}`,
-		"rbac optional bad": `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"x":"` + img + `"},"rbac":[{"kind":"ClusterRole","name":"r","sha256":"` + strings.Repeat("c", 64) + `","optional":"always"}]}`,
-		"engine no record":  engine,
-		"engine record":     engineOK,
-		"trailing data":     string(enc) + "{}",
-		"not json":          "release",
+		"encoded":                string(enc),
+		"encoded with mirrors":   string(encMirrors),
+		"mirror":                 mirror("m", mimg, msrc, mid, miss),
+		"mirror bad component":   mirror("M_1", mimg, msrc, mid, miss),
+		"mirror image component": mirror("x", mimg, msrc, mid, miss),
+		"mirror tagged":          mirror("m", "registry.invalid/mirror/m:1", msrc, mid, miss),
+		"mirror other digest":    mirror("m", mimg, "publisher.invalid/m:1.0@sha256:"+strings.Repeat("f", 64), mid, miss),
+		"mirror identity regex":  mirror("m", mimg, msrc, "https://github.com/p/.*", miss),
+		"mirror identity http":   mirror("m", mimg, msrc, "http://github.com/p", miss),
+		"mirror issuer":          mirror("m", mimg, msrc, mid, "token"),
+		"mirror repeated": strings.Replace(mirror("m", mimg, msrc, mid, miss), `}]}`, `},{"component":"m","image":"`+mimg+`","source":"`+msrc+
+			`","certificate_identity":"`+mid+`","certificate_oidc_issuer":"`+miss+`"}]}`, 1),
+		"mirror unknown field": strings.Replace(mirror("m", mimg, msrc, mid, miss), `"component"`, `"extra":1,"component"`, 1),
+		"unknown field":        strings.Replace(string(enc), `"format"`, `"extra": 1, "format"`, 1),
+		"other format":         strings.Replace(string(enc), releasemanifest.Format, "fair-platform-release-manifest/v2", 1),
+		"no images":            `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{},"rbac":[]}`,
+		"no release":           `{"format":"fair-platform-release-manifest/v1","release":"","images":{"x":"` + img + `"}}`,
+		"tagged image":         `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"x":"registry.invalid/x:1"}}`,
+		"rbac namespace":       `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"x":"` + img + `"},"rbac":[{"kind":"Role","name":"r","sha256":"` + strings.Repeat("c", 64) + `"}]}`,
+		"rbac duplicate":       `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"x":"` + img + `"},"rbac":[{"kind":"ClusterRole","name":"r","sha256":"` + strings.Repeat("c", 64) + `"},{"kind":"ClusterRole","name":"r","sha256":"` + strings.Repeat("d", 64) + `"}]}`,
+		"rbac kind":            `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"x":"` + img + `"},"rbac":[{"kind":"Secret","name":"r","sha256":"` + strings.Repeat("c", 64) + `"}]}`,
+		"rbac optional":        `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"x":"` + img + `"},"rbac":[{"kind":"ClusterRole","name":"r","sha256":"` + strings.Repeat("c", 64) + `","optional":"hook"},{"kind":"Role","namespace":"n","name":"r","sha256":"` + strings.Repeat("c", 64) + `","optional":"postgres.bundled"}]}`,
+		"rbac optional bad":    `{"format":"fair-platform-release-manifest/v1","release":"v1","images":{"x":"` + img + `"},"rbac":[{"kind":"ClusterRole","name":"r","sha256":"` + strings.Repeat("c", 64) + `","optional":"always"}]}`,
+		"engine no record":     engine,
+		"engine record":        engineOK,
+		"trailing data":        string(enc) + "{}",
+		"not json":             "release",
 	}
 	for name, body := range cases {
 		b := []byte(body)
@@ -287,5 +314,55 @@ func TestReportText(t *testing.T) {
 	rep.WriteText(&out, &errs, true)
 	if !strings.Contains(out.String(), "\x1b[32mok\x1b[0m - ") {
 		t.Fatalf("colour: %q", out.String())
+	}
+}
+
+// F-014 T-10 (design §3.17): mirrored third-party images verify by the
+// release key's signature alone, must be listed by a package manifest with
+// the same reference, and are refused without that signature.
+func TestMirrors(t *testing.T) {
+	k, other := rt.NewKey(t), rt.NewKey(t)
+	build := func(t *testing.T, mirror rt.Image, edit func(*releaseverify.PackageManifest)) *releaseverify.Report {
+		dir := filepath.Join(t.TempDir(), "p")
+		w := rt.Build(t, dir, rt.Release{Key: k, Package: true, Images: []rt.Image{{Component: "iam"}}, Mirrors: []rt.Image{mirror}})
+		if edit != nil {
+			pm := *w.Package
+			edit(&pm)
+			rt.WritePackageManifest(t, dir, k, &pm)
+		}
+		return releaseverify.Verify(dir, releaseverify.Options{Key: &k.PublicKey, Package: true, Provenance: releaseverify.ReleasePolicy()})
+	}
+	r := build(t, rt.Image{Component: "cloudnative-pg"}, nil)
+	if !r.Verified {
+		t.Fatalf("refused: %+v", r.Refusal)
+	}
+	if len(r.Images) != 2 || r.Images[1].Component != "cloudnative-pg" ||
+		!strings.Contains(r.Steps[len(r.Steps)-1].Message, "cloudnative-pg sha256:") || !strings.HasSuffix(r.Steps[len(r.Steps)-1].Message, ": mirrored, signed by the release key") {
+		t.Errorf("images %+v, last step %+v", r.Images, r.Steps[len(r.Steps)-1])
+	}
+	for name, tc := range map[string]struct {
+		img   rt.Image
+		edit  func(*releaseverify.PackageManifest)
+		check string
+	}{
+		"other key": {img: rt.Image{Component: "cloudnative-pg", SigKey: other}, check: releaseverify.CheckImageSignature},
+		"not listed": {img: rt.Image{Component: "cloudnative-pg"}, check: releaseverify.CheckPackageManifest, edit: func(pm *releaseverify.PackageManifest) {
+			pm.Images = slices.DeleteFunc(slices.Clone(pm.Images), func(i releaseverify.PackageImage) bool { return i.Component == "cloudnative-pg" })
+		}},
+		"listed by another reference": {img: rt.Image{Component: "cloudnative-pg"}, check: releaseverify.CheckPackageManifest, edit: func(pm *releaseverify.PackageManifest) {
+			pm.Images = slices.Clone(pm.Images)
+			for i := range pm.Images {
+				if pm.Images[i].Component == "cloudnative-pg" {
+					pm.Images[i].Image = "registry.invalid/other@sha256:" + strings.Repeat("9", 64)
+				}
+			}
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := build(t, tc.img, tc.edit)
+			if r.Verified || r.Refusal == nil || r.Refusal.Check != tc.check || r.Refusal.Subject != "cloudnative-pg" {
+				t.Errorf("verified %v, refusal %+v", r.Verified, r.Refusal)
+			}
+		})
 	}
 }

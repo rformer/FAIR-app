@@ -16,7 +16,7 @@ Every FAIR release is signed with two kinds of signature (F-012 design §3.3):
 | `release-manifest.json`, `.sig` | Every image by registry digest, the RBAC hashes and the engine's validation record, signed with the release key |
 | `cosign.pub` | The release public key (PEM) |
 | `SHA256SUMS`, `.sig` | The digest of every file of the release, signed with the release key |
-| `images/<component>/` | Air-gapped bundles only: each image with its signatures and attestations, as written by `cosign save` |
+| `images/<component>/` | Offline runs of the script only: each image with its signatures and attestations, as written by `cosign save` (mirrored third-party images included) |
 
 Check `cosign.pub` before you trust it. Its SHA-256 fingerprint is printed in the release notes and on the vendor's support site, and must match:
 
@@ -43,6 +43,15 @@ Offline, the script reads only `RELEASE_DIR` and never contacts a registry or th
 fairctl verify -key release.pub PACKAGE_DIR
 ```
 
+The air-gap package (`fair-<version>-airgap.tar`, [its format](../formats/fair-airgap-package-v1.md)) holds the images once, inside its Zarf package. `fairctl verify` reads them from there directly. It first checks the Zarf package's SHA-256 against the signed `package-manifest.json`, so you need neither Zarf nor `cosign`. Unpack the tarball, then run `fairctl` from its `tools/` for your platform:
+
+```sh
+tar -xf fair-<version>-airgap.tar
+fair-<version>-airgap/tools/fairctl-<version>-linux-amd64 verify -key release.pub fair-<version>-airgap
+```
+
+With `cosign`, you can also check the tarball before unpacking it. Use `cosign verify-blob --key release.pub --insecure-ignore-tlog --signature fair-<version>-airgap.tar.sig fair-<version>-airgap.tar` for the release key, or `--bundle fair-<version>-airgap.tar.sigstore.json` with the release workflow's identity for the keyless signature. With Zarf, `zarf package verify --key release.pub` checks the Zarf package's own release-key signature. `sha256sum -c SHA256SUMS` in the package directory checks every file.
+
 `-key` is the release key you obtained and checked apart from the package (its fingerprint, as above); the package's own `cosign.pub` must be that key. On top of the script's checks, `fairctl verify` requires `package-manifest.json` (`fair.airgap-package.v1`) and its signature, every file and image it lists, nothing in the directory it does not list, each image's content against its digest, and each image's SLSA provenance naming the SLSA generator's container workflow and this repository's release workflow at a `v*` tag (the same rule as F-012's admission policy). It prints the script's `ok - …` and `FAIL - …` lines, or one JSON document with `-output json` (`docs/formats/fairctl-verify.schema.json`); exit code 0 verified, 1 refused, 2 usage.
 
 ## What each step checks
@@ -53,6 +62,7 @@ fairctl verify -key release.pub PACKAGE_DIR
    - an SPDX SBOM attestation verifies with the release key (`--type spdxjson`);
    - a SLSA provenance attestation verifies with the release key (`--type slsaprovenance`). This provenance is the predicate of the SLSA Build Level 3 provenance made by the SLSA generator, attested again with the release key so it verifies offline.
    - Online only: a keyless signature from this repository's release workflow on a `v*` tag. Set `FAIR_RELEASE_IDENTITY`, a regular expression, to check another identity.
+4. **For each mirrored third-party image** (the manifest's `mirrors`: the publishers' images the release verified against their identities and copied by digest, F-014 T-10): the release key's signature verifies, on the digest the manifest names. These images carry no attestation of the release's, so none is required.
 
 The script prints `ok - …` for each check. It stops at the first failure with `FAIL - …` and exit code 1.
 

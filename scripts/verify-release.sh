@@ -84,4 +84,27 @@ while read -r component ref; do
   ok "$component $want: signed, SBOM and provenance attested"
 done <<< "$images"
 
+# The mirrored third-party images (F-014 T-10; design §3.17): the release
+# key's signature over the copy's digest, no attestation (they carry none of
+# the release's). Offline from images/<component>/ like the release's own.
+mirrors="$($RELEASEGEN verify -pub "$PUB" -in "$DIR/release-manifest.json" -mirrors 2>/dev/null | tr -d '\r')" \
+  || fail "release-manifest.json: the signature does not verify with cosign.pub"
+while read -r component ref; do
+  [ -n "$component" ] || continue
+  want="${ref#*@}"
+  if [ "$OFFLINE" = 1 ]; then
+    local_dir="$DIR/images/$component"
+    [ -d "$local_dir" ] || fail "$component: no images/$component in the release"
+    target=(--local-image "$local_dir")
+    flags=(--key "$PUB" --offline --insecure-ignore-tlog)
+  else
+    target=("$ref")
+    flags=(--key "$PUB")
+  fi
+  got="$($COSIGN verify "${flags[@]}" "${target[@]}" -o json 2>/dev/null | verified_digest)" \
+    || fail "$component: the release key's signature does not verify"
+  [ "$got" = "$want" ] || fail "$component: verified ${got:-nothing}, the manifest names $want"
+  ok "$component $want: mirrored, signed by the release key"
+done <<< "$mirrors"
+
 echo "release verified$([ "$OFFLINE" = 1 ] && echo ' (offline)')"

@@ -14,8 +14,9 @@
 //     scanner's own functions) over it: any finding or check error fails;
 //   - requires every image to be named by digest and to be the release's:
 //     a platform image equal to the release manifest's for its component,
-//     a mirrored third-party image equal to its copy under the registry's
-//     mirror/ (and, for a package, listed by the package manifest);
+//     a mirrored third-party image equal to a copy the manifest's mirrors
+//     name (F-014 T-10; and, for a package, listed by the package
+//     manifest);
 //   - requires every RBAC object (hooks and fairctl's cluster-scoped
 //     objects included) to be in the release manifest with the same hash,
 //     and every manifest entry the combination switches on to be present.
@@ -56,7 +57,6 @@ import (
 	"helm.sh/helm/v4/pkg/chart/v2/loader"
 	"helm.sh/helm/v4/pkg/engine"
 
-	"github.com/rformer/fair-app/internal/fleet"
 	"github.com/rformer/fair-app/internal/releasemanifest"
 	"github.com/rformer/fair-app/internal/scanner"
 	"github.com/rformer/fair-app/internal/scanner/checks"
@@ -126,10 +126,6 @@ type Options struct {
 	Chart string
 	// Manifest is the release manifest the chart must equal.
 	Manifest *releasemanifest.Manifest
-	// ThirdParty is the release's third-party images
-	// (deploy/third-party-images.json), named in the chart by their copies
-	// under <global.registry>/mirror.
-	ThirdParty fleet.ThirdPartyList
 	// Residue maps a switch (<value>.bundled) to the files of what fairctl
 	// applies for it at cluster scope (fleet.BundledResidue).
 	Residue map[string][]string
@@ -406,9 +402,9 @@ type gate struct {
 	o        Options
 	registry string
 	residue  map[string][]map[string]any
-	manifest *releasemanifest.Manifest // the release manifest and the mirrored copies (for the catalog)
+	manifest *releasemanifest.Manifest // the release manifest (with its mirrors, for the catalog)
 	rbac     map[string]releasemanifest.RBACEntry
-	mirrored map[string]string // copy reference -> third-party name
+	mirrored map[string]string // copy reference -> mirror component
 	platform *regexp.Regexp
 	tlsAddr  string
 	lis      net.Listener
@@ -416,12 +412,9 @@ type gate struct {
 
 func (g *gate) prepare() error {
 	m := *g.o.Manifest
-	m.Images = maps.Clone(g.o.Manifest.Images)
 	g.mirrored = map[string]string{}
-	for _, t := range g.o.ThirdParty.Images {
-		ref := t.Mirrored(g.registry + "/mirror")
-		g.mirrored[ref] = t.Name
-		m.Images["mirror-"+t.Name] = ref
+	for _, x := range m.Mirrors {
+		g.mirrored[x.Image] = x.Component
 	}
 	if err := m.Validate(); err != nil {
 		return fmt.Errorf("chartgate: the release's images: %w", err)
@@ -566,8 +559,8 @@ func (g *gate) mirrorName(ref string) string {
 		return ""
 	}
 	name, _, _ := strings.Cut(rest, "@")
-	for _, t := range g.o.ThirdParty.Images {
-		if t.Name == name {
+	for _, x := range g.o.Manifest.Mirrors {
+		if x.Component == name {
 			return name
 		}
 	}

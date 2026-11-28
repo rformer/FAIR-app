@@ -206,6 +206,22 @@ func TestVerifyMatchesVerifyRelease(t *testing.T) {
 				}
 				return dir
 			}, false},
+			{"mirrored image", func(t *testing.T) string {
+				return build(t, rt.Release{Images: img(rt.Image{Component: "iam"}), Mirrors: []rt.Image{rt.Image{Component: "cloudnative-pg"}}})
+			}, true},
+			{"mirrored image signed by another key", func(t *testing.T) string {
+				return build(t, rt.Release{Images: img(rt.Image{Component: "iam"}), Mirrors: []rt.Image{rt.Image{Component: "cloudnative-pg", SigKey: other}}})
+			}, false},
+			{"mirrored image signature for another image", func(t *testing.T) string {
+				return build(t, rt.Release{Images: img(rt.Image{Component: "iam"}), Mirrors: []rt.Image{rt.Image{Component: "cloudnative-pg", SigKey: key, SigDigest: another}}})
+			}, false},
+			{"no layout for a mirrored image", func(t *testing.T) string {
+				dir := build(t, rt.Release{Images: img(rt.Image{Component: "iam"}), Mirrors: []rt.Image{rt.Image{Component: "cloudnative-pg"}}})
+				if err := os.RemoveAll(filepath.Join(dir, "images", "cloudnative-pg")); err != nil {
+					t.Fatal(err)
+				}
+				return dir
+			}, false},
 			{"no cosign.pub", func(t *testing.T) string {
 				dir := build(t, rt.Release{})
 				if err := os.Remove(filepath.Join(dir, "cosign.pub")); err != nil {

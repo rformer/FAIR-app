@@ -30,6 +30,45 @@ type Manifest struct {
 	Images           map[string]string `json:"images"` // component -> repository@sha256:<digest>
 	RBAC             []RBACEntry       `json:"rbac"`
 	EngineValidation *EngineValidation `json:"engine_validation,omitempty"`
+	Mirrors          []Mirror          `json:"mirrors,omitempty"`
+}
+
+// Mirror is one mirrored third-party image (F-014 T-10, design §3.17): the
+// release's copy, the publisher's source by the same digest and the
+// publisher identity the release verified. Mirrors are checked by the
+// release key's signature alone; they carry no attestation.
+type Mirror struct {
+	Component string `json:"component"`
+	Image     string `json:"image"`
+	Source    string `json:"source"`
+	Identity  string `json:"certificate_identity"`
+	Issuer    string `json:"certificate_oidc_issuer"`
+}
+
+var identityMeta = regexp.MustCompile(`[\\^$*+?()\[\]{}|\s]`)
+
+func digestOf(ref string) string {
+	if i := strings.Index(ref, "@"); i >= 0 {
+		return ref[i+1:]
+	}
+	return ""
+}
+
+// validate holds releasemanifest.ValidateMirror's rules.
+func (x Mirror) validate() error {
+	switch {
+	case !componentRE.MatchString(x.Component):
+		return fmt.Errorf("mirror %q: the component is not a lower-case name", x.Component)
+	case !imageRE.MatchString(x.Image) || !imageRE.MatchString(x.Source):
+		return fmt.Errorf("mirror %s: image and source must be repository@sha256:<digest>", x.Component)
+	case digestOf(x.Image) != digestOf(x.Source):
+		return fmt.Errorf("mirror %s: the copy is not the source's digest", x.Component)
+	case !strings.HasPrefix(x.Identity, "https://") || identityMeta.MatchString(x.Identity):
+		return fmt.Errorf("mirror %s: the publisher identity must be one exact https URI", x.Component)
+	case !strings.HasPrefix(x.Issuer, "https://") || identityMeta.MatchString(x.Issuer):
+		return fmt.Errorf("mirror %s: the OIDC issuer must be an https URI", x.Component)
+	}
+	return nil
 }
 
 // RBACEntry is one platform RBAC object's hash.
@@ -87,6 +126,16 @@ func (m *Manifest) Validate() error {
 			return fmt.Errorf("%s %s: optional %q is neither \"hook\" nor a chart value", e.Kind, e.Name, e.Optional)
 		}
 		seen[key] = true
+	}
+	mirrors := map[string]bool{}
+	for _, x := range m.Mirrors {
+		if err := x.validate(); err != nil {
+			return err
+		}
+		if _, ok := m.Images[x.Component]; ok || mirrors[x.Component] {
+			return fmt.Errorf("mirror %s: repeated, or also a release image", x.Component)
+		}
+		mirrors[x.Component] = true
 	}
 	if v := m.EngineValidation; v != nil {
 		if v.Image == "" || v.Image != m.Images[engineComponent] {

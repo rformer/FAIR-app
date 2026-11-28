@@ -1,0 +1,51 @@
+{
+  "format": "fair.platforms.v1",
+  "kubernetes": {
+    "minimum": "1.29",
+    "tested": ["1.34", "1.35", "1.36"]
+  },
+  "distributions": [
+    {
+      "name": "kubernetes",
+      "title": "Upstream Kubernetes",
+      "verification": "ci",
+      "configurations": ["bundled", "brought", "connected", "air-gapped"]
+    },
+    {
+      "name": "rke2",
+      "title": "RKE2 (CIS profile, FIPS images)",
+      "verification": "ci",
+      "configurations": ["bundled", "brought", "air-gapped"]
+    },
+    {
+      "name": "openshift",
+      "title": "OpenShift (restricted-v2 SCC, arbitrary user IDs; MicroShift in CI)",
+      "verification": "ci",
+      "configurations": ["bundled"]
+    },
+    {
+      "name": "okd",
+      "title": "OKD / OpenShift Local",
+      "verification": "recorded",
+      "configurations": ["bundled", "brought"]
+    },
+    {
+      "name": "eks",
+      "title": "Amazon EKS",
+      "verification": "recorded",
+      "configurations": ["bundled", "brought"]
+    },
+    {
+      "name": "aks",
+      "title": "Azure Kubernetes Service",
+      "verification": "recorded",
+      "configurations": ["bundled", "brought"]
+    },
+    {
+      "name": "gke",
+      "title": "Google Kubernetes Engine",
+      "verification": "recorded",
+      "configurations": ["bundled", "brought"]
+    }
+  ]
+}

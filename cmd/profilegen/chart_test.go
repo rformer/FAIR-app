@@ -39,6 +39,9 @@ func TestReleaseCheckChartRows(t *testing.T) {
 	m := &releasemanifest.Manifest{Format: releasemanifest.Format, Release: "v1.2.3", Images: imgs, RBAC: rbac,
 		EngineValidation: &releasemanifest.EngineValidation{Image: imgs["engine"], SuiteVersion: "1", EngineVersion: "1",
 			Architecture: "amd64", Passed: true, RunAtUnixMS: 1, RecordSHA256: strings.Repeat("0", 64)}}
+	if m.Mirrors, err = third.MirrorsAt(fleet.DefaultRegistry + "/mirror"); err != nil {
+		t.Fatal(err)
+	}
 	b, err := releasemanifest.Encode(m)
 	if err != nil {
 		t.Fatal(err)
@@ -47,7 +50,7 @@ func TestReleaseCheckChartRows(t *testing.T) {
 	if err := os.WriteFile(manifest, b, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	in := gateInputs{chart: chart, manifest: manifest, thirdParty: filepath.Join(root, "deploy/third-party-images.json"), bundled: filepath.Join(root, "deploy/bundled")}
+	in := gateInputs{chart: chart, manifest: manifest, bundled: filepath.Join(root, "deploy/bundled")}
 	rows := chartChecks(context.Background(), in)
 	if len(rows) != len(chartRows)+1 {
 		t.Fatalf("%d rows: %+v", len(rows), rows)

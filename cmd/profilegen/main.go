@@ -10,7 +10,7 @@
 //	profilegen release-check [-online] [-report FILE] [-manifest FILE]
 //	                                       release checklist gate (T-07): pins, generated
 //	                                       files, CMMC rule revision (online: against the eCFR)
-//	    [-chart DIR|TGZ] [-package DIR|TAR -key FILE] [-third-party FILE] [-bundled DIR]
+//	    [-chart DIR|TGZ] [-package DIR|TAR -key FILE] [-bundled DIR]
 //	                                       F-014 T-09: the chart in every option combination
 //	                                       and the air-gap package (see chart.go)
 //
@@ -76,7 +76,6 @@ func main() {
 		fs.StringVar(&g.pkg, "package", "", "the air-gap package (directory or .tar): verified with -key, its chart gated (F-014 T-09)")
 		fs.StringVar(&g.key, "key", "", "the pinned release public key (PEM), for -package")
 		fs.StringVar(&g.layout, "layout", "", "the package's OCI image layout, relative to it (\"\": images/<component>/)")
-		fs.StringVar(&g.thirdParty, "third-party", "deploy/third-party-images.json", "the release's third-party images (mirrored copies)")
 		fs.StringVar(&g.bundled, "bundled", "deploy/bundled", "the bundled dependencies (what fairctl applies at cluster scope for each)")
 		_ = fs.Parse(os.Args[2:])
 		g.manifest = *manifest

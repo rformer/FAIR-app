@@ -91,6 +91,10 @@ type Release struct {
 	Images  []Image           // default one image "fixture"
 	// Extra are images only the package lists (bundled third parties).
 	Extra []Image
+	// Mirrors are mirrored third-party images (F-014 T-10): signed by the
+	// release key (SigKey, default the release key), never attested, and
+	// named in the release manifest's mirrors with a publisher identity.
+	Mirrors []Image
 	// Files are further files of the release, listed in SHA256SUMS.
 	Files map[string][]byte
 	// Package writes package-manifest.json and its signature.
@@ -98,6 +102,9 @@ type Release struct {
 	// Layout, when set, writes every image into one layout at this path
 	// relative to the release directory in place of images/<component>/.
 	Layout string
+	// LayoutDir, when set, is that one layout's absolute directory, outside
+	// the release (an air-gap package's Zarf layout, F-014 T-10).
+	LayoutDir string
 	// Amend, when set, changes the release manifest before it is signed
 	// (its RBAC, the engine's validation record: F-014 T-09's package
 	// fixture).
@@ -109,6 +116,7 @@ type Written struct {
 	Dir     string
 	Images  map[string]string // component -> repository@sha256:<digest>
 	Extra   map[string]string // the Extra images, likewise
+	Mirrors map[string]string // the Mirrors, likewise
 	Package *releaseverify.PackageManifest
 }
 
@@ -135,32 +143,48 @@ func Build(t testing.TB, dir string, r Release) *Written {
 	if r.Images == nil {
 		r.Images = []Image{{Component: "fixture"}}
 	}
-	w := &Written{Dir: dir, Images: map[string]string{}, Extra: map[string]string{}}
+	w := &Written{Dir: dir, Images: map[string]string{}, Extra: map[string]string{}, Mirrors: map[string]string{}}
 	write(t, filepath.Join(dir, releaseverify.ReleaseKeyFile), PublicPEM(t, r.Key))
 	all := map[string]string{}
-	for i, img := range slices.Concat(r.Images, r.Extra) {
+	for i, img := range slices.Concat(r.Images, r.Extra, r.Mirrors) {
+		mirror := i >= len(r.Images)+len(r.Extra)
 		if img.Repository == "" {
 			img.Repository = "registry.invalid/fair-" + img.Component
+			if mirror {
+				img.Repository = "registry.invalid/mirror/" + img.Component
+			}
 		}
 		if img.Provenance == nil {
 			img.Provenance = DefaultProvenance(r.Release)
 		}
-		if img.SigKey == nil && img.SBOMKey == nil && img.ProvKey == nil {
+		switch {
+		case mirror && img.SigKey == nil:
+			img.SigKey, img.SBOMKey, img.ProvKey = r.Key, nil, nil
+		case !mirror && img.SigKey == nil && img.SBOMKey == nil && img.ProvKey == nil:
 			img = WithKey(img, r.Key)
 		}
 		ldir := filepath.Join(dir, "images", img.Component)
-		if r.Layout != "" {
+		switch {
+		case r.LayoutDir != "":
+			ldir = r.LayoutDir
+		case r.Layout != "":
 			ldir = filepath.Join(dir, r.Layout)
 		}
 		d := AddImage(t, ldir, img)
 		all[img.Component] = img.Repository + "@" + d
-		if i < len(r.Images) {
+		switch {
+		case i < len(r.Images):
 			w.Images[img.Component] = img.Repository + "@" + d
-		} else {
+		case mirror:
+			w.Mirrors[img.Component] = img.Repository + "@" + d
+		default:
 			w.Extra[img.Component] = img.Repository + "@" + d
 		}
 	}
 	m := &releasemanifest.Manifest{Format: releasemanifest.Format, Release: r.Release, Images: w.Images, RBAC: []releasemanifest.RBACEntry{}}
+	for _, c := range sortedKeys(w.Mirrors) {
+		m.Mirrors = append(m.Mirrors, MirrorOf(c, w.Mirrors[c]))
+	}
 	if r.Amend != nil {
 		r.Amend(m)
 	}
@@ -426,6 +450,17 @@ func AddImage(t testing.TB, dir string, img Image) string {
 	}
 	write(t, filepath.Join(dir, "index.json"), mustJSON(t, idx))
 	return d
+}
+
+// MirrorOf is a mirror entry for the copy ref of component c, made from a
+// publisher's image of the same digest.
+func MirrorOf(c, ref string) releasemanifest.Mirror {
+	return releasemanifest.Mirror{
+		Component: c, Image: ref,
+		Source:   "publisher.invalid/" + c + ":1.0.0@" + releasemanifest.Digest(ref),
+		Identity: "https://github.com/publisher/" + c + "/.github/workflows/release.yml@refs/tags/v1.0.0",
+		Issuer:   "https://token.actions.githubusercontent.com",
+	}
 }
 
 // WithKey returns img with every signature and attestation made by k.

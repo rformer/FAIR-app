@@ -3,13 +3,16 @@
 // cluster with.
 //
 //	releasegen manifest -release VERSION -images FILE [-deploy deploy/k8s]
-//	    [-hooks deploy/k8s/hooks] [-bundled deploy/bundled] -out FILE
+//	    [-hooks deploy/k8s/hooks] [-bundled deploy/bundled] [-mirrors FILE
+//	    [-third-party deploy/third-party-images.json]] -out FILE
 //	    images FILE is JSON {"component": "repository@sha256:<digest>"} from the
 //	    image builds; RBAC hashes come from the reference manifests in -deploy,
 //	    a comma-separated list (OpenShift releases: deploy/k8s,deploy/k8s/openshift),
 //	    the chart's hooks and the bundled dependencies (with what fairctl
 //	    applies for them), each marked with when it exists (F-014 T-09,
-//	    fleet.ReleaseRBAC; "" leaves a source out).
+//	    fleet.ReleaseRBAC; "" leaves a source out). -mirrors FILE (the
+//	    release's mirror.json) adds the mirrored third-party images with
+//	    their publishers' identities from -third-party (F-014 T-10).
 //	releasegen sign -key FILE -in FILE
 //	releasegen sign -kms KEY -region REGION -in FILE
 //	    writes FILE.sig with the release signing key: a PEM file (ECDSA
@@ -19,9 +22,10 @@
 //	    (SHA256SUMS, profile packages).
 //	releasegen public -kms KEY -region REGION -out FILE
 //	    the KMS release key's public half as PEM (the release's cosign.pub).
-//	releasegen verify -pub FILE -in FILE [-list] [-any]
+//	releasegen verify -pub FILE -in FILE [-list] [-mirrors] [-any]
 //	    checks FILE.sig; -list then prints "component image" for each image
-//	    of the verified manifest (scripts/verify-release.sh); -any checks the
+//	    of the verified manifest (scripts/verify-release.sh), -mirrors each
+//	    mirrored third-party image; -any checks the
 //	    signature of any file (SHA256SUMS) without reading it as a manifest.
 //	releasegen fleet -release VERSION -images FILE -out DIR [-deploy deploy/k8s]
 //	    [-keys deploy/k8s/keys] [-observability deploy/observability]
@@ -31,6 +35,9 @@
 //	releasegen chart -release VERSION -images FILE -out DIR [-package DIR]
 //	    the fair-platform Helm chart rendered from the same reference
 //	    manifests (F-014 T-06, internal/fleet RenderChart; see chart.go).
+//	releasegen push-chart, releasegen package zarf | build
+//	    the chart's OCI push and the air-gap package (F-014 T-10; see
+//	    package.go).
 //	releasegen permissions [-out deploy/k8s/permission-manifest.json]
 //	    the scanner's permission manifest for consent (T-30); a test keeps
 //	    the committed file current.
@@ -62,7 +69,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: releasegen manifest | fleet | chart | sign | verify | public | permissions | notes | profiles | component-definition (see the command documentation)")
+		return errors.New("usage: releasegen manifest | fleet | chart | push-chart | package | sign | verify | public | permissions | notes | profiles | component-definition (see the command documentation)")
 	}
 	fs := flag.NewFlagSet(args[0], flag.ExitOnError)
 	switch args[0] {
@@ -74,6 +81,8 @@ func run(args []string) error {
 		bundled := fs.String("bundled", "deploy/bundled", "the bundled dependencies (\"\": none)")
 		out := fs.String("out", "", "output file")
 		engineRecord := fs.String("engine-validation", "", "the engine image's /engine/validation.json (required when -images names the engine)")
+		mirrors := fs.String("mirrors", "", "the release's mirror.json: name -> {source, staging, release} (\"\": no mirrors)")
+		third := fs.String("third-party", "deploy/third-party-images.json", "the third-party images and their publishers' identities, for -mirrors")
 		_ = fs.Parse(args[1:])
 		b, err := os.ReadFile(*images) // #nosec G304 G703 -- release-pipeline operator input
 		if err != nil {
@@ -85,6 +94,11 @@ func run(args []string) error {
 		}
 		if m.RBAC, err = fleet.ReleaseRBAC(fleet.RBACSources{Deploy: strings.Split(*deploy, ","), Hooks: *hooks, Bundled: *bundled}); err != nil {
 			return err
+		}
+		if *mirrors != "" {
+			if m.Mirrors, err = manifestMirrors(*mirrors, *third); err != nil {
+				return err
+			}
 		}
 		if *engineRecord != "" {
 			rec, err := os.ReadFile(*engineRecord) // #nosec G304 G703 -- release-pipeline operator input
@@ -176,6 +190,7 @@ func run(args []string) error {
 		pubFile := fs.String("pub", "", "release public key (PEM)")
 		in := fs.String("in", "", "manifest file")
 		list := fs.Bool("list", false, "print each image of the verified manifest")
+		mirrors := fs.Bool("mirrors", false, "print each mirrored third-party image of the verified manifest")
 		anyFile := fs.Bool("any", false, "verify the signature of any file")
 		_ = fs.Parse(args[1:])
 		pub, err := profilepkg.LoadPublicKey(*pubFile)
@@ -211,7 +226,12 @@ func run(args []string) error {
 				fmt.Println(c, m.Images[c])
 			}
 		}
-		fmt.Fprintf(os.Stderr, "release %s: %d images, %d RBAC objects, signature verified\n", m.Release, len(m.Images), len(m.RBAC))
+		if *mirrors {
+			for _, x := range m.Mirrors {
+				fmt.Println(x.Component, x.Image)
+			}
+		}
+		fmt.Fprintf(os.Stderr, "release %s: %d images, %d mirrors, %d RBAC objects, signature verified\n", m.Release, len(m.Images), len(m.Mirrors), len(m.RBAC))
 		return nil
 	case "fleet":
 		release := fs.String("release", "", "release version")
@@ -245,6 +265,10 @@ func run(args []string) error {
 		return fleet.Render(o, *out)
 	case "chart":
 		return chart(args[1:])
+	case "package":
+		return packageCmd(args[1:])
+	case "push-chart":
+		return pushChart(args[1:])
 	case "notes":
 		return notes(args[1:])
 	case "profiles":
@@ -263,4 +287,21 @@ func kmsSigner(key, region string) (*kmssign.Signer, error) {
 		return nil, err
 	}
 	return kmssign.New(context.Background(), c, key)
+}
+
+// manifestMirrors reads mirror.json and the third-party list.
+func manifestMirrors(mirrorFile, thirdFile string) ([]releasemanifest.Mirror, error) {
+	b, err := os.ReadFile(mirrorFile) // #nosec G304 G703 -- release-pipeline operator input
+	if err != nil {
+		return nil, err
+	}
+	var copies map[string]fleet.Copy
+	if err := json.Unmarshal(b, &copies); err != nil {
+		return nil, fmt.Errorf("%s: %w", mirrorFile, err)
+	}
+	l, err := fleet.LoadThirdParty(thirdFile)
+	if err != nil {
+		return nil, err
+	}
+	return l.ManifestMirrors(copies)
 }

@@ -28,13 +28,12 @@ import (
 //	                    against the package's own signed release manifest
 //	-key FILE           the pinned release public key (PEM), for -package
 //	-layout PATH        the package's OCI image layout (relative; "": images/<component>/)
-//	-third-party FILE   the release's third-party images (mirrored copies)
 //	-bundled DIR        deploy/bundled: what fairctl applies at cluster scope
 //	                    for each bundled dependency
 
 // gateInputs are the flags.
 type gateInputs struct {
-	chart, pkg, key, layout, thirdParty, bundled, manifest string
+	chart, pkg, key, layout, bundled, manifest string
 }
 
 // chartRows are the four rows of one chart's gate.
@@ -113,11 +112,7 @@ func gateOptions(in gateInputs) (chartgate.Options, error) {
 	if in.chart == "" && in.pkg == "" {
 		return o, nil
 	}
-	l, err := fleet.LoadThirdParty(in.thirdParty)
-	if err != nil {
-		return o, err
-	}
-	o.ThirdParty = l
+	var err error
 	if o.Residue, err = fleet.BundledResidue(in.bundled); err != nil {
 		return o, err
 	}

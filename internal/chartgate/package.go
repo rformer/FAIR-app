@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/rformer/fair-app/internal/airgap"
 	"github.com/rformer/fair-app/internal/fleet"
 	"github.com/rformer/fair-app/internal/releasemanifest"
 	"github.com/rformer/fair-app/internal/releaseverify"
@@ -25,15 +26,15 @@ import (
 // against the package's own release manifest, every image any combination
 // runs listed by the package.
 //
-// What T-10's `releasegen package` must produce for this gate: the package
-// directory (or `fair-<version>-airgap.tar` holding it, one top directory)
-// with the verification kit of internal/releaseverify, the images in the
-// layout Options.Layout names (or images/<component>/), every bundled
-// third-party image's mirrored copy among package-manifest.json's images
-// by its reference, and the chart the Zarf package holds also as a file of
-// the package: ChartFile(version) in any directory, listed by
-// package-manifest.json (the Zarf tarball is zstd, which neither the
-// standard library nor the gate reads).
+// What T-10's `releasegen package` produces for this gate (internal/airgap):
+// the package directory (or `fair-<version>-airgap.tar` holding it, one top
+// directory) with the verification kit of internal/releaseverify, the
+// images in its Zarf package's OCI layout (read by airgap.Layout; or the
+// layout PackageOptions.Layout names, or images/<component>/), every
+// mirrored third-party copy the release manifest's mirrors name among
+// package-manifest.json's images, and the chart the Zarf package holds also
+// as a file of the package: ChartFile(version) in any directory
+// (chart/), listed by package-manifest.json.
 
 // ChartFile is the packaged chart's file name for a release (Helm's
 // <name>-<version>.tgz, the version without "v").
@@ -57,7 +58,8 @@ type PackageOptions struct {
 	// Key is the pinned release public key.
 	Key *ecdsa.PublicKey
 	// Layout is the OCI layout of the package's images, relative to the
-	// package directory ("" : images/<component>/).
+	// package directory or absolute ("": its Zarf package's layout, or
+	// images/<component>/ when it has none).
 	Layout string
 	// Chart are the chart gate's options but Chart, Manifest and
 	// PackageImages, which come from the package.
@@ -96,8 +98,19 @@ func CheckPackage(ctx context.Context, o PackageOptions) (*PackageReport, error)
 	}
 	rep := &PackageReport{}
 	layout := o.Layout
-	if layout != "" {
+	switch {
+	case layout != "" && filepath.IsAbs(layout):
+	case layout != "":
 		layout = filepath.Join(dir, filepath.FromSlash(layout))
+	default:
+		// The images of a package T-10 builds: Zarf's layout, read from its
+		// Zarf package once that is checked against the signed package
+		// manifest (D-OQ4: the images are in the package once). When it
+		// cannot be read, releaseverify reports why.
+		if l, cleanup, err := airgap.Layout(dir, o.Key, ""); err == nil {
+			defer cleanup()
+			layout = l
+		}
 	}
 	vr := releaseverify.Verify(dir, releaseverify.Options{Key: o.Key, Package: true, Provenance: releaseverify.ReleasePolicy(), Layout: layout})
 	rep.Verify = vr

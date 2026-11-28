@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
+
+	"github.com/rformer/fair-app/internal/releasemanifest"
 )
 
 // Third-party images (F-012 T-15; design §3.6, amended 2026-11-26): every
@@ -98,4 +101,60 @@ func (l ThirdPartyList) Mirror(prefix string) map[string]string {
 		m[t.Image] = t.Mirrored(prefix)
 	}
 	return m
+}
+
+// Copy is one entry of the release's mirror.json (release.yml's manifest
+// job): the publisher's image it verified and where it copied it.
+type Copy struct {
+	Source  string `json:"source"`  // repository@sha256:<digest>, verified against the publisher's identity
+	Staging string `json:"staging"` // the copy in the staging repository
+	Release string `json:"release"` // the copy in the release repository, by the same digest
+}
+
+// ManifestMirrors is the signed release manifest's mirrors section (F-014
+// T-10; design §3.17) from the list and the copies the release made
+// (mirror.json, by name): every listed image copied by its own digest, and
+// no copy of an image the list does not name.
+func (l ThirdPartyList) ManifestMirrors(copies map[string]Copy) ([]releasemanifest.Mirror, error) {
+	var out []releasemanifest.Mirror
+	var errs []error
+	for _, t := range l.Images {
+		c, ok := copies[t.Name]
+		switch {
+		case !ok:
+			errs = append(errs, fmt.Errorf("%s: not mirrored by the release", t.Name))
+			continue
+		case c.Source != t.Repository()+"@"+t.Digest():
+			errs = append(errs, fmt.Errorf("%s: mirrored from %s, the list names %s", t.Name, c.Source, t.Image))
+			continue
+		case releasemanifest.Digest(c.Release) != t.Digest() || releasemanifest.Digest(c.Staging) != t.Digest():
+			errs = append(errs, fmt.Errorf("%s: the copy is not by the publisher's digest %s", t.Name, t.Digest()))
+			continue
+		}
+		x := releasemanifest.Mirror{Component: t.Name, Image: c.Release, Source: t.Image, Identity: t.Identity, Issuer: t.Issuer}
+		if err := releasemanifest.ValidateMirror(x); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		out = append(out, x)
+	}
+	for name := range copies {
+		if !slices.ContainsFunc(l.Images, func(t ThirdParty) bool { return t.Name == name }) {
+			errs = append(errs, fmt.Errorf("%s: mirrored, but not in the third-party list", name))
+		}
+	}
+	slices.SortFunc(out, func(a, b releasemanifest.Mirror) int { return strings.Compare(a.Component, b.Component) })
+	return out, errors.Join(errs...)
+}
+
+// MirrorsAt is ManifestMirrors for copies under prefix (<release
+// repository>/mirror) and staging (the same, for tests and renders that
+// have no staging repository).
+func (l ThirdPartyList) MirrorsAt(prefix string) ([]releasemanifest.Mirror, error) {
+	copies := map[string]Copy{}
+	for _, t := range l.Images {
+		ref := t.Mirrored(prefix)
+		copies[t.Name] = Copy{Source: t.Repository() + "@" + t.Digest(), Staging: ref, Release: ref}
+	}
+	return l.ManifestMirrors(copies)
 }

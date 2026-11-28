@@ -14,18 +14,27 @@
 #                 T-15) pushed to staging as an OCI artifact, keyless-signed;
 #                 the third-party images verified against their publishers'
 #                 identities and copied by digest to staging's mirror/
-#   release-checklist  profilegen release-check (F-015 T-07)
+#   chart         the fair-platform chart (releasegen chart, F-014 T-06),
+#                 pushed to staging as an OCI artifact and keyless-signed
+#                 (F-014 T-10)
+#   release-checklist  profilegen release-check (F-015 T-07), with -chart:
+#                 every option combination gated (F-014 T-09)
 #   bench         the benchmark gate (bench.yml)
 #   upgrade       the upgrade test from earlier releases (upgrade.yml, AC-13)
 #   notes         releasegen notes since the previous release
 #   sign          the release key: images, attestations, the fleet artifact,
-#                 the mirrored third-party images, profile packages,
-#                 manifest, SHA256SUMS (release-sign.yml)
-#   publish       images, mirrored images and the fleet artifact copied from staging to the
-#                 release repository with their signatures, then the GitHub
-#                 release with every file
+#                 the mirrored third-party images, the chart, profile
+#                 packages, manifest, SHA256SUMS; then the air-gap package
+#                 (scripts/airgap-package.sh: Zarf, zarf package sign, the
+#                 signed package manifest) (release-sign.yml)
+#   package       the air-gap package's keyless signature, and the package
+#                 gate (profilegen release-check -package, F-014 T-09/T-10)
+#   publish       images, mirrored images, the fleet artifact and the chart copied from
+#                 staging to the release repository with their signatures,
+#                 then the GitHub release with every file and the package
 #   verify        scripts/verify-release.sh on what was published, online and
-#                 offline
+#                 offline; the chart's signatures; the package with fairctl
+#                 verify and its tarball's signatures
 #
 # The v0.0.0-test tag is the dry run (T-07's verification): it runs every
 # job, publishes images under ghcr.io/<owner>/test/ and the GitHub release as
@@ -92,7 +101,10 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        component: [iam, gateway, posture, posture-scanner, fips-probe, audit, risk, notify, integrate, engine-gate, engine]
+        # F-014 T-10: fairctl (the chart's hooks) and the bundled dependencies
+        # (T-07) are release images too: the chart names them all.
+        component: [iam, gateway, posture, posture-scanner, fips-probe, audit, risk, notify, integrate, engine-gate, engine,
+          fairctl, postgres, nats, openbao, versitygw, keycloak]
     permissions:
       contents: read
       packages: write
@@ -112,6 +124,12 @@ jobs:
       digest-integrate: ${{ steps.push.outputs.digest-integrate }}
       digest-engine-gate: ${{ steps.push.outputs.digest-engine-gate }}
       digest-engine: ${{ steps.push.outputs.digest-engine }}
+      digest-fairctl: ${{ steps.push.outputs.digest-fairctl }}
+      digest-postgres: ${{ steps.push.outputs.digest-postgres }}
+      digest-nats: ${{ steps.push.outputs.digest-nats }}
+      digest-openbao: ${{ steps.push.outputs.digest-openbao }}
+      digest-versitygw: ${{ steps.push.outputs.digest-versitygw }}
+      digest-keycloak: ${{ steps.push.outputs.digest-keycloak }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
@@ -147,7 +165,10 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        component: [iam, gateway, posture, posture-scanner, fips-probe, audit, risk, notify, integrate, engine-gate, engine]
+        # F-014 T-10: fairctl (the chart's hooks) and the bundled dependencies
+        # (T-07) are release images too: the chart names them all.
+        component: [iam, gateway, posture, posture-scanner, fips-probe, audit, risk, notify, integrate, engine-gate, engine,
+          fairctl, postgres, nats, openbao, versitygw, keycloak]
     permissions:
       actions: read
       id-token: write
@@ -189,7 +210,7 @@ jobs:
         run: |
           echo "$DIGESTS" | jq --arg p "${{ needs.plan.outputs.release }}" 'with_entries(.key |= ltrimstr("digest-") | .value = "\($p)/fair-\(.key)@\(.value)")' > release/images.json
           echo "$DIGESTS" | jq --arg p "${{ needs.plan.outputs.staging }}" 'with_entries(.key |= ltrimstr("digest-") | .value = "\($p)/fair-\(.key)@\(.value)")' > release/staging.json
-          [ "$(jq length release/images.json)" -eq 11 ] || { echo "expected 11 images"; cat release/images.json; exit 1; }
+          [ "$(jq length release/images.json)" -eq 17 ] || { echo "expected 17 images"; cat release/images.json; exit 1; }
           cat release/images.json
       - name: The engine's validation record (from the staged image)
         env:
@@ -201,20 +222,14 @@ jobs:
           c="$(docker create "$ref")"
           docker cp "$c:/engine/validation.json" release/engine-validation.json
           docker rm "$c"
-      - name: Release manifest
-        run: go run ./cmd/releasegen manifest -release "$VERSION" -images release/images.json -engine-validation release/engine-validation.json -out release/release-manifest.json
-      # F-012 T-15 (AC-18; design §3.6): the platform's manifests as the fleet
-      # reconciles them (internal/fleet), the images named in the release
-      # repository by digest; pushed to staging and keyless-signed like the
-      # images, signed with the release key by release-sign.yml and copied
-      # to the release repository by publish. fleet.json names it in both.
       # F-012 T-15 (AC-19; design §3.6, amended 2026-11-26): each third-party
       # image (deploy/third-party-images.json) is verified against its
       # publisher's exact identity (with cosign 2.6.4 by digest, which reads
       # the publishers' Sigstore bundles; 2.5 does not), then copied by digest
       # to staging's mirror/<name>; release-sign.yml signs the copy with the
       # release key. mirror.json names each copy in staging and in the
-      # release repository.
+      # release repository; the release manifest's mirrors section records
+      # each copy and the identity verified (F-014 T-10, design §3.17).
       - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
       - name: Third-party images (verified, mirrored)
         env:
@@ -237,6 +252,13 @@ jobs:
             echo "verified $image as its publisher's; mirrored to $STAGING/mirror/$name@$digest"
           done
           cat release/mirror.json
+      - name: Release manifest
+        run: go run ./cmd/releasegen manifest -release "$VERSION" -images release/images.json -engine-validation release/engine-validation.json -mirrors release/mirror.json -out release/release-manifest.json
+      # F-012 T-15 (AC-18; design §3.6): the platform's manifests as the fleet
+      # reconciles them (internal/fleet), the images named in the release
+      # repository by digest; pushed to staging and keyless-signed like the
+      # images, signed with the release key by release-sign.yml and copied
+      # to the release repository by publish. fleet.json names it in both.
       - name: Fleet manifests (OCI artifact)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -286,8 +308,60 @@ jobs:
           name: release-files
           path: release/
 
+  # F-014 T-10 (AC-01, AC-04; design §3.1): the fair-platform chart, rendered
+  # from the same reference manifests (releasegen chart), every image by the
+  # release's digest under global.registry (default: the release
+  # repository); pushed to staging's charts/ as an OCI artifact with the Helm
+  # SDK and keyless-signed; release-sign.yml signs it with the release key,
+  # publish copies it to <release>/charts/fair-platform:<version>.
+  chart:
+    needs: [plan, manifest]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      STAGING: ${{ needs.plan.outputs.staging }}
+      RELEASE: ${{ needs.plan.outputs.release }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        env:
+          GOFIPS140: ""
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: release-files
+          path: release
+      - name: Chart
+        run: |
+          go run ./cmd/releasegen chart -release "$VERSION" -images release/images.json -registry "$RELEASE" \
+            -manifest release/release-manifest.json -out "$RUNNER_TEMP/chart" -package release-chart
+          ls release-chart
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+      - name: Push to staging and sign keylessly
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          echo "$GH_TOKEN" | cosign login ghcr.io -u "${{ github.actor }}" --password-stdin
+          go run ./cmd/releasegen push-chart -chart release-chart/fair-platform-*.tgz -repository "oci://$STAGING/charts" \
+            -source-date "$(git log -1 --format=%ct)" -out "$RUNNER_TEMP/pushed.json"
+          staging="$(jq -r .ref "$RUNNER_TEMP/pushed.json")"
+          jq -n --arg s "$staging" --arg r "$RELEASE/charts/fair-platform@$(jq -r .digest "$RUNNER_TEMP/pushed.json")" \
+            --arg t "$(jq -r .tag "$RUNNER_TEMP/pushed.json" | sed 's/.*://')" '{staging: $s, release: $r, tag: $t}' > release-chart/chart.json
+          cat release-chart/chart.json
+          cosign sign --yes "$staging"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-chart
+          path: release-chart/
+
   release-checklist:
-    needs: [manifest]
+    needs: [manifest, chart]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -303,13 +377,20 @@ jobs:
         with:
           name: release-files
           path: release
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: release-chart
+          path: release-chart
       # Pins match MANIFEST.json, profiles and packages rebuild byte for byte,
       # and the CMMC rule's 800-171 revision is re-confirmed against the eCFR
       # (32 CFR part 170); any amendment since the recorded confirmation fails.
       # Open external pen-test findings block too (security/pentest-findings.yaml).
       # The engine image passed its validation suite (F-005 T-09).
+      # F-014 T-09: every combination of the chart's switches and choices
+      # renders, passes F-015's checks on a compliant cluster, and names only
+      # the manifest's images (or its mirrors) and RBAC.
       - name: Release checklist
-        run: go run ./cmd/profilegen release-check -online -report release-checklist.md -manifest release/release-manifest.json
+        run: go run ./cmd/profilegen release-check -online -report release-checklist.md -manifest release/release-manifest.json -chart release-chart/fair-platform-*.tgz
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -356,24 +437,86 @@ jobs:
           mkdir -p release
           go run ./cmd/releasegen notes -from "$from" -to "$VERSION" -prs security-prs.json -out release/release-notes.md
           echo "notes from ${prev:-the start} to $VERSION"
+      # F-014 T-10 (design §3.1, §3.10): the air-gap package carries the
+      # notes of every release it upgrades from, and its upgrade window.
+      - name: Upgrade window
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/release-window.sh "$VERSION" window
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-notes
           path: release/
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-window
+          path: window/
 
   sign:
-    needs: [plan, reproducible, provenance, manifest, release-checklist, bench, upgrade, notes]
+    needs: [plan, reproducible, provenance, manifest, chart, release-checklist, bench, upgrade, notes]
     permissions:
       contents: read
       id-token: write
       packages: write
     uses: ./.github/workflows/release-sign.yml
     with:
-      pattern: release-{files,notes}
+      pattern: release-{files,notes,chart}
       test-key: ${{ needs.plan.outputs.test-key == 'true' }}
+      package: true
+      version: ${{ needs.plan.outputs.version }}
+      release-repository: ${{ needs.plan.outputs.release }}
+      staging-repository: ${{ needs.plan.outputs.staging }}
+
+  # F-014 T-10 (AC-02; design §3.1): the air-gap package release-sign.yml
+  # built and signed with the release key, signed keylessly here (the
+  # release workflow's identity), then gated: verified offline with the
+  # release key and its chart checked in every combination against the
+  # package's own manifest and images (profilegen release-check -package).
+  package:
+    needs: [plan, sign]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        env:
+          GOFIPS140: ""
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: release-signed
+          path: release
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: release-package
+          path: package
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+      - name: Keyless signature of the package
+        run: |
+          p="package/fair-$VERSION-airgap.tar"
+          cosign verify-blob --key release/cosign.pub --insecure-ignore-tlog --signature "$p.sig" "$p"
+          cosign sign-blob --yes --bundle "$p.sigstore.json" "$p"
+      - name: Package gate
+        run: |
+          go run ./cmd/profilegen release-check -report package-check.md \
+            -package "package/fair-$VERSION-airgap.tar" -key release/cosign.pub
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: package-check
+          path: package-check.md
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-package-signed
+          path: package/
 
   publish:
-    needs: [plan, sign]
+    needs: [plan, sign, package]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -384,6 +527,10 @@ jobs:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: release-signed
+          path: release
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: release-package-signed
           path: release
       - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
       - name: Copy the images and their signatures to the release repository
@@ -426,6 +573,17 @@ jobs:
             sleep $((attempt * 20))
           done
           echo "$src -> ${dst%@*}:$VERSION"
+          # The chart (F-014 T-10): oci://<release>/charts/fair-platform:<version>.
+          src="$(jq -r .staging release/chart.json)"
+          dst="$(jq -r .release release/chart.json)"
+          tag="$(jq -r .tag release/chart.json)"
+          for attempt in 1 2 3 4; do
+            cosign copy --force "$src" "${dst%@*}:$tag" && break
+            [ "$attempt" = 4 ] && exit 1
+            echo "copy of the chart refused; retrying in $((attempt * 20)) s"
+            sleep $((attempt * 20))
+          done
+          echo "$src -> ${dst%@*}:$tag"
       - name: GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -476,9 +634,37 @@ jobs:
             cosign verify --key release/cosign.pub "$ref" >/dev/null
             echo "ok - mirrored $n $ref: release key"
           done
+      - name: Verify the chart (F-014 T-10)
+        run: |
+          ref="$(jq -r .release release/chart.json)"
+          cosign verify --key release/cosign.pub "$ref" >/dev/null
+          cosign verify --certificate-identity-regexp "^https://github\.com/${{ github.repository }}/\.github/workflows/release\.yml@refs/tags/v" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com "$ref" >/dev/null
+          echo "ok - chart $ref: release key and keyless signatures"
       - name: Verify it as an air-gapped bundle carries it (offline)
         run: |
           for c in $(jq -r 'keys[]' release/images.json); do
             cosign save --dir "release/images/$c" "$(jq -r --arg c "$c" '.[$c]' release/images.json)"
           done
+          for n in $(jq -r 'keys[]' release/mirror.json); do
+            cosign save --dir "release/images/$n" "$(jq -r --arg n "$n" '.[$n].release' release/mirror.json)"
+          done
           bash scripts/verify-release.sh -offline release
+      # F-014 T-10 (AC-02, AC-07): the air-gap package as published: its
+      # tarball's release-key and keyless signatures, then fairctl verify
+      # (offline, the release key pinned, the images read from the Zarf
+      # package).
+      - name: Verify the air-gap package
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          mkdir -p package
+          p="fair-$VERSION-airgap.tar"
+          gh release download "$VERSION" --repo "${{ github.repository }}" --dir package --pattern "$p" --pattern "$p.sig" --pattern "$p.sigstore.json"
+          cosign verify-blob --key release/cosign.pub --insecure-ignore-tlog --signature "package/$p.sig" "package/$p"
+          cosign verify-blob --bundle "package/$p.sigstore.json" \
+            --certificate-identity-regexp "^https://github\.com/${{ github.repository }}/\.github/workflows/release\.yml@refs/tags/v" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com "package/$p"
+          tar -C package -xf "package/$p"
+          go run ./cmd/fairctl verify -key release/cosign.pub "package/fair-$VERSION-airgap"

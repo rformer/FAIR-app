@@ -558,3 +558,47 @@ func TestOptionalRBAC(t *testing.T) {
 		t.Errorf("a changed optional object: %v", got)
 	}
 }
+
+// F-014 T-10 (design §3.17): a mirrored third-party copy the signed
+// manifest lists in its mirrors is the release's image; one it does not
+// list, or by another digest, is reported.
+func TestMirroredImages(t *testing.T) {
+	f := loadFixture(t, "kind", "pass")
+	rbac, err := releasemanifest.RBACFromDir("../../../deploy/k8s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := func(mirrorDigest string) []string {
+		m := &releasemanifest.Manifest{Format: releasemanifest.Format, Release: "1.0.0", RBAC: rbac, Images: map[string]string{
+			"posture-scanner": "ghcr.io/rformer/fair-posture-scanner@" + scannerDigest}}
+		for c, d := range referenceDigests {
+			m.Images[c] = "ghcr.io/rformer/fair-" + c + "@" + d
+		}
+		if mirrorDigest != "" {
+			// The fixture's iam image, as if it were a mirrored copy.
+			m.Mirrors = []releasemanifest.Mirror{{Component: "copy", Image: "ghcr.io/rformer/fair-iam@" + mirrorDigest,
+				Source: "publisher.invalid/iam:1@" + mirrorDigest, Identity: "https://github.com/p/iam/.github/workflows/r.yml@refs/tags/v1",
+				Issuer: "https://token.actions.githubusercontent.com"}}
+		}
+		for _, c := range Catalog(Config{Manifest: m}) {
+			if c.ID() != "image_digests" {
+				continue
+			}
+			res, err := c.Run(context.Background(), f, scanner.Scope{Namespaces: []string{"fair-platform"}, ProbeNamespace: "fair-fips-probe"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return subjects(res.Findings)
+		}
+		t.Fatal("no image_digests check")
+		return nil
+	}
+	if got := run(iamDigest); len(got) != 0 {
+		t.Errorf("listed mirror: %v", got)
+	}
+	for name, d := range map[string]string{"not listed": "", "other digest": scannerDigest} {
+		if got := run(d); !slices.Contains(got, "workload/fair-platform/Deployment/iam") {
+			t.Errorf("%s: %v", name, got)
+		}
+	}
+}

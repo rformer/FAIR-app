@@ -28,6 +28,11 @@ func imageDigests(cfg Config) check {
 		for _, img := range m.Images {
 			want[releasemanifest.Repository(img)] = releasemanifest.Digest(img)
 		}
+		// The release's mirrored third-party copies (F-014 T-10, design
+		// §3.17), verified by the release key's signature at release.
+		for _, x := range m.Mirrors {
+			want[releasemanifest.Repository(x.Image)] = releasemanifest.Digest(x.Image)
+		}
 		ps, err := pods(ctx, r, s)
 		if err != nil {
 			return nil, err

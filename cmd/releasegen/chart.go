@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"helm.sh/helm/v4/pkg/chart/v2/loader"
 	chartutil "helm.sh/helm/v4/pkg/chart/v2/util"
@@ -18,7 +19,7 @@ import (
 //	releasegen chart -release VERSION -images FILE -out DIR [-deploy deploy/k8s]
 //	    [-keys deploy/k8s/keys] [-hooks deploy/k8s/hooks] [-manifest FILE]
 //	    [-bundled deploy/bundled] [-third-party deploy/third-party-images.json]
-//	    [-package DIR]
+//	    [-package DIR] [-registry REPO]
 //
 // images FILE is the release's {"component": "repository@sha256:<digest>"}
 // and must hold the OpenBao (agent sidecars) and fairctl (hooks) images;
@@ -26,7 +27,8 @@ import (
 // records; -bundled adds the bundled dependencies (F-014 T-08), whose
 // images FILE must hold too (postgres, nats, versitygw, keycloak, openbao),
 // and whose third-party images are named by their mirrored copies under
-// <registry>/mirror; -package also writes fair-platform-<version>.tgz into DIR. The
+// <registry>/mirror (-registry: the release repository, default
+// fleet.DefaultRegistry; a dry run's is ghcr.io/<owner>/test); -package also writes fair-platform-<version>.tgz into DIR. The
 // Helm SDK only loads, checks and packages the chart here (ADR-019);
 // signing and the OCI push are the release's chart job (T-10).
 func chart(args []string) error {
@@ -40,6 +42,7 @@ func chart(args []string) error {
 	bundled := fs.String("bundled", "deploy/bundled", "the bundled dependencies (\"\": none)")
 	third := fs.String("third-party", "deploy/third-party-images.json", "third-party images, named by their copies under "+fleet.DefaultRegistry+"/mirror (\"\": none)")
 	pkg := fs.String("package", "", "also write the packaged chart (.tgz) into this directory")
+	registry := fs.String("registry", fleet.DefaultRegistry, "the release repository the images are named in (global.registry's default)")
 	out := fs.String("out", "", "output directory (must not exist)")
 	_ = fs.Parse(args)
 	if *out == "" || *images == "" {
@@ -53,13 +56,13 @@ func chart(args []string) error {
 	if err := json.Unmarshal(b, &imgs); err != nil {
 		return fmt.Errorf("%s: %w", *images, err)
 	}
-	o := fleet.ChartOptions{Options: fleet.Options{Release: *release, Images: imgs, Deploy: *deploy, Keys: *keys}, Hooks: *hooks, Bundled: *bundled}
+	o := fleet.ChartOptions{Options: fleet.Options{Release: *release, Images: imgs, Deploy: *deploy, Keys: *keys}, Hooks: *hooks, Bundled: *bundled, Registry: *registry}
 	if *third != "" {
 		l, err := fleet.LoadThirdParty(*third)
 		if err != nil {
 			return err
 		}
-		o.Mirror = l.Mirror(fleet.DefaultRegistry + "/mirror")
+		o.Mirror = l.Mirror(strings.TrimSuffix(*registry, "/") + "/mirror")
 	}
 	if *manifest != "" {
 		if o.ManifestDigest, err = fleet.ManifestDigest(*manifest); err != nil {

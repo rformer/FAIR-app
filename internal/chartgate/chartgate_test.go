@@ -70,6 +70,9 @@ func manifestFor(t *testing.T, imgs map[string]string, bundled bool) *releaseman
 		t.Fatal(err)
 	}
 	m := &releasemanifest.Manifest{Format: releasemanifest.Format, Release: "v1.2.3", Images: imgs, RBAC: rbac}
+	if m.Mirrors, err = thirdParty(t).MirrorsAt(fleet.DefaultRegistry + "/mirror"); err != nil {
+		t.Fatal(err)
+	}
 	if img, ok := imgs[releasemanifest.EngineComponent]; ok {
 		m.EngineValidation = &releasemanifest.EngineValidation{Image: img, SuiteVersion: "1", EngineVersion: "1", Architecture: "amd64",
 			Passed: true, RunAtUnixMS: 1, RecordSHA256: strings.Repeat("0", 64)}
@@ -91,7 +94,7 @@ func residue(t *testing.T) map[string][]string {
 
 func options(t *testing.T, chart string, m *releasemanifest.Manifest) Options {
 	t.Helper()
-	return Options{Chart: chart, Manifest: m, ThirdParty: thirdParty(t), Residue: residue(t)}
+	return Options{Chart: chart, Manifest: m, Residue: residue(t)}
 }
 
 // TestChartOptionsPassChecks (design §3.17, AC-03): every combination of
