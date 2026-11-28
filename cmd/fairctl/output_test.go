@@ -116,7 +116,7 @@ func TestFairctlOutput(t *testing.T) {
 	}
 
 	for _, c := range commands {
-		if c.name == "verify" || c.name == "version" {
+		if c.name == "verify" || c.name == "version" || c.name == "preflight" { // their own tests
 			continue
 		}
 		t.Run(c.name, func(t *testing.T) {

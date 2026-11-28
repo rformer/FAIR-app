@@ -65,13 +65,7 @@ func init() {
 		{"verify", "-key FILE [-output text|json] [-color] PACKAGE", "verify a release package offline with the pinned release key", verify},
 		planned("registry load", "-package DIR -registry HOST[/PATH]", "load the package's images into a private registry",
 			spec{required: []string{"package", "registry"}, flags: pkgFlag, more: registryFlag}),
-		planned("preflight", "[-decisions FILE] [-package DIR] [-in-cluster] [-mode saas]", "check the cluster and dependencies read-only, installing nothing",
-			spec{flags: clusterFlags, more: func(fs *flag.FlagSet) {
-				decisionsFlag(fs)
-				pkgFlag(fs)
-				fs.Bool("in-cluster", false, "run inside the cluster (the chart's hook)")
-				fs.String("mode", "", "the deployment mode to check for (saas)")
-			}}),
+		{"preflight", "-decisions FILE -package DIR -key FILE [-mode saas] [-in-cluster]", "check the cluster read-only against the release, installing nothing", preflightCmd},
 		planned("install", "-package DIR (-decisions FILE | -interactive) [-override CHECK:SUBJECT=REASON] [-resume]", "install the platform",
 			spec{required: []string{"package"}, oneOf: []string{"decisions", "interactive"}, flags: clusterFlags, more: func(fs *flag.FlagSet) {
 				decisionsFlag(fs)

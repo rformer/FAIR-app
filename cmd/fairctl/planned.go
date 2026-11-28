@@ -63,20 +63,30 @@ func planned(name, args, summary string, s spec) command {
 			return out.Fail(name, exitUsage, installer.CodeUsage, "-confirm must repeat -installation")
 		}
 		if f := fs.Lookup("decisions"); f != nil && set["decisions"] {
-			if _, err := installer.LoadDecisions(f.Value.String()); err != nil {
-				var de *installer.DecisionsError
-				if errors.As(err, &de) {
-					msg := "the decisions file is refused"
-					if de.Secret {
-						msg = "the decisions file is refused: it holds a value that looks secret (give credentials as file paths); nothing was run"
-					}
-					return out.Fail(name, exitUsage, installer.CodeInvalidDecisions, msg, de.Problems...)
-				}
-				return out.Fail(name, exitUsage, installer.CodeInvalidDecisions, "decisions: "+err.Error())
+			if _, code, ok := loadDecisions(out, name, f.Value.String()); !ok {
+				return code
 			}
 		}
 		return out.Fail(name, exitUsage, installer.CodeNotAvailable, fmt.Sprintf("%s is not yet available in this build", name))
 	}}
+}
+
+// loadDecisions reads and checks a decisions file; a file with a secret is
+// refused before anything runs (AC-14). ok false with the exit code.
+func loadDecisions(out *installer.Output, name, path string) (*installer.Decisions, int, bool) {
+	d, err := installer.LoadDecisions(path)
+	if err == nil {
+		return d, 0, true
+	}
+	var de *installer.DecisionsError
+	if errors.As(err, &de) {
+		msg := "the decisions file is refused"
+		if de.Secret {
+			msg = "the decisions file is refused: it holds a value that looks secret (give credentials as file paths); nothing was run"
+		}
+		return nil, out.Fail(name, exitUsage, installer.CodeInvalidDecisions, msg, de.Problems...), false
+	}
+	return nil, out.Fail(name, exitUsage, installer.CodeInvalidDecisions, "decisions: "+err.Error()), false
 }
 
 // clusterFlags are the flags of every command that reaches the cluster.

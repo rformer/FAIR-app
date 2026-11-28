@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fair-preflight-report-v1.schema.json",
+  "title": "fair.preflight-report.v1",
+  "description": "A preflight run's report (F-014 design §3.7; docs/formats/fair-preflight-report-v1.md).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "release", "purpose", "mode", "started", "finished", "result", "checks", "overrides"],
+  "properties": {
+    "format": { "const": "fair.preflight-report.v1" },
+    "release": { "type": "string", "minLength": 1 },
+    "purpose": { "enum": ["check", "install", "upgrade"] },
+    "mode": { "enum": ["saas", "self-hosted", "air-gapped"] },
+    "profile": { "type": "string" },
+    "started": { "type": "string", "format": "date-time" },
+    "finished": { "type": "string", "format": "date-time" },
+    "result": { "enum": ["passed", "passed_with_overrides", "refused"] },
+    "checks": { "type": "array", "items": { "$ref": "#/$defs/check" } },
+    "overrides": { "type": "array", "items": { "$ref": "#/$defs/override" } }
+  },
+  "$defs": {
+    "controls": { "type": "array", "items": { "type": "string" } },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "source", "controls", "result", "findings", "observations"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+        "title": { "type": "string" },
+        "source": { "enum": ["drift", "preflight"] },
+        "controls": { "$ref": "#/$defs/controls" },
+        "result": { "enum": ["passed", "failed", "overridden", "error", "not_applicable"] },
+        "error": { "type": "string" },
+        "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
+        "observations": { "type": "array", "items": { "$ref": "#/$defs/observation" } }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject", "severity", "controls", "detail", "remediation", "hard_floor", "overridden"],
+      "properties": {
+        "subject": { "type": "string" },
+        "severity": { "enum": ["low", "medium", "high", "critical"] },
+        "controls": { "$ref": "#/$defs/controls" },
+        "detail": { "type": "object" },
+        "remediation": { "type": "string" },
+        "hard_floor": { "type": "boolean" },
+        "overridden": { "type": "boolean" }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject", "method", "detail"],
+      "properties": {
+        "subject": { "type": "string" },
+        "method": { "enum": ["verified", "attested"] },
+        "detail": { "type": "object" }
+      }
+    },
+    "override": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["check", "subject", "reason", "applied"],
+      "properties": {
+        "check": { "type": "string" },
+        "subject": { "type": "string" },
+        "reason": { "type": "string" },
+        "applied": { "type": "boolean" },
+        "refusal": { "enum": ["matches no failed finding", "SaaS allows no override", "on the hard floor: no override"] }
+      }
+    }
+  }
+}

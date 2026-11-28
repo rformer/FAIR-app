@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fairctl-preflight.schema.json",
+  "title": "fairctl preflight -output json",
+  "description": "The preflight's report with its run identifier and digest (the SHA-256 of the report's stored form, as install.preflight records it).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["command", "run_id", "digest", "report"],
+  "properties": {
+    "command": { "const": "preflight" },
+    "run_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "report": { "$ref": "fair-preflight-report-v1.schema.json" }
+  }
+}
