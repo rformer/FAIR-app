@@ -154,7 +154,7 @@ jobs:
           ref="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:$VERSION")"
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
           echo "digest-${{ matrix.component }}=${ref#*@}" >> "$GITHUB_OUTPUT"
-      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+      - uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
       - name: Keyless signature and SBOM attestation
         run: |
           cosign sign --yes "${{ steps.push.outputs.ref }}"
@@ -230,7 +230,7 @@ jobs:
       # release key. mirror.json names each copy in staging and in the
       # release repository; the release manifest's mirrors section records
       # each copy and the identity verified (F-014 T-10, design §3.17).
-      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+      - uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
       - name: Third-party images (verified, mirrored)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -341,7 +341,7 @@ jobs:
           go run ./cmd/releasegen chart -release "$VERSION" -images release/images.json -registry "$RELEASE" \
             -manifest release/release-manifest.json -out "$RUNNER_TEMP/chart" -package release-chart
           ls release-chart
-      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+      - uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
       - name: Push to staging and sign keylessly
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -495,7 +495,7 @@ jobs:
         with:
           name: release-package
           path: package
-      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+      - uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
       - name: Keyless signature of the package
         run: |
           p="package/fair-$VERSION-airgap.tar"
@@ -532,7 +532,7 @@ jobs:
         with:
           name: release-package-signed
           path: release
-      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+      - uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
       - name: Copy the images and their signatures to the release repository
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -609,7 +609,7 @@ jobs:
           GOFIPS140: ""
         with:
           go-version-file: go.mod
-      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+      - uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: release-signed
