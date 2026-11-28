@@ -125,21 +125,12 @@ func list(s string) []string {
 	return out
 }
 
-// PackageManifest returns the release manifest the checks compare with: a
-// verified release manifest with the package's mirrored third-party copies
-// (package-manifest.json's "mirror-<name>" images) as "mirror-<name>"
-// images, as the release gate gives them to the catalog (T-09), so a
-// bundled dependency's image is the release's.
-func PackageManifest(m *releasemanifest.Manifest, pm *releaseverify.PackageManifest) (*releasemanifest.Manifest, error) {
+// PackageManifest returns the release manifest the checks compare with: the
+// verified release manifest itself. Its signed mirrors section (F-014 design
+// §3.17, T-10) is what makes a bundled dependency's mirrored image the
+// release's; the package manifest adds no images of its own.
+func PackageManifest(m *releasemanifest.Manifest, _ *releaseverify.PackageManifest) (*releasemanifest.Manifest, error) {
 	out := *m
-	out.Images = maps.Clone(m.Images)
-	if pm != nil {
-		for _, i := range pm.Images {
-			if strings.HasPrefix(i.Component, "mirror-") {
-				out.Images[i.Component] = i.Image
-			}
-		}
-	}
 	return &out, out.Validate()
 }
 
